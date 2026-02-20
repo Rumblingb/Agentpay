@@ -1,0 +1,77 @@
+TYPESCRIPT SOURCE FILES GUIDE
+═════════════════════════════════════════════════════════════════
+
+All source files are in the /mnt/user-data/outputs directory.
+
+CRITICAL SECURITY MODULE:
+  src/security/payment-verification.ts
+  → This is the most important file!
+  → Prevents payment fraud attacks
+  → Verifies recipient address on Solana blockchain
+
+DATABASE MODULES:
+  src/db/init.ts
+  → Creates all 6 tables with indexes
+  → Foreign key constraints
+  → Audit logging tables
+
+  src/db/index.ts
+  → Connection pooling
+  → Query helpers
+  → Error handling
+
+SERVICE MODULES:
+  src/services/merchants.ts
+  → Merchant registration
+  → API key management
+  → Authentication
+
+  src/services/transactions.ts
+  → Payment creation
+  → Payment verification (uses security module)
+  → Statistics
+
+API ROUTES:
+  src/routes/merchants.ts
+  → 7 API endpoints
+  → Input validation
+  → Error handling
+
+MIDDLEWARE:
+  src/middleware/auth.ts
+  → API key authentication
+  → Authorization checks
+
+SERVER:
+  src/server.ts
+  → Express app setup
+  → Middleware configuration
+  → Health check
+
+LOGGER:
+  src/logger.ts
+  → Pino logger setup
+  → Development pretty printing
+
+TEST FILES:
+  tests/integration.test.ts
+  → 10+ API integration tests
+  → Covers all endpoints
+
+  tests/security.test.ts
+  → 5+ security tests
+  → Fraud prevention tests
+
+  tests/setup.ts
+  → Jest configuration
+
+═════════════════════════════════════════════════════════════════
+
+HOW TO USE:
+1. Click on START_HERE.md to begin
+2. Follow instructions to setup
+3. Run: npm install
+4. Run: npm test
+5. Start with: npm run dev
+
+═════════════════════════════════════════════════════════════════

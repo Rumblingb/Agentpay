@@ -1,0 +1,204 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║                      AUTOMATED SETUP GUIDE                                    ║
+║              Use the PowerShell script to organize all files                  ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+📋 WHAT THIS SCRIPT DOES
+═══════════════════════════════════════════════════════════════════════════════
+
+The SETUP_PROJECT.ps1 script will:
+
+✅ Create all required folders (src/, tests/, etc.)
+✅ Automatically move files to correct locations
+✅ Rename configuration files (.env, .gitignore)
+✅ Verify all files are in place
+✅ Show you exactly what's missing (if anything)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 HOW TO USE
+═══════════════════════════════════════════════════════════════════════════════
+
+STEP 1: Download the script
+──────────────────────────────
+Download "SETUP_PROJECT.ps1" from the files above
+
+
+STEP 2: Place all your files in a "new" folder
+──────────────────────────────────────────────
+Your current structure:
+  C:\Users\visha\agentpay\
+    ├─ package.json
+    ├─ tsconfig.json
+    ├─ jest.config.js
+    ├─ START_HERE.md
+    ├─ server.ts
+    ├─ logger.ts
+    ├─ (all other files in root)
+
+Create it like this:
+  C:\Users\visha\agentpay\
+    ├─ new\                    👈 Create this folder
+    │  ├─ package.json         👈 Move all files here
+    │  ├─ tsconfig.json
+    │  ├─ jest.config.js
+    │  ├─ START_HERE.md
+    │  ├─ server.ts
+    │  ├─ logger.ts
+    │  ├─ payment-verification.ts
+    │  ├─ init.ts
+    │  ├─ (etc.)
+    │
+    └─ SETUP_PROJECT.ps1       👈 Put script here
+
+
+STEP 3: Run the script
+──────────────────────
+In PowerShell (as Administrator):
+
+```powershell
+cd C:\Users\visha\agentpay
+powershell -ExecutionPolicy Bypass -File SETUP_PROJECT.ps1
+```
+
+If you get an error about execution policy:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser -Force
+powershell -File SETUP_PROJECT.ps1
+```
+
+
+STEP 4: Watch it work!
+──────────────────────
+The script will show:
+  ✅ Creating folder structure
+  ✅ Placing files in correct locations
+  ✅ Renaming config files
+  ✅ Verifying all files are there
+  ✅ Summary showing what's complete
+
+
+STEP 5: Clean up (optional)
+──────────────────────────
+After the script completes successfully:
+
+```powershell
+# Delete the "new" folder
+Remove-Item new -Recurse -Force
+```
+
+
+STEP 6: Install and test
+────────────────────────
+```powershell
+npm install
+npm test
+npm run dev
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 EXPECTED FINAL STRUCTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+After running the script, you should have:
+
+C:\Users\visha\agentpay\
+├── src/
+│   ├── security/
+│   │   └── payment-verification.ts
+│   ├── db/
+│   │   ├── init.ts
+│   │   └── index.ts
+│   ├── services/
+│   │   ├── merchants.ts
+│   │   └── transactions.ts
+│   ├── middleware/
+│   │   └── auth.ts
+│   ├── routes/
+│   │   └── merchants.ts
+│   ├── server.ts
+│   └── logger.ts
+│
+├── tests/
+│   ├── integration.test.ts
+│   ├── security.test.ts
+│   └── setup.ts
+│
+├── package.json
+├── tsconfig.json
+├── jest.config.js
+├── .env
+├── .gitignore
+├── README.md
+├── START_HERE.md
+├── (other documentation files)
+│
+└── SETUP_PROJECT.ps1 (the script you ran)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+The script will check for these 18 critical files:
+
+✅ package.json
+✅ tsconfig.json
+✅ jest.config.js
+✅ .env
+✅ .gitignore
+✅ README.md
+✅ src/server.ts
+✅ src/logger.ts
+✅ src/security/payment-verification.ts
+✅ src/db/init.ts
+✅ src/db/index.ts
+✅ src/services/merchants.ts
+✅ src/services/transactions.ts
+✅ src/middleware/auth.ts
+✅ src/routes/merchants.ts
+✅ tests/integration.test.ts
+✅ tests/security.test.ts
+✅ tests/setup.ts
+
+If all show ✅ green, you're good to go!
+
+═══════════════════════════════════════════════════════════════════════════════
+
+❓ TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+Q: "ExecutionPolicy" error?
+A: Run this first:
+   Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope CurrentUser
+
+Q: Script says files are missing?
+A: Make sure ALL files were downloaded and are in the "new" folder
+
+Q: Which merchants.ts goes where?
+A: The script automatically handles this - it puts one in services/ and one in routes/
+
+Q: Can I run the script multiple times?
+A: Yes! It won't overwrite existing files, only add missing ones
+
+Q: Do I need to rename files manually?
+A: No! The script does it (_env.example → .env, etc.)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 QUICK SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Download SETUP_PROJECT.ps1
+2. Put all your downloaded files in a "new" folder in agentpay
+3. Run the script
+4. Watch it organize everything
+5. Run: npm install && npm test
+
+Done! ✨
+
+═══════════════════════════════════════════════════════════════════════════════
