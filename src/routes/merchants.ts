@@ -3,10 +3,35 @@ import Joi from 'joi';
 import rateLimit from 'express-rate-limit';
 import * as merchantsService from '../services/merchants';
 import * as transactionsService from '../services/transactions';
+import * as webhooksService from '../services/webhooks';
+import type { WebhookPayload } from '../services/webhooks';
+import * as auditService from '../services/audit';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
 
 const router = Router();
+
+/** Builds the standard payload for a payment.verified webhook event. */
+function buildPaymentVerifiedPayload(
+  transactionId: string,
+  merchantId: string,
+  tx: transactionsService.Transaction,
+  payerAddress: string | undefined,
+  transactionHash: string
+): WebhookPayload {
+  return {
+    event: 'payment.verified',
+    transactionId,
+    merchantId,
+    paymentId: tx.paymentId,
+    amountUsdc: tx.amountUsdc,
+    recipientAddress: tx.recipientAddress,
+    payerAddress,
+    transactionHash,
+    verified: true,
+    timestamp: new Date().toISOString(),
+  };
+}
 
 // Tighter rate limit for sensitive write operations (e.g., key rotation)
 const sensitiveOpLimiter = rateLimit({
@@ -21,6 +46,7 @@ const registerSchema = Joi.object({
   name: Joi.string().min(3).max(255).required(),
   email: Joi.string().email().required(),
   walletAddress: Joi.string().min(32).max(44).required(),
+  webhookUrl: Joi.string().uri().optional(),
 });
 
 const paymentSchema = Joi.object({
@@ -48,7 +74,8 @@ router.post('/register', async (req: Request, res: Response) => {
     const { merchantId, apiKey } = await merchantsService.registerMerchant(
       value.name,
       value.email,
-      value.walletAddress
+      value.walletAddress,
+      value.webhookUrl
     );
 
     logger.info('New merchant registered', { merchantId, email: value.email });
@@ -125,6 +152,9 @@ router.post('/payments', authenticateApiKey, async (req: Request, res: Response)
 });
 
 router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: Request, res: Response) => {
+  const merchant = (req as any).merchant!;
+  const ipAddress = req.ip ?? req.socket.remoteAddress ?? null;
+
   try {
     const { error, value } = verifyPaymentSchema.validate(req.body);
     if (error) {
@@ -137,11 +167,21 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
 
     const tx = await transactionsService.getTransaction(req.params.transactionId);
     if (!tx) {
+      await auditService.logVerifyAttempt({
+        merchantId: merchant.id,
+        ipAddress,
+        transactionSignature: value.transactionHash,
+        transactionId: req.params.transactionId,
+        endpoint: req.path,
+        method: req.method,
+        succeeded: false,
+        failureReason: 'Transaction not found',
+      });
       res.status(404).json({ error: 'Transaction not found' });
       return;
     }
 
-    if (tx.merchantId !== (req as any).merchant!.id) {
+    if (tx.merchantId !== merchant.id) {
       res.status(403).json({ error: 'Unauthorized' });
       return;
     }
@@ -150,6 +190,18 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       req.params.transactionId,
       value.transactionHash
     );
+
+    // Audit log — always record outcome regardless of success/failure
+    await auditService.logVerifyAttempt({
+      merchantId: merchant.id,
+      ipAddress,
+      transactionSignature: value.transactionHash,
+      transactionId: req.params.transactionId,
+      endpoint: req.path,
+      method: req.method,
+      succeeded: verification.success,
+      failureReason: verification.success ? null : verification.error ?? null,
+    });
 
     if (!verification.success) {
       logger.warn('[SECURITY] Payment verification failed', {
@@ -169,6 +221,23 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       verified: verification.verified,
     });
 
+    // Fire webhook asynchronously — non-blocking, never fails the response
+    if (merchant.webhookUrl && verification.verified) {
+      const payload = buildPaymentVerifiedPayload(
+        req.params.transactionId,
+        merchant.id,
+        tx,
+        verification.payer,
+        value.transactionHash
+      );
+      webhooksService.scheduleWebhook(
+        merchant.webhookUrl,
+        payload,
+        merchant.id,
+        req.params.transactionId
+      ).catch((err) => logger.error('Webhook scheduling error', { err }));
+    }
+
     res.json({
       success: true,
       verified: verification.verified,
@@ -176,6 +245,17 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       message: verification.verified ? 'Payment confirmed!' : 'Payment detected but pending confirmations',
     });
   } catch (error: any) {
+    // Audit failed verification
+    await auditService.logVerifyAttempt({
+      merchantId: merchant.id,
+      ipAddress,
+      transactionSignature: req.body?.transactionHash ?? null,
+      transactionId: req.params.transactionId,
+      endpoint: req.path,
+      method: req.method,
+      succeeded: false,
+      failureReason: error?.message ?? 'Unknown error',
+    });
     logger.error('Payment verification error:', error);
     res.status(500).json({ error: error.message });
   }

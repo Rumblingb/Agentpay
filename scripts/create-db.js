@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   api_key_salt VARCHAR(255) NOT NULL,
   key_prefix VARCHAR(8) NOT NULL,
   wallet_address VARCHAR(255) UNIQUE NOT NULL,
+  webhook_url TEXT,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   payer_address VARCHAR(255),
   transaction_hash VARCHAR(255),
   status VARCHAR(50) DEFAULT 'pending',
+  webhook_status VARCHAR(50) DEFAULT 'not_sent',
   confirmation_depth INTEGER DEFAULT 0,
   required_depth INTEGER DEFAULT 2,
   expires_at TIMESTAMP NOT NULL,
@@ -77,6 +79,22 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   response_code INTEGER,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- APPEND-ONLY TABLE (FCA AML compliance).
+-- Do NOT run UPDATE or DELETE on this table.
+-- Every row is an immutable record of a verify-payment attempt.
+CREATE TABLE IF NOT EXISTS payment_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID REFERENCES merchants(id) ON DELETE SET NULL,
+  ip_address VARCHAR(50),
+  transaction_signature VARCHAR(255),
+  transaction_id UUID,
+  endpoint VARCHAR(255) NOT NULL,
+  method VARCHAR(10) NOT NULL,
+  succeeded BOOLEAN NOT NULL,
+  failure_reason TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);

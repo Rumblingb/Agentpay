@@ -1,4 +1,4 @@
-﻿import request from 'supertest';
+import request from 'supertest';
 import app from '../src/server';
 import { closePool } from '../src/db/index';
 import { query } from '../src/db/index';
@@ -11,7 +11,7 @@ let transactionId: string = '';
 beforeAll(async () => {
   server = app.listen(0);
   try {
-    await query('TRUNCATE merchants, transactions, api_logs, rate_limit_counters, payment_verifications, webhook_events RESTART IDENTITY CASCADE');
+    await query('TRUNCATE merchants, transactions, api_logs, rate_limit_counters, payment_verifications, webhook_events, payment_audit_log RESTART IDENTITY CASCADE');
   } catch (e) {
     console.error('Cleanup failed:', e);
   }

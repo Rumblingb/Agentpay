@@ -11,13 +11,15 @@ export interface Merchant {
   name: string;
   email: string;
   walletAddress: string;
+  webhookUrl?: string | null;
   createdAt: Date;
 }
 
 export async function registerMerchant(
   name: string,
   email: string,
-  walletAddress: string
+  walletAddress: string,
+  webhookUrl?: string | null
 ): Promise<{ merchantId: string; apiKey: string }> {
   const merchantId = uuidv4();
   const apiKey = crypto.randomBytes(32).toString('hex');
@@ -28,10 +30,12 @@ export async function registerMerchant(
     .toString('hex');
 
   try {
+    // Parameters: id, name, email, api_key_hash, api_key_salt, key_prefix,
+    //             wallet_address, webhook_url, is_active
     await query(
-      `INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, key_prefix, wallet_address, is_active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-      [merchantId, name, email, hash, salt, keyPrefix, walletAddress, true]
+      `INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, key_prefix, wallet_address, webhook_url, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+      [merchantId, name, email, hash, salt, keyPrefix, walletAddress, webhookUrl ?? null, true]
     );
 
     return { merchantId, apiKey };
@@ -48,8 +52,8 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
     // Use key_prefix for efficient indexed lookup instead of scanning all merchants
     const keyPrefix = apiKey.substring(0, 8);
     const result = await query(
-      `SELECT id, name, email, wallet_address as "walletAddress", created_at as "createdAt",
-              api_key_hash as "apiKeyHash", api_key_salt as "apiKeySalt"
+      `SELECT id, name, email, wallet_address as "walletAddress", webhook_url as "webhookUrl",
+              created_at as "createdAt", api_key_hash as "apiKeyHash", api_key_salt as "apiKeySalt"
        FROM merchants WHERE key_prefix = $1 AND is_active = true`,
       [keyPrefix]
     );
@@ -69,6 +73,7 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
           name: row.name,
           email: row.email,
           walletAddress: row.walletAddress,
+          webhookUrl: row.webhookUrl ?? null,
           createdAt: row.createdAt,
         };
       }
@@ -83,7 +88,8 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
 export async function getMerchant(merchantId: string): Promise<Merchant | null> {
   try {
     const result = await query(
-      `SELECT id, name, email, wallet_address as "walletAddress", created_at as "createdAt"
+      `SELECT id, name, email, wallet_address as "walletAddress", webhook_url as "webhookUrl",
+              created_at as "createdAt"
        FROM merchants WHERE id = $1`,
       [merchantId]
     );
@@ -98,6 +104,7 @@ export async function getMerchant(merchantId: string): Promise<Merchant | null> 
       name: row.name,
       email: row.email,
       walletAddress: row.walletAddress,
+      webhookUrl: row.webhookUrl ?? null,
       createdAt: row.createdAt,
     };
   } catch (error: any) {

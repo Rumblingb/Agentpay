@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
 import { authenticateApiKey } from './middleware/auth';
+import * as auditService from './services/audit';
 import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
@@ -67,6 +68,8 @@ app.get('/api/protected', (_req: Request, res: Response) => {
 
 // --- STANDALONE PAYMENT VERIFICATION (agent-to-agent) ---
 app.post('/api/v1/verify-payment', verifyLimiter, authenticateApiKey, async (req: Request, res: Response) => {
+  const merchant = (req as any).merchant;
+  const ipAddress = req.ip ?? req.socket.remoteAddress ?? null;
   const { transactionSignature, expectedRecipient } = req.body;
 
   if (!transactionSignature || !expectedRecipient) {
@@ -81,12 +84,35 @@ app.post('/api/v1/verify-payment', verifyLimiter, authenticateApiKey, async (req
 
   try {
     const result = await verifyPaymentRecipient(transactionSignature, expectedRecipient);
+
+    // Audit every attempt
+    await auditService.logVerifyAttempt({
+      merchantId: merchant?.id ?? null,
+      ipAddress,
+      transactionSignature,
+      transactionId: null,
+      endpoint: '/api/v1/verify-payment',
+      method: 'POST',
+      succeeded: result.valid,
+      failureReason: result.valid ? null : result.error ?? null,
+    });
+
     if (result.valid) {
       res.json({ success: true, data: result });
     } else {
       res.status(402).json({ success: false, error: result.error });
     }
   } catch (error) {
+    await auditService.logVerifyAttempt({
+      merchantId: merchant?.id ?? null,
+      ipAddress,
+      transactionSignature,
+      transactionId: null,
+      endpoint: '/api/v1/verify-payment',
+      method: 'POST',
+      succeeded: false,
+      failureReason: error instanceof Error ? error.message : String(error),
+    });
     console.error('Verification Error:', error);
     res.status(500).json({ error: 'Internal Server Error during verification' });
   }

@@ -8,6 +8,7 @@ export interface AuthRequest extends Request {
     name: string;
     email: string;
     walletAddress: string;
+    webhookUrl?: string | null;
   };
 }
 

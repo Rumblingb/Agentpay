@@ -1,0 +1,35 @@
+# Render deployment configuration for AgentPay backend
+# https://render.com/docs/render-yaml
+
+services:
+  - type: web
+    name: agentpay-api
+    runtime: node
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: LOG_LEVEL
+        value: warn
+      # Set the following in the Render dashboard (do NOT commit secrets):
+      - key: DATABASE_URL
+        sync: false
+      - key: SOLANA_RPC_URL
+        value: https://api.mainnet-beta.solana.com
+      - key: CONFIRMATION_DEPTH
+        value: "10"
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false          # e.g. https://agentpay.vercel.app
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "100"
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "900000"

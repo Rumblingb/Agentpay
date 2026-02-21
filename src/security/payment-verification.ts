@@ -4,6 +4,40 @@ import { Connection, PublicKey } from '@solana/web3.js';
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const CONFIRMATION_DEPTH = parseInt(process.env.CONFIRMATION_DEPTH || '2', 10);
 
+// ============ CIRCUIT BREAKER ============
+// Prevents cascading failures when the Solana RPC node is down.
+//
+// Implementation uses module-level state (single-threaded Node.js event loop
+// guarantees no concurrent mutation within a single process). In multi-worker
+// / cluster deployments, move this state to Redis for shared circuit status.
+const CB_FAILURE_THRESHOLD = 3;         // open after 3 consecutive failures
+const CB_RESET_TIMEOUT_MS = 30_000;     // try again after 30 s (half-open)
+
+let cbFailureCount = 0;
+let cbLastFailureAt = 0;
+
+function circuitIsOpen(): boolean {
+  if (cbFailureCount >= CB_FAILURE_THRESHOLD) {
+    const elapsed = Date.now() - cbLastFailureAt;
+    if (elapsed < CB_RESET_TIMEOUT_MS) {
+      return true; // still open
+    }
+    // Half-open: allow one probe through and reset counter
+    cbFailureCount = 0;
+  }
+  return false;
+}
+
+function recordRpcSuccess(): void {
+  cbFailureCount = 0;
+}
+
+function recordRpcFailure(): void {
+  cbFailureCount += 1;
+  cbLastFailureAt = Date.now();
+}
+// =========================================
+
 export interface PaymentVerification {
   valid: boolean;
   recipient?: string;
@@ -33,23 +67,35 @@ function isParsedInstruction(ix: any): ix is any {
 /**
  * Layer 3: Settlement & Verification 
  * Verifies on-chain payment against the expected recipient.
+ * Protected by a circuit breaker: if the Solana RPC fails repeatedly,
+ * returns "System congested" instead of making the caller wait.
  */
 export async function verifyPaymentRecipient(
   txHash: string,
   expectedRecipient: string
 ): Promise<PaymentVerification> {
+  // Circuit breaker check — fast-fail when RPC is consistently unreachable
+  if (circuitIsOpen()) {
+    return {
+      valid: false,
+      error: 'System congested — Solana RPC unavailable, please retry shortly',
+    };
+  }
+
   try {
-    // Fetch transaction with support for versioned transactions (Protocol Agnosticism) [cite: 69]
+    // Fetch transaction with support for versioned transactions (Protocol Agnosticism)
     const tx = await connection.getParsedTransaction(txHash, {
       commitment: 'confirmed',
       maxSupportedTransactionVersion: 0
     });
 
     if (!tx) {
+      recordRpcSuccess(); // RPC responded (even if tx not found)
       return { valid: false, error: 'Transaction not found' };
     }
 
     if (tx.meta?.err) {
+      recordRpcSuccess();
       return { valid: false, error: 'Transaction failed on-chain' };
     }
 
@@ -57,7 +103,7 @@ export async function verifyPaymentRecipient(
     let foundValidTransfer = false;
     let transferDetails: any = null;
 
-    // Layer 1: Protocol Translation - Normalizing SPL-Token instructions [cite: 59, 60]
+    // Layer 1: Protocol Translation - Normalizing SPL-Token instructions
     for (const ix of instructions) {
       if (!isParsedInstruction(ix)) continue;
 
@@ -65,7 +111,7 @@ export async function verifyPaymentRecipient(
       if (ixAny.program === 'spl-token' && ixAny.parsed.type === 'transfer') {
         const { destination, tokenAmount, authority } = ixAny.parsed.info;
 
-        // CRITICAL SECURITY: Multi-layer verification check 
+        // CRITICAL SECURITY: verify destination matches expected recipient
         if (destination !== expectedRecipient) {
           continue;
         }
@@ -83,6 +129,7 @@ export async function verifyPaymentRecipient(
     }
 
     if (!foundValidTransfer) {
+      recordRpcSuccess();
       return {
         valid: false,
         error: `No payment to ${expectedRecipient} found in transaction`,
@@ -92,6 +139,7 @@ export async function verifyPaymentRecipient(
     const blockHeight = await connection.getBlockHeight('confirmed');
     const confirmationDepth = blockHeight - tx.slot;
 
+    recordRpcSuccess();
     return {
       valid: true,
       recipient: transferDetails.to,
@@ -100,10 +148,10 @@ export async function verifyPaymentRecipient(
       decimals: transferDetails.decimals,
       confirmationDepth,
       transaction: txHash,
-      // Verification logic based on sub-millisecond routing requirements [cite: 66]
       verified: confirmationDepth >= CONFIRMATION_DEPTH,
     };
   } catch (error) {
+    recordRpcFailure();
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { valid: false, error: errorMessage };
   }

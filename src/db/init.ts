@@ -33,6 +33,7 @@ export async function initializeDatabase(): Promise<void> {
         api_key_salt VARCHAR(255) NOT NULL,
         key_prefix VARCHAR(8) NOT NULL,
         wallet_address VARCHAR(255) NOT NULL UNIQUE,
+        webhook_url TEXT,
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -59,6 +60,7 @@ export async function initializeDatabase(): Promise<void> {
         payer_address VARCHAR(255),
         transaction_hash VARCHAR(255),
         status VARCHAR(50) DEFAULT 'pending',
+        webhook_status VARCHAR(50) DEFAULT 'not_sent',
         confirmation_depth INT DEFAULT 0,
         required_depth INT DEFAULT 2,
         metadata JSONB,
@@ -67,7 +69,8 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
         CHECK (confirmation_depth >= 0),
-        CHECK (status IN ('pending', 'confirmed', 'failed', 'expired'))
+        CHECK (status IN ('pending', 'confirmed', 'failed', 'expired')),
+        CHECK (webhook_status IN ('not_sent', 'sent', 'failed'))
       );
 
       CREATE INDEX IF NOT EXISTS idx_transactions_merchant_id ON transactions(merchant_id);
@@ -159,6 +162,29 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_webhook_merchant ON webhook_events(merchant_id);
       CREATE INDEX IF NOT EXISTS idx_webhook_status ON webhook_events(status);
       CREATE INDEX IF NOT EXISTS idx_webhook_next_attempt ON webhook_events(next_attempt_at);
+    `);
+
+    // ============ PAYMENT AUDIT LOG ============
+    // APPEND-ONLY TABLE (FCA AML compliance).
+    // No UPDATEs or DELETEs should ever be performed on this table.
+    // Every row is an immutable record of a verify-payment attempt.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_audit_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID REFERENCES merchants(id) ON DELETE SET NULL,
+        ip_address VARCHAR(50),
+        transaction_signature VARCHAR(255),
+        transaction_id UUID,
+        endpoint VARCHAR(255) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        succeeded BOOLEAN NOT NULL,
+        failure_reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_audit_merchant ON payment_audit_log(merchant_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_created ON payment_audit_log(created_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);
     `);
 
     logger.info('✅ Database schema initialized successfully!');
