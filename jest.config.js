@@ -1,12 +1,13 @@
-﻿module.exports = {
+export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  setupFiles: ['<rootDir>/jest.setup.js'],
+  setupFiles: ['<rootDir>/jest.setup.cjs'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
+        module: 'commonjs',
       }
     }],
   },

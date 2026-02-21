@@ -31,6 +31,7 @@ export async function initializeDatabase(): Promise<void> {
         email VARCHAR(255) UNIQUE NOT NULL,
         api_key_hash VARCHAR(255) UNIQUE NOT NULL,
         api_key_salt VARCHAR(255) NOT NULL,
+        key_prefix VARCHAR(8) NOT NULL,
         wallet_address VARCHAR(255) NOT NULL UNIQUE,
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -41,6 +42,7 @@ export async function initializeDatabase(): Promise<void> {
 
       CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
       CREATE INDEX IF NOT EXISTS idx_merchants_api_key_hash ON merchants(api_key_hash);
+      CREATE INDEX IF NOT EXISTS idx_merchants_key_prefix ON merchants(key_prefix);
       CREATE INDEX IF NOT EXISTS idx_merchants_wallet ON merchants(wallet_address);
       CREATE INDEX IF NOT EXISTS idx_merchants_active ON merchants(is_active);
     `);

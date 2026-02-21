@@ -229,4 +229,21 @@ router.get('/stats', authenticateApiKey, async (req: Request, res: Response) => 
   }
 });
 
+router.post('/rotate-key', authenticateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { apiKey: newKey } = await merchantsService.rotateApiKey((req as any).merchant!.id);
+
+    logger.info('API key rotated', { merchantId: (req as any).merchant!.id });
+
+    res.json({
+      success: true,
+      apiKey: newKey,
+      message: 'Please store this key securely. It will not be shown again.',
+    });
+  } catch (error: any) {
+    logger.error('Key rotation error:', error);
+    res.status(500).json({ error: 'Failed to rotate API key' });
+  }
+});
+
 export default router;

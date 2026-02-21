@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   email VARCHAR(255) UNIQUE NOT NULL,
   api_key_hash VARCHAR(255) NOT NULL,
   api_key_salt VARCHAR(255) NOT NULL,
+  key_prefix VARCHAR(8) NOT NULL,
   wallet_address VARCHAR(255) UNIQUE NOT NULL,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 
 CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
 CREATE INDEX IF NOT EXISTS idx_merchants_wallet ON merchants(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_merchants_key_prefix ON merchants(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_payment_id ON transactions(payment_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_recipient ON transactions(recipient_address);

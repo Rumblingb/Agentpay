@@ -1,4 +1,4 @@
-﻿import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { query } from '../db/index';
 
@@ -21,6 +21,7 @@ export async function registerMerchant(
 ): Promise<{ merchantId: string; apiKey: string }> {
   const merchantId = uuidv4();
   const apiKey = crypto.randomBytes(32).toString('hex');
+  const keyPrefix = apiKey.substring(0, 8);
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto
     .pbkdf2Sync(apiKey, salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
@@ -28,9 +29,9 @@ export async function registerMerchant(
 
   try {
     await query(
-      `INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, wallet_address, is_active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-      [merchantId, name, email, hash, salt, walletAddress, true]
+      `INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, key_prefix, wallet_address, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [merchantId, name, email, hash, salt, keyPrefix, walletAddress, true]
     );
 
     return { merchantId, apiKey };
@@ -44,10 +45,13 @@ export async function registerMerchant(
 
 export async function authenticateMerchant(apiKey: string): Promise<Merchant | null> {
   try {
+    // Use key_prefix for efficient indexed lookup instead of scanning all merchants
+    const keyPrefix = apiKey.substring(0, 8);
     const result = await query(
-      `SELECT id, name, email, wallet_address as "walletAddress", created_at as "createdAt", 
+      `SELECT id, name, email, wallet_address as "walletAddress", created_at as "createdAt",
               api_key_hash as "apiKeyHash", api_key_salt as "apiKeySalt"
-       FROM merchants WHERE is_active = true`
+       FROM merchants WHERE key_prefix = $1 AND is_active = true`,
+      [keyPrefix]
     );
 
     if (!result.rows || result.rows.length === 0) {
@@ -101,8 +105,27 @@ export async function getMerchant(merchantId: string): Promise<Merchant | null> 
   }
 }
 
+export async function rotateApiKey(merchantId: string): Promise<{ apiKey: string }> {
+  const newApiKey = crypto.randomBytes(32).toString('hex');
+  const newKeyPrefix = newApiKey.substring(0, 8);
+  const newSalt = crypto.randomBytes(16).toString('hex');
+  const newHash = crypto
+    .pbkdf2Sync(newApiKey, newSalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
+    .toString('hex');
+
+  await query(
+    `UPDATE merchants
+     SET api_key_hash = $1, api_key_salt = $2, key_prefix = $3, updated_at = NOW()
+     WHERE id = $4 AND is_active = true`,
+    [newHash, newSalt, newKeyPrefix, merchantId]
+  );
+
+  return { apiKey: newApiKey };
+}
+
 export default {
   registerMerchant,
   authenticateMerchant,
   getMerchant,
+  rotateApiKey,
 };
