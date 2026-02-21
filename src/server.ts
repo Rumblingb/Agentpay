@@ -2,8 +2,10 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
+import { authenticateApiKey } from './middleware/auth';
 import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
@@ -13,6 +15,21 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// --- RATE LIMITERS ---
+const globalLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 min
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const verifyLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 min
+  max: 20,
+  message: { error: 'Too many verification requests, please slow down.' },
+});
 
 // Security & utility middleware
 app.use(helmet());
@@ -25,6 +42,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(globalLimiter);
 
 // --- HEALTH CHECK ---
 app.get('/health', (_req: Request, res: Response) => {
@@ -48,7 +66,7 @@ app.get('/api/protected', (_req: Request, res: Response) => {
 });
 
 // --- STANDALONE PAYMENT VERIFICATION (agent-to-agent) ---
-app.post('/api/v1/verify-payment', async (req: Request, res: Response) => {
+app.post('/api/v1/verify-payment', verifyLimiter, authenticateApiKey, async (req: Request, res: Response) => {
   const { transactionSignature, expectedRecipient } = req.body;
 
   if (!transactionSignature || !expectedRecipient) {

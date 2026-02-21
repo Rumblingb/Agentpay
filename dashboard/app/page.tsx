@@ -84,6 +84,11 @@ export default function MerchantDashboard() {
         return;
       }
 
+      if (!statsRes.ok) {
+        setError(`Server error (${statsRes.status}): failed to load statistics.`);
+        return;
+      }
+
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setStats(statsData);

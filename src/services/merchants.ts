@@ -113,12 +113,16 @@ export async function rotateApiKey(merchantId: string): Promise<{ apiKey: string
     .pbkdf2Sync(newApiKey, newSalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
     .toString('hex');
 
-  await query(
+  const result = await query(
     `UPDATE merchants
      SET api_key_hash = $1, api_key_salt = $2, key_prefix = $3, updated_at = NOW()
      WHERE id = $4 AND is_active = true`,
     [newHash, newSalt, newKeyPrefix, merchantId]
   );
+
+  if (!result.rowCount || result.rowCount === 0) {
+    throw new Error('Merchant not found or inactive');
+  }
 
   return { apiKey: newApiKey };
 }

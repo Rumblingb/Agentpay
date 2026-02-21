@@ -1,11 +1,21 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
+import rateLimit from 'express-rate-limit';
 import * as merchantsService from '../services/merchants';
 import * as transactionsService from '../services/transactions';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
 
 const router = Router();
+
+// Tighter rate limit for sensitive write operations (e.g., key rotation)
+const sensitiveOpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests for this operation, please try again later.' },
+});
 
 const registerSchema = Joi.object({
   name: Joi.string().min(3).max(255).required(),
@@ -229,7 +239,7 @@ router.get('/stats', authenticateApiKey, async (req: Request, res: Response) => 
   }
 });
 
-router.post('/rotate-key', authenticateApiKey, async (req: Request, res: Response) => {
+router.post('/rotate-key', sensitiveOpLimiter, authenticateApiKey, async (req: Request, res: Response) => {
   try {
     const { apiKey: newKey } = await merchantsService.rotateApiKey((req as any).merchant!.id);
 
