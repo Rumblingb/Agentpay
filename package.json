@@ -13,6 +13,7 @@
     "test:security": "jest --testPathPattern=security",
     "db:create": "node scripts/create-db.js",
     "db:migrate": "node scripts/migrate.js",
+    "agent": "tsx scripts/test-agent.ts",
     "clean": "if exist dist rmdir /s /q dist"
   },
   "keywords": [
