@@ -38,7 +38,8 @@ export async function initializeDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         rate_limit_requests INT DEFAULT 100,
-        rate_limit_window_ms INT DEFAULT 900000
+        rate_limit_window_ms INT DEFAULT 900000,
+        stripe_connected_account_id VARCHAR(255)
       );
 
       CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
@@ -68,6 +69,7 @@ export async function initializeDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
+        stripe_payment_reference VARCHAR(255),
         CHECK (confirmation_depth >= 0),
         CHECK (status IN ('pending', 'confirmed', 'failed', 'expired')),
         CHECK (webhook_status IN ('not_sent', 'sent', 'failed'))

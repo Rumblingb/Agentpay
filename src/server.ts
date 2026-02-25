@@ -8,6 +8,8 @@ import merchantsRouter from './routes/merchants';
 import intentsRouter from './routes/intents';
 import certificatesRouter from './routes/certificates';
 import webhooksRouter from './routes/webhooks';
+import stripeRouter from './routes/stripe';
+import stripeWebhooksRouter from './routes/stripeWebhooks';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
@@ -47,6 +49,10 @@ app.use(cors({
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined'));
 }
+
+// --- STRIPE WEBHOOKS (must use raw body BEFORE express.json()) ---
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhooksRouter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(globalLimiter);
@@ -67,6 +73,9 @@ app.use('/api/certificates', certificatesRouter);
 
 // --- WEBHOOK SUBSCRIPTION ROUTES ---
 app.use('/api/webhooks', webhooksRouter);
+
+// --- STRIPE CONNECT ROUTES ---
+app.use('/api/stripe', stripeRouter);
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {

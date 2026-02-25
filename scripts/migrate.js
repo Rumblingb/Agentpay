@@ -47,6 +47,11 @@ const migrations = [
           ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS response_body TEXT;
           ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;`,
   },
+  {
+    name: '006_add_stripe_fields',
+    sql: `ALTER TABLE merchants ADD COLUMN IF NOT EXISTS stripe_connected_account_id VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS stripe_payment_reference VARCHAR(255);`,
+  },
 ];
 
 async function migrate() {
