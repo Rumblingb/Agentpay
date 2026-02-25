@@ -43,6 +43,8 @@ export function computeTrustScore(
 
 /**
  * Returns the reputation record for an agent, or null if not found.
+ * If the agent_reputation table has no record, falls back to computing
+ * a live score from payment_intents where metadata->>'agentId' matches.
  */
 export async function getReputation(agentId: string): Promise<AgentReputation | null> {
   try {
@@ -54,8 +56,41 @@ export async function getReputation(agentId: string): Promise<AgentReputation | 
        FROM agent_reputation WHERE agent_id = $1`,
       [agentId]
     );
-    if (result.rows.length === 0) return null;
-    return result.rows[0] as AgentReputation;
+    if (result.rows.length > 0) {
+      return result.rows[0] as AgentReputation;
+    }
+
+    // Fallback: compute from payment_intents where metadata->>'agentId' matches
+    const intentsResult = await query(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN status = 'verified' THEN 1 ELSE 0 END) as verified_count,
+         MAX(updated_at) as last_payment_at
+       FROM payment_intents
+       WHERE metadata->>'agentId' = $1`,
+      [agentId]
+    );
+
+    const row = intentsResult.rows[0];
+    const total = parseInt(row?.total ?? '0', 10);
+    if (total === 0) return null;
+
+    const verifiedCount = parseInt(row?.verified_count ?? '0', 10);
+    const successRate = total > 0 ? verifiedCount / total : 0;
+    const lastPaymentAt = row?.last_payment_at ? new Date(row.last_payment_at) : null;
+    const trustScore = computeTrustScore(successRate, 0, lastPaymentAt);
+    const now = new Date();
+
+    return {
+      agentId,
+      trustScore,
+      totalPayments: total,
+      successRate,
+      disputeRate: 0,
+      lastPaymentAt,
+      createdAt: now,
+      updatedAt: now,
+    };
   } catch (error) {
     logger.error('Error fetching agent reputation', { error, agentId });
     throw error;

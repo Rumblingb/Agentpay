@@ -20,6 +20,7 @@ model Merchant {
   keyPrefix   String   @map("key_prefix") @db.VarChar(8)
   walletAddress String @unique @map("wallet_address") @db.VarChar(255)
   webhookUrl  String?  @map("webhook_url")
+  stripeConnectedAccountId String? @map("stripe_connected_account_id") @db.VarChar(255)
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

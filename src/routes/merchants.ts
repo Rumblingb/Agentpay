@@ -7,6 +7,9 @@ import * as webhooksService from '../services/webhooks';
 import type { WebhookPayload } from '../services/webhooks';
 import * as webhookEmitter from '../services/webhookEmitter';
 import * as auditService from '../services/audit';
+import { signCertificate } from '../services/certificateService';
+import { billMerchant } from '../services/billingService';
+import { query } from '../db/index';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
 
@@ -222,6 +225,43 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       verified: verification.verified,
     });
 
+    // Sign a verification certificate on confirmed payment
+    let certificate: string | undefined;
+    if (verification.verified) {
+      try {
+        certificate = signCertificate({
+          transactionId: req.params.transactionId,
+          merchantId: merchant.id,
+          amountUsdc: tx.amountUsdc,
+          transactionHash: value.transactionHash,
+          payer: verification.payer,
+          verifiedAt: new Date().toISOString(),
+        });
+
+        // Persist certificate to DB (fire-and-forget; non-critical)
+        query(
+          `INSERT INTO verification_certificates (id, intent_id, payload, signature, encoded)
+           VALUES (gen_random_uuid(), NULL, $1, $2, $3)`,
+          [
+            JSON.stringify({ transactionId: req.params.transactionId }),
+            certificate.slice(0, 64),
+            certificate,
+          ]
+        ).catch((err) => logger.error('Certificate persist error', { err }));
+      } catch (certErr: any) {
+        logger.warn('Certificate signing skipped (VERIFICATION_SECRET not set?)', { error: certErr.message });
+      }
+    }
+
+    // Bill merchant 2% SaaS fee (fire-and-forget)
+    if (verification.verified) {
+      billMerchant({
+        merchantId: merchant.id,
+        transactionId: req.params.transactionId,
+        amount: tx.amountUsdc ?? 0,
+      }).catch((err) => logger.error('Billing error', { err }));
+    }
+
     // Fire legacy webhook asynchronously — non-blocking, never fails the response
     if (merchant.webhookUrl && verification.verified) {
       const payload = buildPaymentVerifiedPayload(
@@ -246,6 +286,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
         intentId: req.params.transactionId,
         txHash: value.transactionHash,
         amount: tx.amountUsdc ?? 0,
+        certificate,
       }).catch((err) => logger.error('V2 webhook emitter error', { err }));
     }
 
@@ -253,6 +294,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       success: true,
       verified: verification.verified,
       payer: verification.payer,
+      certificate,
       message: verification.verified ? 'Payment confirmed!' : 'Payment detected but pending confirmations',
     });
   } catch (error: any) {
@@ -344,6 +386,19 @@ router.post('/rotate-key', sensitiveOpLimiter, authenticateApiKey, async (req: R
   } catch (error: any) {
     logger.error('Key rotation error:', error);
     res.status(500).json({ error: 'Failed to rotate API key' });
+  }
+});
+
+router.get('/invoices', authenticateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { getMerchantInvoices } = await import('../services/billingService');
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const invoices = await getMerchantInvoices((req as any).merchant!.id, limit, offset);
+    res.json({ success: true, invoices, pagination: { limit, offset } });
+  } catch (error: any) {
+    logger.error('Invoices fetch error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
