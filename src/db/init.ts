@@ -38,7 +38,8 @@ export async function initializeDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         rate_limit_requests INT DEFAULT 100,
-        rate_limit_window_ms INT DEFAULT 900000
+        rate_limit_window_ms INT DEFAULT 900000,
+        stripe_connected_account_id VARCHAR(255)
       );
 
       CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
@@ -68,6 +69,7 @@ export async function initializeDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
+        stripe_payment_reference VARCHAR(255),
         CHECK (confirmation_depth >= 0),
         CHECK (status IN ('pending', 'confirmed', 'failed', 'expired')),
         CHECK (webhook_status IN ('not_sent', 'sent', 'failed'))
@@ -164,6 +166,38 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_webhook_next_attempt ON webhook_events(next_attempt_at);
     `);
 
+    // ============ WEBHOOK SUBSCRIPTIONS (V2) ============
+    // Merchant-configured subscriptions for event-driven webhook delivery
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        event_types TEXT[] NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wh_sub_merchant ON webhook_subscriptions(merchant_id);
+    `);
+
+    // ============ WEBHOOK DELIVERY LOGS (V2) ============
+    // Per-subscription delivery attempt tracking
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        payload JSONB NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        attempts INT NOT NULL DEFAULT 0,
+        last_attempt_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (status IN ('pending', 'sent', 'failed'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wh_log_sub ON webhook_delivery_logs(subscription_id);
+      CREATE INDEX IF NOT EXISTS idx_wh_log_status ON webhook_delivery_logs(status);
+    `);
+
     // ============ PAYMENT AUDIT LOG ============
     // APPEND-ONLY TABLE (FCA AML compliance).
     // No UPDATEs or DELETEs should ever be performed on this table.
@@ -187,6 +221,24 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);
     `);
 
+    // ============ AGENT REPUTATION ============
+    // Tracks trust scores and payment history per agent (identified by wallet/payer address)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS agent_reputation (
+        agent_id VARCHAR(255) PRIMARY KEY,
+        trust_score INT NOT NULL DEFAULT 50,
+        total_payments INT NOT NULL DEFAULT 0,
+        success_rate FLOAT NOT NULL DEFAULT 0,
+        dispute_rate FLOAT NOT NULL DEFAULT 0,
+        last_payment_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_reputation_trust ON agent_reputation(trust_score);
+      CREATE INDEX IF NOT EXISTS idx_agent_reputation_updated ON agent_reputation(updated_at);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
@@ -195,6 +247,7 @@ export async function initializeDatabase(): Promise<void> {
     logger.info('   - rate_limit_counters (DDoS protection)');
     logger.info('   - payment_verifications (secure tokens)');
     logger.info('   - webhook_events (merchant notifications)');
+    logger.info('   - agent_reputation (trust scores per agent)');
   } catch (error) {
     logger.error('❌ Error initializing database:', error);
     throw error;

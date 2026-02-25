@@ -5,8 +5,17 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
+import intentsRouter from './routes/intents';
+import certificatesRouter from './routes/certificates';
+import webhooksRouter from './routes/webhooks';
+import stripeRouter from './routes/stripe';
+import stripeWebhooksRouter from './routes/stripeWebhooks';
+import agentsRouter from './routes/agents';
+import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
+import * as transactionsService from './services/transactions';
+import { startSolanaListener } from './services/solana-listener';
 import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
@@ -42,6 +51,10 @@ app.use(cors({
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined'));
 }
+
+// --- STRIPE WEBHOOKS (must use raw body BEFORE express.json()) ---
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhooksRouter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(globalLimiter);
@@ -53,6 +66,26 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // --- MERCHANT API ROUTES ---
 app.use('/api/merchants', merchantsRouter);
+
+// --- ORCHESTRATION LAYER: PAYMENT INTENTS ---
+app.use('/api/intents', intentsRouter);
+
+// --- ORCHESTRATION LAYER: VERIFICATION CERTIFICATES ---
+app.use('/api/certificates', certificatesRouter);
+
+// --- WEBHOOK SUBSCRIPTION ROUTES ---
+app.use('/api/webhooks', webhooksRouter);
+
+// --- STRIPE CONNECT ROUTES ---
+app.use('/api/stripe', stripeRouter);
+
+// --- AGENT API ROUTES ---
+app.use('/api/agents', agentsRouter);
+
+// --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
+if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {
+  app.use('/api/test', testRouter);
+}
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {
@@ -119,12 +152,58 @@ app.post('/api/v1/verify-payment', verifyLimiter, authenticateApiKey, async (req
   }
 });
 
+// --- CONVENIENCE /api/payments ENDPOINT ---
+// Accepts snake_case fields (amount_usdc, recipient_address, description)
+// so AI agents can use the simpler URL and payload format shown in the docs.
+app.post('/api/payments', authenticateApiKey, async (req: Request, res: Response) => {
+  const merchant = (req as any).merchant!;
+
+  // Accept both camelCase and snake_case field names
+  const amountUsdc: number = req.body.amount_usdc ?? req.body.amountUsdc;
+  const recipientAddress: string = req.body.recipient_address ?? req.body.recipientAddress;
+  const description: string | undefined = req.body.description;
+  const expiryMinutes: number = req.body.expiry_minutes ?? req.body.expiryMinutes ?? 30;
+
+  if (!amountUsdc || typeof amountUsdc !== 'number' || amountUsdc <= 0) {
+    res.status(400).json({ error: 'amount_usdc must be a positive number' });
+    return;
+  }
+  if (!recipientAddress || !isValidSolanaAddress(recipientAddress)) {
+    res.status(400).json({ error: 'recipient_address must be a valid Solana address (32-44 chars)' });
+    return;
+  }
+
+  try {
+    const metadata = description ? { description } : undefined;
+    const { transactionId, paymentId } = await transactionsService.createPaymentRequest(
+      merchant.id,
+      amountUsdc,
+      recipientAddress,
+      metadata,
+      expiryMinutes
+    );
+
+    res.status(201).json({
+      success: true,
+      transactionId,
+      paymentId,
+      amount: amountUsdc,
+      recipientAddress,
+      description: description ?? null,
+      instructions: `Send ${amountUsdc} USDC to ${recipientAddress} on Solana within ${expiryMinutes} minutes, then call POST /api/merchants/payments/${transactionId}/verify with your transactionHash.`,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Only start the listener when not running under Jest
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`🚀 AgentPay API running on http://localhost:${PORT}`);
     console.log(`Mode: ${process.env.NODE_ENV || 'development'}`);
   });
+  startSolanaListener();
 }
 
 export default app;

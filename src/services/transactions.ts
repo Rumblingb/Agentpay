@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../db/index';
 import { logger } from '../logger';
 import { verifyPaymentRecipient } from '../security/payment-verification';
+import * as reputationService from './reputationService';
 
 export interface Transaction {
   id: string;
@@ -165,6 +166,13 @@ export async function verifyAndUpdatePayment(
       verified: verification.verified,
       payer: verification.payer,
     });
+
+    // Update agent reputation for the payer (non-blocking — never fails the response)
+    if (verification.payer) {
+      reputationService
+        .updateReputationOnVerification(verification.payer, true)
+        .catch((err) => logger.error('Reputation update error', { err, payer: verification.payer }));
+    }
 
     return {
       success: true,

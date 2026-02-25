@@ -4,3 +4,8 @@ node_modules/
 dist/
 dashboard/.next/
 dashboard/node_modules/
+
+/src/generated/prisma
+__pycache__/
+*.pyc
+.pytest_cache/
