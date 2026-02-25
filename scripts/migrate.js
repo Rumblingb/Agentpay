@@ -3,10 +3,8 @@
  * Safe to run multiple times (idempotent).
  * Usage: node scripts/migrate.js
  */
-import pkg from 'pg';
-const { Pool } = pkg;
-import dotenv from 'dotenv';
-dotenv.config();
+const { Pool } = require('pg');
+require('dotenv').config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -41,6 +39,18 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_audit_merchant ON payment_audit_log(merchant_id);
           CREATE INDEX IF NOT EXISTS idx_audit_created ON payment_audit_log(created_at);
           CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);`,
+  },
+  {
+    name: '005_fix_webhook_events_schema',
+    sql: `ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 3;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS response_status INTEGER;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS response_body TEXT;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;`,
+  },
+  {
+    name: '006_add_stripe_fields',
+    sql: `ALTER TABLE merchants ADD COLUMN IF NOT EXISTS stripe_connected_account_id VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS stripe_payment_reference VARCHAR(255);`,
   },
 ];
 
