@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
 import intentsRouter from './routes/intents';
 import certificatesRouter from './routes/certificates';
+import webhooksRouter from './routes/webhooks';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
@@ -63,6 +64,9 @@ app.use('/api/intents', intentsRouter);
 
 // --- ORCHESTRATION LAYER: VERIFICATION CERTIFICATES ---
 app.use('/api/certificates', certificatesRouter);
+
+// --- WEBHOOK SUBSCRIPTION ROUTES ---
+app.use('/api/webhooks', webhooksRouter);
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {

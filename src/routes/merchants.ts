@@ -5,6 +5,7 @@ import * as merchantsService from '../services/merchants';
 import * as transactionsService from '../services/transactions';
 import * as webhooksService from '../services/webhooks';
 import type { WebhookPayload } from '../services/webhooks';
+import * as webhookEmitter from '../services/webhookEmitter';
 import * as auditService from '../services/audit';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
@@ -221,7 +222,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       verified: verification.verified,
     });
 
-    // Fire webhook asynchronously — non-blocking, never fails the response
+    // Fire legacy webhook asynchronously — non-blocking, never fails the response
     if (merchant.webhookUrl && verification.verified) {
       const payload = buildPaymentVerifiedPayload(
         req.params.transactionId,
@@ -236,6 +237,16 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
         merchant.id,
         req.params.transactionId
       ).catch((err) => logger.error('Webhook scheduling error', { err }));
+    }
+
+    // Fire V2 subscription webhooks asynchronously
+    if (verification.verified) {
+      webhookEmitter.emitPaymentVerified(merchant.id, {
+        type: 'payment_verified',
+        intentId: req.params.transactionId,
+        txHash: value.transactionHash,
+        amount: tx.amountUsdc ?? 0,
+      }).catch((err) => logger.error('V2 webhook emitter error', { err }));
     }
 
     res.json({
