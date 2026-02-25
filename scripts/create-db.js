@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   key_prefix VARCHAR(8) NOT NULL,
   wallet_address VARCHAR(255) UNIQUE NOT NULL,
   webhook_url TEXT,
+  stripe_connected_account_id VARCHAR(255),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   recipient_address VARCHAR(255) NOT NULL,
   payer_address VARCHAR(255),
   transaction_hash VARCHAR(255),
+  stripe_payment_reference VARCHAR(255),
   status VARCHAR(50) DEFAULT 'pending',
   webhook_status VARCHAR(50) DEFAULT 'not_sent',
   confirmation_depth INTEGER DEFAULT 0,
@@ -113,6 +115,46 @@ CREATE TABLE IF NOT EXISTS payment_audit_log (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS payment_intents (
+  id UUID PRIMARY KEY,
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  amount NUMERIC(20, 6) NOT NULL,
+  currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  verification_token VARCHAR(255) UNIQUE NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  metadata JSONB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS verification_certificates (
+  id UUID PRIMARY KEY,
+  intent_id UUID REFERENCES payment_intents(id),
+  payload TEXT NOT NULL,
+  signature VARCHAR(255) NOT NULL,
+  encoded TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  url TEXT NOT NULL,
+  event_types TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id),
+  payload JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
 CREATE INDEX IF NOT EXISTS idx_merchants_wallet ON merchants(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_merchants_key_prefix ON merchants(key_prefix);
@@ -125,6 +167,10 @@ CREATE INDEX IF NOT EXISTS idx_api_logs_merchant ON api_logs(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_counters ON rate_limit_counters(merchant_id, ip_address);
 CREATE INDEX IF NOT EXISTS idx_payment_verifications_transaction ON payment_verifications(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_merchant ON webhook_events(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_merchant ON payment_intents(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_verification_certificates_intent ON verification_certificates(intent_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_merchant ON webhook_subscriptions(merchant_id);
 `;
 
 async function initializeDatabase() {
@@ -144,6 +190,10 @@ async function initializeDatabase() {
     console.log('   - payment_verifications');
     console.log('   - webhook_events');
     console.log('   - agent_reputation');
+    console.log('   - payment_intents');
+    console.log('   - verification_certificates');
+    console.log('   - webhook_subscriptions');
+    console.log('   - webhook_delivery_logs');
     
     client.release();
     await pool.end();
