@@ -8,12 +8,20 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "start:prod": "NODE_ENV=production node dist/server.js",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "test:security": "jest --testPathPattern=security",
     "db:create": "node scripts/create-db.js",
     "db:migrate": "node scripts/migrate.js",
-    "clean": "if exist dist rmdir /s /q dist"
+    "db:setup": "npm run db:create && npm run db:migrate",
+    "clean": "rm -rf dist",
+    "clean:build": "npm run clean && npm run build",
+    "lint": "echo 'Linting not configured yet'",
+    "validate": "npm run build && npm test",
+    "prestart": "npm run build",
+    "prepare": "npm run build"
   },
   "keywords": [
     "payments",
