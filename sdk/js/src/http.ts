@@ -4,15 +4,18 @@ import { AgentPayError } from './errors.js';
 export class HttpClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly apiKey: string,
+    private readonly apiKey: string | undefined,
     private readonly timeoutMs: number = 10_000,
   ) {}
 
   private get defaultHeaders(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.apiKey}`,
     };
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+    return headers;
   }
 
   async get<T>(path: string): Promise<T> {
