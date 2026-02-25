@@ -10,6 +10,7 @@ import certificatesRouter from './routes/certificates';
 import webhooksRouter from './routes/webhooks';
 import stripeRouter from './routes/stripe';
 import stripeWebhooksRouter from './routes/stripeWebhooks';
+import agentsRouter from './routes/agents';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
@@ -76,6 +77,9 @@ app.use('/api/webhooks', webhooksRouter);
 
 // --- STRIPE CONNECT ROUTES ---
 app.use('/api/stripe', stripeRouter);
+
+// --- AGENT API ROUTES ---
+app.use('/api/agents', agentsRouter);
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {

@@ -221,6 +221,24 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);
     `);
 
+    // ============ AGENT REPUTATION ============
+    // Tracks trust scores and payment history per agent (identified by wallet/payer address)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS agent_reputation (
+        agent_id VARCHAR(255) PRIMARY KEY,
+        trust_score INT NOT NULL DEFAULT 50,
+        total_payments INT NOT NULL DEFAULT 0,
+        success_rate FLOAT NOT NULL DEFAULT 0,
+        dispute_rate FLOAT NOT NULL DEFAULT 0,
+        last_payment_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_reputation_trust ON agent_reputation(trust_score);
+      CREATE INDEX IF NOT EXISTS idx_agent_reputation_updated ON agent_reputation(updated_at);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
@@ -229,6 +247,7 @@ export async function initializeDatabase(): Promise<void> {
     logger.info('   - rate_limit_counters (DDoS protection)');
     logger.info('   - payment_verifications (secure tokens)');
     logger.info('   - webhook_events (merchant notifications)');
+    logger.info('   - agent_reputation (trust scores per agent)');
   } catch (error) {
     logger.error('❌ Error initializing database:', error);
     throw error;
