@@ -11,6 +11,7 @@ import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
 } from './security/payment-verification';
+import testRouter from './test/routes';
 
 dotenv.config();
 
@@ -53,6 +54,11 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // --- MERCHANT API ROUTES ---
 app.use('/api/merchants', merchantsRouter);
+
+// --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
+if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {
+  app.use('/api/test', testRouter);
+}
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {

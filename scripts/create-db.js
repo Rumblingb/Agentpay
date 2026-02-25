@@ -68,17 +68,20 @@ CREATE TABLE IF NOT EXISTS payment_verifications (
 );
 
 CREATE TABLE IF NOT EXISTS webhook_events (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   merchant_id UUID NOT NULL REFERENCES merchants(id),
-  event_type VARCHAR(50),
+  event_type VARCHAR(100),
   transaction_id UUID REFERENCES transactions(id),
-  webhook_url VARCHAR(255),
+  webhook_url TEXT,
   payload JSONB,
   retry_count INTEGER DEFAULT 0,
-  status VARCHAR(50),
-  response_code INTEGER,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  max_retries INTEGER DEFAULT 3,
+  status VARCHAR(50) DEFAULT 'pending',
+  response_status INTEGER,
+  response_body TEXT,
+  last_attempt_at TIMESTAMP,
+  next_attempt_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- APPEND-ONLY TABLE (FCA AML compliance).
