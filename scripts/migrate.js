@@ -52,6 +52,19 @@ const migrations = [
     sql: `ALTER TABLE merchants ADD COLUMN IF NOT EXISTS stripe_connected_account_id VARCHAR(255);
           ALTER TABLE transactions ADD COLUMN IF NOT EXISTS stripe_payment_reference VARCHAR(255);`,
   },
+  {
+    name: '007_create_agent_reputation',
+    sql: `CREATE TABLE IF NOT EXISTS agent_reputation (
+            agent_id VARCHAR(255) PRIMARY KEY,
+            trust_score INTEGER NOT NULL DEFAULT 0,
+            total_payments INTEGER NOT NULL DEFAULT 0,
+            success_rate FLOAT NOT NULL DEFAULT 1.0,
+            dispute_rate FLOAT NOT NULL DEFAULT 0.0,
+            last_payment_at TIMESTAMP,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+          );`,
+  },
 ];
 
 async function migrate() {

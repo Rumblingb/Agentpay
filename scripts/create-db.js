@@ -86,6 +86,17 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS agent_reputation (
+  agent_id VARCHAR(255) PRIMARY KEY,
+  trust_score INTEGER NOT NULL DEFAULT 0,
+  total_payments INTEGER NOT NULL DEFAULT 0,
+  success_rate FLOAT NOT NULL DEFAULT 1.0,
+  dispute_rate FLOAT NOT NULL DEFAULT 0.0,
+  last_payment_at TIMESTAMP,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
 -- APPEND-ONLY TABLE (FCA AML compliance).
 -- Do NOT run UPDATE or DELETE on this table.
 -- Every row is an immutable record of a verify-payment attempt.
@@ -132,6 +143,7 @@ async function initializeDatabase() {
     console.log('   - rate_limit_counters');
     console.log('   - payment_verifications');
     console.log('   - webhook_events');
+    console.log('   - agent_reputation');
     
     client.release();
     await pool.end();
