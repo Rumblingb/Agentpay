@@ -11,6 +11,7 @@ import webhooksRouter from './routes/webhooks';
 import stripeRouter from './routes/stripe';
 import stripeWebhooksRouter from './routes/stripeWebhooks';
 import agentsRouter from './routes/agents';
+import v1IntentsRouter from './routes/v1Intents';
 import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
@@ -81,6 +82,9 @@ app.use('/api/stripe', stripeRouter);
 
 // --- AGENT API ROUTES ---
 app.use('/api/agents', agentsRouter);
+
+// --- AGENT-FACING PAYMENT INTENTS (v1 API) ---
+app.use('/api/v1/payment-intents', v1IntentsRouter);
 
 // --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
 if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {

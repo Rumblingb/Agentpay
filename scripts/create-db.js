@@ -155,6 +155,21 @@ CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS merchant_invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  intent_id UUID REFERENCES payment_intents(id),
+  transaction_id UUID REFERENCES transactions(id),
+  fee_amount NUMERIC(20, 6) NOT NULL,
+  fee_percent NUMERIC(5, 4) NOT NULL DEFAULT 0.02,
+  currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_merchant_invoices_merchant ON merchant_invoices(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_merchant_invoices_intent ON merchant_invoices(intent_id);
 CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
 CREATE INDEX IF NOT EXISTS idx_merchants_wallet ON merchants(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_merchants_key_prefix ON merchants(key_prefix);
@@ -194,6 +209,7 @@ async function initializeDatabase() {
     console.log('   - verification_certificates');
     console.log('   - webhook_subscriptions');
     console.log('   - webhook_delivery_logs');
+    console.log('   - merchant_invoices');
     
     client.release();
     await pool.end();
