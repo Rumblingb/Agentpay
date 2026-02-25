@@ -40,6 +40,11 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_audit_created ON payment_audit_log(created_at);
           CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);`,
   },
+  {
+    name: '005_add_stripe_fields',
+    sql: `ALTER TABLE merchants ADD COLUMN IF NOT EXISTS stripe_connected_account_id VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS stripe_payment_reference VARCHAR(255);`,
+  },
 ];
 
 async function migrate() {

@@ -5,6 +5,9 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
+import stripeRouter from './routes/stripe';
+import stripeWebhooksRouter from './routes/stripeWebhooks';
+import intentsRouter from './routes/intents';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import {
@@ -42,6 +45,10 @@ app.use(cors({
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('combined'));
 }
+
+// --- STRIPE WEBHOOKS (must use raw body BEFORE express.json()) ---
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhooksRouter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(globalLimiter);
@@ -53,6 +60,12 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // --- MERCHANT API ROUTES ---
 app.use('/api/merchants', merchantsRouter);
+
+// --- STRIPE CONNECT ROUTES ---
+app.use('/api/stripe', stripeRouter);
+
+// --- INTENTS ROUTES ---
+app.use('/api/intents', intentsRouter);
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {
