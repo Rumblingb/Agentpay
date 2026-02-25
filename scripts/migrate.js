@@ -40,6 +40,13 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_audit_created ON payment_audit_log(created_at);
           CREATE INDEX IF NOT EXISTS idx_audit_sig ON payment_audit_log(transaction_signature);`,
   },
+  {
+    name: '005_fix_webhook_events_schema',
+    sql: `ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 3;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS response_status INTEGER;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS response_body TEXT;
+          ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;`,
+  },
 ];
 
 async function migrate() {

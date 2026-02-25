@@ -75,8 +75,12 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   webhook_url VARCHAR(255),
   payload JSONB,
   retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3,
   status VARCHAR(50),
+  response_status INTEGER,
   response_code INTEGER,
+  response_body TEXT,
+  last_attempt_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
