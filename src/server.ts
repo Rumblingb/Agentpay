@@ -11,6 +11,7 @@ import webhooksRouter from './routes/webhooks';
 import stripeRouter from './routes/stripe';
 import stripeWebhooksRouter from './routes/stripeWebhooks';
 import agentsRouter from './routes/agents';
+import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
@@ -19,6 +20,7 @@ import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
 } from './security/payment-verification';
+import testRouter from './test/routes';
 
 dotenv.config();
 
@@ -80,6 +82,11 @@ app.use('/api/stripe', stripeRouter);
 
 // --- AGENT API ROUTES ---
 app.use('/api/agents', agentsRouter);
+
+// --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
+if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {
+  app.use('/api/test', testRouter);
+}
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {
