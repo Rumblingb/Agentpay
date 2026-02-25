@@ -20,7 +20,6 @@ import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
 } from './security/payment-verification';
-import testRouter from './test/routes';
 
 dotenv.config();
 
