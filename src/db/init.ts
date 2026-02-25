@@ -164,6 +164,38 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_webhook_next_attempt ON webhook_events(next_attempt_at);
     `);
 
+    // ============ WEBHOOK SUBSCRIPTIONS (V2) ============
+    // Merchant-configured subscriptions for event-driven webhook delivery
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        event_types TEXT[] NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wh_sub_merchant ON webhook_subscriptions(merchant_id);
+    `);
+
+    // ============ WEBHOOK DELIVERY LOGS (V2) ============
+    // Per-subscription delivery attempt tracking
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        payload JSONB NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        attempts INT NOT NULL DEFAULT 0,
+        last_attempt_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (status IN ('pending', 'sent', 'failed'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wh_log_sub ON webhook_delivery_logs(subscription_id);
+      CREATE INDEX IF NOT EXISTS idx_wh_log_status ON webhook_delivery_logs(status);
+    `);
+
     // ============ PAYMENT AUDIT LOG ============
     // APPEND-ONLY TABLE (FCA AML compliance).
     // No UPDATEs or DELETEs should ever be performed on this table.
