@@ -5,6 +5,8 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import merchantsRouter from './routes/merchants';
+import intentsRouter from './routes/intents';
+import certificatesRouter from './routes/certificates';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
@@ -55,6 +57,12 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // --- MERCHANT API ROUTES ---
 app.use('/api/merchants', merchantsRouter);
+
+// --- ORCHESTRATION LAYER: PAYMENT INTENTS ---
+app.use('/api/intents', intentsRouter);
+
+// --- ORCHESTRATION LAYER: VERIFICATION CERTIFICATES ---
+app.use('/api/certificates', certificatesRouter);
 
 // --- HTTP 402 PAYMENT REQUIRED (protected resource demo) ---
 app.get('/api/protected', (_req: Request, res: Response) => {
