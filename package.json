@@ -12,6 +12,7 @@
     "test": "jest --passWithNoTests --runInBand",
     "test:watch": "jest --watch",
     "test:security": "jest --testPathPattern=security",
+    "test:full": "docker-compose up -d && node scripts/wait-for-db.js && node scripts/create-db.js && npm test",
     "db:create": "node scripts/create-db.js",
     "db:migrate": "node scripts/migrate.js",
     "agent": "tsx scripts/test-agent.ts",
