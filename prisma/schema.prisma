@@ -55,12 +55,20 @@ model payment_audit_log {
   created_at            DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model transactions {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  merchant_id String?   @db.Uuid
-  signature   String    @unique
-  amount      Decimal?  @db.Decimal
-  status      String?   @default("pending")
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchant_id              String    @db.Uuid
+  payment_id               String    @unique @db.Uuid
+  amount_usdc              Decimal   @db.Decimal(20, 6)
+  recipient_address        String
+  payer_address            String?
+  transaction_hash         String?
+  stripe_payment_reference String?
+  status                   String?   @default("pending")
+  webhook_status           String?   @default("not_sent")
+  confirmation_depth       Int?      @default(0)
+  required_depth           Int?      @default(2)
+  expires_at               DateTime?
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @db.Timestamptz(6)
 }

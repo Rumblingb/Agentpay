@@ -34,6 +34,7 @@ jobs:
       AGENTPAY_TEST_MODE: "true"
       WEBHOOK_SECRET: ci-test-secret
       SOLANA_RPC_URL: https://api.devnet.solana.com
+      STRIPE_SECRET_KEY: sk_test_placeholder_for_ci
 
     steps:
       - name: Checkout
@@ -53,6 +54,9 @@ jobs:
 
       - name: Initialize database schema
         run: node scripts/create-db.js
+
+      - name: Run database migrations
+        run: node scripts/migrate.js
 
       - name: Run tests
         run: npm test

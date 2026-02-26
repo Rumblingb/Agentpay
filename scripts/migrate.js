@@ -67,6 +67,18 @@ const migrations = [
             updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
           );`,
   },
+  {
+    name: '008_add_expires_at_to_transactions',
+    sql: `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_id UUID;
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS amount_usdc NUMERIC(20, 6);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS recipient_address VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_address VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_hash VARCHAR(255);
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS confirmation_depth INTEGER DEFAULT 0;
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS required_depth INTEGER DEFAULT 2;
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+          ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;`,
+  },
 ];
 
 async function migrate() {
