@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import crypto from 'crypto';
 import { query } from '../db/index';
 
@@ -48,6 +48,9 @@ export async function registerMerchant(
 }
 
 export async function authenticateMerchant(apiKey: string): Promise<Merchant | null> {
+  if (!apiKey) {
+    return null;
+  }
   try {
     // Use key_prefix for efficient indexed lookup instead of scanning all merchants
     const keyPrefix = apiKey.substring(0, 8);
@@ -86,6 +89,9 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
 }
 
 export async function getMerchant(merchantId: string): Promise<Merchant | null> {
+  if (!merchantId || !uuidValidate(merchantId)) {
+    throw new Error('Invalid merchant ID');
+  }
   try {
     const result = await query(
       `SELECT id, name, email, wallet_address as "walletAddress", webhook_url as "webhookUrl",
@@ -113,6 +119,9 @@ export async function getMerchant(merchantId: string): Promise<Merchant | null> 
 }
 
 export async function rotateApiKey(merchantId: string): Promise<{ apiKey: string }> {
+  if (!merchantId || !uuidValidate(merchantId)) {
+    throw new Error('Invalid merchant ID');
+  }
   const newApiKey = crypto.randomBytes(32).toString('hex');
   const newKeyPrefix = newApiKey.substring(0, 8);
   const newSalt = crypto.randomBytes(16).toString('hex');
