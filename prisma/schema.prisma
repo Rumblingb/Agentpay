@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 model Merchant {
   id            String    @id @default(uuid()) @db.Uuid
