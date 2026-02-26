@@ -1,3 +1,7 @@
+// Load .env.test for local dev (CI sets env vars directly so dotenv won't
+// override them — dotenv skips keys that are already present in process.env).
+require('dotenv').config({ path: '.env.test' });
+// Fallback: also read .env for any values not covered by .env.test.
 require('dotenv').config();
 
 // Enable test-mode features (force-verify endpoint, Solana bypass).
