@@ -402,4 +402,32 @@ router.get('/invoices', authenticateApiKey, async (req: Request, res: Response) 
   }
 });
 
+router.post('/stripe/connect', sensitiveOpLimiter, authenticateApiKey, async (req: Request, res: Response) => {
+  try {
+    const merchant = (req as any).merchant!;
+    const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+    const returnUrl = req.body.returnUrl || `${baseUrl}/api/stripe/onboard/return`;
+    const refreshUrl = req.body.refreshUrl || `${baseUrl}/api/stripe/onboard/refresh`;
+
+    const { createConnectOnboardingLink } = await import('../services/stripeService');
+    const { url, accountId } = await createConnectOnboardingLink(
+      merchant.id,
+      merchant.email,
+      returnUrl,
+      refreshUrl
+    );
+
+    logger.info('Stripe Connect onboarding initiated', { merchantId: merchant.id, accountId });
+
+    res.status(200).json({
+      success: true,
+      onboardingUrl: url,
+      stripeAccountId: accountId,
+    });
+  } catch (error: any) {
+    logger.error('Stripe Connect error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create Stripe Connect onboarding link' });
+  }
+});
+
 export default router;

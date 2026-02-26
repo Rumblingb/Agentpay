@@ -5,21 +5,41 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 model Merchant {
-  id            String    @id @default(uuid()) @db.Uuid
-  name          String
-  email         String    @unique
-  apiKeyHash    String    @map("api_key_hash")
-  apiKeySalt    String    @map("api_key_salt")
-  keyPrefix     String    @map("key_prefix")
-  walletAddress String    @map("wallet_address")
-  webhookUrl    String?   @map("webhook_url")
-  isActive      Boolean?  @default(true) @map("is_active")
-  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                       String    @id @default(uuid()) @db.Uuid
+  name                     String
+  email                    String    @unique
+  apiKeyHash               String    @map("api_key_hash")
+  apiKeySalt               String    @map("api_key_salt")
+  keyPrefix                String    @map("key_prefix")
+  walletAddress            String    @map("wallet_address")
+  webhookUrl               String?   @map("webhook_url")
+  stripeConnectedAccountId String?   @map("stripe_connected_account_id")
+  isActive                 Boolean?  @default(true) @map("is_active")
+  createdAt                DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  paymentIntents PaymentIntent[]
 
   @@map("merchants")
+}
+
+model PaymentIntent {
+  id                String    @id @db.Uuid
+  merchantId        String    @map("merchant_id") @db.Uuid
+  amount            Decimal   @db.Decimal(20, 6)
+  currency          String    @default("USDC")
+  status            String    @default("pending")
+  verificationToken String    @unique @map("verification_token")
+  expiresAt         DateTime  @map("expires_at")
+  metadata          Json?
+  createdAt         DateTime? @default(now()) @map("created_at")
+  updatedAt         DateTime? @updatedAt @map("updated_at")
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@map("payment_intents")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.

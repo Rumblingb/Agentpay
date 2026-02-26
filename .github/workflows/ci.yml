@@ -52,7 +52,7 @@ jobs:
         run: npx prisma generate
 
       - name: Initialize database schema
-        run: node -e "require('./scripts/create-db.js')"
+        run: node scripts/create-db.js
 
       - name: Run tests
         run: npm test
