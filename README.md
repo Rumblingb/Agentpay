@@ -1,30 +1,33 @@
-# x402 Payment Server - Week 1 Complete Build
+# AgentPay — Universal Payment Gateway for AI Agents
 
-A production-ready HTTP 402 Payment Required server with USDC payments on Solana, featuring critical security fixes, comprehensive database schema, and full test coverage.
+A production-ready payment server implementing the HTTP 402 Payment Required flow with USDC on Solana, webhook delivery, Stripe Connect fiat rail, and comprehensive security controls.
 
-## 🔒 Critical Security Features
+---
 
-### ✅ Recipient Address Verification (CRITICAL FIX)
-**Prevents attackers from sending payments to their own wallet and claiming they paid you.**
+## 🔒 Security Highlights
 
-The server verifies that:
-1. The transaction ACTUALLY occurred on-chain
-2. The recipient of the USDC **matches your merchant wallet address**
-3. Confirmation depth requirements are met
-4. All transactions are logged for audit trail
+| Feature | Status |
+|---|---|
+| Recipient address verification (on-chain) | ✅ |
+| PBKDF2 API key hashing | ✅ |
+| Webhook SSRF protection | ✅ |
+| Rate limiting (global + per-endpoint) | ✅ |
+| Input validation (Joi) | ✅ |
+| SQL injection prevention (prepared statements) | ✅ |
+| CORS + Helmet security headers | ✅ |
+| HMAC-signed verification certificates | ✅ |
+| Append-only payment audit log | ✅ |
+| Circuit breaker for Solana RPC | ✅ |
+| Startup env-var validation | ✅ |
 
-**Vulnerability Prevented:**
-- ❌ Attacker sends USDC to their wallet (0xAttacker)
-- ❌ Attacker submits the transaction hash to your server claiming they paid you
-- ✅ Server verifies recipient address in transaction != expected merchant wallet
-- ✅ Payment is REJECTED
+---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 20+
-- PostgreSQL 12+
-- Solana devnet account with testnet USDC
+- Node.js ≥ 20
+- PostgreSQL ≥ 12
+- (Optional) Solana mainnet/devnet account with USDC
 
 ### Installation
 
@@ -32,335 +35,216 @@ The server verifies that:
 # 1. Install dependencies
 npm install
 
-# 2. Setup environment variables
+# 2. Configure environment
 cp .env.example .env
-# Edit .env with your database credentials and wallet address
+# Edit .env — set DATABASE_URL, VERIFICATION_SECRET, WEBHOOK_SECRET, etc.
 
-# 3. Initialize database
+# 3. Initialise the database (creates all tables)
 npm run db:create
+
+# 4. Apply incremental migrations
 npm run db:migrate
 
-# 4. Start development server
+# 5. Start the development server (hot-reload)
 npm run dev
 ```
 
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
+| `VERIFICATION_SECRET` | ✅ | — | HMAC secret for payment certificates (≥ 32 random bytes) |
+| `WEBHOOK_SECRET` | ✅ | — | HMAC secret for outbound webhook signatures (≥ 32 random bytes) |
+| `PORT` | | `3001` | HTTP listen port |
+| `NODE_ENV` | | `development` | `development` / `production` / `test` |
+| `SOLANA_RPC_URL` | | `https://api.devnet.solana.com` | **Use a mainnet RPC in production** |
+| `CONFIRMATION_DEPTH` | | `2` | Minimum block confirmations before a payment is accepted |
+| `CORS_ORIGIN` | | `http://localhost:3000` | Allowed CORS origin(s), comma-separated |
+| `RATE_LIMIT_WINDOW_MS` | | `900000` | Global rate-limit window in ms (15 min) |
+| `RATE_LIMIT_MAX_REQUESTS` | | `100` | Max requests per window per IP |
+| `STRIPE_SECRET_KEY` | | — | Stripe secret key (only needed for Stripe Connect features) |
+| `STRIPE_WEBHOOK_SECRET` | | — | Stripe webhook signing secret |
+| `APP_BASE_URL` | | `http://localhost:3001` | Public base URL (used for Stripe return URLs) |
+
+> **Security note**: the server will print a warning at startup if `VERIFICATION_SECRET` or `WEBHOOK_SECRET` is unset or still using the default placeholder.
+
+Generate secure secrets with:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+---
+
 ## 📊 Database Schema
 
-### merchants
-```sql
-- id (UUID)
-- name (VARCHAR)
-- email (UNIQUE)
-- api_key_hash (UNIQUE, PBKDF2 encrypted)
-- api_key_salt
-- wallet_address (UNIQUE, your Solana address)
-- is_active (BOOLEAN)
-- created_at, updated_at
-```
+### Core tables
 
-### transactions
-```sql
-- id (UUID)
-- merchant_id (FK)
-- payment_id (UNIQUE)
-- amount_usdc (DECIMAL)
-- recipient_address (THE CRITICAL SECURITY CHECK)
-- payer_address
-- transaction_hash
-- status (pending/confirmed/failed/expired)
-- confirmation_depth (2+ blocks required)
-- metadata (JSONB)
-- created_at, expires_at
-```
+| Table | Purpose |
+|---|---|
+| `merchants` | Merchant accounts, PBKDF2-hashed API keys, Solana wallet address |
+| `transactions` | Payment requests and their on-chain verification state |
+| `payment_intents` | Orchestration-layer payment intents (Prisma-managed) |
+| `payment_audit_log` | Append-only record of every verification attempt (AML compliance) |
+| `verification_certificates` | HMAC-signed certificates issued on confirmed payments |
+| `webhook_events` | Outbound webhook delivery log with retry state |
+| `webhook_subscriptions` | V2 webhook subscriptions per merchant |
+| `webhook_delivery_logs` | Per-attempt V2 webhook delivery records |
+| `agent_reputation` | Trust scores for AI agent identities |
+| `merchant_invoices` | 2 % platform-fee invoices per confirmed payment |
 
-### Additional Tables
-- `api_logs` - Audit trail of all API calls
-- `rate_limit_counters` - IP + merchant rate limiting
-- `payment_verifications` - Secure verification tokens
-- `webhook_events` - Merchant notifications
+---
 
-## 🔌 API Endpoints
+## 🔌 API Reference
 
-### 1. Register Merchant
-```bash
-POST /api/merchants/register
-Content-Type: application/json
+All endpoints that require authentication use `Authorization: Bearer <api_key>`.
 
-{
-  "name": "My Business",
-  "email": "business@example.com",
-  "walletAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo"
-}
+### Merchant
 
-Response:
-{
-  "success": true,
-  "merchantId": "uuid",
-  "apiKey": "your-secret-api-key",
-  "message": "Store your API key securely. You will not be able to view it again."
-}
-```
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/merchants/register` | — | Register a new merchant |
+| `GET` | `/api/merchants/profile` | ✅ | Get merchant profile |
+| `POST` | `/api/merchants/payments` | ✅ | Create a payment request |
+| `POST` | `/api/merchants/payments/:id/verify` | ✅ | Verify an on-chain payment |
+| `GET` | `/api/merchants/payments/:id` | ✅ | Get a single payment |
+| `GET` | `/api/merchants/payments` | ✅ | List payments + stats |
+| `GET` | `/api/merchants/stats` | ✅ | Merchant statistics |
+| `POST` | `/api/merchants/rotate-key` | ✅ | Rotate API key |
+| `GET` | `/api/merchants/invoices` | ✅ | List platform-fee invoices |
+| `POST` | `/api/merchants/stripe/connect` | ✅ | Start Stripe Connect onboarding |
 
-### 2. Get Profile
-```bash
-GET /api/merchants/profile
-Authorization: Bearer YOUR_API_KEY
+### Payment Intents (Orchestration Layer)
 
-Response:
-{
-  "id": "uuid",
-  "name": "My Business",
-  "email": "business@example.com",
-  "walletAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo",
-  "createdAt": "2024-02-16T..."
-}
-```
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/intents` | ✅ | Create a payment intent |
+| `GET` | `/api/intents/:id` | ✅ | Get intent status |
+| `POST` | `/api/intents/:id/verify` | ✅ | Verify intent payment |
 
-### 3. Create Payment Request
-```bash
-POST /api/merchants/payments
-Authorization: Bearer YOUR_API_KEY
-Content-Type: application/json
+### v1 Agent API
 
-{
-  "amountUsdc": 100,
-  "recipientAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo",
-  "metadata": {
-    "userId": "user123",
-    "contentId": "article42"
-  },
-  "expiryMinutes": 30
-}
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/payment-intents` | ✅ | Create intent (agent-facing) |
+| `GET` | `/api/v1/payment-intents/:id` | ✅ | Get intent (agent-facing) |
+| `POST` | `/api/v1/verify-payment` | ✅ | Standalone verify (no intent) |
 
-Response:
-{
-  "success": true,
-  "transactionId": "uuid",
-  "paymentId": "x402_1708123456_abc123",
-  "amount": 100,
-  "recipientAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo",
-  "instructions": "Send USDC to the recipient address within the expiry time"
-}
-```
+### Webhooks
 
-### 4. Verify Payment (CRITICAL SECURITY)
-```bash
-POST /api/merchants/payments/{transactionId}/verify
-Authorization: Bearer YOUR_API_KEY
-Content-Type: application/json
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/webhooks/subscriptions` | ✅ | Subscribe to events |
+| `GET` | `/api/webhooks/subscriptions` | ✅ | List subscriptions |
+| `DELETE` | `/api/webhooks/subscriptions/:id` | ✅ | Remove subscription |
 
-{
-  "transactionHash": "5J7KvB8mN2...full_solana_tx_hash"
-}
+### Agents & Reputation
 
-Response:
-{
-  "success": true,
-  "verified": true,
-  "payer": "FpCMFDFGW1V9...",
-  "message": "Payment confirmed!"
-}
-```
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/agents/:agentId/reputation` | ✅ | Get agent trust score |
+| `POST` | `/api/agents/:agentId/reputation` | ✅ | Update agent trust score |
 
-**⚠️ SECURITY: This endpoint verifies that:**
-1. The transaction exists on-chain
-2. The recipient address matches your merchant wallet
-3. The transaction succeeded
-4. Confirmation depth >= 2 blocks
+### System
 
-### 5. Get Transaction
-```bash
-GET /api/merchants/payments/{transactionId}
-Authorization: Bearer YOUR_API_KEY
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | — | Health check |
+| `GET` | `/api/protected` | — | Demo 402 resource |
 
-Response:
-{
-  "id": "uuid",
-  "paymentId": "x402_...",
-  "merchantId": "uuid",
-  "amountUsdc": 100,
-  "recipientAddress": "9B5X...",
-  "payerAddress": "FpCM...",
-  "transactionHash": "5J7K...",
-  "status": "confirmed",
-  "confirmationDepth": 45
-}
-```
-
-### 6. List Payments
-```bash
-GET /api/merchants/payments?limit=50&offset=0
-Authorization: Bearer YOUR_API_KEY
-
-Response:
-{
-  "success": true,
-  "transactions": [...],
-  "stats": {
-    "totalTransactions": 25,
-    "confirmedCount": 23,
-    "pendingCount": 2,
-    "failedCount": 0,
-    "totalConfirmedUsdc": 2500
-  }
-}
-```
-
-### 7. Get Statistics
-```bash
-GET /api/merchants/stats
-Authorization: Bearer YOUR_API_KEY
-
-Response:
-{
-  "success": true,
-  "totalTransactions": 25,
-  "confirmedCount": 23,
-  "pendingCount": 2,
-  "failedCount": 0,
-  "totalConfirmedUsdc": 2500
-}
-```
+---
 
 ## 🧪 Testing
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration)
 npm test
 
-# Run with coverage
-npm test -- --coverage
-
-# Run only security tests
+# Security tests only
 npm run test:security
 
 # Watch mode
 npm run test:watch
+
+# Full integration tests (requires Docker)
+npm run test:full
 ```
 
-### Test Coverage
-- ✅ 17+ integration tests
-- ✅ Security tests for recipient verification
-- ✅ API authentication tests
-- ✅ Input validation tests
-- ✅ Rate limiting tests
-- ✅ End-to-end payment flow tests
+Integration and E2E tests require a PostgreSQL database. Start one with:
 
-## 🔐 Security Checklist
-
-### Implemented ✅
-- [x] Recipient address verification (CRITICAL)
-- [x] API key authentication (PBKDF2)
-- [x] Rate limiting (per IP + per merchant)
-- [x] Input validation (Joi)
-- [x] SQL injection prevention (prepared statements)
-- [x] CORS protection
-- [x] Helmet security headers
-- [x] Audit logging
-- [x] Transaction locking (race condition prevention)
-- [x] Confirmation depth checking (2+ blocks)
-
-### Production Hardening (Week 2)
-- [ ] JWT tokens with expiry
-- [ ] Webhook verification signatures
-- [ ] IP whitelist per merchant
-- [ ] Payment encryption at rest
-- [ ] PII redaction in logs
-- [ ] Rate limiting improvements
-- [ ] DDoS protection
-
-## 📋 Week 1 Deliverables Checklist
-
-### Core Functionality
-- [x] x402 payment creation working
-- [x] **Payment verification with recipient check** (CRITICAL)
-- [x] Merchant registration
-- [x] API key authentication
-- [x] Transaction tracking
-
-### Security
-- [x] **Recipient address verification** (CRITICAL FIX)
-- [x] Confirmation depth check (2+ blocks)
-- [x] Rate limiting (IP + merchant)
-- [x] Input validation (Joi)
-- [x] SQL injection prevention
-
-### Testing
-- [x] 17+ tests passing
-- [x] Security tests passing
-- [x] Performance tests <100ms
-- [x] End-to-end flow working
-
-### Database
-- [x] merchants table with API key hashing
-- [x] transactions table with recipient tracking
-- [x] api_logs for audit trail
-- [x] rate_limit_counters for DDoS protection
-- [x] payment_verifications for secure tokens
-- [x] webhook_events for notifications
-
-### Documentation
-- [x] API documentation complete
-- [x] Security documentation
-- [x] README with setup guide
-- [x] Database schema documented
-
-## ⚠️ CRITICAL: Recipient Verification
-
-**This is the single most important security feature.**
-
-### How It Works
-```typescript
-// When merchant submits a transaction hash for verification:
-const verification = await verifyPaymentRecipient(
-  txHash,                                    // e.g., "5J7KvB..."
-  expectedRecipient                          // e.g., merchant's wallet
-);
-
-// The server:
-// 1. Fetches the transaction from Solana blockchain
-// 2. Extracts all token transfers
-// 3. CHECKS: Does ANY transfer have destination == expectedRecipient?
-// 4. If YES: Verify amount, confirmations, etc.
-// 5. If NO: REJECT with clear error
+```bash
+docker-compose up -d
 ```
 
-### Attack Scenario Prevented
+The test database is automatically initialised when running `npm run test:full`.
+
+### Current test coverage
+
+| Suite | Status |
+|---|---|
+| Unit — billing service | ✅ Pass |
+| Unit — certificate service | ✅ Pass |
+| Unit — intent service | ✅ Pass |
+| Unit — Stripe Connect | ✅ Pass |
+| Unit — v1 intents | ✅ Pass |
+| Security — address validation, circuit breaker, SSRF | ✅ Pass |
+| Webhooks API | ✅ Pass |
+| Stripe webhooks | ✅ Pass |
+| Integration (requires DB) | DB required |
+| E2E (requires DB) | DB required |
+
+---
+
+## ⚠️ Recipient Address Verification
+
+**This is the single most important security control.**
+
+When a merchant calls `/verify`, the server:
+1. Fetches the transaction from the Solana blockchain via the configured RPC node
+2. Parses all SPL-token `transfer` instructions
+3. **Verifies** the destination matches the merchant's registered wallet address
+4. Checks that `confirmationDepth ≥ CONFIRMATION_DEPTH` (default: 2 blocks)
+5. Issues a signed HMAC certificate on success
+
+### Attack scenario prevented
+
 ```
-❌ BEFORE (Vulnerable):
-  1. Attacker sends 100 USDC to 0xAttacker
-  2. Attacker submits that tx hash to your server
-  3. Server doesn't check recipient address
-  4. Attacker gets access to your content
-  5. You never received payment!
+❌ Without verification:
+  1. Attacker sends USDC to their own wallet
+  2. Submits that tx hash to your server
+  3. Server grants access — you never got paid
 
-✅ AFTER (Secured):
-  1. Attacker sends 100 USDC to 0xAttacker
-  2. Attacker submits that tx hash to your server
-  3. Server verifies: recipient in tx (0xAttacker) == expected (0xYourWallet)?
-  4. MISMATCH DETECTED
-  5. Server logs security event and REJECTS
-  6. Attacker gets 401 error
+✅ With AgentPay:
+  1. Attacker sends USDC to their own wallet
+  2. Submits tx hash to AgentPay
+  3. Server checks on-chain: destination ≠ merchant wallet
+  4. Request rejected with 400
 ```
 
-## 🚨 Important Notes
+---
 
-1. **API Keys**: Generated only at registration. Store securely. No way to recover.
-2. **Wallet Address**: The Solana wallet that receives payments. Use a dedicated account.
-3. **Recipient Address**: In payment requests, this is YOUR wallet. Verify this is set correctly.
-4. **Transaction Verification**: Only payments to YOUR wallet are accepted.
+## 🚢 Production Deployment
 
-## 📞 Support
+### Docker / Render
 
-For issues or questions:
-1. Check the logs: `logs/` directory
-2. Review security tests: `tests/security.test.ts`
-3. Verify database schema: `src/db/init.ts`
+A `render.yaml` and `docker-compose.yml` are included. Set all required environment variables in your platform's secrets manager before deploying.
+
+Minimum checklist before going live:
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Set `SOLANA_RPC_URL` to a reliable **mainnet** endpoint
+- [ ] Set `VERIFICATION_SECRET` to ≥ 32 random bytes (not the placeholder)
+- [ ] Set `WEBHOOK_SECRET` to ≥ 32 random bytes (not the placeholder)
+- [ ] Set `DATABASE_URL` to your production database
+- [ ] Set `CORS_ORIGIN` to your actual frontend domain
+- [ ] Configure `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` if using fiat rail
+- [ ] Run `npm run db:create && npm run db:migrate` against the production database
+- [ ] Set up log aggregation (Pino outputs structured JSON)
+
+---
 
 ## 📄 License
 
 MIT
-
----
-
-**Built with security-first approach. Recipient address verification prevents payment fraud.**

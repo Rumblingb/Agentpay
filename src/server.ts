@@ -24,6 +24,42 @@ import {
 
 dotenv.config();
 
+// --- ENVIRONMENT VARIABLE VALIDATION ---
+// Warn loudly at startup if required variables are missing so misconfiguration
+// is caught before the server accepts real traffic.
+(function validateEnv() {
+  const NODE_ENV = process.env.NODE_ENV ?? 'development';
+  const warnings: string[] = [];
+
+  // VERIFICATION_SECRET is required for signing payment certificates
+  if (!process.env.VERIFICATION_SECRET || process.env.VERIFICATION_SECRET === 'change-me-to-a-random-32-char-string') {
+    warnings.push('VERIFICATION_SECRET is not set or is using the default placeholder — certificate signing will fail');
+  }
+
+  // WEBHOOK_SECRET should be changed from the default
+  if (!process.env.WEBHOOK_SECRET || process.env.WEBHOOK_SECRET === 'change-me-to-a-random-32-char-string') {
+    warnings.push('WEBHOOK_SECRET is not set or is using the default placeholder — webhook signatures will be weak');
+  }
+
+  // Warn if SOLANA_RPC_URL falls back to devnet in production
+  if (NODE_ENV === 'production' && !process.env.SOLANA_RPC_URL) {
+    warnings.push('SOLANA_RPC_URL is not set — defaulting to devnet (insecure for production)');
+  }
+
+  // CONFIRMATION_DEPTH must be a valid positive integer
+  const depth = parseInt(process.env.CONFIRMATION_DEPTH ?? '2', 10);
+  if (isNaN(depth) || depth < 1) {
+    warnings.push(`CONFIRMATION_DEPTH="${process.env.CONFIRMATION_DEPTH}" is invalid — must be a positive integer; defaulting to 2`);
+    process.env.CONFIRMATION_DEPTH = '2';
+  }
+
+  if (warnings.length > 0 && NODE_ENV !== 'test') {
+    for (const w of warnings) {
+      console.warn(`[ENV WARNING] ${w}`);
+    }
+  }
+})();
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -198,8 +234,8 @@ app.post('/api/payments', authenticateApiKey, async (req: Request, res: Response
       description: description ?? null,
       instructions: `Send ${amountUsdc} USDC to ${recipientAddress} on Solana within ${expiryMinutes} minutes, then call POST /api/merchants/payments/${transactionId}/verify with your transactionHash.`,
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 

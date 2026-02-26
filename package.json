@@ -16,7 +16,7 @@
     "db:create": "node scripts/create-db.js",
     "db:migrate": "node scripts/migrate.js",
     "agent": "tsx scripts/test-agent.ts",
-    "clean": "if exist dist rmdir /s /q dist",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio"
