@@ -190,16 +190,28 @@ describe('POST /api/v1/payment-intents', () => {
 });
 
 describe('GET /api/v1/payment-intents/:intentId', () => {
-  const intentId = 'intent-uuid-0001';
+  const validUuidIntentId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12';
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  it('returns 400 when intentId is not a valid UUID', async () => {
+    const res = await request(app).get('/api/v1/payment-intents/not-a-uuid');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid intent id/i);
+  });
+
+  it('returns 400 when intentId is the string "undefined"', async () => {
+    const res = await request(app).get('/api/v1/payment-intents/undefined');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid intent id/i);
+  });
+
   it('returns 404 when intent does not exist', async () => {
     mockQuery.mockResolvedValue({ rows: [] });
 
-    const res = await request(app).get(`/api/v1/payment-intents/${intentId}`);
+    const res = await request(app).get(`/api/v1/payment-intents/${validUuidIntentId}`);
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/not found/i);
@@ -209,7 +221,7 @@ describe('GET /api/v1/payment-intents/:intentId', () => {
     const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
     mockQuery.mockResolvedValue({
       rows: [{
-        id: intentId,
+        id: validUuidIntentId,
         merchant_id: VALID_MERCHANT_ID,
         amount: '10.000000',
         currency: 'USDC',
@@ -221,11 +233,11 @@ describe('GET /api/v1/payment-intents/:intentId', () => {
       }],
     });
 
-    const res = await request(app).get(`/api/v1/payment-intents/${intentId}`);
+    const res = await request(app).get(`/api/v1/payment-intents/${validUuidIntentId}`);
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.intentId).toBe(intentId);
+    expect(res.body.intentId).toBe(validUuidIntentId);
     expect(res.body.status).toBe('pending');
     expect(res.body.metadata).toMatchObject({ agentId: VALID_AGENT_ID });
   });

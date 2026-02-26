@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import { query } from '../db/index';
 import { logger } from '../logger';
 import { verifyPaymentRecipient } from '../security/payment-verification';
@@ -53,6 +53,9 @@ export async function createPaymentRequest(
 }
 
 export async function getTransaction(transactionId: string): Promise<Transaction | null> {
+  if (!transactionId || !uuidValidate(transactionId)) {
+    throw new Error('Invalid transaction ID');
+  }
   try {
     const result = await query(
       `SELECT id, merchant_id as "merchantId", payment_id as "paymentId", amount_usdc as "amountUsdc",
@@ -79,6 +82,9 @@ export async function getMerchantTransactions(
   limit: number = 50,
   offset: number = 0
 ): Promise<Transaction[]> {
+  if (!merchantId || !uuidValidate(merchantId)) {
+    throw new Error('Invalid merchant ID');
+  }
   try {
     const result = await query(
       `SELECT id, merchant_id as "merchantId", payment_id as "paymentId", amount_usdc as "amountUsdc",
@@ -103,6 +109,9 @@ export async function getMerchantStats(merchantId: string): Promise<{
   failedCount: number;
   totalConfirmedUsdc: number;
 }> {
+  if (!merchantId || !uuidValidate(merchantId)) {
+    throw new Error('Invalid merchant ID');
+  }
   try {
     const result = await query(
       `SELECT COUNT(*) as "totalCount",
