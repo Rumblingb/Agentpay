@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,53 +7,40 @@ datasource db {
   provider = "postgresql"
 }
 
-// Maps to the existing `merchants` table created by scripts/create-db.js
 model Merchant {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  email       String   @unique @db.VarChar(255)
-  apiKeyHash  String   @map("api_key_hash") @db.VarChar(255)
-  apiKeySalt  String   @map("api_key_salt") @db.VarChar(255)
-  keyPrefix   String   @map("key_prefix") @db.VarChar(8)
-  walletAddress String @unique @map("wallet_address") @db.VarChar(255)
-  webhookUrl  String?  @map("webhook_url")
-  stripeConnectedAccountId String? @map("stripe_connected_account_id") @db.VarChar(255)
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  paymentIntents PaymentIntent[]
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String
+  email         String    @unique
+  apiKeyHash    String    @map("api_key_hash")
+  apiKeySalt    String    @map("api_key_salt")
+  keyPrefix     String    @map("key_prefix")
+  walletAddress String    @map("wallet_address")
+  webhookUrl    String?   @map("webhook_url")
+  isActive      Boolean?  @default(true) @map("is_active")
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("merchants")
 }
 
-model PaymentIntent {
-  id                 String   @id @default(uuid()) @db.Uuid
-  merchantId         String   @map("merchant_id") @db.Uuid
-  amount             Decimal  @db.Decimal(20, 6)
-  currency           String   @db.VarChar(10)
-  status             String   @default("pending") @db.VarChar(20)
-  verificationToken  String   @unique @map("verification_token") @db.VarChar(255)
-  expiresAt          DateTime @map("expires_at")
-  metadata           Json?
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  merchant              Merchant               @relation(fields: [merchantId], references: [id])
-  verificationCertificates VerificationCertificate[]
-
-  @@map("payment_intents")
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_audit_log {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchant_id           String?   @db.Uuid
+  ip_address            String?
+  transaction_signature String?
+  endpoint              String?
+  method                String?
+  succeeded             Boolean?
+  failure_reason        String?
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
 }
 
-model VerificationCertificate {
-  id        String   @id @default(uuid()) @db.Uuid
-  intentId  String?  @map("intent_id") @db.Uuid
-  payload   String
-  signature String
-  encoded   String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  intent PaymentIntent? @relation(fields: [intentId], references: [id])
-
-  @@map("verification_certificates")
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transactions {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchant_id String?   @db.Uuid
+  signature   String    @unique
+  amount      Decimal?  @db.Decimal
+  status      String?   @default("pending")
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
 }
