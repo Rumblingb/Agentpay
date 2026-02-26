@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
-
-const API_BASE =
-  process.env.AGENTPAY_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:3001';
+import { API_BASE } from '@/lib/api';
 
 function authHeaders(apiKey: string) {
   return { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };

@@ -3,7 +3,7 @@
  * Calls the AgentPay backend with the merchant's API key.
  */
 
-const API_BASE =
+export const API_BASE =
   process.env.AGENTPAY_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   'http://localhost:3001';

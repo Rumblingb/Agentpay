@@ -45,8 +45,10 @@ const verifyLimiter = rateLimit({
 // Security & utility middleware
 app.use(helmet());
 app.use(cors({
-  // This tells the browser: "It's okay for the Dashboard on 3000 to see my data"
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  // Read from CORS_ORIGIN env var; fall back to the default local dashboard URL
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
 }));
 if (process.env.NODE_ENV !== 'test') {
