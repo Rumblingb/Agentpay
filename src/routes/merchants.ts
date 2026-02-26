@@ -12,47 +12,9 @@ import { billMerchant } from '../services/billingService';
 import { query } from '../db/index';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
+import { validateWebhookUrl } from '../utils/webhook-validation';
 
 const router = Router();
-
-/**
- * Validates a webhook URL to prevent SSRF attacks.
- * Rejects URLs that resolve to private/loopback networks.
- * Returns null on success, or an error message string on failure.
- */
-function validateWebhookUrl(rawUrl: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return 'webhookUrl must be a valid URL';
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return 'webhookUrl must use http or https';
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  // Block loopback / localhost (handle both bare and bracket-enclosed IPv6)
-  const normalizedHostname = hostname.replace(/^\[|\]$/g, '');
-  if (normalizedHostname === 'localhost' || normalizedHostname === '127.0.0.1' || normalizedHostname === '::1') {
-    return 'webhookUrl must not point to a loopback address';
-  }
-
-  // Block private IPv4 ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x)
-  const privateIpv4 = /^(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+)$/;
-  if (privateIpv4.test(normalizedHostname)) {
-    return 'webhookUrl must not point to a private IP range';
-  }
-
-  // Block metadata service IPs (AWS, GCP, Azure)
-  if (normalizedHostname === '169.254.169.254' || normalizedHostname === 'metadata.google.internal') {
-    return 'webhookUrl must not point to a cloud metadata service';
-  }
-
-  return null;
-}
 
 /** Builds the standard payload for a payment.verified webhook event. */
 function buildPaymentVerifiedPayload(
