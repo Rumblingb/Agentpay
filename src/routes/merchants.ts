@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import rateLimit from 'express-rate-limit';
+import { validate as uuidValidate } from 'uuid';
 import * as merchantsService from '../services/merchants';
 import * as transactionsService from '../services/transactions';
 import * as webhooksService from '../services/webhooks';
@@ -12,6 +13,7 @@ import { billMerchant } from '../services/billingService';
 import { query } from '../db/index';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
+import { validateWebhookUrl } from '../utils/webhook-validation';
 
 const router = Router();
 
@@ -75,6 +77,15 @@ router.post('/register', async (req: Request, res: Response) => {
       return;
     }
 
+    // Validate webhook URL against SSRF risks before persisting
+    if (value.webhookUrl) {
+      const urlError = validateWebhookUrl(value.webhookUrl);
+      if (urlError) {
+        res.status(400).json({ error: urlError });
+        return;
+      }
+    }
+
     const { merchantId, apiKey } = await merchantsService.registerMerchant(
       value.name,
       value.email,
@@ -90,9 +101,9 @@ router.post('/register', async (req: Request, res: Response) => {
       apiKey,
       message: 'Store your API key securely. You will not be able to view it again.',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Registration error:', error);
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Registration failed' });
   }
 });
 
@@ -110,7 +121,7 @@ router.get('/profile', authenticateApiKey, async (req: Request, res: Response) =
       walletAddress: merchant.walletAddress,
       createdAt: merchant.createdAt,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Profile fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
@@ -149,15 +160,20 @@ router.post('/payments', authenticateApiKey, async (req: Request, res: Response)
       recipientAddress: value.recipientAddress,
       instructions: 'Send USDC to the recipient address within the expiry time',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Payment creation error:', error);
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Request failed' });
   }
 });
 
 router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: Request, res: Response) => {
   const merchant = (req as any).merchant!;
   const ipAddress = req.ip ?? req.socket.remoteAddress ?? null;
+
+  if (!uuidValidate(req.params.transactionId)) {
+    res.status(400).json({ error: 'Invalid transaction ID' });
+    return;
+  }
 
   try {
     const { error, value } = verifyPaymentSchema.validate(req.body);
@@ -297,7 +313,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       certificate,
       message: verification.verified ? 'Payment confirmed!' : 'Payment detected but pending confirmations',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Audit failed verification
     await auditService.logVerifyAttempt({
       merchantId: merchant.id,
@@ -307,14 +323,19 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
       endpoint: req.path,
       method: req.method,
       succeeded: false,
-      failureReason: error?.message ?? 'Unknown error',
+      failureReason: error instanceof Error ? error.message : 'Unknown error',
     });
     logger.error('Payment verification error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
 router.get('/payments/:transactionId', authenticateApiKey, async (req: Request, res: Response) => {
+  if (!uuidValidate(req.params.transactionId)) {
+    res.status(400).json({ error: 'Invalid transaction ID' });
+    return;
+  }
+
   try {
     const tx = await transactionsService.getTransaction(req.params.transactionId);
     if (!tx) {
@@ -328,9 +349,9 @@ router.get('/payments/:transactionId', authenticateApiKey, async (req: Request, 
     }
 
     res.json(tx);
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Transaction fetch error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
@@ -353,9 +374,9 @@ router.get('/payments', authenticateApiKey, async (req: Request, res: Response) 
       stats,
       pagination: { limit, offset },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Transactions list error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
@@ -366,9 +387,9 @@ router.get('/stats', authenticateApiKey, async (req: Request, res: Response) => 
       success: true,
       ...stats,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Stats fetch error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
@@ -383,7 +404,7 @@ router.post('/rotate-key', sensitiveOpLimiter, authenticateApiKey, async (req: R
       apiKey: newKey,
       message: 'Please store this key securely. It will not be shown again.',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Key rotation error:', error);
     res.status(500).json({ error: 'Failed to rotate API key' });
   }
@@ -396,9 +417,9 @@ router.get('/invoices', authenticateApiKey, async (req: Request, res: Response) 
     const offset = parseInt(req.query.offset as string) || 0;
     const invoices = await getMerchantInvoices((req as any).merchant!.id, limit, offset);
     res.json({ success: true, invoices, pagination: { limit, offset } });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Invoices fetch error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
@@ -424,9 +445,9 @@ router.post('/stripe/connect', sensitiveOpLimiter, authenticateApiKey, async (re
       onboardingUrl: url,
       stripeAccountId: accountId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Stripe Connect error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create Stripe Connect onboarding link' });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to create Stripe Connect onboarding link' });
   }
 });
 

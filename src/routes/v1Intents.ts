@@ -7,6 +7,7 @@
  */
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
+import { validate as uuidValidate } from 'uuid';
 import * as intentService from '../services/intentService';
 import { query } from '../db/index';
 import { logger } from '../logger';
@@ -113,6 +114,11 @@ router.post('/', async (req: Request, res: Response) => {
  */
 router.get('/:intentId', async (req: Request, res: Response) => {
   const { intentId } = req.params;
+
+  if (!intentId || !uuidValidate(intentId)) {
+    res.status(400).json({ error: 'Invalid intent ID' });
+    return;
+  }
 
   try {
     const result = await query(
