@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import rateLimit from 'express-rate-limit';
+import { validate as uuidValidate } from 'uuid';
 import * as merchantsService from '../services/merchants';
 import * as transactionsService from '../services/transactions';
 import * as webhooksService from '../services/webhooks';
@@ -169,6 +170,11 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
   const merchant = (req as any).merchant!;
   const ipAddress = req.ip ?? req.socket.remoteAddress ?? null;
 
+  if (!uuidValidate(req.params.transactionId)) {
+    res.status(400).json({ error: 'Invalid transaction ID' });
+    return;
+  }
+
   try {
     const { error, value } = verifyPaymentSchema.validate(req.body);
     if (error) {
@@ -325,6 +331,11 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: R
 });
 
 router.get('/payments/:transactionId', authenticateApiKey, async (req: Request, res: Response) => {
+  if (!uuidValidate(req.params.transactionId)) {
+    res.status(400).json({ error: 'Invalid transaction ID' });
+    return;
+  }
+
   try {
     const tx = await transactionsService.getTransaction(req.params.transactionId);
     if (!tx) {
