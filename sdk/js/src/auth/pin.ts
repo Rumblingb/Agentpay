@@ -6,12 +6,22 @@ export function generatePin(length = 6): string {
   return digits.join('');
 }
 
-/** Hash a PIN using SHA-256 (for client-side pre-hashing before sending over HTTPS). */
+/**
+ * Hash a PIN using SHA-256.
+ * NOTE: This is a client-side convenience helper for scenarios where you want
+ * to avoid sending the raw PIN over the network (defense-in-depth). The server
+ * always re-hashes with bcrypt; this does not replace server-side hashing.
+ */
 export function hashPin(pin: string): string {
   return crypto.createHash('sha256').update(pin).digest('hex');
 }
 
-/** Verify a PIN against its SHA-256 hash. */
+/** Timing-safe comparison of a PIN against its SHA-256 hash. */
 export function verifyPin(pin: string, hash: string): boolean {
-  return hashPin(pin) === hash;
+  const computed = hashPin(pin);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+  } catch {
+    return false;
+  }
 }

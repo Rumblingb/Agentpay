@@ -31,7 +31,12 @@ router.get('/:txHash', async (req: Request, res: Response) => {
       settlementTimestamp: row?.created_at ? new Date(row.created_at).toISOString() : null,
     };
 
-    const secret = process.env.WEBHOOK_SECRET || process.env.AGENTPAY_HMAC_SECRET || 'default-secret';
+    const secret = process.env.WEBHOOK_SECRET || process.env.AGENTPAY_HMAC_SECRET;
+    if (!secret) {
+      logger.error('HMAC secret not configured for verify endpoint');
+      res.status(500).json({ error: 'Server misconfiguration: HMAC secret not set' });
+      return;
+    }
     const signature = crypto
       .createHmac('sha256', secret)
       .update(JSON.stringify(payload))
