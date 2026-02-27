@@ -201,10 +201,19 @@ class AgentPayMoltbookSDK extends EventEmitter {
   /** Start an Express webhook server to receive AgentPay events. */
   setupWebhookServer(port) {
     const express = require('express');
+    const rateLimit = require('express-rate-limit');
     const app = express();
     app.use(express.json());
 
-    app.post('/webhooks/agentpay', (req, res) => {
+    const webhookLimiter = rateLimit({
+      windowMs: 60 * 1000,
+      max: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Too many requests' },
+    });
+
+    app.post('/webhooks/agentpay', webhookLimiter, (req, res) => {
       const signature = req.headers['x-agentpay-signature'];
       if (!this.verifyWebhookSignature(req.body, signature)) {
         return res.status(401).send('Invalid signature');
