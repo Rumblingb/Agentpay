@@ -6,6 +6,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2026-01-28.clover',
 });
 
+/** Returns the shared Stripe client singleton. */
+export function getStripe(): Stripe {
+  return stripe;
+}
+
 /**
  * Creates a Stripe Connect account and returns an onboarding URL.
  * Persists the connected account ID on the merchant row.

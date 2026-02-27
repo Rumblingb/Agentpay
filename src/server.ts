@@ -11,6 +11,10 @@ import webhooksRouter from './routes/webhooks';
 import stripeRouter from './routes/stripe';
 import stripeWebhooksRouter from './routes/stripeWebhooks';
 import agentsRouter from './routes/agents';
+import agentIdentityRouter from './routes/agentIdentity';
+import delegationRouter from './routes/delegation';
+import verifyRouter from './routes/verify';
+import fiatRouter from './routes/fiat';
 import v1IntentsRouter from './routes/v1Intents';
 import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
@@ -84,6 +88,14 @@ app.use('/api/stripe', stripeRouter);
 
 // --- AGENT API ROUTES ---
 app.use('/api/agents', agentsRouter);
+app.use('/api/agents', agentIdentityRouter);
+app.use('/api/agents/delegation', delegationRouter);
+
+// --- PUBLIC VERIFICATION ---
+app.use('/api/verify', verifyRouter);
+
+// --- FIAT RAILS ---
+app.use('/api/fiat', fiatRouter);
 
 // --- AGENT-FACING PAYMENT INTENTS (v1 API) ---
 app.use('/api/v1/payment-intents', v1IntentsRouter);
