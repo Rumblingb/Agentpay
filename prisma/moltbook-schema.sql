@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS bots (
   daily_spending_limit     DECIMAL(18, 6) DEFAULT 10.00,
   per_tx_limit             DECIMAL(18, 6) DEFAULT 2.00,
   auto_approve_under       DECIMAL(18, 6) DEFAULT 0.50,
+  daily_auto_approve_cap   DECIMAL(18, 6) DEFAULT 5.00,
+  require_pin_above        DECIMAL(18, 6),
+  alert_webhook_url        TEXT,
+  pin_hash                 TEXT,
 
   -- Financial stats
   balance_usdc             DECIMAL(18, 6) DEFAULT 0,
@@ -245,7 +249,29 @@ CREATE TABLE IF NOT EXISTS moltbook_daily_stats (
 CREATE INDEX IF NOT EXISTS idx_moltbook_daily_stats_date ON moltbook_daily_stats(date DESC);
 
 -- ===========================
--- 8. VIEWS
+-- 8. SPENDING VIOLATION LOGS
+-- ===========================
+
+CREATE TABLE IF NOT EXISTS spending_violation_logs (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bot_id         UUID REFERENCES bots(id) ON DELETE CASCADE,
+
+  amount         DECIMAL(18, 6) NOT NULL,
+  violation_type VARCHAR(100) NOT NULL,
+  description    TEXT,
+
+  daily_limit    DECIMAL(18, 6),
+  per_tx_limit   DECIMAL(18, 6),
+  today_spent    DECIMAL(18, 6),
+
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_violation_logs_bot ON spending_violation_logs(bot_id);
+CREATE INDEX IF NOT EXISTS idx_violation_logs_created ON spending_violation_logs(created_at DESC);
+
+-- ===========================
+-- 9. VIEWS
 -- ===========================
 
 CREATE OR REPLACE VIEW bot_leaderboard AS

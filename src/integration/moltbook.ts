@@ -41,8 +41,10 @@ export interface BotPaymentData {
 export interface SpendingPolicyResult {
   approved: boolean;
   auto_approved: boolean;
+  requires_pin?: boolean;
   reason?: string;
   remaining_daily?: number;
+  remaining_auto_approve_daily?: number;
 }
 
 const FEE_STRUCTURE = {
@@ -264,13 +266,22 @@ export class MoltbookIntegration {
 
   /**
    * Check whether a bot is allowed to spend `amount` under its spending policy.
+   * Enhanced with: daily auto-approve cap, require-PIN-above-X, and webhook alerts.
    */
-  async checkSpendingPolicy(botId: string, amount: number): Promise<SpendingPolicyResult> {
+  async checkSpendingPolicy(botId: string, amount: number, pin?: string): Promise<SpendingPolicyResult> {
     const bot = await this.agentpayGet(`/v1/bots/${botId}`);
     const policy = bot.spending_policy;
     const todaySpent = await this.getTodaySpending(botId);
 
+    // 1. Daily max spend cap
     if (todaySpent + amount > policy.daily_max) {
+      if (policy.alert_webhook_url) {
+        void this.fireAlertWebhook(policy.alert_webhook_url, {
+          bot_id: botId,
+          amount,
+          reason: 'Daily spending limit exceeded',
+        });
+      }
       return {
         approved: false,
         auto_approved: false,
@@ -279,14 +290,55 @@ export class MoltbookIntegration {
       };
     }
 
+    // 2. Per-transaction max
     if (amount > policy.per_tx_max) {
+      if (policy.alert_webhook_url) {
+        void this.fireAlertWebhook(policy.alert_webhook_url, {
+          bot_id: botId,
+          amount,
+          reason: 'Transaction limit exceeded',
+        });
+      }
       return { approved: false, auto_approved: false, reason: 'Transaction limit exceeded' };
+    }
+
+    // 3. PIN requirement (require_pin_above field)
+    const requirePinAbove: number | null = policy.require_pin_above ?? null;
+    const requiresPin = requirePinAbove !== null && amount >= requirePinAbove;
+    if (requiresPin && !pin) {
+      return {
+        approved: false,
+        auto_approved: false,
+        requires_pin: true,
+        reason: `PIN required for transactions above ${requirePinAbove}`,
+        remaining_daily: policy.daily_max - todaySpent,
+      };
+    }
+
+    // 4. Daily auto-approve cap
+    const dailyAutoApproveCap: number | null = policy.daily_auto_approve_cap ?? null;
+    const wouldBeAutoApproved = amount < policy.auto_approve_under;
+    if (wouldBeAutoApproved && dailyAutoApproveCap !== null) {
+      const todayAutoApproved = await this.getTodayAutoApprovedSpending(botId);
+      if (todayAutoApproved + amount > dailyAutoApproveCap) {
+        return {
+          approved: true,
+          auto_approved: false,
+          reason: 'Daily auto-approve cap reached; manual approval required',
+          remaining_daily: policy.daily_max - todaySpent,
+          remaining_auto_approve_daily: 0,
+        };
+      }
     }
 
     return {
       approved: true,
-      auto_approved: amount < policy.auto_approve_under,
+      auto_approved: wouldBeAutoApproved,
+      requires_pin: requiresPin,
       remaining_daily: policy.daily_max - todaySpent,
+      remaining_auto_approve_daily: dailyAutoApproveCap != null
+        ? Math.max(0, dailyAutoApproveCap - await this.getTodayAutoApprovedSpending(botId) - (wouldBeAutoApproved ? amount : 0))
+        : undefined,
     };
   }
 
@@ -345,6 +397,16 @@ export class MoltbookIntegration {
   /** Return total spending for a bot today in USD. */
   protected async getTodaySpending(_botId: string): Promise<number> {
     return 0;
+  }
+
+  /** Return auto-approved spending for a bot today in USD. */
+  protected async getTodayAutoApprovedSpending(_botId: string): Promise<number> {
+    return 0;
+  }
+
+  /** Fire an alert webhook for a spending policy violation (fire-and-forget). */
+  protected async fireAlertWebhook(_url: string, _payload: Record<string, unknown>): Promise<void> {
+    // Production: POST _payload to _url with HMAC signature.
   }
 }
 
