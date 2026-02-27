@@ -13,6 +13,12 @@ jest.mock('../src/db/index', () => ({
   closePool: jest.fn(),
 }));
 
+// --- mock prisma to prevent ESM import issues ---
+jest.mock('../src/lib/prisma', () => ({
+  default: {},
+  prisma: {},
+}));
+
 // --- mock axios (factory must not reference outer vars due to hoisting) ---
 jest.mock('axios', () => ({
   __esModule: true,

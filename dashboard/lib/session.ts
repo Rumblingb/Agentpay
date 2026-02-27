@@ -53,6 +53,9 @@ export async function verifySession(cookie: string): Promise<SessionPayload | nu
   try {
     sigBytes = new Uint8Array(Buffer.from(sigStr, 'base64url'));
     if (sigBytes.length === 0) return null;
+    // Reject non-canonical base64url encodings (e.g. flipped padding bits).
+    // Re-encoding the decoded bytes must round-trip back to the original string.
+    if (Buffer.from(sigBytes).toString('base64url') !== sigStr) return null;
   } catch {
     return null;
   }
