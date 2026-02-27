@@ -16,6 +16,7 @@ import delegationRouter from './routes/delegation';
 import verifyRouter from './routes/verify';
 import fiatRouter from './routes/fiat';
 import v1IntentsRouter from './routes/v1Intents';
+import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook';
 import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
@@ -99,6 +100,10 @@ app.use('/api/fiat', fiatRouter);
 
 // --- AGENT-FACING PAYMENT INTENTS (v1 API) ---
 app.use('/api/v1/payment-intents', v1IntentsRouter);
+
+// --- MOLTBOOK BOT ECONOMY ---
+app.use('/api/moltbook', moltbookRouter);
+app.use('/api/admin/moltbook', adminMoltbookRouter);
 
 // --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
 if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {
