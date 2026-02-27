@@ -4,6 +4,7 @@ export default {
   setupFiles: ['<rootDir>/jest.setup.cjs'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
+      diagnostics: false,
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,

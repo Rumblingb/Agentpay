@@ -9,6 +9,7 @@ import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import { validate as uuidValidate } from 'uuid';
 import * as intentService from '../services/intentService';
+import * as agentIdentityService from '../services/agentIdentityService';
 import { query } from '../db/index';
 import { logger } from '../logger';
 
@@ -19,6 +20,7 @@ const createAgentIntentSchema = Joi.object({
   agentId: Joi.string().min(1).max(255).required(),
   amount: Joi.number().positive().required(),
   currency: Joi.string().valid('USDC').uppercase().default('USDC'),
+  pin: Joi.string().optional(),
   metadata: Joi.object().optional(),
 });
 
@@ -40,9 +42,18 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const { merchantId, agentId, amount, currency, metadata } = value;
+  const { merchantId, agentId, amount, currency, pin, metadata } = value;
 
   try {
+    // If a PIN is provided, verify it before proceeding
+    if (pin) {
+      const pinValid = await agentIdentityService.verifyPin(agentId, pin);
+      if (!pinValid) {
+        res.status(401).json({ error: 'Invalid PIN' });
+        return;
+      }
+    }
+
     // Look up merchant to validate existence and fetch wallet + Stripe account
     const merchantResult = await query(
       `SELECT id, wallet_address, webhook_url, stripe_connected_account_id
