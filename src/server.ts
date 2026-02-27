@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -22,6 +22,7 @@ import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
 import * as transactionsService from './services/transactions';
 import { startSolanaListener } from './services/solana-listener';
+import { logger } from './logger';
 import {
   verifyPaymentRecipient,
   isValidSolanaAddress,
@@ -105,8 +106,8 @@ app.use('/api/v1/payment-intents', v1IntentsRouter);
 app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
 
-// --- TEST-MODE ROUTES (NODE_ENV=test + AGENTPAY_TEST_MODE=true only) ---
-if (process.env.NODE_ENV === 'test' && process.env.AGENTPAY_TEST_MODE === 'true') {
+// --- TEST-MODE ROUTES (non-production + AGENTPAY_TEST_MODE=true only) ---
+if (process.env.NODE_ENV !== 'production' && process.env.AGENTPAY_TEST_MODE === 'true') {
   app.use('/api/test', testRouter);
 }
 
@@ -228,5 +229,35 @@ if (process.env.NODE_ENV !== 'test') {
   });
   startSolanaListener();
 }
+
+// --- GLOBAL ERROR HANDLER (must be registered after all routes) ---
+// Returns enriched error payloads with human-readable messages and fix guidance.
+app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
+  const code: string = error.code ?? error.type ?? 'INTERNAL_ERROR';
+
+  if (code === 'SPENDING_POLICY_VIOLATION' || (error.message && /spending policy/i.test(error.message))) {
+    res.status(402).json({
+      error: 'SPENDING_POLICY_VIOLATION',
+      message: error.message || 'This transaction would violate your spending policy.',
+      details: error.details ?? {},
+      help: {
+        suggestion: 'You can increase your limits in settings.',
+        link: 'https://docs.agentpay.gg/spending-limits',
+        fix: 'PATCH /api/moltbook/bots/:botId/spending-policy',
+      },
+    });
+    return;
+  }
+
+  logger.error('Unhandled error', { code, message: error.message, stack: error.stack });
+  res.status(500).json({
+    error: 'INTERNAL_ERROR',
+    message: 'An unexpected error occurred.',
+    help: {
+      suggestion: 'If this persists, check the server logs or contact support.',
+      link: 'https://docs.agentpay.gg/errors',
+    },
+  });
+});
 
 export default app;

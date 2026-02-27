@@ -79,4 +79,36 @@ router.post(
   }
 );
 
+/**
+ * Simulate a test tip to a bot (TEST_MODE only).
+ * Creates a fake tip transaction to demonstrate the tip_received flow.
+ */
+router.post(
+  '/simulate-tip',
+  authenticateApiKey,
+  async (req: Request, res: Response) => {
+    const merchant = (req as any).merchant!;
+    const amount: number = Number(req.body.amount) || 1.00;
+    const fee = parseFloat((amount * 0.05).toFixed(6));
+    const botReceives = parseFloat((amount - fee).toFixed(6));
+
+    try {
+      res.json({
+        success: true,
+        event: 'tip_received',
+        tipId: `test-tip-${Date.now()}`,
+        merchantId: merchant.id,
+        amount,
+        fee,
+        botReceives,
+        currency: 'USDC',
+        timestamp: new Date().toISOString(),
+        note: 'This is a simulated test tip. Switch to production to receive real payments.',
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
 export default router;

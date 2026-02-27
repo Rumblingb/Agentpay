@@ -7,10 +7,21 @@
  */
 
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+import { Keypair } from '@solana/web3.js';
 import { query } from '../db/index';
 import { logger } from '../logger';
 
 const SALT_ROUNDS = 12;
+
+// ── Default spending policy ────────────────────────────────────────────────
+
+const DEFAULT_SPENDING_POLICY = {
+  daily_spending_limit: 10.00,
+  per_tx_limit: 2.00,
+  auto_approve_under: 0.50,
+  daily_auto_approve_cap: 5.00,
+} as const;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +79,92 @@ async function fireSpendAlert(
     });
   } catch (err) {
     logger.warn('Failed to fire spend alert webhook', { webhookUrl, err });
+  }
+}
+
+// ── Bot Registration ───────────────────────────────────────────────────────
+
+export interface BotRegistrationResult {
+  botId: string;
+  platformBotId: string;
+  handle: string;
+  walletAddress: string;
+  spendingPolicy: {
+    dailyMax: number;
+    perTxMax: number;
+    autoApproveUnder: number;
+  };
+}
+
+/**
+ * Registers a new bot with smart defaults.
+ * Only `handle` is required; all other fields are optional or auto-generated.
+ */
+export async function registerBot(
+  handle: string,
+  options?: {
+    display_name?: string;
+    bio?: string;
+    created_by?: string;
+    primary_function?: string;
+    platform_bot_id?: string;
+  }
+): Promise<BotRegistrationResult | null> {
+  const wallet = Keypair.generate();
+  const walletAddress = wallet.publicKey.toString();
+  const platformBotId = options?.platform_bot_id ?? randomUUID();
+  const displayName = options?.display_name ?? handle;
+
+  try {
+    const result = await query(
+      `INSERT INTO bots
+         (platform_bot_id, handle, display_name, bio, created_by, primary_function,
+          wallet_address, wallet_keypair_encrypted,
+          daily_spending_limit, per_tx_limit, auto_approve_under, daily_auto_approve_cap)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, platform_bot_id, handle, wallet_address`,
+      [
+        platformBotId,
+        handle,
+        displayName,
+        options?.bio ?? null,
+        options?.created_by ?? null,
+        options?.primary_function ?? null,
+        walletAddress,
+        // TODO: In production, encrypt wallet.secretKey with AES-256-GCM and store it here.
+        // Leaving this empty means the private key is not persisted and wallet recovery is impossible.
+        // See: https://docs.agentpay.gg/security/wallet-storage
+        '',
+        DEFAULT_SPENDING_POLICY.daily_spending_limit,
+        DEFAULT_SPENDING_POLICY.per_tx_limit,
+        DEFAULT_SPENDING_POLICY.auto_approve_under,
+        DEFAULT_SPENDING_POLICY.daily_auto_approve_cap,
+      ]
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    logger.info('Bot registered', { botId: row.id, handle, walletAddress });
+
+    return {
+      botId: row.id,
+      platformBotId: row.platform_bot_id,
+      handle: row.handle,
+      walletAddress: row.wallet_address,
+      spendingPolicy: {
+        dailyMax: DEFAULT_SPENDING_POLICY.daily_spending_limit,
+        perTxMax: DEFAULT_SPENDING_POLICY.per_tx_limit,
+        autoApproveUnder: DEFAULT_SPENDING_POLICY.auto_approve_under,
+      },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : (err as any)?.message ?? String(err);
+    if (message.includes('duplicate key') || message.includes('unique')) {
+      logger.warn('Bot registration failed: duplicate handle or platform_bot_id', { handle });
+      return null;
+    }
+    throw err;
   }
 }
 
