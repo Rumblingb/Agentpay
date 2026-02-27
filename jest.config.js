@@ -4,6 +4,7 @@ export default {
   setupFiles: ['<rootDir>/jest.setup.cjs'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
+      diagnostics: false,
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
@@ -14,6 +15,7 @@ export default {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
   testPathIgnorePatterns: ['/node_modules/', '/sdk/'],
+  modulePathIgnorePatterns: ['/node_modules/', '/dist/'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
