@@ -7,21 +7,15 @@ export function generatePin(length = 6): string {
 }
 
 /**
- * Hash a PIN using SHA-256.
- * NOTE: This is a client-side convenience helper for scenarios where you want
- * to avoid sending the raw PIN over the network (defense-in-depth). The server
- * always re-hashes with bcrypt; this does not replace server-side hashing.
+ * Derive a transit hash from a PIN using PBKDF2 (100,000 iterations, SHA-256).
+ *
+ * This is a client-side helper to avoid sending the raw PIN over the network
+ * (defense-in-depth). The server ALWAYS re-hashes with bcrypt; this does NOT
+ * replace server-side hashing and confers no meaningful offline security on its own.
+ *
+ * @param pin  The raw PIN string.
+ * @param salt A per-session or per-user salt (e.g. agentId). Must NOT be empty.
  */
-export function hashPin(pin: string): string {
-  return crypto.createHash('sha256').update(pin).digest('hex');
-}
-
-/** Timing-safe comparison of a PIN against its SHA-256 hash. */
-export function verifyPin(pin: string, hash: string): boolean {
-  const computed = hashPin(pin);
-  try {
-    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
-  } catch {
-    return false;
-  }
+export function hashPinForTransit(pin: string, salt: string): string {
+  return crypto.pbkdf2Sync(pin, salt, 100_000, 32, 'sha256').toString('hex');
 }

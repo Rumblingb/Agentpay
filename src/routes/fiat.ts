@@ -1,13 +1,9 @@
 import { Router, Request, Response } from 'express';
-import Stripe from 'stripe';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
+import { getStripe } from '../services/stripeService';
 
 const router = Router();
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2026-01-28.clover' as any,
-});
 
 router.post('/onramp', authenticateApiKey, async (req: Request, res: Response) => {
   try {
@@ -17,7 +13,8 @@ router.post('/onramp', authenticateApiKey, async (req: Request, res: Response) =
       return;
     }
 
-    const session = await (stripe.checkout.sessions.create as any)({
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: [
         {
@@ -49,6 +46,7 @@ router.post('/offramp', authenticateApiKey, async (req: Request, res: Response) 
       return;
     }
 
+    const stripe = getStripe();
     const payout = await stripe.payouts.create(
       {
         amount: Math.round(amountUsd * 100),
@@ -73,7 +71,8 @@ router.post('/issuing/create-card', authenticateApiKey, async (req: Request, res
       return;
     }
 
-    const card = await (stripe.issuing.cards.create as any)(
+    const stripe = getStripe();
+    const card = await stripe.issuing.cards.create(
       {
         cardholder: cardholderId,
         currency: 'usd',
