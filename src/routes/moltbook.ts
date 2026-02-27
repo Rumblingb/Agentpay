@@ -60,6 +60,15 @@ const strictPostLimiter = rateLimit({
 
 // ── Validation schemas ─────────────────────────────────────────────────────
 
+const botRegistrationSchema = Joi.object({
+  handle: Joi.string().min(1).max(255).required(),
+  display_name: Joi.string().max(255).optional(),
+  bio: Joi.string().max(1000).allow('', null).optional(),
+  created_by: Joi.string().max(255).optional(),
+  primary_function: Joi.string().max(100).optional(),
+  platform_bot_id: Joi.string().max(255).optional(),
+});
+
 const spendingPolicySchema = Joi.object({
   dailySpendingLimit: Joi.number().positive().max(10000).optional(),
   perTxLimit: Joi.number().positive().max(10000).optional(),
@@ -88,6 +97,54 @@ function handleError(res: Response, error: unknown, message: string): void {
   logger.error(message, { error });
   res.status(500).json({ error: message });
 }
+
+// ── Bot Registration ───────────────────────────────────────────────────────
+
+/**
+ * POST /api/moltbook/bots/register
+ * Register a bot with smart defaults. Only `handle` is required.
+ */
+moltbookRouter.post('/bots/register', strictPostLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { error, value } = botRegistrationSchema.validate(req.body);
+    if (error) {
+      res.status(400).json({
+        error: 'Validation error',
+        details: error.details.map((d) => d.message),
+        help: {
+          suggestion: 'Only the handle field is required. All other fields use smart defaults.',
+          example: { handle: '@MyBot' },
+          fix: 'POST /api/moltbook/bots/register',
+        },
+      });
+      return;
+    }
+
+    const result = await moltbookService.registerBot(value.handle, {
+      display_name: value.display_name,
+      bio: value.bio,
+      created_by: value.created_by,
+      primary_function: value.primary_function,
+      platform_bot_id: value.platform_bot_id,
+    });
+
+    if (!result) {
+      res.status(409).json({
+        error: 'HANDLE_TAKEN',
+        message: `A bot with handle "${value.handle}" already exists.`,
+        help: {
+          suggestion: 'Choose a different handle for your bot.',
+          fix: 'POST /api/moltbook/bots/register with a unique handle',
+        },
+      });
+      return;
+    }
+
+    res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ── Bot Wallet Dashboard ───────────────────────────────────────────────────
 

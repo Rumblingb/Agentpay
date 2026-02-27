@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, DollarSign, CheckCircle, Clock } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
+import OnboardingTour from '@/components/OnboardingTour';
 import {
   LineChart,
   Line,
@@ -12,6 +14,8 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+
+const TOUR_DISMISSED_KEY = 'agentpay_onboarding_complete';
 
 interface PaymentStats {
   totalTransactions: number;
@@ -44,6 +48,12 @@ async function fetchPaymentsData(): Promise<{ transactions: Payment[]; stats: Pa
   return res.json();
 }
 
+async function fetchProfile(): Promise<{ name: string; email: string } | null> {
+  const res = await fetch('/api/me');
+  if (!res.ok) return null;
+  return res.json();
+}
+
 /** Aggregate payments by day for the chart */
 function buildChartData(payments: Payment[]) {
   const byDay: Record<string, number> = {};
@@ -65,6 +75,23 @@ export default function OverviewPage() {
     queryFn: fetchPaymentsData,
   });
 
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: fetchProfile,
+  });
+
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem(TOUR_DISMISSED_KEY);
+    if (!dismissed) setShowTour(true);
+  }, []);
+
+  function handleTourComplete() {
+    localStorage.setItem(TOUR_DISMISSED_KEY, '1');
+    setShowTour(false);
+  }
+
   const stats = data?.stats;
   const chartData = buildChartData(data?.transactions ?? []);
 
@@ -75,6 +102,13 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-8">
+      {showTour && (
+        <OnboardingTour
+          userName={profile?.name}
+          onComplete={handleTourComplete}
+        />
+      )}
+
       <h1 className="text-xl font-bold">Overview</h1>
 
       {/* Metrics */}
@@ -147,3 +181,4 @@ export default function OverviewPage() {
     </div>
   );
 }
+
