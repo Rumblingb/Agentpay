@@ -9,3 +9,4 @@ dashboard/node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
+apps/twitter-bot/node_modules/
