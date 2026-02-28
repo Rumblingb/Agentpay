@@ -188,6 +188,43 @@ CREATE INDEX IF NOT EXISTS idx_payment_intents_merchant ON payment_intents(merch
 CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_verification_certificates_intent ON verification_certificates(intent_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_merchant ON webhook_subscriptions(merchant_id);
+
+CREATE TABLE IF NOT EXISTS bots (
+  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  platform_bot_id          VARCHAR(255) UNIQUE NOT NULL,
+  handle                   VARCHAR(255) UNIQUE NOT NULL,
+  wallet_address           VARCHAR(255) UNIQUE NOT NULL,
+  wallet_keypair_encrypted TEXT NOT NULL,
+  display_name             VARCHAR(255),
+  bio                      TEXT,
+  avatar_url               TEXT,
+  created_by               VARCHAR(255),
+  primary_function         VARCHAR(100),
+  daily_spending_limit     DECIMAL(18, 6) DEFAULT 10.00,
+  per_tx_limit             DECIMAL(18, 6) DEFAULT 2.00,
+  auto_approve_under       DECIMAL(18, 6) DEFAULT 0.50,
+  daily_auto_approve_cap   DECIMAL(18, 6) DEFAULT 5.00,
+  require_pin_above        DECIMAL(18, 6),
+  alert_webhook_url        TEXT,
+  pin_hash                 TEXT,
+  balance_usdc             DECIMAL(18, 6) DEFAULT 0,
+  total_earned             DECIMAL(18, 6) DEFAULT 0,
+  total_spent              DECIMAL(18, 6) DEFAULT 0,
+  total_tips_received      DECIMAL(18, 6) DEFAULT 0,
+  reputation_score         INTEGER DEFAULT 50,
+  total_transactions       INTEGER DEFAULT 0,
+  successful_transactions  INTEGER DEFAULT 0,
+  disputed_transactions    INTEGER DEFAULT 0,
+  tips_received_count      INTEGER DEFAULT 0,
+  status                   VARCHAR(50) DEFAULT 'active',
+  verified                 BOOLEAN DEFAULT FALSE,
+  created_at               TIMESTAMPTZ DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at           TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_bots_handle ON bots(handle);
+CREATE INDEX IF NOT EXISTS idx_bots_wallet ON bots(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_bots_reputation ON bots(reputation_score DESC);
 `;
 
 async function initializeDatabase() {
@@ -212,6 +249,7 @@ async function initializeDatabase() {
     console.log('   - webhook_subscriptions');
     console.log('   - webhook_delivery_logs');
     console.log('   - merchant_invoices');
+    console.log('   - bots');
     
     client.release();
     await pool.end();
