@@ -239,3 +239,27 @@ describe('HTTP 402 Payment Required', () => {
     expect(res.body.code).toBe('PAYMENT_REQUIRED');
   });
 });
+
+describe('Bot Registration', () => {
+  const testHandle = `@TestBot-${Date.now()}`;
+
+  it('should register a new bot with only handle', async () => {
+    const res = await request(app)
+      .post('/api/moltbook/bots/register')
+      .send({ handle: testHandle });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.botId).toBeDefined();
+    expect(res.body.handle).toBe(testHandle);
+    expect(res.body.walletAddress).toBeDefined();
+  });
+
+  it('should reject bot registration with missing handle', async () => {
+    const res = await request(app)
+      .post('/api/moltbook/bots/register')
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+});

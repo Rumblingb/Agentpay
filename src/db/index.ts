@@ -21,7 +21,7 @@ export function query(text: string, params?: any[]): Promise<QueryResult<any>> {
       }
       if (err) {
         if (process.env.NODE_ENV !== "test" || err.code !== "23505") {
-          console.error("Database query error:", { err: err.message, text });
+          console.error("Database query error:", { err: err.message || String(err), text });
         }
         reject(err);
       } else {
