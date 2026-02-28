@@ -170,9 +170,21 @@ export function shouldFastTrack(reputation: AgentReputation | null): boolean {
   return reputation.trustScore >= 80 && reputation.successRate >= 0.95 && reputation.totalPayments >= 10;
 }
 
+/**
+ * Emits a reputation event for an agent after a payment outcome.
+ * Thin wrapper around updateReputationOnVerification for use by other services.
+ */
+export async function emitReputationEvent(
+  agentId: string,
+  succeeded: boolean
+): Promise<void> {
+  await updateReputationOnVerification(agentId, succeeded);
+}
+
 export default {
   getReputation,
   updateReputationOnVerification,
+  emitReputationEvent,
   computeTrustScore,
   computeDecayFactor,
   shouldFastTrack,
