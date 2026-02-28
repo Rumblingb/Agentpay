@@ -17,6 +17,7 @@ import verifyRouter from './routes/verify';
 import fiatRouter from './routes/fiat';
 import v1IntentsRouter from './routes/v1Intents';
 import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook';
+import revenueRouter from './routes/revenue';
 import testRouter from './test/routes';
 import { authenticateApiKey } from './middleware/auth';
 import * as auditService from './services/audit';
@@ -105,6 +106,9 @@ app.use('/api/v1/payment-intents', v1IntentsRouter);
 // --- MOLTBOOK BOT ECONOMY ---
 app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
+
+// --- REVENUE ENGINE ---
+app.use('/api/revenue', revenueRouter);
 
 // --- TEST-MODE ROUTES (non-production + AGENTPAY_TEST_MODE=true only) ---
 if (process.env.NODE_ENV !== 'production' && process.env.AGENTPAY_TEST_MODE === 'true') {

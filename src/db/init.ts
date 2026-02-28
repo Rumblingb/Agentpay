@@ -239,6 +239,29 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_agent_reputation_updated ON agent_reputation(updated_at);
     `);
 
+    // ============ REVENUE EVENTS ============
+    // Unified ledger for all platform revenue streams
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS revenue_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        stream VARCHAR(50) NOT NULL,
+        amount DECIMAL(20, 6) NOT NULL,
+        fee DECIMAL(20, 6) NOT NULL DEFAULT 0,
+        net_to_recipient DECIMAL(20, 6) NOT NULL DEFAULT 0,
+        from_entity_type VARCHAR(10) NOT NULL,
+        from_entity_id VARCHAR(255) NOT NULL,
+        to_entity_type VARCHAR(10) NOT NULL,
+        to_entity_id VARCHAR(255) NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_revenue_events_stream ON revenue_events(stream);
+      CREATE INDEX IF NOT EXISTS idx_revenue_events_created_at ON revenue_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_revenue_events_from_entity ON revenue_events(from_entity_id);
+      CREATE INDEX IF NOT EXISTS idx_revenue_events_to_entity ON revenue_events(to_entity_id);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
@@ -248,6 +271,7 @@ export async function initializeDatabase(): Promise<void> {
     logger.info('   - payment_verifications (secure tokens)');
     logger.info('   - webhook_events (merchant notifications)');
     logger.info('   - agent_reputation (trust scores per agent)');
+    logger.info('   - revenue_events (unified revenue ledger)');
   } catch (error) {
     logger.error('❌ Error initializing database:', error);
     throw error;
