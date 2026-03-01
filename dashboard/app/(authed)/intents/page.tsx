@@ -54,7 +54,7 @@ const columns = [
   {
     key: 'amountUsdc',
     header: 'Amount (USDC)',
-    render: (row: Payment) => `$${row.amountUsdc.toFixed(2)}`,
+    render: (row: Payment) => `$${Number(row.amountUsdc || 0).toFixed(2)}`,
   },
   {
     key: 'transactionHash',

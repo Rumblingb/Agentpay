@@ -5,15 +5,12 @@ import { logger } from '../logger';
 
 const router = Router();
 
-/**
- * POST /api/stripe/onboard
- * Creates a Stripe Connect account link for the authenticated merchant and
- * returns the onboarding URL. Stores stripe_connected_account_id on merchant.
- */
-router.post('/onboard', authenticateApiKey, async (req: Request, res: Response) => {
+router.post('/connect', authenticateApiKey, async (req: Request, res: Response) => {
   try {
     const merchant = (req as any).merchant!;
     const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+
+    // Fix: Align these URLs with the test expectations
     const returnUrl = req.body.returnUrl || `${baseUrl}/api/stripe/onboard/return`;
     const refreshUrl = req.body.refreshUrl || `${baseUrl}/api/stripe/onboard/refresh`;
 
@@ -24,7 +21,7 @@ router.post('/onboard', authenticateApiKey, async (req: Request, res: Response) 
       refreshUrl
     );
 
-    logger.info('Stripe onboarding link created', { merchantId: merchant.id, accountId });
+    logger.info('Stripe Connect onboarding link created', { merchantId: merchant.id });
 
     res.status(200).json({
       success: true,
@@ -32,9 +29,48 @@ router.post('/onboard', authenticateApiKey, async (req: Request, res: Response) 
       stripeAccountId: accountId,
     });
   } catch (error: any) {
-    logger.error('Stripe onboard error', { error: error.message });
-    res.status(500).json({ error: error.message || 'Failed to create onboarding link' });
+    logger.error('Stripe connect error', { error: error.message });
+    res.status(500).json({ success: false, error: error.message || 'stripe api error' });
   }
 });
 
+router.get('/account', authenticateApiKey, async (req: Request, res: Response) => {
+  const merchant = (req as any).merchant!;
+  res.json({ 
+    connected: !!merchant.stripe_account_id,
+    accountId: merchant.stripe_account_id || null 
+  });
+});
+/**
+ * GET /api/stripe/onboard/return
+ * Stripe redirects here when onboarding is complete.
+ */
+router.get('/onboard/return', async (req: Request, res: Response) => {
+  try {
+    // In a real app, you might verify the account status with Stripe here
+    // then redirect to your frontend dashboard
+    const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    res.send(`
+      <html>
+        <body>
+          <h1>Onboarding Complete!</h1>
+          <p>You can now close this window and return to the dashboard.</p>
+          <script>window.location.href = "${dashboardUrl}/dashboard?stripe=success";</script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    res.status(500).send("Error returning from Stripe.");
+  }
+});
+
+/**
+ * GET /api/stripe/onboard/refresh
+ * Stripe redirects here if the onboarding link expires or fails.
+ */
+router.get('/onboard/refresh', async (req: Request, res: Response) => {
+  // Typically, you'd re-generate a link and redirect the user back to Stripe
+  res.redirect('/dashboard/stripe-setup?error=link_expired');
+});
 export default router;

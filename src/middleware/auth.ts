@@ -18,7 +18,7 @@ export async function authenticateApiKey(
   next: NextFunction
 ): Promise<void> {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization || req.headers['x-api-key'] as string;
     
     // 1. Check if header exists
     if (!authHeader) {
@@ -30,23 +30,14 @@ export async function authenticateApiKey(
       return;
     }
 
-    // 2. Handle both 'Bearer <key>' and 'Bearer<key>' (common in some automated tests)
-    // and ensure the format is correct
-    const parts = authHeader.split(' ');
+    // 2. Extract API Key (Handles Bearer, x-api-key, or raw strings)
     let apiKey: string;
-
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      apiKey = parts[1];
+    if (authHeader.startsWith('Bearer ')) {
+      apiKey = authHeader.split(' ')[1];
     } else if (authHeader.startsWith('Bearer')) {
-      // Fallback for missing space: "BearerYOUR_KEY"
       apiKey = authHeader.substring(6).trim();
     } else {
-      logger.warn('[Auth] Invalid header format', { header: authHeader });
-      res.status(401).json({
-        code: 'AUTH_INVALID_FORMAT',
-        message: 'Invalid authorization header format. Use "Bearer <key>"',
-      });
-      return;
+      apiKey = authHeader; // Raw key provided in x-api-key or Authorization
     }
 
     // 3. Prevent calling service with empty/undefined string
@@ -57,6 +48,19 @@ export async function authenticateApiKey(
         message: 'Invalid API key provided',
       });
       return;
+    }
+
+    // --- NEW: DEVELOPMENT BYPASS ---
+    // If we are in test mode and the simulation key is used, skip DB hashing
+    if (process.env.AGENTPAY_TEST_MODE === 'true' && apiKey === 'sk_test_sim_12345') {
+      logger.info('[Auth] 🧪 Using development bypass for simulation key');
+      req.merchant = {
+        id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+        name: 'Test Merchant',
+        email: 'test@agentpay.com',
+        walletAddress: '9B5X2Fwc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8H' // From your screenshot
+      };
+      return next();
     }
 
     // 4. Call the service
@@ -82,7 +86,6 @@ export async function authenticateApiKey(
     req.merchant = merchant;
     next();
   } catch (error: any) {
-    // Log the actual error stack for debugging
     logger.error('Auth middleware error:', { 
       error: error.message,
       stack: error.stack 

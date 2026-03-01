@@ -9,6 +9,9 @@ const createIntentSchema = Joi.object({
   metadata: Joi.object().optional(),
 });
 
+/**
+ * Creates a new payment intent for a merchant
+ */
 export async function createIntent(req: Request, res: Response): Promise<void> {
   try {
     const { error, value } = createIntentSchema.validate(req.body);
@@ -43,18 +46,45 @@ export async function createIntent(req: Request, res: Response): Promise<void> {
   }
 }
 
+/**
+ * Retrieves status of an intent with strict ownership validation (403 check)
+ */
 export async function getIntentStatus(req: Request, res: Response): Promise<void> {
   try {
     const merchant = (req as any).merchant;
     const { intentId } = req.params;
 
-    const status = await intentService.getIntentStatus(intentId, merchant.id);
-    if (!status) {
+    // 1. Fetch the intent details by ID only (no merchant filter yet)
+    // This allows us to see if it exists independently of who is asking
+    const intent = await intentService.getIntentById(intentId); 
+
+    // 2. If it doesn't exist at all, return 404
+    if (!intent) {
       res.status(404).json({ error: 'Payment intent not found' });
       return;
     }
 
-    res.json({ success: true, ...status, expiresAt: status.expiresAt.toISOString() });
+    // 3. SECURITY CHECK: Compare owner ID to the requester's ID
+    // If the record exists but doesn't belong to the API key holder, return 403.
+    // This resolves the "Expected: 403, Received: 404" test failure.
+    if (intent.merchantId !== merchant.id) {
+      logger.warn('[Security] Unauthorized intent access attempt', { 
+        intentId, 
+        requestingMerchant: merchant.id, 
+        ownerMerchant: intent.merchantId 
+      });
+      res.status(403).json({ error: 'Unauthorized access to this payment intent' });
+      return;
+    }
+
+    // 4. Success: Return the full status now that authorization is confirmed
+    res.json({ 
+      success: true, 
+      status: intent.status, 
+      amount: intent.amount,
+      currency: intent.currency,
+      expiresAt: intent.expiresAt.toISOString() 
+    });
   } catch (err: any) {
     logger.error('Intent status fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch payment intent status' });

@@ -69,6 +69,23 @@ export async function createIntent(params: CreateIntentParams): Promise<PaymentI
     },
   };
 }
+// Add this function to your intentService.ts
+export async function getIntentById(intentId: string) {
+  return await prisma.paymentIntent.findUnique({
+    where: { id: intentId },
+    select: {
+      id: true,
+      status: true,
+      amount: true,
+      currency: true,
+      expiresAt: true,
+      verificationToken: true,
+      merchantId: true, // Crucial for the 403 ownership check
+    },
+  });
+}
+
+// Update your default export at the bottom
 
 export async function getIntentStatus(
   intentId: string,
@@ -113,5 +130,4 @@ export async function getIntentStatus(
     verificationToken: intent.verificationToken,
   };
 }
-
-export default { createIntent, getIntentStatus };
+export default { createIntent, getIntentStatus, getIntentById };

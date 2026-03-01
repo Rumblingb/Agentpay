@@ -3,23 +3,17 @@ import * as stripeService from '../services/stripeService';
 import * as webhooksService from '../services/webhooks';
 import type { WebhookPayload } from '../services/webhooks';
 import { logger } from '../logger';
+import { query } from '../db/index'; // Use centralized query import
 
 const router = Router();
 
-/**
- * POST /webhooks/stripe
- * Receives Stripe webhook events with raw body for signature validation.
- * Handles checkout.session.completed → marks intent verified and fires
- * the payment_verified webhook via the existing webhook system.
- */
 router.post('/', async (req: Request, res: Response) => {
   const sig = req.headers['stripe-signature'] as string | undefined;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 
   if (!sig) {
     logger.warn('Stripe webhook: missing stripe-signature header');
-    res.status(400).json({ error: 'Missing stripe-signature header' });
-    return;
+    return res.status(400).json({ error: 'Missing stripe-signature header' });
   }
 
   let event;
@@ -27,58 +21,81 @@ router.post('/', async (req: Request, res: Response) => {
     event = stripeService.constructStripeEvent(req.body as Buffer, sig, webhookSecret);
   } catch (err: any) {
     logger.warn('Stripe webhook signature validation failed', { error: err.message });
-    res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
-    return;
+    return res.status(400).json({ error: `Signature verification failed` });
   }
 
-  // Acknowledge receipt immediately
+  // Acknowledge receipt immediately to Stripe
   res.status(200).json({ received: true });
 
-  // Handle supported event types
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as any;
-    const sessionId: string = session.id;
-    const merchantId: string | undefined = session.metadata?.merchantId;
+  try {
+    switch (event.type) {
+      /**
+       * CASE 1: Payment Completion
+       */
+      case 'checkout.session.completed': {
+        const session = event.data.object as any;
+        const sessionId = session.id;
+        
+        const intent = await stripeService.getIntentByStripeReference(sessionId);
+        if (!intent) {
+          logger.warn('Stripe webhook: no transaction linked to session', { sessionId });
+          break;
+        }
 
-    try {
-      // Find the linked transaction by stripe_payment_reference
-      const intent = await stripeService.getIntentByStripeReference(sessionId);
+        await stripeService.markIntentVerified(intent.id, sessionId);
 
-      if (!intent) {
-        logger.warn('Stripe webhook: no transaction linked to session', { sessionId });
-        return;
+        const payload: WebhookPayload = {
+          event: 'payment.verified',
+          transactionId: intent.id,
+          merchantId: intent.merchantId,
+          verified: true,
+          timestamp: new Date().toISOString(),
+        };
+
+        const merchantResult = await query(
+          `SELECT webhook_url as "webhookUrl" FROM merchants WHERE id = $1`,
+          [intent.merchantId]
+        );
+        
+        const webhookUrl = merchantResult.rows[0]?.webhookUrl;
+
+        if (webhookUrl) {
+          // This calls your scheduling service which inserts into webhook_events
+          await webhooksService.scheduleWebhook(webhookUrl, payload, intent.merchantId, intent.id);
+        }
+
+        logger.info('checkout.session.completed handled', { sessionId, transactionId: intent.id });
+        break;
       }
 
-      // Mark the transaction verified
-      await stripeService.markIntentVerified(intent.id, sessionId);
-
-      // Build and fire payment_verified webhook via PR2 system
-      const payload: WebhookPayload = {
-        event: 'payment.verified',
-        transactionId: intent.id,
-        merchantId: intent.merchantId,
-        verified: true,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Look up the merchant's webhookUrl
-      const { query } = await import('../db/index');
-      const merchantResult = await query(
-        `SELECT webhook_url as "webhookUrl" FROM merchants WHERE id = $1`,
-        [intent.merchantId]
-      );
-      const webhookUrl: string | null = merchantResult.rows[0]?.webhookUrl ?? null;
-
-      if (webhookUrl) {
-        webhooksService
-          .scheduleWebhook(webhookUrl, payload, intent.merchantId, intent.id)
-          .catch((err) => logger.error('Stripe webhook scheduling error', { err }));
+      /**
+       * CASE 2: Stripe Connect Onboarding Completion
+       * This is what was missing for your "Stripe onboarding done properly" goal.
+       */
+      case 'account.updated': {
+        const account = event.data.object as any;
+        
+        // details_submitted is true when the merchant finished the Stripe forms
+        if (account.details_submitted) {
+          await query(
+            `UPDATE merchants 
+             SET stripe_connected = true, updated_at = NOW() 
+             WHERE stripe_account_id = $1`,
+            [account.id]
+          );
+          logger.info('Merchant Stripe Connect onboarding verified', { accountId: account.id });
+        }
+        break;
       }
 
-      logger.info('checkout.session.completed handled', { sessionId, transactionId: intent.id });
-    } catch (err: any) {
-      logger.error('Error handling checkout.session.completed', { error: err.message, sessionId });
+      default:
+        logger.debug(`Unhandled event type ${event.type}`);
     }
+  } catch (err: any) {
+    logger.error('Error processing Stripe webhook', { 
+      type: event.type, 
+      error: err.message 
+    });
   }
 });
 
