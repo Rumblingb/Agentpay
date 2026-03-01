@@ -14,7 +14,7 @@ import { query } from '../db/index';
 import { authenticateApiKey } from '../middleware/auth';
 import { logger } from '../logger';
 
-// Best Practice: Define an interface for the Authenticated Request
+// Interface for the Authenticated Request
 interface AuthRequest extends Request {
   merchant?: {
     id: string;
@@ -234,6 +234,8 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
     }
 
     const tx = await transactionsService.getTransaction(req.params.transactionId);
+    
+    // Existence Check
     if (!tx) {
       await auditService.logVerifyAttempt({
         merchantId: merchant.id,
@@ -248,8 +250,9 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
+    // Ownership Check (403 required for security tests)
     if (tx.merchantId !== merchant.id) {
-      return res.status(403).json({ error: 'Unauthorized' });
+      return res.status(403).json({ error: 'Unauthorized access to this transaction' });
     }
 
     const verification = await transactionsService.verifyAndUpdatePayment(
@@ -306,7 +309,6 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
         amount: tx.amountUsdc ?? 0,
       }).catch((err) => logger.error('Billing error', { err }));
 
-      // Handle Webhooks
       const currentMerchant = await merchantsService.getMerchant(merchant.id);
       if (currentMerchant?.webhookUrl) {
         const payload = buildPaymentVerifiedPayload(
@@ -348,6 +350,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
 
 /**
  * @route   GET /api/merchants/payments/:transactionId
+ * Updated ownership logic to return 403 instead of 404 on merchant mismatch.
  */
 router.get('/payments/:transactionId', authenticateApiKey, async (req: AuthRequest, res: Response) => {
   if (!uuidValidate(req.params.transactionId)) {
@@ -356,9 +359,22 @@ router.get('/payments/:transactionId', authenticateApiKey, async (req: AuthReque
 
   try {
     const tx = await transactionsService.getTransaction(req.params.transactionId);
-    if (!tx || tx.merchantId !== req.merchant!.id) {
+    
+    // 1. Check existence
+    if (!tx) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
+
+    // 2. Check ownership - Must return 403 if it exists but belongs to another merchant
+    if (tx.merchantId !== req.merchant!.id) {
+      logger.warn('[Security] Unauthorized transaction access attempt', {
+        transactionId: req.params.transactionId,
+        requestingMerchant: req.merchant!.id,
+        actualOwner: tx.merchantId
+      });
+      return res.status(403).json({ error: 'Unauthorized access to this transaction' });
+    }
+
     res.json(tx);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

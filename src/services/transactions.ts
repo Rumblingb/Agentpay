@@ -52,6 +52,10 @@ export async function createPaymentRequest(
   }
 }
 
+/**
+ * Fetches a transaction by ID only.
+ * This is "merchant-blind" to allow controllers to perform 403 vs 404 logic.
+ */
 export async function getTransaction(transactionId: string): Promise<Transaction | null> {
   if (!transactionId || !uuidValidate(transactionId)) {
     throw new Error('Invalid transaction ID');
@@ -176,7 +180,6 @@ export async function verifyAndUpdatePayment(
       payer: verification.payer,
     });
 
-    // Update agent reputation for the payer (non-blocking — never fails the response)
     if (verification.payer) {
       reputationService
         .updateReputationOnVerification(verification.payer, true)
