@@ -94,7 +94,7 @@ export default function MoltbookBotDashboard() {
       });
       if (res.ok) {
         setIsPaused(!isPaused);
-        toast.success(isPaused ? 'Payments resumed' : 'Payments paused');
+        toast.success(action === 'resume' ? 'Payments resumed' : 'Payments paused');
       } else {
         toast.error(`Failed to ${action} payments`);
       }
@@ -290,7 +290,7 @@ export default function MoltbookBotDashboard() {
               </div>
             </div>
           ) : (
-            <div className="text-slate-500 text-sm">No policy data available.</div>
+            <div className="text-slate-500 text-sm">Unable to load policy data.</div>
           )}
         </div>
         )}
