@@ -142,7 +142,7 @@ const migrations = [
     name: '011_create_verification_certificates',
     sql: `CREATE TABLE IF NOT EXISTS verification_certificates (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            intent_id UUID REFERENCES payment_intents(id),
+            intent_id UUID REFERENCES payment_intents(id) ON DELETE SET NULL,
             payload TEXT NOT NULL,
             signature VARCHAR(255) NOT NULL,
             encoded TEXT NOT NULL,
@@ -154,7 +154,7 @@ const migrations = [
     name: '012_create_merchant_invoices',
     sql: `CREATE TABLE IF NOT EXISTS merchant_invoices (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            merchant_id UUID NOT NULL REFERENCES merchants(id),
+            merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
             intent_id UUID REFERENCES payment_intents(id),
             transaction_id UUID REFERENCES transactions(id),
             fee_amount NUMERIC(20, 6) NOT NULL,
