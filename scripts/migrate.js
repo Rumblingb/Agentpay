@@ -118,6 +118,55 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_bots_wallet ON bots(wallet_address);
           CREATE INDEX IF NOT EXISTS idx_bots_reputation ON bots(reputation_score DESC);`,
   },
+  {
+    name: '010_create_revenue_events',
+    sql: `CREATE TABLE IF NOT EXISTS revenue_events (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            stream VARCHAR(50) NOT NULL,
+            amount DECIMAL(20, 6) NOT NULL,
+            fee DECIMAL(20, 6) NOT NULL DEFAULT 0,
+            net_to_recipient DECIMAL(20, 6) NOT NULL DEFAULT 0,
+            from_entity_type VARCHAR(10) NOT NULL,
+            from_entity_id VARCHAR(255) NOT NULL,
+            to_entity_type VARCHAR(10) NOT NULL,
+            to_entity_id VARCHAR(255) NOT NULL,
+            metadata JSONB,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_revenue_events_stream ON revenue_events(stream);
+          CREATE INDEX IF NOT EXISTS idx_revenue_events_created_at ON revenue_events(created_at);
+          CREATE INDEX IF NOT EXISTS idx_revenue_events_from_entity ON revenue_events(from_entity_id);
+          CREATE INDEX IF NOT EXISTS idx_revenue_events_to_entity ON revenue_events(to_entity_id);`,
+  },
+  {
+    name: '011_create_verification_certificates',
+    sql: `CREATE TABLE IF NOT EXISTS verification_certificates (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            intent_id UUID REFERENCES payment_intents(id),
+            payload TEXT NOT NULL,
+            signature VARCHAR(255) NOT NULL,
+            encoded TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_verification_certificates_intent ON verification_certificates(intent_id);`,
+  },
+  {
+    name: '012_create_merchant_invoices',
+    sql: `CREATE TABLE IF NOT EXISTS merchant_invoices (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            merchant_id UUID NOT NULL REFERENCES merchants(id),
+            intent_id UUID REFERENCES payment_intents(id),
+            transaction_id UUID REFERENCES transactions(id),
+            fee_amount NUMERIC(20, 6) NOT NULL,
+            fee_percent NUMERIC(5, 4) NOT NULL DEFAULT 0.02,
+            currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS idx_merchant_invoices_merchant ON merchant_invoices(merchant_id);
+          CREATE INDEX IF NOT EXISTS idx_merchant_invoices_intent ON merchant_invoices(intent_id);`,
+  },
 ];
 
 async function migrate() {
