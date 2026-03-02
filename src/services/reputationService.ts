@@ -49,7 +49,7 @@ export async function updateReputationOnVerification(agentId: string, success: b
   const newTotal = existing.totalPayments + 1;
   const newSuccessCount = (existing.successRate * existing.totalPayments) + (success ? 1 : 0);
   const newSuccessRate = newSuccessCount / newTotal;
-  const newTrustScore = newSuccessRate * 100; // Simplified logic for example
+  const newTrustScore = Math.round(newSuccessRate * 100); // Simplified logic for example
 
   await query(
     `UPDATE agent_reputation 
