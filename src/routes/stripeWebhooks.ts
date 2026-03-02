@@ -69,7 +69,31 @@ router.post('/', async (req: Request, res: Response) => {
       }
 
       /**
-       * CASE 2: Stripe Connect Onboarding Completion
+       * CASE 2: Payment Intent Succeeded
+       */
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as any;
+        const paymentIntentId = paymentIntent.id;
+
+        logger.info('payment_intent.succeeded received', { paymentIntentId });
+
+        const result = await query(
+          `UPDATE intents
+           SET status = 'confirmed', updated_at = NOW()
+           WHERE stripe_payment_reference = $1 AND status != 'confirmed'`,
+          [paymentIntentId]
+        );
+
+        if (result.rowCount && result.rowCount > 0) {
+          logger.info('Intent confirmed via payment_intent.succeeded', { paymentIntentId });
+        } else {
+          logger.warn('No matching intent found or already confirmed', { paymentIntentId });
+        }
+        break;
+      }
+
+      /**
+       * CASE 3: Stripe Connect Onboarding Completion
        * This is what was missing for your "Stripe onboarding done properly" goal.
        */
       case 'account.updated': {

@@ -167,6 +167,75 @@ describe('POST /webhooks/stripe', () => {
     expect(mockScheduleWebhook).not.toHaveBeenCalled();
   });
 
+  it('handles payment_intent.succeeded: updates intent status to confirmed', async () => {
+    const paymentIntentId = 'pi_test_abc123';
+
+    mockConstructStripeEvent.mockReturnValue({
+      id: 'evt_pi_test_123',
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: paymentIntentId,
+        },
+      },
+    });
+
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
+
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', DUMMY_SIG)
+      .send(RAW_BODY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.received).toBe(true);
+
+    // Give the async post-response work a tick to run
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE intents'),
+      [paymentIntentId]
+    );
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("status != 'confirmed'"),
+      [paymentIntentId]
+    );
+  });
+
+  it('handles payment_intent.succeeded: logs warning when no matching intent found', async () => {
+    const paymentIntentId = 'pi_test_nomatch';
+
+    mockConstructStripeEvent.mockReturnValue({
+      id: 'evt_pi_test_456',
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: paymentIntentId,
+        },
+      },
+    });
+
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+
+    const res = await request(app)
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('stripe-signature', DUMMY_SIG)
+      .send(RAW_BODY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.received).toBe(true);
+
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE intents'),
+      [paymentIntentId]
+    );
+  });
+
   it('does not fire webhook when merchant has no webhookUrl configured', async () => {
     const sessionId = 'cs_test_no_hook';
     const merchantId = 'merchant-uuid-003';
@@ -190,5 +259,13 @@ describe('POST /webhooks/stripe', () => {
 
     expect(mockMarkIntentVerified).toHaveBeenCalledWith(transactionId, sessionId);
     expect(mockScheduleWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /', () => {
+  it('returns 200 with welcome message', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('AgentPay API is Live');
   });
 });
