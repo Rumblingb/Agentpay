@@ -83,7 +83,6 @@ export async function query(
     const match = sql.match(/DELETE FROM\s+(\w+)/i);
     if (match) {
       const tableName = match[1].toLowerCase();
-      const count = getTable(tableName).length;
       tables[tableName] = [];
     }
     return { rows: [], rowCount: 0 };
@@ -189,14 +188,23 @@ export async function query(
     let count = 0;
     for (const row of getTable('transactions')) {
       if (row.id === txId) {
-        // Handle force-verify UPDATE (status='confirmed', hash, depth)
-        if (/status\s*=\s*'confirmed'/i.test(sql) || (p[0] === 'confirmed')) {
+        // Pattern 1: force-verify — SET status='confirmed', transaction_hash=$1 ... WHERE id=$2
+        // Params: [hash, txId]
+        if (/status\s*=\s*'confirmed'/i.test(sql)) {
           row.status = 'confirmed';
-          if (p.length >= 2) row.transaction_hash = row.transactionHash = p[0] === 'confirmed' ? p[1] : p[0];
-          row.confirmation_depth = row.confirmationDepth = row.required_depth ?? 2;
-        } else if (p[0]) {
-          // Generic status update
+          row.transaction_hash = p[0];
+          row.transactionHash = p[0];
+          row.confirmation_depth = row.required_depth ?? 2;
+          row.confirmationDepth = row.requiredDepth ?? 2;
+        }
+        // Pattern 2: parameterized status — SET status=$1 ...
+        // Params: [status, ..., txId]
+        else if (p[0]) {
           row.status = p[0];
+          if (p.length >= 3) {
+            row.transaction_hash = p[1];
+            row.transactionHash = p[1];
+          }
         }
         count++;
       }
