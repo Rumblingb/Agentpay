@@ -2,8 +2,15 @@ import Stripe from 'stripe';
 import { query } from '../db/index';
 import { logger } from '../logger';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2026-01-28.clover',
+// Check if the key exists before initializing
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+
+if (!stripeSecretKey) {
+  logger.error('❌ STRIPE_SECRET_KEY is missing from environment variables.');
+}
+
+const stripe = new Stripe(stripeSecretKey, {
+  apiVersion: '2026-01-28.clover' as any,
 });
 
 /** Returns the shared Stripe client singleton. */
