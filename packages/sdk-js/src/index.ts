@@ -7,6 +7,8 @@
  *   const payment = await client.payments.create({ amount: 100, recipientAddress: 'wallet123' });
  */
 
+import { createHmac, timingSafeEqual } from 'crypto';
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface AgentPayConfig {
@@ -200,9 +202,8 @@ class Bots {
 class Webhooks {
   verify(payload: string, signature: string, secret: string): boolean {
     // HMAC-SHA256 verification
-    const crypto = require('crypto');
-    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    const expected = createHmac('sha256', secret).update(payload).digest('hex');
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
   }
 }
 

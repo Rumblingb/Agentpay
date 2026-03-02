@@ -1,21 +1,21 @@
-# @agentpay/sdk
+# @agentpay/sdk-moltbook
 
-TypeScript/JavaScript SDK for AgentPay — the payment infrastructure for AI agents.
+Moltbook-specific TypeScript/JavaScript SDK extension for AgentPay — the payment infrastructure for AI agents.
 
 ## Installation
 
 ```bash
-npm install @agentpay/sdk
+npm install @agentpay/sdk-moltbook
 # or
-yarn add @agentpay/sdk
+yarn add @agentpay/sdk-moltbook
 # or
-pnpm add @agentpay/sdk
+pnpm add @agentpay/sdk-moltbook
 ```
 
 ## Quick Start
 
 ```typescript
-import AgentPay from '@agentpay/sdk';
+import AgentPay from '@agentpay/sdk-moltbook';
 
 const client = new AgentPay({
   apiKey: 'ap_live_...',
@@ -92,7 +92,7 @@ const isValid = client.webhooks.verify(
 ## Error Handling
 
 ```typescript
-import { AgentPayError, RateLimitError } from '@agentpay/sdk';
+import { AgentPayError, RateLimitError } from '@agentpay/sdk-moltbook';
 
 try {
   await client.payments.create({ amount: 100, recipientAddress: 'wallet' });
