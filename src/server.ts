@@ -62,6 +62,11 @@ app.use(express.urlencoded({ extended: true }));
 // Apply global rate limit after webhook routes
 app.use(globalLimiter);
 
+// --- ROOT ROUTE ---
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).send('AgentPay API is Live 🚀');
+});
+
 // --- HEALTH CHECK ---
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'active', timestamp: new Date().toISOString() });
