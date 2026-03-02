@@ -1,7 +1,7 @@
 # AgentPay: The Financial Operating System for Autonomous AI Agents
 
-**Whitepaper v3.0 — March 2026**
-
+**Whitepaper — March 2026**
+© 2026 AgentPay. All rights reserved.
 ---
 
 **Contact**  
