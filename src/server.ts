@@ -23,6 +23,7 @@ import verifyRouter from './routes/verify';
 import fiatRouter from './routes/fiat';
 import v1IntentsRouter from './routes/v1Intents';
 import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook';
+import marketplaceRouter from './routes/marketplace';
 import revenueRouter from './routes/revenue';
 import llmGatewayRouter from './routes/llmGateway';
 import adminRouter from './routes/admin';
@@ -127,6 +128,7 @@ app.use('/api/v1/payment-intents', v1IntentsRouter);
 // Ecosystem & Revenue
 app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
+app.use('/api/marketplace', marketplaceRouter);
 app.use('/api/revenue', revenueRouter);
 
 // LLM Gateway

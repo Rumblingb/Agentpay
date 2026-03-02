@@ -54,6 +54,7 @@ function addX402Headers(res: Response, req: AuthRequest, body?: any): void {
   const walletAddress = req.merchant?.walletAddress || process.env.PLATFORM_WALLET_ADDRESS || '';
   const description = body?.message || body?.error || 'Payment required to access this resource';
   const amount = body?.amount || body?.costUsd || '';
+  const paymentId = body?.intentId || body?.paymentId || '';
 
   res.setHeader('X-Payment-Required', 'true');
   res.setHeader('X-Payment-Network', 'solana');
@@ -66,6 +67,9 @@ function addX402Headers(res: Response, req: AuthRequest, body?: any): void {
   }
   if (amount) {
     res.setHeader('X-Payment-Amount', String(amount));
+  }
+  if (paymentId) {
+    res.setHeader('X-Payment-ID', String(paymentId));
   }
 
   // Include AgentPay-specific headers for SDK auto-resolution
@@ -86,6 +90,7 @@ export function sendPaymentRequired(
     recipientAddress?: string;
     merchantId?: string;
     network?: string;
+    paymentId?: string;
   } = {},
 ): void {
   const {
@@ -95,6 +100,7 @@ export function sendPaymentRequired(
     recipientAddress,
     merchantId,
     network = 'solana',
+    paymentId,
   } = options;
 
   res.setHeader('X-Payment-Required', 'true');
@@ -111,6 +117,9 @@ export function sendPaymentRequired(
   if (amount !== undefined) {
     res.setHeader('X-Payment-Amount', String(amount));
   }
+  if (paymentId) {
+    res.setHeader('X-Payment-ID', paymentId);
+  }
 
   res.status(402).json({
     error: 'PAYMENT_REQUIRED',
@@ -121,6 +130,7 @@ export function sendPaymentRequired(
       amount,
       recipientAddress,
       merchantId,
+      paymentId,
       protocol: 'agentpay-x402/1.0',
       docsUrl: 'https://docs.agentpay.gg/x402',
     },

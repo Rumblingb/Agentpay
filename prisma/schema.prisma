@@ -73,3 +73,67 @@ model transactions {
   created_at               DateTime? @default(now()) @db.Timestamptz(6)
   updated_at               DateTime? @db.Timestamptz(6)
 }
+
+// ── Marketplace Models ─────────────────────────────────────────────────────
+
+model ServiceListing {
+  id          String   @id @default(cuid())
+  botHandle   String   @map("bot_handle")
+  title       String
+  description String
+  priceCents  Int      @map("price_cents")
+  category    String
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  reviews      ServiceReview[]
+  transactions ServiceTransaction[]
+
+  @@index([category])
+  @@map("service_listings")
+}
+
+model ServiceReview {
+  id              String   @id @default(cuid())
+  listingId       String   @map("listing_id")
+  reviewerBotHandle String @map("reviewer_bot_handle")
+  rating          Int
+  comment         String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  listing ServiceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("service_reviews")
+}
+
+model ServiceTransaction {
+  id             String   @id @default(cuid())
+  listingId      String   @map("listing_id")
+  buyerBotHandle String   @map("buyer_bot_handle")
+  sellerBotHandle String  @map("seller_bot_handle")
+  amountCents    Int      @map("amount_cents")
+  intentId       String?  @map("intent_id")
+  status         String   @default("pending")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  listing ServiceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([buyerBotHandle])
+  @@index([sellerBotHandle])
+  @@map("service_transactions")
+}
+
+model AgentServiceQualityScore {
+  id                String   @id @default(cuid())
+  botHandle         String   @unique @map("bot_handle")
+  fulfillmentRate   Float    @default(0) @map("fulfillment_rate")
+  avgRating         Float    @default(0) @map("avg_rating")
+  refundRate        Float    @default(0) @map("refund_rate")
+  totalTransactions Int      @default(0) @map("total_transactions")
+  score             Float    @default(0)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_service_quality_score")
+}
