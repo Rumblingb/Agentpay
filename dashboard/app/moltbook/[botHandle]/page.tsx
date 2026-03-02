@@ -3,10 +3,19 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { Activity, DollarSign, AlertTriangle, Shield, Pause, Play } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import SpendingChart from '@/components/moltbook/SpendingChart';
 import ReputationBadge from '@/components/moltbook/ReputationBadge';
+import {
+  SpendingCardSkeleton,
+  MetricCardSkeleton,
+  SpendingChartSkeleton,
+  TopMerchantsSkeleton,
+  PolicySettingsSkeleton,
+  TransactionTableSkeleton,
+} from '@/components/moltbook/LoadingSkeleton';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -75,14 +84,23 @@ export default function MoltbookBotDashboard() {
 
   const handlePauseResume = async () => {
     const action = isPaused ? 'resume' : 'pause';
-    const res = await fetch(`${API_BASE}/api/moltbook/bots/${botHandle}/${action}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('apiKey') || ''}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (res.ok) setIsPaused(!isPaused);
+    try {
+      const res = await fetch(`${API_BASE}/api/moltbook/bots/${botHandle}/${action}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('apiKey') || ''}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) {
+        setIsPaused(!isPaused);
+        toast.success(action === 'resume' ? 'Payments resumed' : 'Payments paused');
+      } else {
+        toast.error(`Failed to ${action} payments`);
+      }
+    } catch {
+      toast.error('Network error — please try again');
+    }
   };
 
   const percentColor =
@@ -146,6 +164,9 @@ export default function MoltbookBotDashboard() {
 
       {/* Spending Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-8">
+        {spendingLoading ? (
+          <SpendingCardSkeleton />
+        ) : (
         <div className="lg:col-span-1 bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
           <div className="text-xs text-slate-400 mb-2">Today&apos;s Spending</div>
           <div className="text-3xl font-bold">
@@ -168,7 +189,16 @@ export default function MoltbookBotDashboard() {
             {spending?.today.transactions ?? 0} transactions today
           </div>
         </div>
+        )}
 
+        {analyticsLoading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : (
+          <>
         <MetricCard
           label="Lifetime Spending"
           value={analytics ? `$${analytics.lifetimeSpending.toFixed(2)}` : '—'}
@@ -193,24 +223,31 @@ export default function MoltbookBotDashboard() {
           iconBg="bg-emerald-500/10"
           loading={analyticsLoading}
         />
+          </>
+        )}
       </div>
 
       {/* Chart + Top Merchants */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <div className="lg:col-span-2">
+          {spendingLoading ? (
+            <SpendingChartSkeleton />
+          ) : (
           <SpendingChart
             data={spending?.last7Days ?? []}
             dailyLimit={spending?.policy.dailyLimit}
             loading={spendingLoading}
           />
+          )}
         </div>
 
         {/* Top Merchants */}
+        {spendingLoading ? (
+          <TopMerchantsSkeleton />
+        ) : (
         <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
           <h2 className="font-semibold mb-4 text-slate-200">Top Merchants</h2>
-          {spendingLoading ? (
-            <div className="text-slate-500 text-sm">Loading…</div>
-          ) : spending?.topMerchants.length === 0 ? (
+          {spending?.topMerchants.length === 0 ? (
             <div className="text-slate-500 text-sm">No merchant data yet.</div>
           ) : (
             <div className="space-y-3">
@@ -226,11 +263,15 @@ export default function MoltbookBotDashboard() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Policy Settings + Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Policy Settings */}
+        {spendingLoading ? (
+          <PolicySettingsSkeleton />
+        ) : (
         <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
           <h2 className="font-semibold mb-4 text-slate-200">Policy Settings</h2>
           {spending ? (
@@ -249,16 +290,18 @@ export default function MoltbookBotDashboard() {
               </div>
             </div>
           ) : (
-            <div className="text-slate-500 text-sm">Loading…</div>
+            <div className="text-slate-500 text-sm">Unable to load policy data.</div>
           )}
         </div>
+        )}
 
         {/* Recent Transactions */}
+        {spendingLoading ? (
+          <TransactionTableSkeleton />
+        ) : (
         <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
           <h2 className="font-semibold mb-4 text-slate-200">Recent Transactions</h2>
-          {spendingLoading ? (
-            <div className="text-slate-500 text-sm">Loading…</div>
-          ) : spending?.recentTransactions.length === 0 ? (
+          {spending?.recentTransactions.length === 0 ? (
             <div className="text-slate-500 text-sm">No transactions yet.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -302,6 +345,7 @@ export default function MoltbookBotDashboard() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

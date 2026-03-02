@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import QueryProvider from "@/components/QueryProvider";
+import { Toaster } from "react-hot-toast";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,7 +30,19 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning // Add this line
       >
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: '#1e293b',
+                color: '#e2e8f0',
+                border: '1px solid #334155',
+              },
+            }}
+          />
+          {children}
+        </QueryProvider>
       </body>
     </html>
   );
