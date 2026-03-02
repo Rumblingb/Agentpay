@@ -10,7 +10,8 @@
  *   Attempt 3 → 5 minutes
  *   Attempt 4 → 15 minutes
  *   Attempt 5 → 1 hour
- *   (Dead Letter Queue after 5 failures)
+ *   Attempt 6 → 6 hours
+ *   (Dead Letter Queue after 6 failures)
  */
 
 import { Queue, Worker, Job } from 'bullmq';
@@ -44,7 +45,7 @@ export function getWebhookQueue(): Queue {
     webhookQueue = new Queue(QUEUE_NAME, {
       connection: getRedisConnection(),
       defaultJobOptions: {
-        attempts: 5,
+        attempts: 6,
         backoff: {
           type: 'custom',
         },
@@ -204,7 +205,7 @@ export function startWebhookWorker(): Worker {
 
   webhookWorker.on('failed', async (job, err) => {
     if (!job) return;
-    const isFinal = job.attemptsMade >= (job.opts?.attempts ?? 5);
+    const isFinal = job.attemptsMade >= (job.opts?.attempts ?? 6);
 
     if (isFinal) {
       logger.error('🔴 Webhook moved to Dead Letter Queue', {

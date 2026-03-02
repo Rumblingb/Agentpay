@@ -3,7 +3,7 @@
 AgentPay Demo Agent
 ===================
 
-Simulates an AI agent purchasing "1 000 LLM Tokens" for 1.00 USDC via the
+Simulates an AI agent purchasing "1,000 LLM Tokens" for 1.00 USDC via the
 AgentPay protocol.
 
 Usage::
@@ -29,7 +29,7 @@ from agentpay_client import AgentPayClient, SpendingLimitError, AgentPayError
 API_URL = os.getenv("AGENTPAY_API_URL", "http://localhost:3001")
 MERCHANT_ID = os.getenv("AGENTPAY_MERCHANT_ID", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
 AGENT_ID = os.getenv("AGENTPAY_AGENT_ID", "demo-llm-agent-001")
-PURCHASE_AMOUNT = 1.00  # 1.00 USDC for 1 000 LLM tokens
+PURCHASE_AMOUNT = 1.00  # 1.00 USDC for 1,000 LLM tokens
 
 
 async def main() -> None:
@@ -39,7 +39,7 @@ async def main() -> None:
     print(f"  API:       {API_URL}")
     print(f"  Merchant:  {MERCHANT_ID}")
     print(f"  Agent:     {AGENT_ID}")
-    print(f"  Amount:    {PURCHASE_AMOUNT} USDC (1 000 LLM Tokens)")
+    print(f"  Amount:    {PURCHASE_AMOUNT} USDC (1,000 LLM Tokens)")
     print("=" * 60)
     print()
 
