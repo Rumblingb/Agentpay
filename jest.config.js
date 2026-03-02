@@ -27,5 +27,7 @@ export default {
     '\\.\\./generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
     '\\./generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
     'src/generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
+    // Rewrite .js extensions in ESM relative imports back to their .ts sources
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
 };
