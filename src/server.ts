@@ -1,3 +1,4 @@
+// External Libraries (No change needed)
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -5,26 +6,26 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
-// Route Imports
-import merchantsRouter from './routes/merchants';
-import intentsRouter from './routes/intents';
-import certificatesRouter from './routes/certificates';
-import webhooksRouter from './routes/webhooks';
-import stripeRouter from './routes/stripe';
-import stripeWebhooksRouter from './routes/stripeWebhooks';
-import agentsRouter from './routes/agents';
-import agentIdentityRouter from './routes/agentIdentity';
-import delegationRouter from './routes/delegation';
-import verifyRouter from './routes/verify';
-import fiatRouter from './routes/fiat';
-import v1IntentsRouter from './routes/v1Intents';
-import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook';
-import revenueRouter from './routes/revenue';
-import testRouter from './test/routes';
+// Route Imports (Added .js extensions)
+import merchantsRouter from './routes/merchants.js';
+import intentsRouter from './routes/intents.js';
+import certificatesRouter from './routes/certificates.js';
+import webhooksRouter from './routes/webhooks.js';
+import stripeRouter from './routes/stripe.js';
+import stripeWebhooksRouter from './routes/stripeWebhooks.js';
+import agentsRouter from './routes/agents.js';
+import agentIdentityRouter from './routes/agentIdentity.js';
+import delegationRouter from './routes/delegation.js';
+import verifyRouter from './routes/verify.js';
+import fiatRouter from './routes/fiat.js';
+import v1IntentsRouter from './routes/v1Intents.js';
+import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook.js';
+import revenueRouter from './routes/revenue.js';
+import testRouter from './test/routes.js'; 
 
-// Middleware & Service Imports
-import { logger } from './logger';
-import { startSolanaListener } from './services/solana-listener';
+// Utility/Service Imports (Added .js extensions)
+import { logger } from './logger.js';
+import { startSolanaListener } from './services/solana-listener.js';
 
 dotenv.config();
 
