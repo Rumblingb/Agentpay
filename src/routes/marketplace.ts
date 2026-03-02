@@ -8,6 +8,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
 import * as marketplaceService from '../services/marketplaceService';
+import * as intentService from '../services/intentService';
 import { logger } from '../logger';
 
 const router = Router();
@@ -173,7 +174,6 @@ router.post('/purchase', async (req: Request, res: Response, next: NextFunction)
     }
 
     // 2. Create payment intent through the intent service
-    const intentService = await import('../services/intentService');
     const amountUsdc = listing.priceCents / 100;
 
     const intentResult = await intentService.createIntent({
