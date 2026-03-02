@@ -23,6 +23,29 @@ const mockPrismaClient = jest.fn().mockImplementation(() => ({
     findFirst: jest.fn(),
     findMany: jest.fn(),
   },
+  serviceListing: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
+  serviceReview: {
+    findMany: jest.fn(),
+    create: jest.fn(),
+    aggregate: jest.fn(),
+  },
+  serviceTransaction: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    count: jest.fn(),
+  },
+  agentServiceQualityScore: {
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+  },
   $connect: jest.fn(),
   $disconnect: jest.fn(),
 }));
