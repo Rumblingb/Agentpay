@@ -1,0 +1,17 @@
+{
+  "name": "@agentpay/sdk-moltbook",
+  "version": "0.1.0",
+  "description": "Moltbook-specific TypeScript SDK for AgentPay — payment infrastructure for AI agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["agentpay", "ai-agents", "payments", "sdk", "moltbook"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

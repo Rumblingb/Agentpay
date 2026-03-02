@@ -7,14 +7,27 @@
  *   GET  /api/moltbook/bots/:botId/services
  *   GET  /api/moltbook/bots/:botId/subscriptions
  *
+ * Spending Analytics:
+ *   GET  /api/moltbook/bots/:handle/spending
+ *   GET  /api/moltbook/bots/:handle/analytics
+ *
  * Spending Policy:
  *   GET  /api/moltbook/bots/:botId/spending-policy
  *   PATCH /api/moltbook/bots/:botId/spending-policy
+ *   PUT  /api/moltbook/bots/:handle/spending-policy
+ *
+ * Emergency Controls:
+ *   POST /api/moltbook/bots/:handle/pause
+ *   POST /api/moltbook/bots/:handle/resume
+ *
+ * Demo:
+ *   POST /api/moltbook/demo/simulate-payment
  *
  * Marketplace:
  *   GET  /api/moltbook/services
  *   GET  /api/moltbook/services/:serviceId
  *   POST /api/moltbook/services/search
+ *   GET  /api/moltbook/marketplace/services
  *
  * Subscriptions:
  *   POST /api/moltbook/subscriptions/retry/:subscriptionId
@@ -300,6 +313,184 @@ moltbookRouter.get('/reputation/:botId', async (req: Request, res: Response, nex
       return;
     }
     res.json({ success: true, reputation });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Bot Spending Analytics ──────────────────────────────────────────────────
+
+/**
+ * GET /api/moltbook/bots/:handle/spending
+ * Comprehensive spending analytics for a bot.
+ */
+moltbookRouter.get('/bots/:handle/spending', authenticateApiKey, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const spending = await moltbookService.getBotSpending(req.params.handle);
+    if (!spending) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+    res.json({ success: true, data: spending });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/moltbook/bots/:handle/analytics
+ * Deep analytics for investors/founders.
+ */
+moltbookRouter.get('/bots/:handle/analytics', authenticateApiKey, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const analytics = await moltbookService.getBotAnalytics(req.params.handle);
+    if (!analytics) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+    res.json({ success: true, data: analytics });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Demo Simulation ────────────────────────────────────────────────────────
+
+const simulatePaymentSchema = Joi.object({
+  handle: Joi.string().min(1).max(255).required(),
+  merchantName: Joi.string().max(255).optional(),
+  amount: Joi.number().positive().max(100).optional(),
+});
+
+/**
+ * POST /api/moltbook/demo/simulate-payment
+ * Demo-only endpoint — only works when DEMO_MODE=true.
+ */
+moltbookRouter.post('/demo/simulate-payment', postLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (process.env.DEMO_MODE !== 'true' && process.env.NODE_ENV !== 'test') {
+      res.status(403).json({ error: 'Demo mode is not enabled. Set DEMO_MODE=true.' });
+      return;
+    }
+
+    const { error, value } = simulatePaymentSchema.validate(req.body);
+    if (error) {
+      res.status(400).json({ error: 'Validation error', details: error.details.map((d) => d.message) });
+      return;
+    }
+
+    const tx = await moltbookService.simulatePayment(value.handle, value.merchantName, value.amount);
+    if (!tx) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+
+    res.status(201).json({ success: true, transaction: tx });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Spending Policy Update (PUT) ───────────────────────────────────────────
+
+/**
+ * PUT /api/moltbook/bots/:handle/spending-policy
+ * Update spending policy with validation.
+ */
+moltbookRouter.put('/bots/:handle/spending-policy', strictPostLimiter, authenticateApiKey, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { error, value } = spendingPolicySchema.validate(req.body);
+    if (error) {
+      res.status(400).json({ error: 'Validation error', details: error.details.map((d) => d.message) });
+      return;
+    }
+
+    // Business validation
+    if (value.dailySpendingLimit && value.perTxLimit && value.dailySpendingLimit < value.perTxLimit) {
+      res.status(400).json({ error: 'Daily limit must be >= per transaction limit' });
+      return;
+    }
+    if (value.autoApproveUnder && value.perTxLimit && value.autoApproveUnder > value.perTxLimit) {
+      res.status(400).json({ error: 'Auto-approve threshold must be <= per transaction limit' });
+      return;
+    }
+
+    const policy = await moltbookService.updateSpendingPolicy(req.params.handle, value);
+    if (!policy) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+    res.json({ success: true, policy, message: 'Spending policy updated successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Pause / Resume ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/moltbook/bots/:handle/pause
+ * Emergency control — blocks all new payments.
+ */
+moltbookRouter.post('/bots/:handle/pause', strictPostLimiter, authenticateApiKey, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const success = await moltbookService.pauseBot(req.params.handle);
+    if (!success) {
+      res.status(404).json({ error: 'Bot not found or already paused' });
+      return;
+    }
+    res.json({ success: true, message: 'Bot payments paused' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/moltbook/bots/:handle/resume
+ * Resume payments for a paused bot.
+ */
+moltbookRouter.post('/bots/:handle/resume', strictPostLimiter, authenticateApiKey, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const success = await moltbookService.resumeBot(req.params.handle);
+    if (!success) {
+      res.status(404).json({ error: 'Bot not found or not paused' });
+      return;
+    }
+    res.json({ success: true, message: 'Bot payments resumed' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Marketplace Services (filtered) ────────────────────────────────────────
+
+const marketplaceFilterSchema = Joi.object({
+  serviceType: Joi.string().valid('inference', 'storage', 'api', 'data').optional(),
+  minPrice: Joi.number().min(0).optional(),
+  maxPrice: Joi.number().min(0).optional(),
+  minRating: Joi.number().min(0).max(5).optional(),
+  tags: Joi.array().items(Joi.string().max(50)).max(10).optional(),
+  limit: Joi.number().integer().min(1).max(100).default(20),
+  offset: Joi.number().integer().min(0).default(0),
+});
+
+/**
+ * GET /api/moltbook/marketplace/services
+ * List services with filters.
+ */
+moltbookRouter.get('/marketplace/services', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const filters: moltbookService.MarketplaceFilters = {
+      serviceType: typeof req.query.serviceType === 'string' ? req.query.serviceType : undefined,
+      minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
+      maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
+      minRating: req.query.minRating ? Number(req.query.minRating) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : 20,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+    };
+
+    const result = await moltbookService.getMarketplaceServices(filters);
+    res.json({ success: true, ...result });
   } catch (error) {
     next(error);
   }

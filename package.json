@@ -20,7 +20,8 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "test:debug": "node scripts/debug-errors.js"
+    "test:debug": "node scripts/debug-errors.js",
+    "demo:setup": "DEMO_MODE=true tsx scripts/setup-moltbook-demo.ts"
   },
   "keywords": [
     "payments",
