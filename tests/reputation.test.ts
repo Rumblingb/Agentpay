@@ -1,6 +1,12 @@
+jest.mock('../src/db/index', () => {
+  const mockDb = require('./helpers/mock-db');
+  return mockDb;
+});
+
 import request from 'supertest';
 import app from '../src/server';
-import { closePool, query } from '../src/db/index';
+import { closePool } from '../src/db/index';
+import { resetAll } from './helpers/mock-db';
 import {
   computeTrustScore,
   computeDecayFactor,
@@ -12,13 +18,8 @@ import {
 let server: any;
 
 beforeAll(async () => {
+  resetAll();
   server = app.listen(0);
-  // Ensure clean state for agent_reputation table
-  try {
-    await query('DELETE FROM agent_reputation');
-  } catch (e) {
-    // Table may not exist in test env; skip
-  }
 });
 
 afterAll(async () => {

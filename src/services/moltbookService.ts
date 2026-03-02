@@ -1038,3 +1038,365 @@ export async function getRevenueStats(days = 30): Promise<unknown> {
     totalFees: humanTipFees + botTransactionFees + subscriptionFees,
   };
 }
+
+// ── Moltbook Spending Analytics ────────────────────────────────────────────
+
+/** Resolve a bot row by handle or UUID. */
+async function resolveBotByHandle(handle: string): Promise<string | null> {
+  const result = await query(
+    `SELECT id FROM bots WHERE handle = $1 OR id = $1 OR platform_bot_id = $1 LIMIT 1`,
+    [handle]
+  );
+  return result.rows[0]?.id ?? null;
+}
+
+export interface SpendingAnalytics {
+  today: { spent: number; limit: number; percentUsed: number; transactions: number };
+  last7Days: { date: string; amount: number }[];
+  topMerchants: { name: string; totalSpent: number; transactionCount: number }[];
+  policy: { dailyLimit: number; perTxLimit: number; autoApproveUnder: number };
+  recentTransactions: Record<string, unknown>[];
+  alerts: { type: 'warning' | 'error' | 'info'; message: string; timestamp: Date }[];
+}
+
+/**
+ * Returns comprehensive spending analytics for a bot.
+ */
+export async function getBotSpending(handle: string): Promise<SpendingAnalytics | null> {
+  const internalId = await resolveBotByHandle(handle);
+  if (!internalId) return null;
+
+  const [botRow, todaySpend, todayTxCount, last7Days, topMerchants, recentTx] =
+    await Promise.all([
+      query(
+        `SELECT daily_spending_limit, per_tx_limit, auto_approve_under
+         FROM bots WHERE id = $1`,
+        [internalId]
+      ),
+      query(
+        `SELECT COALESCE(SUM(amount), 0) as total
+         FROM bot_transactions
+         WHERE from_bot_id = $1 AND status = 'completed'
+           AND created_at >= CURRENT_DATE`,
+        [internalId]
+      ),
+      query(
+        `SELECT COUNT(*) as count
+         FROM bot_transactions
+         WHERE from_bot_id = $1 AND status = 'completed'
+           AND created_at >= CURRENT_DATE`,
+        [internalId]
+      ),
+      query(
+        `SELECT DATE(created_at) as date, COALESCE(SUM(amount), 0) as amount
+         FROM bot_transactions
+         WHERE from_bot_id = $1 AND status = 'completed'
+           AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+         GROUP BY DATE(created_at)
+         ORDER BY date`,
+        [internalId]
+      ),
+      query(
+        `SELECT merchant_name as name,
+                COALESCE(SUM(amount), 0) as total_spent,
+                COUNT(*) as transaction_count
+         FROM bot_transactions
+         WHERE from_bot_id = $1 AND status = 'completed'
+         GROUP BY merchant_name
+         ORDER BY total_spent DESC
+         LIMIT 5`,
+        [internalId]
+      ),
+      query(
+        `SELECT id, merchant_name, amount, status, created_at, tx_type
+         FROM bot_transactions
+         WHERE from_bot_id = $1
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [internalId]
+      ),
+    ]);
+
+  const bot = botRow.rows[0];
+  if (!bot) return null;
+
+  const dailyLimit = Number(bot.daily_spending_limit);
+  const spent = Number(todaySpend.rows[0]?.total ?? 0);
+  const percentUsed = dailyLimit > 0 ? (spent / dailyLimit) * 100 : 0;
+
+  const alerts: SpendingAnalytics['alerts'] = [];
+  if (percentUsed >= 90) {
+    alerts.push({
+      type: 'error',
+      message: `Bot has used ${percentUsed.toFixed(1)}% of daily limit`,
+      timestamp: new Date(),
+    });
+  } else if (percentUsed >= 70) {
+    alerts.push({
+      type: 'warning',
+      message: `Bot has used ${percentUsed.toFixed(1)}% of daily limit`,
+      timestamp: new Date(),
+    });
+  }
+
+  return {
+    today: {
+      spent,
+      limit: dailyLimit,
+      percentUsed: Math.min(percentUsed, 100),
+      transactions: Number(todayTxCount.rows[0]?.count ?? 0),
+    },
+    last7Days: last7Days.rows.map((r: Record<string, unknown>) => ({
+      date: String(r.date),
+      amount: Number(r.amount),
+    })),
+    topMerchants: topMerchants.rows.map((r: Record<string, unknown>) => ({
+      name: String(r.name),
+      totalSpent: Number(r.total_spent),
+      transactionCount: Number(r.transaction_count),
+    })),
+    policy: {
+      dailyLimit,
+      perTxLimit: Number(bot.per_tx_limit),
+      autoApproveUnder: Number(bot.auto_approve_under),
+    },
+    recentTransactions: recentTx.rows,
+    alerts,
+  };
+}
+
+// ── Deep Analytics ─────────────────────────────────────────────────────────
+
+export interface BotAnalytics {
+  lifetimeSpending: number;
+  averageTransactionSize: number;
+  totalTransactions: number;
+  successRate: number;
+  merchantDiversity: number;
+  spendingVelocity: { date: string; amount: number }[];
+  mostActiveHours: { hour: number; count: number }[];
+  costPerAction: number;
+}
+
+/**
+ * Returns deep analytics for a bot — designed for investors/founders.
+ */
+export async function getBotAnalytics(handle: string): Promise<BotAnalytics | null> {
+  const internalId = await resolveBotByHandle(handle);
+  if (!internalId) return null;
+
+  const [lifetime, successRate, merchants, velocity, hourly] = await Promise.all([
+    query(
+      `SELECT COALESCE(SUM(amount), 0) as total,
+              COALESCE(AVG(amount), 0) as avg_amount,
+              COUNT(*) as total_count
+       FROM bot_transactions
+       WHERE from_bot_id = $1 AND status = 'completed'`,
+      [internalId]
+    ),
+    query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'completed') as success,
+         COUNT(*) as total
+       FROM bot_transactions
+       WHERE from_bot_id = $1`,
+      [internalId]
+    ),
+    query(
+      `SELECT COUNT(DISTINCT merchant_name) as diversity
+       FROM bot_transactions
+       WHERE from_bot_id = $1 AND status = 'completed'`,
+      [internalId]
+    ),
+    query(
+      `SELECT DATE(created_at) as date, COALESCE(SUM(amount), 0) as amount
+       FROM bot_transactions
+       WHERE from_bot_id = $1 AND status = 'completed'
+         AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+       GROUP BY DATE(created_at)
+       ORDER BY date`,
+      [internalId]
+    ),
+    query(
+      `SELECT EXTRACT(HOUR FROM created_at)::int as hour, COUNT(*) as count
+       FROM bot_transactions
+       WHERE from_bot_id = $1 AND status = 'completed'
+       GROUP BY hour
+       ORDER BY count DESC`,
+      [internalId]
+    ),
+  ]);
+
+  const totalCount = Number(lifetime.rows[0]?.total_count ?? 0);
+  const totalSuccess = Number(successRate.rows[0]?.success ?? 0);
+  const totalAll = Number(successRate.rows[0]?.total ?? 0);
+
+  return {
+    lifetimeSpending: Number(lifetime.rows[0]?.total ?? 0),
+    averageTransactionSize: Number(lifetime.rows[0]?.avg_amount ?? 0),
+    totalTransactions: totalCount,
+    successRate: totalAll > 0 ? (totalSuccess / totalAll) * 100 : 0,
+    merchantDiversity: Number(merchants.rows[0]?.diversity ?? 0),
+    spendingVelocity: velocity.rows.map((r: Record<string, unknown>) => ({
+      date: String(r.date),
+      amount: Number(r.amount),
+    })),
+    mostActiveHours: hourly.rows.map((r: Record<string, unknown>) => ({
+      hour: Number(r.hour),
+      count: Number(r.count),
+    })),
+    costPerAction: totalCount > 0 ? Number(lifetime.rows[0]?.total ?? 0) / totalCount : 0,
+  };
+}
+
+// ── Demo Simulation ────────────────────────────────────────────────────────
+
+const DEMO_MERCHANTS = [
+  'OpenAI API', 'Anthropic API', 'Pinecone', 'Serper', 'Cohere',
+  'Replicate', 'Hugging Face', 'AWS Bedrock', 'Google Vertex AI', 'Stability AI',
+];
+
+/**
+ * Simulate a bot payment for demo purposes.
+ * Only works when DEMO_MODE=true is set.
+ */
+export async function simulatePayment(
+  handle: string,
+  merchantName?: string,
+  amount?: number
+): Promise<Record<string, unknown> | null> {
+  const internalId = await resolveBotByHandle(handle);
+  if (!internalId) return null;
+
+  const merchant = merchantName ?? DEMO_MERCHANTS[Math.floor(Math.random() * DEMO_MERCHANTS.length)];
+  const txAmount = amount ?? +(Math.random() * 4.5 + 0.5).toFixed(2);
+  const txId = randomUUID();
+
+  const result = await query(
+    `INSERT INTO bot_transactions
+       (id, from_bot_id, merchant_name, amount, status, tx_type, created_at)
+     VALUES ($1, $2, $3, $4, 'completed', 'payment', NOW())
+     RETURNING id, from_bot_id, merchant_name, amount, status, created_at`,
+    [txId, internalId, merchant, txAmount]
+  );
+
+  const tx = result.rows[0];
+  if (!tx) return null;
+
+  // Update bot reputation for successful transaction
+  try {
+    await recordReputationEvent(internalId, 'payment_completed', 1);
+  } catch {
+    // Non-critical
+  }
+
+  logger.info('Demo payment simulated', { botId: internalId, merchant, amount: txAmount });
+
+  return tx;
+}
+
+// ── Pause / Resume ─────────────────────────────────────────────────────────
+
+/**
+ * Pause a bot — blocks all new payments.
+ */
+export async function pauseBot(handle: string): Promise<boolean> {
+  const internalId = await resolveBotByHandle(handle);
+  if (!internalId) return false;
+
+  const result = await query(
+    `UPDATE bots SET status = 'paused', updated_at = NOW() WHERE id = $1 AND status != 'paused'`,
+    [internalId]
+  );
+
+  if (result.rowCount && result.rowCount > 0) {
+    logger.info('Bot paused', { botId: internalId });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resume a bot — re-enables payments.
+ */
+export async function resumeBot(handle: string): Promise<boolean> {
+  const internalId = await resolveBotByHandle(handle);
+  if (!internalId) return false;
+
+  const result = await query(
+    `UPDATE bots SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'paused'`,
+    [internalId]
+  );
+
+  if (result.rowCount && result.rowCount > 0) {
+    logger.info('Bot resumed', { botId: internalId });
+    return true;
+  }
+  return false;
+}
+
+// ── Marketplace Services (with filters) ────────────────────────────────────
+
+export interface MarketplaceFilters {
+  serviceType?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  minRating?: number;
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * List marketplace services with filters for the Moltbook marketplace view.
+ */
+export async function getMarketplaceServices(
+  filters: MarketplaceFilters = {}
+): Promise<{ services: unknown[]; total: number }> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let paramIndex = 1;
+
+  if (filters.serviceType) {
+    conditions.push(`category = $${paramIndex++}`);
+    params.push(filters.serviceType);
+  }
+  if (filters.minPrice !== undefined) {
+    conditions.push(`price_usdc >= $${paramIndex++}`);
+    params.push(filters.minPrice);
+  }
+  if (filters.maxPrice !== undefined) {
+    conditions.push(`price_usdc <= $${paramIndex++}`);
+    params.push(filters.maxPrice);
+  }
+  if (filters.minRating !== undefined) {
+    conditions.push(`rating >= $${paramIndex++}`);
+    params.push(filters.minRating);
+  }
+  if (filters.tags && filters.tags.length > 0) {
+    conditions.push(`tags && $${paramIndex++}`);
+    params.push(filters.tags);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limit = Math.min(filters.limit ?? 20, 100);
+  const offset = Math.max(filters.offset ?? 0, 0);
+
+  const [servicesResult, countResult] = await Promise.all([
+    query(
+      `SELECT * FROM marketplace_services ${whereClause}
+       ORDER BY rating DESC, total_uses DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...params, limit, offset]
+    ),
+    query(
+      `SELECT COUNT(*) as total FROM marketplace_services ${whereClause}`,
+      params
+    ),
+  ]);
+
+  return {
+    services: servicesResult.rows,
+    total: Number(countResult.rows[0]?.total ?? 0),
+  };
+}

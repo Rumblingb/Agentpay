@@ -1,7 +1,13 @@
-﻿import request from 'supertest';
+﻿jest.mock('../src/db/index', () => {
+  const mockDb = require('./helpers/mock-db');
+  return mockDb;
+});
+
+import request from 'supertest';
 import app from '../src/server';
 import { closePool } from '../src/db/index';
 import { query } from '../src/db/index';
+import { resetAll } from './helpers/mock-db';
 
 let server: any;
 let merchantId: string = '';
@@ -9,13 +15,8 @@ let apiKey: string = '';
 let transactionId: string = '';
 
 beforeAll(async () => {
+  resetAll();
   server = app.listen(0);
-  try {
-    // Updated cleanup command
-await query('TRUNCATE merchants, transactions, rate_limit_counters, payment_verifications, webhook_events, payment_audit_log RESTART IDENTITY CASCADE');
-  } catch (e) {
-    console.error('Cleanup failed:', e);
-  }
 });
 
 afterAll(async () => {
