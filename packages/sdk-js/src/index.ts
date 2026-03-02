@@ -66,6 +66,48 @@ export interface SpendingPolicyUpdate {
   autoApproveUnder?: number;
 }
 
+export interface LLMCompletionParams {
+  agentId: string;
+  provider: 'openai' | 'anthropic' | 'groq';
+  model: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  maxTokens?: number;
+  temperature?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LLMCompletionResult {
+  id: string;
+  provider: string;
+  model: string;
+  content: string;
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  costUsd: number;
+  intentId: string;
+  finishReason: string;
+}
+
+export interface MicropaymentParams {
+  agentId: string;
+  amount: number;
+  description: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MicropaymentResult {
+  approved: boolean;
+  intentId?: string;
+  amount: number;
+  reason?: string;
+}
+
+export interface LLMModel {
+  provider: string;
+  model: string;
+  promptPricePer1k: number;
+  completionPricePer1k: number;
+}
+
 // ── Errors ─────────────────────────────────────────────────────────────────
 
 export class AgentPayError extends Error {
@@ -207,12 +249,33 @@ class Webhooks {
   }
 }
 
+class LLM {
+  constructor(private baseUrl: string, private apiKey: string, private maxRetries: number) {}
+
+  async chatCompletion(params: LLMCompletionParams): Promise<LLMCompletionResult> {
+    const result = await httpRequest(this.baseUrl, this.apiKey, 'POST', '/api/llm/chat/completions', params, this.maxRetries);
+    const data = result as { success: boolean } & LLMCompletionResult;
+    return data;
+  }
+
+  async micropayment(params: MicropaymentParams): Promise<MicropaymentResult> {
+    const result = await httpRequest(this.baseUrl, this.apiKey, 'POST', '/api/llm/micropayment', params, this.maxRetries);
+    return result as MicropaymentResult;
+  }
+
+  async listModels(): Promise<LLMModel[]> {
+    const result = await httpRequest(this.baseUrl, this.apiKey, 'GET', '/api/llm/models', undefined, this.maxRetries);
+    return (result as { models: LLMModel[] }).models;
+  }
+}
+
 // ── Main SDK Class ─────────────────────────────────────────────────────────
 
 export class AgentPay {
   public payments: Payments;
   public bots: Bots;
   public webhooks: Webhooks;
+  public llm: LLM;
 
   constructor(config: AgentPayConfig) {
     const baseUrl =
@@ -225,6 +288,7 @@ export class AgentPay {
     this.payments = new Payments(baseUrl, config.apiKey, maxRetries);
     this.bots = new Bots(baseUrl, config.apiKey, maxRetries);
     this.webhooks = new Webhooks();
+    this.llm = new LLM(baseUrl, config.apiKey, maxRetries);
   }
 }
 

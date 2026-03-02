@@ -24,10 +24,13 @@ import fiatRouter from './routes/fiat';
 import v1IntentsRouter from './routes/v1Intents';
 import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook';
 import revenueRouter from './routes/revenue';
+import llmGatewayRouter from './routes/llmGateway';
+import adminRouter from './routes/admin';
 import testRouter from './test/routes';
 
 // Middleware & Service Imports
 import { logger } from './logger';
+import { x402Headers } from './middleware/x402';
 import { startSolanaListener } from './services/solana-listener';
 import { startWebhookWorker } from './services/webhookQueue';
 
@@ -63,6 +66,9 @@ app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWeb
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// x402 Payment Required headers middleware
+app.use(x402Headers);
 
 // Apply global rate limit after webhook routes
 app.use(globalLimiter);
@@ -123,6 +129,12 @@ app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
 app.use('/api/revenue', revenueRouter);
 
+// LLM Gateway
+app.use('/api/llm', llmGatewayRouter);
+
+// Admin Dashboard
+app.use('/admin', adminRouter);
+
 // --- GLOBAL ERROR HANDLER ---
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   const code: string = error.code ?? error.type ?? 'INTERNAL_ERROR';
@@ -132,8 +144,12 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('Database Schema Error: Missing Table', { message: error.message });
   }
 
-  // Handle spending policy violations (Status 402)
+  // Handle spending policy violations (Status 402) — includes x402 headers
   if (code === 'SPENDING_POLICY_VIOLATION' || (error.message && /spending policy/i.test(error.message))) {
+    res.setHeader('X-Payment-Required', 'true');
+    res.setHeader('X-Payment-Protocol', 'agentpay-x402/1.0');
+    res.setHeader('X-Payment-Network', 'solana');
+    res.setHeader('X-Payment-Token', 'USDC');
     return res.status(402).json({
       error: 'SPENDING_POLICY_VIOLATION',
       message: error.message || 'This transaction would violate your spending policy.',
