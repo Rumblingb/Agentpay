@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { authenticateApiKey } from '../middleware/auth';
-import { logger } from '../logger';
-import { getStripe } from '../services/stripeService';
+import { authenticateApiKey } from '../middleware/auth.js';
+import { logger } from '../logger.js';
+import { getStripe } from '../services/stripeService.js';
 
 const router = Router();
 

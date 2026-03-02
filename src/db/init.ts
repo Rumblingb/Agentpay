@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -262,6 +262,103 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_revenue_events_to_entity ON revenue_events(to_entity_id);
     `);
 
+    // ============ PAYMENT INTENTS ============
+    // Upcoming payment requests (also managed by Prisma)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_intents (
+        id UUID PRIMARY KEY,
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        amount NUMERIC(20, 6) NOT NULL,
+        currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        verification_token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_payment_intents_merchant ON payment_intents(merchant_id);
+      CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status, expires_at);
+    `);
+
+    // ============ VERIFICATION CERTIFICATES ============
+    // Signed certificates for payment verification
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS verification_certificates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        intent_id UUID REFERENCES payment_intents(id),
+        payload TEXT NOT NULL,
+        signature VARCHAR(255) NOT NULL,
+        encoded TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_verification_certificates_intent ON verification_certificates(intent_id);
+    `);
+
+    // ============ MERCHANT INVOICES ============
+    // Platform-fee invoices for successfully verified payments
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS merchant_invoices (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        intent_id UUID REFERENCES payment_intents(id),
+        transaction_id UUID REFERENCES transactions(id),
+        fee_amount NUMERIC(20, 6) NOT NULL,
+        fee_percent NUMERIC(5, 4) NOT NULL DEFAULT 0.02,
+        currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_merchant_invoices_merchant ON merchant_invoices(merchant_id);
+      CREATE INDEX IF NOT EXISTS idx_merchant_invoices_intent ON merchant_invoices(intent_id);
+    `);
+
+    // ============ BOTS ============
+    // Bot economy entities for Moltbook
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS bots (
+        id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        platform_bot_id          VARCHAR(255) UNIQUE NOT NULL,
+        handle                   VARCHAR(255) UNIQUE NOT NULL,
+        wallet_address           VARCHAR(255) UNIQUE NOT NULL,
+        wallet_keypair_encrypted TEXT NOT NULL,
+        display_name             VARCHAR(255),
+        bio                      TEXT,
+        avatar_url               TEXT,
+        created_by               VARCHAR(255),
+        primary_function         VARCHAR(100),
+        daily_spending_limit     DECIMAL(18, 6) DEFAULT 10.00,
+        per_tx_limit             DECIMAL(18, 6) DEFAULT 2.00,
+        auto_approve_under       DECIMAL(18, 6) DEFAULT 0.50,
+        daily_auto_approve_cap   DECIMAL(18, 6) DEFAULT 5.00,
+        require_pin_above        DECIMAL(18, 6),
+        alert_webhook_url        TEXT,
+        pin_hash                 TEXT,
+        balance_usdc             DECIMAL(18, 6) DEFAULT 0,
+        total_earned             DECIMAL(18, 6) DEFAULT 0,
+        total_spent              DECIMAL(18, 6) DEFAULT 0,
+        total_tips_received      DECIMAL(18, 6) DEFAULT 0,
+        reputation_score         INTEGER DEFAULT 50,
+        total_transactions       INTEGER DEFAULT 0,
+        successful_transactions  INTEGER DEFAULT 0,
+        disputed_transactions    INTEGER DEFAULT 0,
+        tips_received_count      INTEGER DEFAULT 0,
+        status                   VARCHAR(50) DEFAULT 'active',
+        verified                 BOOLEAN DEFAULT FALSE,
+        created_at               TIMESTAMPTZ DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ DEFAULT NOW(),
+        last_active_at           TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bots_handle ON bots(handle);
+      CREATE INDEX IF NOT EXISTS idx_bots_wallet ON bots(wallet_address);
+      CREATE INDEX IF NOT EXISTS idx_bots_reputation ON bots(reputation_score DESC);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
@@ -270,8 +367,15 @@ export async function initializeDatabase(): Promise<void> {
     logger.info('   - rate_limit_counters (DDoS protection)');
     logger.info('   - payment_verifications (secure tokens)');
     logger.info('   - webhook_events (merchant notifications)');
+    logger.info('   - webhook_subscriptions (event subscriptions)');
+    logger.info('   - webhook_delivery_logs (delivery tracking)');
+    logger.info('   - payment_audit_log (FCA AML compliance)');
     logger.info('   - agent_reputation (trust scores per agent)');
     logger.info('   - revenue_events (unified revenue ledger)');
+    logger.info('   - payment_intents (upcoming payment requests)');
+    logger.info('   - verification_certificates (signed certificates)');
+    logger.info('   - merchant_invoices (platform-fee invoices)');
+    logger.info('   - bots (Moltbook bot economy)');
   } catch (error) {
     logger.error('❌ Error initializing database:', error);
     throw error;

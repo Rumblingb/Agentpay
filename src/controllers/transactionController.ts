@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import * as transactionService from '../services/transactions';
-import { logger } from '../logger';
+import * as transactionService from '../services/transactions.js';
+import { logger } from '../logger.js';
 
 /**
  * GET /api/v1/transactions/:transactionId

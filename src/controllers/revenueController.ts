@@ -10,9 +10,9 @@
  */
 
 import { Request, Response } from 'express';
-import { query } from '../db/index';
-import { emitReputationEvent } from '../services/reputationService';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { emitReputationEvent } from '../services/reputationService.js';
+import { logger } from '../logger.js';
 
 // Revenue stream types
 export enum RevenueStream {

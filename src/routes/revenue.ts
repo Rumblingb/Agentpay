@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { authenticateApiKey } from '../middleware/auth';
-import { RevenueController } from '../controllers/revenueController';
+import { authenticateApiKey } from '../middleware/auth.js';
+import { RevenueController } from '../controllers/revenueController.js';
 
 const router = Router();
 

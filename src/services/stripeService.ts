@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 // Check if the key exists before initializing
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';

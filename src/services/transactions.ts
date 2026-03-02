@@ -1,8 +1,8 @@
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
-import { query } from '../db/index';
-import { logger } from '../logger';
-import { verifyPaymentRecipient } from '../security/payment-verification';
-import * as reputationService from './reputationService';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
+import { verifyPaymentRecipient } from '../security/payment-verification.js';
+import * as reputationService from './reputationService.js';
 
 export interface Transaction {
   id: string;

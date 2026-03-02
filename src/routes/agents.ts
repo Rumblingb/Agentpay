@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import * as reputationService from '../services/reputationService';
-import { logger } from '../logger';
+import * as reputationService from '../services/reputationService.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

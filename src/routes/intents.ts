@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
-import { authenticateApiKey } from '../middleware/auth';
-import { createIntent, getIntentStatus } from '../controllers/intentController';
-import * as stripeService from '../services/stripeService';
-import { query } from '../db/index';
+import { authenticateApiKey } from '../middleware/auth.js';
+import { createIntent, getIntentStatus } from '../controllers/intentController.js';
+import * as stripeService from '../services/stripeService.js';
+import { query } from '../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 
 const router = Router();
 

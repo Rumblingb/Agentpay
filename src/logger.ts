@@ -1,4 +1,4 @@
-import pino from 'pino';
+import { pino } from 'pino';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 

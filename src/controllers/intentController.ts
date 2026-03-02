@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import Joi from 'joi';
-import * as intentService from '../services/intentService';
-import { logger } from '../logger';
+import * as intentService from '../services/intentService.js';
+import { logger } from '../logger.js';
 
 const createIntentSchema = Joi.object({
   amount: Joi.number().positive().required(),
