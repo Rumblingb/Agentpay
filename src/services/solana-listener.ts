@@ -1,8 +1,8 @@
-import { query } from '../db/index';
-import { logger } from '../logger';
-import { verifyPaymentRecipient } from '../security/payment-verification';
-import * as webhooksService from './webhooks';
-import type { WebhookPayload } from './webhooks';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
+import { verifyPaymentRecipient } from '../security/payment-verification.js';
+import * as webhooksService from './webhooks.js';
+import type { WebhookPayload } from './webhooks.js';
 
 const LISTENER_POLL_INTERVAL_MS = parseInt(process.env.LISTENER_POLL_INTERVAL_MS || '30000', 10);
 

@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authenticateApiKey } from '../middleware/auth';
-import * as webhookController from '../controllers/webhookController';
-import { logger } from '../logger';
+import { authenticateApiKey } from '../middleware/auth.js';
+import * as webhookController from '../controllers/webhookController.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

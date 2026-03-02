@@ -1,4 +1,4 @@
-import { query } from '../db/index';
+import { query } from '../db/index.js';
 
 export interface Reputation {
   agentId: string;

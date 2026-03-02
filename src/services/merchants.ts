@@ -1,6 +1,6 @@
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import crypto from 'crypto';
-import { query } from '../db/index';
+import { query } from '../db/index.js';
 
 const PBKDF2_ITERATIONS = 100000;
 const PBKDF2_KEYLEN = 32;

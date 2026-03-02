@@ -1,5 +1,5 @@
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 export interface AuditEntry {
   merchantId?: string | null;

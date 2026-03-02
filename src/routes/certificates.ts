@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { validateCertificate } from '../services/certificateService';
-import { logger } from '../logger';
+import { validateCertificate } from '../services/certificateService.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

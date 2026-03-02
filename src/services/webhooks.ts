@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import axios from 'axios';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'change-me-in-production';
 const WEBHOOK_TIMEOUT_MS = 5000;

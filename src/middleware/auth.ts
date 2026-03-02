@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import * as merchantsService from '../services/merchants';
-import { logger } from '../logger';
+import * as merchantsService from '../services/merchants.js';
+import { logger } from '../logger.js';
 
 export interface AuthRequest extends Request {
   merchant?: {

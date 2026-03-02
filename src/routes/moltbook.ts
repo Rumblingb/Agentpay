@@ -33,9 +33,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import Joi from 'joi';
-import { authenticateApiKey } from '../middleware/auth';
-import * as moltbookService from '../services/moltbookService';
-import { logger } from '../logger';
+import { authenticateApiKey } from '../middleware/auth.js';
+import * as moltbookService from '../services/moltbookService.js';
+import { logger } from '../logger.js';
 
 export const moltbookRouter = Router();
 export const adminMoltbookRouter = Router();

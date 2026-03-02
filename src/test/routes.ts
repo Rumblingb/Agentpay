@@ -8,11 +8,11 @@
  *    then fires the merchant's webhook (if configured).
  */
 import { Router, Request, Response } from 'express';
-import { query } from '../db/index';
-import { authenticateApiKey } from '../middleware/auth';
-import * as webhooksService from '../services/webhooks';
-import * as transactionsService from '../services/transactions';
-import type { WebhookPayload } from '../services/webhooks';
+import { query } from '../db/index.js';
+import { authenticateApiKey } from '../middleware/auth.js';
+import * as webhooksService from '../services/webhooks.js';
+import * as transactionsService from '../services/transactions.js';
+import type { WebhookPayload } from '../services/webhooks.js';
 
 const router = Router();
 
