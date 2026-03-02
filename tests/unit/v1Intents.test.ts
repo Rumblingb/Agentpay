@@ -16,6 +16,26 @@ jest.mock('../../src/services/intentService', () => ({
   default: { createIntent: jest.fn(), getIntentStatus: jest.fn() },
 }));
 
+// ---- Mock spending policy service ----
+jest.mock('../../src/services/spendingPolicyService', () => ({
+  checkAndIncrementSpending: jest.fn().mockResolvedValue({
+    allowed: true,
+    spentToday: 0,
+    dailyLimit: Infinity,
+    remaining: Infinity,
+  }),
+  ensureSpendingPoliciesTable: jest.fn().mockResolvedValue(undefined),
+  default: {
+    checkAndIncrementSpending: jest.fn().mockResolvedValue({
+      allowed: true,
+      spentToday: 0,
+      dailyLimit: Infinity,
+      remaining: Infinity,
+    }),
+    ensureSpendingPoliciesTable: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 // ---- Mock Prisma to prevent ESM import issues ----
 jest.mock('../../src/lib/prisma', () => ({
   __esModule: true,
@@ -30,9 +50,11 @@ import request from 'supertest';
 import app from '../../src/server';
 import * as db from '../../src/db/index';
 import * as intentService from '../../src/services/intentService';
+import * as spendingPolicy from '../../src/services/spendingPolicyService';
 
 const mockQuery = db.query as jest.Mock;
 const mockCreateIntent = intentService.createIntent as jest.Mock;
+const mockCheckSpending = spendingPolicy.checkAndIncrementSpending as jest.Mock;
 
 const VALID_MERCHANT_ID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 const VALID_AGENT_ID = 'agent-wallet-abc123';
@@ -240,5 +262,84 @@ describe('GET /api/v1/payment-intents/:intentId', () => {
     expect(res.body.intentId).toBe(validUuidIntentId);
     expect(res.body.status).toBe('pending');
     expect(res.body.metadata).toMatchObject({ agentId: VALID_AGENT_ID });
+  });
+});
+
+describe('POST /api/v1/payment-intents — Spending Policy', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockQuery.mockResolvedValue({
+      rows: [{
+        id: VALID_MERCHANT_ID,
+        wallet_address: '5YNmS1R9n7VBjnMjhkKLhUXZhiANpvKaQYV8j8PqD',
+        webhook_url: null,
+        stripe_connected_account_id: null,
+      }],
+    });
+    mockCreateIntent.mockResolvedValue(MOCK_INTENT_RESULT);
+  });
+
+  it('returns 429 when daily spending limit is reached', async () => {
+    mockCheckSpending.mockResolvedValue({
+      allowed: false,
+      spentToday: 95,
+      dailyLimit: 100,
+      remaining: 5,
+      reason: 'Daily spending limit reached.',
+    });
+
+    const res = await request(app)
+      .post('/api/v1/payment-intents')
+      .send({
+        merchantId: VALID_MERCHANT_ID,
+        agentId: VALID_AGENT_ID,
+        amount: 10,
+        currency: 'USDC',
+      });
+
+    expect(res.status).toBe(429);
+    expect(res.body.error).toMatch(/daily spending limit/i);
+    expect(res.body.spentToday).toBe(95);
+    expect(res.body.dailyLimit).toBe(100);
+    expect(mockCreateIntent).not.toHaveBeenCalled();
+  });
+
+  it('allows transaction when under spending limit', async () => {
+    mockCheckSpending.mockResolvedValue({
+      allowed: true,
+      spentToday: 50,
+      dailyLimit: 100,
+      remaining: 40,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/payment-intents')
+      .send({
+        merchantId: VALID_MERCHANT_ID,
+        agentId: VALID_AGENT_ID,
+        amount: 10,
+        currency: 'USDC',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(mockCreateIntent).toHaveBeenCalled();
+  });
+
+  it('still creates intent when spending policy table does not exist', async () => {
+    const tableError = new Error('relation "spending_policies" does not exist');
+    mockCheckSpending.mockRejectedValue(tableError);
+
+    const res = await request(app)
+      .post('/api/v1/payment-intents')
+      .send({
+        merchantId: VALID_MERCHANT_ID,
+        agentId: VALID_AGENT_ID,
+        amount: 10,
+        currency: 'USDC',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
   });
 });

@@ -10,6 +10,7 @@ import Joi from 'joi';
 import { validate as uuidValidate } from 'uuid';
 import * as intentService from '../services/intentService';
 import * as agentIdentityService from '../services/agentIdentityService';
+import { checkAndIncrementSpending } from '../services/spendingPolicyService';
 import { query } from '../db/index';
 import { logger } from '../logger';
 
@@ -70,6 +71,27 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Embed agentId in metadata so reputation can be tracked
     const intentMetadata = { ...(metadata ?? {}), agentId };
+
+    // ── Spending Policy Check ──────────────────────────────────────────
+    try {
+      const spendCheck = await checkAndIncrementSpending(agentId, merchantId, amount);
+      if (!spendCheck.allowed) {
+        res.status(429).json({
+          error: 'Daily spending limit reached',
+          spentToday: spendCheck.spentToday,
+          dailyLimit: spendCheck.dailyLimit,
+          remaining: spendCheck.remaining,
+        });
+        return;
+      }
+    } catch (spendErr: any) {
+      // If the spending_policies table doesn't exist yet, allow the transaction
+      if (spendErr?.message?.includes('relation') && spendErr?.message?.includes('does not exist')) {
+        logger.warn('spending_policies table not found, skipping policy check');
+      } else {
+        throw spendErr;
+      }
+    }
 
     const result = await intentService.createIntent({
       merchantId,

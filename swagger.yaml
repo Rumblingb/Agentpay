@@ -1,0 +1,614 @@
+openapi: "3.0.3"
+info:
+  title: AgentPay Protocol API
+  version: "1.0.0"
+  description: |
+    AgentPay is a universal payment gateway for AI agents.
+    It enables autonomous agents to create payment intents, verify on-chain
+    transactions, and receive cryptographic payment certificates — all without
+    human intervention.
+
+    ## Quick Start for AI Agents
+
+    1. **Create a payment intent** via `POST /api/v1/payment-intents`.
+    2. **Send USDC** on Solana to the `recipientAddress` with the `memo`.
+    3. **Poll status** via `GET /api/v1/payment-intents/{intentId}` until `status: "verified"`.
+    4. **Verify on-chain** via `POST /api/verify` with the transaction hash.
+
+    ## Authentication
+
+    - **Agent endpoints** (`/api/v1/*`): No API key required. Agents authenticate by providing their `agentId`.
+    - **Merchant endpoints** (`/api/merchants/*`, `/api/intents/*`): Require a Bearer token in the `Authorization` header.
+
+  contact:
+    name: AgentPay Support
+    url: https://docs.agentpay.gg
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  - url: https://api.agentpay.gg
+    description: Production
+
+tags:
+  - name: Agent Intents (V1)
+    description: |
+      Agent-facing payment intent endpoints. These do NOT require a merchant
+      API key — any AI agent can create and track payments.
+  - name: Merchant Management
+    description: |
+      Merchant registration, profile management, and API key rotation.
+      All endpoints require `Authorization: Bearer <api_key>`.
+  - name: Merchant Payments
+    description: |
+      Merchant-authenticated payment creation, listing, and verification.
+  - name: Verification
+    description: On-chain transaction verification.
+  - name: Certificates
+    description: Payment certificate validation.
+  - name: Webhooks
+    description: Webhook subscription management for merchants.
+  - name: Health
+    description: System health checks.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns server status and current timestamp. Use this to confirm the API is reachable.
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: active
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # ── Agent Intent V1 ──────────────────────────────────────────────────
+
+  /api/v1/payment-intents:
+    post:
+      tags: [Agent Intents (V1)]
+      summary: Create a payment intent (agent-initiated)
+      description: |
+        Creates a new payment intent for an AI agent to pay a merchant.
+        No API key is required — the agent identifies itself via `agentId`.
+
+        **Returns** payment instructions including:
+        - A Solana USDC recipient address and memo
+        - A Solana Pay URI for one-click payment
+        - An expiration timestamp (default 30 minutes)
+
+        **Spending Policy**: If a spending policy is configured for this
+        agent + merchant pair, the request will be rejected with HTTP 429
+        if the daily limit has been reached.
+      operationId: createAgentIntent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIntentRequest"
+            example:
+              merchantId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+              agentId: "my-llm-agent-001"
+              amount: 1.00
+              currency: "USDC"
+              metadata:
+                product: "LLM Tokens"
+                quantity: 1000
+      responses:
+        "201":
+          description: Payment intent created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentCreatedResponse"
+        "400":
+          description: Validation error (missing or invalid fields).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid PIN provided.
+        "404":
+          description: Merchant not found or inactive.
+        "429":
+          description: Daily spending limit reached for this agent at this merchant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpendingLimitError"
+
+  /api/v1/payment-intents/{intentId}:
+    get:
+      tags: [Agent Intents (V1)]
+      summary: Get payment intent status
+      description: |
+        Polls the current status of a payment intent. Agents should call this
+        endpoint periodically to check whether their payment has been verified.
+
+        **Statuses**: `pending` → `verified` | `expired` | `failed`
+
+        Auto-expires overdue pending intents on read.
+      operationId: getIntentStatus
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          description: UUID of the payment intent.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Payment intent details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentStatusResponse"
+        "400":
+          description: Invalid intent ID format.
+        "404":
+          description: Payment intent not found.
+
+  # ── Merchant Registration & Profile ──────────────────────────────────
+
+  /api/merchants/register:
+    post:
+      tags: [Merchant Management]
+      summary: Register a new merchant
+      description: |
+        Creates a new merchant account and returns an API key.
+        **Store the API key securely** — it cannot be retrieved after this response.
+      operationId: registerMerchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterMerchantRequest"
+      responses:
+        "201":
+          description: Merchant registered. API key returned (one-time).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterMerchantResponse"
+        "400":
+          description: Validation error.
+        "409":
+          description: Email or wallet already registered.
+
+  /api/merchants/profile:
+    get:
+      tags: [Merchant Management]
+      summary: Get merchant profile
+      description: Returns the authenticated merchant's profile details.
+      operationId: getMerchantProfile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Merchant profile.
+        "401":
+          description: Missing or invalid API key.
+
+  /api/merchants/rotate-key:
+    post:
+      tags: [Merchant Management]
+      summary: Rotate API key
+      description: |
+        Invalidates the current API key and generates a new one.
+        **Store the new key securely.**
+      operationId: rotateApiKey
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: New API key generated.
+        "401":
+          description: Missing or invalid API key.
+
+  # ── Merchant Payments ────────────────────────────────────────────────
+
+  /api/merchants/payments:
+    post:
+      tags: [Merchant Payments]
+      summary: Create a payment (merchant-initiated)
+      description: |
+        Merchant-authenticated endpoint to create a new payment record.
+        Unlike the V1 agent endpoint, this requires a valid API key.
+      operationId: createMerchantPayment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, recipientAddress]
+              properties:
+                amount:
+                  type: number
+                  description: Amount in USDC.
+                recipientAddress:
+                  type: string
+                  description: Solana wallet address of the recipient.
+      responses:
+        "201":
+          description: Payment created.
+        "401":
+          description: Invalid API key.
+
+    get:
+      tags: [Merchant Payments]
+      summary: List payments
+      description: Returns all payments for the authenticated merchant.
+      operationId: listMerchantPayments
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of payments.
+        "401":
+          description: Invalid API key.
+
+  /api/merchants/payments/{transactionId}:
+    get:
+      tags: [Merchant Payments]
+      summary: Get payment details
+      description: Returns details for a specific payment. Returns 403 if the payment belongs to a different merchant (multi-tenant isolation).
+      operationId: getMerchantPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Payment details.
+        "403":
+          description: Forbidden — payment belongs to another merchant.
+        "404":
+          description: Payment not found.
+
+  /api/merchants/payments/{transactionId}/verify:
+    post:
+      tags: [Merchant Payments]
+      summary: Verify a payment
+      description: Verifies an on-chain Solana transaction for a specific payment.
+      operationId: verifyMerchantPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactionHash]
+              properties:
+                transactionHash:
+                  type: string
+                  description: Solana transaction signature.
+      responses:
+        "200":
+          description: Verification result.
+        "403":
+          description: Forbidden — cross-merchant access denied.
+
+  # ── Verification ─────────────────────────────────────────────────────
+
+  /api/verify/{txHash}:
+    get:
+      tags: [Verification]
+      summary: Verify a transaction by hash
+      description: |
+        Public endpoint to verify a Solana transaction by its hash.
+        No authentication required.
+      operationId: verifyTransaction
+      parameters:
+        - name: txHash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction verification result.
+
+  # ── Certificates ─────────────────────────────────────────────────────
+
+  /api/certificates/validate:
+    post:
+      tags: [Certificates]
+      summary: Validate a payment certificate
+      description: |
+        Validates an AgentPay payment certificate by checking its
+        cryptographic signature.
+      operationId: validateCertificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [certificate]
+              properties:
+                certificate:
+                  type: string
+                  description: The full certificate JSON string.
+      responses:
+        "200":
+          description: Certificate validation result.
+
+  # ── Webhooks ─────────────────────────────────────────────────────────
+
+  /api/webhooks/subscribe:
+    post:
+      tags: [Webhooks]
+      summary: Subscribe to webhook events
+      description: |
+        Register a URL to receive webhook notifications for payment events.
+        Webhooks are delivered with HMAC-SHA256 signatures for authenticity.
+      operationId: subscribeWebhook
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, eventTypes]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: HTTPS URL to receive webhook POST requests.
+                eventTypes:
+                  type: array
+                  items:
+                    type: string
+                  description: "Event types to subscribe to (e.g. ['payment.verified'])."
+      responses:
+        "201":
+          description: Subscription created.
+        "401":
+          description: Invalid API key.
+
+  /api/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhook subscriptions
+      operationId: listWebhooks
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of active webhook subscriptions.
+        "401":
+          description: Invalid API key.
+
+  /api/webhooks/{id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook subscription
+      operationId: deleteWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Subscription deleted.
+        "403":
+          description: Forbidden — subscription belongs to another merchant.
+        "404":
+          description: Subscription not found.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Merchant API key. Obtain via `POST /api/merchants/register`.
+        Pass as `Authorization: Bearer sk_live_...`.
+
+  schemas:
+    CreateIntentRequest:
+      type: object
+      required: [merchantId, agentId, amount]
+      properties:
+        merchantId:
+          type: string
+          format: uuid
+          description: UUID of the merchant to pay.
+        agentId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Unique identifier for the paying agent.
+        amount:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: Amount in USDC to pay.
+        currency:
+          type: string
+          enum: [USDC]
+          default: USDC
+        pin:
+          type: string
+          description: Optional agent PIN for additional verification.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Arbitrary key-value metadata attached to the intent.
+
+    IntentCreatedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        intentId:
+          type: string
+          format: uuid
+        verificationToken:
+          type: string
+          description: Unique token to include as the Solana transaction memo.
+        expiresAt:
+          type: string
+          format: date-time
+        instructions:
+          type: object
+          properties:
+            crypto:
+              type: object
+              properties:
+                network:
+                  type: string
+                  example: solana
+                token:
+                  type: string
+                  example: USDC
+                recipientAddress:
+                  type: string
+                  description: Solana wallet address to send USDC to.
+                amount:
+                  type: number
+                memo:
+                  type: string
+                  description: Include this memo in the Solana transaction.
+                solanaPayUri:
+                  type: string
+                  description: Solana Pay URI for one-click payment.
+            fiat:
+              type: object
+              nullable: true
+              properties:
+                provider:
+                  type: string
+                  example: stripe
+                note:
+                  type: string
+
+    IntentStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        intentId:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, expired, failed]
+          description: |
+            Current status of the intent.
+            - `pending`: Awaiting payment
+            - `verified`: Payment confirmed on-chain
+            - `expired`: Intent has expired
+            - `failed`: Payment failed
+        verificationToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    SpendingLimitError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Daily spending limit reached"
+        spentToday:
+          type: number
+          description: Total USDC spent by this agent today.
+        dailyLimit:
+          type: number
+          description: Configured daily spending limit in USDC.
+        remaining:
+          type: number
+          description: Remaining USDC budget for today.
+
+    RegisterMerchantRequest:
+      type: object
+      required: [name, email, walletAddress]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        walletAddress:
+          type: string
+          description: Solana wallet address for receiving payments.
+        webhookUrl:
+          type: string
+          format: uri
+          description: Optional URL to receive payment webhook notifications.
+
+    RegisterMerchantResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        merchantId:
+          type: string
+          format: uuid
+        apiKey:
+          type: string
+          description: |
+            Your API key. **Store this securely — it will not be shown again.**
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: array
+          items:
+            type: string

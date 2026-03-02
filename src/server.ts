@@ -4,6 +4,10 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
+import fs from 'fs';
+import path from 'path';
+import yaml from 'js-yaml';
 
 // Route Imports
 import merchantsRouter from './routes/merchants';
@@ -25,6 +29,7 @@ import testRouter from './test/routes';
 // Middleware & Service Imports
 import { logger } from './logger';
 import { startSolanaListener } from './services/solana-listener';
+import { startWebhookWorker } from './services/webhookQueue';
 
 dotenv.config();
 
@@ -66,6 +71,18 @@ app.use(globalLimiter);
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'active', timestamp: new Date().toISOString() });
 });
+
+// --- API DOCUMENTATION (Swagger UI) ---
+try {
+  const swaggerPath = path.resolve(process.cwd(), 'swagger.yaml');
+  const swaggerDoc = yaml.load(fs.readFileSync(swaggerPath, 'utf8')) as Record<string, unknown>;
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
+    customSiteTitle: 'AgentPay API Documentation',
+    customCss: '.swagger-ui .topbar { display: none }',
+  }));
+} catch {
+  // Swagger YAML not found — skip docs endpoint
+}
 
 // --- TEST-MODE ROUTES (Mount BEFORE API routes to catch specific test paths) ---
 if (process.env.NODE_ENV === 'test' || process.env.AGENTPAY_TEST_MODE === 'true') {
@@ -140,6 +157,12 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`🚀 AgentPay API running on http://localhost:${PORT}`);
   });
   startSolanaListener();
+
+  // Start BullMQ webhook worker when Redis is configured
+  if (process.env.REDIS_URL) {
+    startWebhookWorker();
+    console.log('📨 BullMQ webhook worker started (Redis-backed)');
+  }
 }
 
 export default app;
