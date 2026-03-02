@@ -262,11 +262,37 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_revenue_events_to_entity ON revenue_events(to_entity_id);
     `);
 
+    // ============ SPENDING POLICIES ============
+    // Per-agent daily spending limits at specific merchants
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS spending_policies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        agent_id VARCHAR(255) NOT NULL,
+        daily_limit DECIMAL(20, 6) NOT NULL DEFAULT 100.00,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_spending_policy UNIQUE (merchant_id, agent_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_spending_policies_merchant_id ON spending_policies(merchant_id);
+      CREATE INDEX IF NOT EXISTS idx_spending_policies_agent_id ON spending_policies(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_spending_policies_active ON spending_policies(active);
+    `);
+
+    // Performance index for spending policy lookups on payment_intents
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_payment_intents_merchant_created
+        ON payment_intents(merchant_id, created_at);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
     logger.info('   - transactions (payment records with recipient verification)');
     logger.info('   - api_logs (audit trail)');
+    logger.info('   - spending_policies (agent daily limits)');
     logger.info('   - rate_limit_counters (DDoS protection)');
     logger.info('   - payment_verifications (secure tokens)');
     logger.info('   - webhook_events (merchant notifications)');

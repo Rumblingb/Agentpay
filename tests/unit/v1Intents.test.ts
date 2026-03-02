@@ -16,6 +16,26 @@ jest.mock('../../src/services/intentService', () => ({
   default: { createIntent: jest.fn(), getIntentStatus: jest.fn() },
 }));
 
+// ---- Mock spending policy service ----
+jest.mock('../../src/services/spendingPolicyService', () => ({
+  checkAndIncrementSpending: jest.fn().mockResolvedValue({
+    allowed: true,
+    spentToday: 0,
+    dailyLimit: Infinity,
+    remaining: Infinity,
+  }),
+  ensureSpendingPoliciesTable: jest.fn().mockResolvedValue(undefined),
+  default: {
+    checkAndIncrementSpending: jest.fn().mockResolvedValue({
+      allowed: true,
+      spentToday: 0,
+      dailyLimit: Infinity,
+      remaining: Infinity,
+    }),
+    ensureSpendingPoliciesTable: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 // ---- Mock Prisma to prevent ESM import issues ----
 jest.mock('../../src/lib/prisma', () => ({
   __esModule: true,

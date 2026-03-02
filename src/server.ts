@@ -25,6 +25,7 @@ import testRouter from './test/routes';
 // Middleware & Service Imports
 import { logger } from './logger';
 import { startSolanaListener } from './services/solana-listener';
+import { startWebhookWorker } from './services/webhookQueue';
 
 dotenv.config();
 
@@ -140,6 +141,12 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`🚀 AgentPay API running on http://localhost:${PORT}`);
   });
   startSolanaListener();
+
+  // Start BullMQ webhook worker when Redis is configured
+  if (process.env.REDIS_URL) {
+    startWebhookWorker();
+    console.log('📨 BullMQ webhook worker started (Redis-backed)');
+  }
 }
 
 export default app;

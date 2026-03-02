@@ -2,10 +2,14 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { query } from '../db/index';
 import { logger } from '../logger';
+import { enqueueWebhook } from './webhookQueue';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'change-me-in-production';
 const WEBHOOK_TIMEOUT_MS = 5000;
 const RETRY_DELAYS_MS = [0, 5000, 25000]; // 3 attempts: immediate, 5s, 25s
+
+/** Whether to use BullMQ for webhook delivery (requires Redis). */
+const USE_QUEUE = process.env.REDIS_URL ? true : false;
 
 export interface WebhookPayload {
   event: string;
@@ -96,16 +100,14 @@ async function updateWebhookEvent(
 }
 
 /**
- * Delivers a webhook with automatic retry (exponential backoff).
+ * Delivers a webhook with automatic retry.
  *
- * Design: this function runs its retry loop asynchronously (each delay uses
- * setTimeout, yielding the event loop between retries). Callers should invoke
- * it WITHOUT `await` to keep it truly fire-and-forget:
- *   webhooksService.scheduleWebhook(...).catch(() => {});
+ * When REDIS_URL is set, jobs are enqueued to BullMQ for persistent,
+ * crash-safe delivery with exponential backoff (5 retries: 1m → 6h).
+ * Idempotency is enforced via transactionId as the BullMQ job key.
  *
- * Note for production scale: for very high volumes, consider replacing this
- * with a proper job queue (e.g. BullMQ / pg-boss) so retries survive restarts
- * and cluster workers don't duplicate deliveries.
+ * When Redis is unavailable, falls back to the original in-process retry
+ * loop (3 attempts: 0 s, 5 s, 25 s).
  */
 export async function scheduleWebhook(
   webhookUrl: string,
@@ -113,8 +115,6 @@ export async function scheduleWebhook(
   merchantId: string,
   transactionId: string | null = null
 ): Promise<void> {
-  const payloadStr = JSON.stringify(payload);
-  const signature = signPayload(payloadStr);
   const eventId = await createWebhookEvent(
     merchantId,
     transactionId,
@@ -122,6 +122,20 @@ export async function scheduleWebhook(
     webhookUrl,
     payload
   );
+
+  // ── BullMQ path ────────────────────────────────────────────────────────
+  if (USE_QUEUE) {
+    try {
+      await enqueueWebhook(webhookUrl, payload, merchantId, transactionId, eventId);
+      return;
+    } catch (err) {
+      logger.warn('Failed to enqueue webhook to BullMQ, falling back to in-process delivery', { err });
+    }
+  }
+
+  // ── In-process fallback ────────────────────────────────────────────────
+  const payloadStr = JSON.stringify(payload);
+  const signature = signPayload(payloadStr);
 
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     const delay = RETRY_DELAYS_MS[attempt];
