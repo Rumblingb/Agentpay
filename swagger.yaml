@@ -44,12 +44,18 @@ tags:
   - name: Merchant Payments
     description: |
       Merchant-authenticated payment creation, listing, and verification.
+  - name: LLM Gateway
+    description: |
+      LLM inference proxy that bills AI agents through AgentPay.
+      Supports OpenAI, Anthropic, and Groq providers.
   - name: Verification
     description: On-chain transaction verification.
   - name: Certificates
     description: Payment certificate validation.
   - name: Webhooks
     description: Webhook subscription management for merchants.
+  - name: Admin
+    description: Platform admin dashboard endpoints. Requires ADMIN_API_KEY.
   - name: Health
     description: System health checks.
 
@@ -437,6 +443,103 @@ paths:
         "404":
           description: Subscription not found.
 
+  # ── LLM Gateway ──────────────────────────────────────────────────────
+
+  /api/llm/chat/completions:
+    post:
+      tags: [LLM Gateway]
+      summary: Proxy a chat completion request
+      description: |
+        Forwards a chat completion request to the specified LLM provider
+        (OpenAI, Anthropic, or Groq). Before forwarding, the agent's
+        spending policy is checked. After completion, the cost is calculated
+        from token usage and charged via an internal PaymentIntent.
+      operationId: llmChatCompletion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LLMCompletionRequest"
+      responses:
+        "200":
+          description: LLM completion response with billing info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMCompletionResponse"
+        "400":
+          description: Validation error.
+        "429":
+          description: Daily spending limit reached.
+        "502":
+          description: LLM provider error.
+
+  /api/llm/micropayment:
+    post:
+      tags: [LLM Gateway]
+      summary: Process a micropayment
+      description: |
+        Processes a small automatic payment (e.g., $0.01 post boost).
+        Auto-approved if within the agent's daily spending policy.
+        Maximum $1.00 per micropayment.
+      operationId: llmMicropayment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agentId, amount, description]
+              properties:
+                agentId:
+                  type: string
+                amount:
+                  type: number
+                  maximum: 1.00
+                description:
+                  type: string
+                metadata:
+                  type: object
+      responses:
+        "201":
+          description: Micropayment approved.
+        "429":
+          description: Spending limit reached.
+
+  /api/llm/models:
+    get:
+      tags: [LLM Gateway]
+      summary: List supported LLM models
+      description: Returns all supported LLM models with pricing per 1K tokens.
+      operationId: listLLMModels
+      responses:
+        "200":
+          description: List of models with pricing.
+
+  # ── Admin ─────────────────────────────────────────────────────────────
+
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Get platform statistics
+      description: |
+        Returns high-level platform statistics including total MRR,
+        active agents, merchant counts, and revenue breakdown.
+        Protected by ADMIN_API_KEY.
+      operationId: getAdminStats
+      security:
+        - adminAuth: []
+      responses:
+        "200":
+          description: Platform statistics.
+        "403":
+          description: Invalid admin credentials.
+
 components:
   securitySchemes:
     bearerAuth:
@@ -445,6 +548,11 @@ components:
       description: |
         Merchant API key. Obtain via `POST /api/merchants/register`.
         Pass as `Authorization: Bearer sk_live_...`.
+    adminAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Admin API key. Set via ADMIN_API_KEY environment variable.
 
   schemas:
     CreateIntentRequest:
@@ -612,3 +720,94 @@ components:
           type: array
           items:
             type: string
+
+    LLMCompletionRequest:
+      type: object
+      required: [agentId, provider, model, messages]
+      properties:
+        agentId:
+          type: string
+          description: Unique identifier for the paying agent.
+        provider:
+          type: string
+          enum: [openai, anthropic, groq]
+          description: LLM provider to route the request to.
+        model:
+          type: string
+          description: Model name (e.g., gpt-4o, claude-3-sonnet).
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                enum: [system, user, assistant]
+              content:
+                type: string
+          description: Chat messages in OpenAI-compatible format.
+        maxTokens:
+          type: integer
+          minimum: 1
+          maximum: 128000
+          description: Maximum tokens to generate.
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          description: Sampling temperature.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    LLMCompletionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        id:
+          type: string
+          description: Intent ID for the billing record.
+        provider:
+          type: string
+        model:
+          type: string
+        content:
+          type: string
+          description: Generated text content.
+        usage:
+          type: object
+          properties:
+            promptTokens:
+              type: integer
+            completionTokens:
+              type: integer
+            totalTokens:
+              type: integer
+        costUsd:
+          type: number
+          description: Actual cost in USD based on token usage.
+        intentId:
+          type: string
+          format: uuid
+          description: Payment intent created for billing.
+        finishReason:
+          type: string
+
+    SpendingPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        merchantId:
+          type: string
+          format: uuid
+        agentId:
+          type: string
+        dailyLimit:
+          type: number
+          description: Maximum USDC the agent can spend per 24 hours.
+        active:
+          type: boolean

@@ -190,6 +190,65 @@ class Bots:
         )
 
 
+class LLM:
+    """LLM Gateway operations — proxy AI inference through AgentPay billing."""
+
+    def __init__(self, base_url: str, api_key: str, max_retries: int):
+        self._base_url = base_url
+        self._api_key = api_key
+        self._max_retries = max_retries
+
+    def chat_completion(
+        self,
+        agent_id: str,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "agentId": agent_id,
+            "provider": provider,
+            "model": model,
+            "messages": messages,
+        }
+        if max_tokens is not None:
+            body["maxTokens"] = max_tokens
+        if temperature is not None:
+            body["temperature"] = temperature
+        if metadata:
+            body["metadata"] = metadata
+        return _http_request(
+            self._base_url, self._api_key, "POST", "/api/llm/chat/completions", body, self._max_retries
+        )
+
+    def micropayment(
+        self,
+        agent_id: str,
+        amount: float,
+        description: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "agentId": agent_id,
+            "amount": amount,
+            "description": description,
+        }
+        if metadata:
+            body["metadata"] = metadata
+        return _http_request(
+            self._base_url, self._api_key, "POST", "/api/llm/micropayment", body, self._max_retries
+        )
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        result = _http_request(
+            self._base_url, self._api_key, "GET", "/api/llm/models", max_retries=self._max_retries
+        )
+        return result.get("models", []) if isinstance(result, dict) else result
+
+
 class AgentPay:
     """AgentPay Python SDK client.
 
@@ -218,3 +277,4 @@ class AgentPay:
 
         self.payments = Payments(self._base_url, self._api_key, self._max_retries)
         self.bots = Bots(self._base_url, self._api_key, self._max_retries)
+        self.llm = LLM(self._base_url, self._api_key, self._max_retries)
