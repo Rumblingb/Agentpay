@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import axios from 'axios';
-import * as webhookController from '../controllers/webhookController';
-import { logger } from '../logger';
+import * as webhookController from '../controllers/webhookController.js';
+import { logger } from '../logger.js';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'change-me-in-production';
 const WEBHOOK_TIMEOUT_MS = 5000;

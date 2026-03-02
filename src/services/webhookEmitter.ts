@@ -1,6 +1,6 @@
-import * as webhookController from '../controllers/webhookController';
-import { scheduleDelivery } from './webhookDeliveryWorker';
-import { logger } from '../logger';
+import * as webhookController from '../controllers/webhookController.js';
+import { scheduleDelivery } from './webhookDeliveryWorker.js';
+import { logger } from '../logger.js';
 
 export interface PaymentVerifiedPayload {
   type: 'payment_verified';

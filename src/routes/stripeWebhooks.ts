@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import * as stripeService from '../services/stripeService';
-import * as webhooksService from '../services/webhooks';
-import type { WebhookPayload } from '../services/webhooks';
-import { logger } from '../logger';
-import { query } from '../db/index'; // Use centralized query import
+import * as stripeService from '../services/stripeService.js';
+import * as webhooksService from '../services/webhooks.js';
+import type { WebhookPayload } from '../services/webhooks.js';
+import { logger } from '../logger.js';
+import { query } from '../db/index.js'; // Use centralized query import
 
 const router = Router();
 

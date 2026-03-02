@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

@@ -8,10 +8,10 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import { validate as uuidValidate } from 'uuid';
-import * as intentService from '../services/intentService';
-import * as agentIdentityService from '../services/agentIdentityService';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import * as intentService from '../services/intentService.js';
+import * as agentIdentityService from '../services/agentIdentityService.js';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

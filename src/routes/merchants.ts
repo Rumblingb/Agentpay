@@ -2,17 +2,17 @@ import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import rateLimit from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
-import * as merchantsService from '../services/merchants';
-import * as transactionsService from '../services/transactions';
-import * as webhooksService from '../services/webhooks';
-import type { WebhookPayload } from '../services/webhooks';
-import * as webhookEmitter from '../services/webhookEmitter';
-import * as auditService from '../services/audit';
-import { signCertificate } from '../services/certificateService';
-import { billMerchant } from '../services/billingService';
-import { query } from '../db/index';
-import { authenticateApiKey } from '../middleware/auth';
-import { logger } from '../logger';
+import * as merchantsService from '../services/merchants.js';
+import * as transactionsService from '../services/transactions.js';
+import * as webhooksService from '../services/webhooks.js';
+import type { WebhookPayload } from '../services/webhooks.js';
+import * as webhookEmitter from '../services/webhookEmitter.js';
+import * as auditService from '../services/audit.js';
+import { signCertificate } from '../services/certificateService.js';
+import { billMerchant } from '../services/billingService.js';
+import { query } from '../db/index.js';
+import { authenticateApiKey } from '../middleware/auth.js';
+import { logger } from '../logger.js';
 
 // Interface for the Authenticated Request
 interface AuthRequest extends Request {

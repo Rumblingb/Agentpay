@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 const SALT_ROUNDS = 12;
 

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { authenticateApiKey } from '../middleware/auth';
-import * as delegationService from '../services/delegationService';
-import { logger } from '../logger';
+import { authenticateApiKey } from '../middleware/auth.js';
+import * as delegationService from '../services/delegationService.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 

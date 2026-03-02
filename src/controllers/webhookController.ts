@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 export interface WebhookSubscription {
   id: string;

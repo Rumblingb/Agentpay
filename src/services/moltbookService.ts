@@ -9,8 +9,8 @@
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { Keypair } from '@solana/web3.js';
-import { query } from '../db/index';
-import { logger } from '../logger';
+import { query } from '../db/index.js';
+import { logger } from '../logger.js';
 
 const SALT_ROUNDS = 12;
 
