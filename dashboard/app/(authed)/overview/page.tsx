@@ -57,16 +57,26 @@ async function fetchProfile(): Promise<{ name: string; email: string } | null> {
 /** Aggregate payments by day for the chart */
 function buildChartData(payments: Payment[]) {
   const byDay: Record<string, number> = {};
+  
   payments.forEach((p) => {
     const day = new Date(p.createdAt).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
     });
-    byDay[day] = (byDay[day] ?? 0) + (p.status === 'confirmed' ? p.amountUsdc : 0);
+    
+    // Convert to number first to avoid .toFixed error
+    const amount = Number(p.amountUsdc) || 0;
+    
+    // Only aggregate confirmed payments for the revenue chart
+    byDay[day] = (byDay[day] ?? 0) + (p.status === 'confirmed' ? amount : 0);
   });
+
   return Object.entries(byDay)
     .slice(-14)
-    .map(([date, usdc]) => ({ date, usdc: Number(usdc.toFixed(2)) }));
+    .map(([date, usdc]) => ({ 
+      date, 
+      usdc: Number(usdc.toFixed(2)) // This is now safe
+    }));
 }
 
 export default function OverviewPage() {
