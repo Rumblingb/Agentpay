@@ -1,10 +1,13 @@
-import "dotenv/config"; // This is the modern, simpler way for Prisma v7
-import { defineConfig } from "@prisma/config";
+import { defineConfig, env } from "@prisma/config";
 
-// We use the direct environment variable. Next.js/Vercel handles the string type.
+/**
+ * In Vercel, env variables are already loaded. 
+ * The env() helper from @prisma/config handles 
+ * this natively without needing 'dotenv'.
+ */
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
-    url: process.env.DATABASE_URL!,
+    url: env("DATABASE_URL"),
   },
 });
