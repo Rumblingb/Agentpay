@@ -4,7 +4,7 @@
  * In-memory database mock for `src/db/index.ts`.
  *
  * Provides a drop-in replacement for the `query()` function that routes
- * SQL queries to in-memory arrays, simulating PostgreSQL behaviour for
+ * SQL queries to in-memory arrays, simulating PostgreSQL behavior for
  * integration / E2E / reputation tests that previously required a live
  * Supabase connection.
  *
