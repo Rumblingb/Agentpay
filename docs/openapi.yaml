@@ -1,0 +1,496 @@
+openapi: '3.0.3'
+info:
+  title: AgentPay API
+  description: |
+    HTTP 402 Payment Server for USDC on Solana.
+    Provides merchant management, payment intents, on-chain verification,
+    Moltbook bot integration, spending policies, and Stripe fiat fallback.
+  version: '1.0.0'
+  contact:
+    name: AgentPay
+    email: rajivbaskaran@gmail.com
+    url: https://github.com/Rumblingb/Agentpay
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://apay-delta.vercel.app
+    description: Production (Vercel)
+  - url: http://localhost:3001
+    description: Local development
+
+tags:
+  - name: Health
+    description: Server health and status
+  - name: Merchants
+    description: Merchant registration, profile, and API key management
+  - name: Payments
+    description: Payment creation, verification, and listing
+  - name: Moltbook
+    description: Bot registration, spending policies, marketplace, and reputation
+  - name: Webhooks
+    description: Webhook configuration and Stripe integration
+  - name: Agents
+    description: Agent identity, delegation, and certificates
+
+paths:
+  /:
+    get:
+      summary: Root route
+      tags: [Health]
+      responses:
+        '200':
+          description: API is live
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: 'AgentPay API is Live 🚀'
+
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Server health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: 'ok'
+                  version:
+                    type: string
+                    example: '1.0'
+                  uptime:
+                    type: number
+                    description: Server uptime in seconds
+                    example: 3600.5
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: '2026-03-03T12:00:00.000Z'
+
+  /api/merchants/register:
+    post:
+      summary: Register a new merchant
+      tags: [Merchants]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, walletAddress]
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 255
+                  example: 'My Business'
+                email:
+                  type: string
+                  format: email
+                  example: 'business@example.com'
+                walletAddress:
+                  type: string
+                  minLength: 32
+                  maxLength: 44
+                  example: '9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo'
+                webhookUrl:
+                  type: string
+                  format: uri
+                  example: 'https://example.com/webhook'
+      responses:
+        '201':
+          description: Merchant registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  merchantId:
+                    type: string
+                    format: uuid
+                  apiKey:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          description: Validation error
+
+  /api/merchants/profile:
+    get:
+      summary: Get merchant profile
+      tags: [Merchants]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Merchant profile
+        '401':
+          description: Unauthorized
+        '404':
+          description: Merchant not found
+
+  /api/merchants/stats:
+    get:
+      summary: Get merchant statistics
+      tags: [Merchants]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Aggregate stats including transaction counts and volume
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  totalTransactions:
+                    type: integer
+                  totalVolume:
+                    type: number
+                  successRate:
+                    type: number
+
+  /api/merchants/payments:
+    post:
+      summary: Create a payment request
+      tags: [Payments]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountUsdc, recipientAddress]
+              properties:
+                amountUsdc:
+                  type: number
+                  minimum: 0.01
+                  example: 10.00
+                recipientAddress:
+                  type: string
+                  example: '9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo'
+                metadata:
+                  type: object
+                  example: { "botId": "my-agent", "purpose": "data-access" }
+                expiryMinutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 30
+      responses:
+        '201':
+          description: Payment request created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  transactionId:
+                    type: string
+                    format: uuid
+                  paymentId:
+                    type: string
+                  amount:
+                    type: number
+                  recipientAddress:
+                    type: string
+                  instructions:
+                    type: string
+    get:
+      summary: List merchant payments
+      tags: [Payments]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of payments with stats
+
+  /api/merchants/payments/{transactionId}/verify:
+    post:
+      summary: Verify a payment on-chain
+      tags: [Payments]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactionHash]
+              properties:
+                transactionHash:
+                  type: string
+                  description: Solana transaction signature
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  verified:
+                    type: boolean
+                  payer:
+                    type: string
+                  certificate:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          description: Verification failed
+        '403':
+          description: Unauthorized access to transaction
+        '404':
+          description: Transaction not found
+
+  /api/moltbook/bots/register:
+    post:
+      summary: Register a Moltbook bot
+      tags: [Moltbook]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle]
+              properties:
+                handle:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  example: '@MyBot'
+                display_name:
+                  type: string
+                  maxLength: 255
+                  example: 'My Research Bot'
+                bio:
+                  type: string
+                  maxLength: 1000
+                primary_function:
+                  type: string
+                  maxLength: 100
+                  example: 'research'
+                platform_bot_id:
+                  type: string
+                  maxLength: 255
+      responses:
+        '201':
+          description: Bot registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  botId:
+                    type: string
+                  handle:
+                    type: string
+                  apiKey:
+                    type: string
+        '400':
+          description: Validation error
+        '409':
+          description: Handle already taken
+
+  /api/moltbook/bots/{botId}/spending-policy:
+    get:
+      summary: Get bot spending policy
+      tags: [Moltbook]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current spending policy
+        '404':
+          description: Bot not found
+    patch:
+      summary: Update bot spending policy
+      tags: [Moltbook]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dailySpendingLimit:
+                  type: number
+                  maximum: 10000
+                  example: 100
+                perTxLimit:
+                  type: number
+                  maximum: 10000
+                  example: 25
+                autoApproveUnder:
+                  type: number
+                  maximum: 10000
+                  example: 5
+                requirePinAbove:
+                  type: number
+                alertWebhookUrl:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Policy updated
+        '400':
+          description: Validation error
+        '404':
+          description: Bot not found
+
+  /api/moltbook/services:
+    get:
+      summary: List marketplace services
+      tags: [Moltbook]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [uses, rating, revenue]
+      responses:
+        '200':
+          description: List of marketplace services
+
+  /api/moltbook/services/search:
+    post:
+      summary: Search marketplace services
+      tags: [Moltbook]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                q:
+                  type: string
+                  maxLength: 200
+                category:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                minPrice:
+                  type: number
+                maxPrice:
+                  type: number
+                minReputation:
+                  type: number
+                sortBy:
+                  type: string
+                  enum: [uses, rating, revenue, reputation]
+      responses:
+        '200':
+          description: Search results
+
+  /api/moltbook/reputation/{botId}:
+    get:
+      summary: Get bot reputation (AgentRank)
+      tags: [Moltbook]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bot reputation details
+        '404':
+          description: Bot not found
+
+  /api/moltbook/reputation/top:
+    get:
+      summary: Get top-ranked bots
+      tags: [Moltbook]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: Top ranked bots
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API key obtained from merchant registration.
+        Include as: Authorization: Bearer YOUR_API_KEY

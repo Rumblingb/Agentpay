@@ -1,7 +1,11 @@
-﻿import request from 'supertest';
+﻿// Mock the database layer so tests run without a live PostgreSQL instance.
+// The in-memory mock handles INSERT/SELECT/UPDATE for merchants, transactions,
+// bots, and other tables — matching the SQL patterns used by the services.
+jest.mock('../src/db/index', () => require('./helpers/mockDb').createMockDb());
+
+import request from 'supertest';
 import app from '../src/server';
 import { closePool } from '../src/db/index';
-import { query } from '../src/db/index';
 
 let server: any;
 let merchantId: string = '';
@@ -10,12 +14,6 @@ let transactionId: string = '';
 
 beforeAll(async () => {
   server = app.listen(0);
-  try {
-    // Updated cleanup command
-await query('TRUNCATE merchants, transactions, rate_limit_counters, payment_verifications, webhook_events, payment_audit_log RESTART IDENTITY CASCADE');
-  } catch (e) {
-    console.error('Cleanup failed:', e);
-  }
 });
 
 afterAll(async () => {

@@ -7,7 +7,6 @@
  * Prerequisites (set automatically via jest.setup.cjs + CI env):
  *   NODE_ENV   = 'test'          (Jest sets this)
  *   AGENTPAY_TEST_MODE = 'true'  (jest.setup.cjs sets this)
- *   DATABASE_URL pointing at a live Postgres instance
  *
  * Flow tested:
  *   1. Merchant registration
@@ -16,6 +15,9 @@
  *   4. Webhook delivery to a local mock HTTP receiver
  *   5. Delivery attempt recorded in webhook_events table
  */
+
+// Mock the database layer — all SQL queries are handled in-memory.
+jest.mock('../../src/db/index', () => require('../helpers/mockDb').createMockDb());
 
 import http from 'http';
 import net from 'net';
@@ -67,12 +69,6 @@ let transactionId: string;
 beforeAll(async () => {
   await startWebhookReceiver();
   appServer = app.listen(0);
-  // Clean slate for this test run.
-  await query(
-    `TRUNCATE merchants, transactions, api_logs, rate_limit_counters,
-              payment_verifications, webhook_events, payment_audit_log
-     RESTART IDENTITY CASCADE`
-  );
 }, 30_000);
 
 afterAll(async () => {

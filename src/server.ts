@@ -70,7 +70,12 @@ app.get('/', (_req: Request, res: Response) => {
 
 // --- HEALTH CHECK ---
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'active', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    version: '1.0',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // --- TEST-MODE ROUTES (Mount BEFORE API routes to catch specific test paths) ---
