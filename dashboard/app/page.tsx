@@ -16,7 +16,7 @@ export default function WelcomePage() {
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-16">
         {/* Badge */}
         <div className="mb-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full px-4 py-1.5 text-xs font-medium text-slate-300">
-          <span className="text-emerald-400">●</span> Powered by Solana &amp; USDC
+          <span className="text-emerald-400">●</span> Powered by Solana & USDC
         </div>
 
         {/* Headline */}
@@ -75,7 +75,7 @@ export default function WelcomePage() {
           </div>
           <div className="text-center">
             <div className="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-              &lt;$0.01
+              {'<'}$0.01
             </div>
             <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">
               Per Transaction
