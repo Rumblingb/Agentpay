@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// dashboard/prisma/schema.prisma
 
 generator client {
   provider = "prisma-client"
@@ -7,23 +6,25 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
- 
+  provider  = "postgresql"
+  // In Prisma 7, the URL is primarily managed in prisma.config.ts, 
+  // but we keep these env calls for CLI compatibility.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// Maps to the existing `merchants` table created by scripts/create-db.js
 model Merchant {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  email       String   @unique @db.VarChar(255)
-  apiKeyHash  String   @map("api_key_hash") @db.VarChar(255)
-  apiKeySalt  String   @map("api_key_salt") @db.VarChar(255)
-  keyPrefix   String   @map("key_prefix") @db.VarChar(8)
-  walletAddress String @unique @map("wallet_address") @db.VarChar(255)
-  webhookUrl  String?  @map("webhook_url")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
+  apiKeyHash    String   @map("api_key_hash") @db.VarChar(255)
+  apiKeySalt    String   @map("api_key_salt") @db.VarChar(255)
+  keyPrefix     String   @map("key_prefix") @db.VarChar(8)
+  walletAddress String   @unique @map("wallet_address") @db.VarChar(255)
+  webhookUrl    String?  @map("webhook_url")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   paymentIntents PaymentIntent[]
 
@@ -31,18 +32,18 @@ model Merchant {
 }
 
 model PaymentIntent {
-  id                 String   @id @default(uuid()) @db.Uuid
-  merchantId         String   @map("merchant_id") @db.Uuid
-  amount             Decimal  @db.Decimal(20, 6)
-  currency           String   @db.VarChar(10)
-  status             String   @default("pending") @db.VarChar(20)
-  verificationToken  String   @unique @map("verification_token") @db.VarChar(255)
-  expiresAt          DateTime @map("expires_at")
-  metadata           Json?
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid()) @db.Uuid
+  merchantId        String   @map("merchant_id") @db.Uuid
+  amount            Decimal  @db.Decimal(20, 6)
+  currency          String   @db.VarChar(10)
+  status            String   @default("pending") @db.VarChar(20)
+  verificationToken String   @unique @map("verification_token") @db.VarChar(255)
+  expiresAt         DateTime @map("expires_at")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
-  merchant              Merchant               @relation(fields: [merchantId], references: [id])
+  merchant                 Merchant                  @relation(fields: [merchantId], references: [id])
   verificationCertificates VerificationCertificate[]
 
   @@map("payment_intents")
