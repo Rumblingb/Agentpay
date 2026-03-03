@@ -31,8 +31,7 @@ export default function WelcomePage() {
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-slate-400 text-center max-w-2xl leading-relaxed">
-          Universal payment infrastructure that lets autonomous AI agents send,
-          receive, and manage USDC payments on Solana — in milliseconds.
+          Secure and compliant money movement for autonomous agents across Fiat and Solan
         </p>
 
         {/* CTAs */}
