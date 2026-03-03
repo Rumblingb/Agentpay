@@ -3,20 +3,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
-  "env": {
-    "NEXT_PUBLIC_API_URL": {
-      "description": "URL of the AgentPay backend API (e.g. https://agentpay-api.onrender.com)",
-      "required": true
-    },
-    "AGENTPAY_API_BASE_URL": {
-      "description": "Server-side URL of the AgentPay backend API (may differ from NEXT_PUBLIC_API_URL in some deployments)",
-      "required": false
-    },
-    "DASHBOARD_SESSION_SECRET": {
-      "description": "Secret used to HMAC-sign the HTTP-only session cookie. Must be at least 32 characters.",
-      "required": true
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
