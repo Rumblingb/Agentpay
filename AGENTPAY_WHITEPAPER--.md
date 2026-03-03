@@ -706,6 +706,99 @@ We're building the **financial DNA of the machine economy**.
 
 ---
 
+## 11. Developer Incentives
+
+### Commission Model
+
+Developers who create bots on the AgentPay/Moltbook platform earn a revenue share from bot transactions:
+
+- **Fee Share**: 10–20% of the 1.5% transaction fee is directed to the bot creator
+- **Tracking**: Creator earnings are tracked via `creatorId` metadata in the transactions table and aggregated in the `/api/merchants/stats` endpoint
+- **Payouts**: Creators receive payouts via Stripe (USD) or USDC on Solana, configurable per developer
+- **Transparency**: All commission data is visible in the developer dashboard with real-time analytics
+
+### Tokenomics (AGENT Token)
+
+AgentPay plans to issue an SPL token (**AGENT**) for governance and incentives:
+
+- **Governance**: Token holders vote on protocol changes, fee structures, and feature priorities
+- **Dev Incentives**: Developers earn AGENT tokens for bot creation and adoption milestones
+- **Liquidity**: AGENT will be integrated with Raydium for on-chain liquidity and trading
+- **Bounties**: $1K–$5K bounties for high-quality Moltbook bots, paid in AGENT + USDC
+
+### Non-Monetary Incentives
+
+- **Badges & Leaderboards**: AgentRank-powered badges (e.g., "Top 10 Bot Creator") displayed in marketplace
+- **Free SDK Premiums**: Active developers receive free access to premium SDK features and higher rate limits
+- **Community Bounties**: Regular hackathons (e.g., via Colosseum) with cash + token prizes
+- **Featured Status**: Top bots get featured placement in the Moltbook marketplace
+
+### Implementation Timeline
+
+**Short-Term (Q1 2026)**:
+- Commission tracking in `/api/merchants/stats` endpoint
+- Creator earnings dashboard in Next.js frontend
+- Referral program launch (10% of referred revenue for 6 months)
+
+**Medium-Term (Q3 2026)**:
+- AGENT token launch on Solana (SPL token via Bankr/Raydium)
+- Multi-chain token bridging (Solana → Base → Ethereum)
+- DAO governance framework
+
+**Metrics Target**: 20% of bots created by incentivized developers by Q2 2026.
+
+---
+
+## 12. Tokens for Agents
+
+### Payment Token Support
+
+AgentPay supports multiple token types for agent transactions:
+
+- **USDC** (primary): Stablecoin payments with instant settlement on Solana
+- **Custom SPL Tokens**: Merchants can specify a `tokenMint` parameter in `/api/merchants/payments` to accept any SPL token
+- **Native Agent Tokens**: Platform-specific tokens (e.g., ELIZA, TAI) for agent incentives and governance
+
+### Challenges & Mitigations
+
+- **Decimal Errors**: SPL tokens have variable decimals (USDC = 6, others vary). AgentPay normalizes all amounts using `@solana/spl-token` mint info to prevent rounding errors.
+- **Price Volatility**: Non-stablecoin tokens are converted to USDC equivalent at transaction time using on-chain oracle pricing.
+- **Security**: All token transfers are verified on-chain with the same recipient verification used for USDC.
+
+### Wallet Security
+
+- **Coinbase Agentic Wallets**: Integration for enterprise agents requiring institutional custody
+- **Turnkey**: Programmable key management for bot-controlled wallets with policy enforcement
+- **MPC Wallets**: Multi-party computation for high-value agent wallets (planned Q3 2026)
+
+### Implementation
+
+**Custom SPL Token Payments** (in `/api/merchants/payments`):
+```json
+{
+  "amountUsdc": 10,
+  "recipientAddress": "9B5X2FWc...",
+  "tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "metadata": { "botId": "my-agent" }
+}
+```
+
+The `tokenMint` parameter is validated as a Solana public key, and the verify endpoint uses `@solana/spl-token` to confirm the transfer matches the specified token and amount.
+
+### Monetization Models
+
+- **Subscription (Recurring)**: Lando/Tributary integration for recurring bot-to-service payments
+- **x402 Paywalls**: HTTP 402 response triggers agent payment flow, unlocking content/API access
+- **Token Issuance**: Create project-specific SPL tokens via Bankr/Raydium, convertible to USDC
+
+### Ecosystem & Testing
+
+- **Colosseum Hackathons**: Submit agent payment bots for prizes and exposure
+- **Reddit r/defi**: Community testing ground for new token payment flows
+- **Solana Agent Kit**: Custom actions for agent frameworks (see `examples/solana-agent-kit/`)
+
+---
+
 ## Appendix A: Key Metrics
 
 ### Technical Performance (Production)

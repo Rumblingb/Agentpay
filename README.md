@@ -115,7 +115,40 @@ See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) for the full security model
 
 ---
 
+## Dashboard
+
+The AgentPay dashboard provides real-time monitoring of payments, merchant stats, and agent activity.
+
+![Hero / Welcome Page](docs/screenshots/hero.png)
+*Welcome page with glassmorphism UI, hero stats ($454 processed, 40 payments, 100% success rate)*
+
+![Login Card](docs/screenshots/login.png)
+*Login card with API key input and gradient styling*
+
+![Dashboard](docs/screenshots/dashboard.png)
+*Post-login dashboard with payment analytics, transaction history, and agent metrics*
+
+<!-- Note: Add these screenshots to the pitch deck for investor presentations. -->
+
+**Generate screenshots**: Run `npx tsx scripts/verify-ui.ts` to capture the latest dashboard UI.
+
+---
+
+## Recent Updates (March 2026)
+
+- **UI Polish** — Merged glassmorphism and gradient styling into `login.tsx` and `index.tsx` for a modern dashboard aesthetic.
+- **Stripe Idempotency** — Added webhook guard with idempotency checks in the Stripe webhook handler to prevent duplicate payment processing. `STRIPE_WEBHOOK_SECRET` now required in `.env`.
+- **Trust Proxy Fix** — Added `app.set('trust proxy', 1)` in `server.ts` for correct IP resolution behind Render/Vercel reverse proxies.
+- **Health Endpoint** — Enhanced `/health` to return `{ status, version, uptime, timestamp }` for monitoring.
+- **OpenAPI Spec** — Added `docs/openapi.yaml` for API documentation.
+- **Smoke Tests** — Added `scripts/smoke-test.sh` for quick verification of all key flows.
+- **Deployment Check** — Added `scripts/deployment-check.sh` for production sanity checks.
+
+---
+
 ## Quick Start
+
+**Live Demo**: [https://apay-delta.vercel.app](https://apay-delta.vercel.app)
 
 ```bash
 # 1. Clone the repo
@@ -287,6 +320,60 @@ POST /api/moltbook/bots/{handle}/pause                 # Emergency pause
 ```
 
 Error responses are standardized: 400 (validation), 401 (unauthorized), 403 (forbidden), 429 (rate limit).
+
+### Moltbook-Ready Endpoints
+
+#### Register a Bot
+
+```bash
+curl -X POST http://localhost:3001/api/moltbook/bots/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "handle": "@MyResearchBot",
+    "display_name": "Research Bot",
+    "primary_function": "research",
+    "bio": "Finds and summarizes academic papers"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "botId": "uuid",
+  "handle": "@MyResearchBot",
+  "apiKey": "bot-api-key"
+}
+```
+
+#### Update Spending Policy
+
+```bash
+curl -X PATCH http://localhost:3001/api/moltbook/bots/BOT_ID/spending-policy \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "dailySpendingLimit": 100,
+    "perTxLimit": 25,
+    "autoApproveUnder": 5,
+    "alertWebhookUrl": "https://example.com/alerts"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "policy": {
+    "dailySpendingLimit": 100,
+    "perTxLimit": 25,
+    "autoApproveUnder": 5,
+    "alertWebhookUrl": "https://example.com/alerts"
+  }
+}
+```
+
+See [docs/openapi.yaml](docs/openapi.yaml) for the full OpenAPI specification.
 
 ---
 
