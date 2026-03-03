@@ -17,10 +17,10 @@ import type * as Prisma from "./prismaNamespace"
 
 const config: runtime.GetPrismaClientConfig = {
   "previewFeatures": [],
-  "clientVersion": "7.4.1",
-  "engineVersion": "55ae170b1ced7fc6ed07a15f110549408c501bb3",
+  "clientVersion": "7.4.2",
+  "engineVersion": "94a226be1cf2967af2541cca5529f0f7ba866919",
   "activeProvider": "postgresql",
-  "inlineSchema": "// This is your Prisma schema file,\n// learn more about it in the docs: https://pris.ly/d/prisma-schema\n\ngenerator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\n// Maps to the existing `merchants` table created by scripts/create-db.js\nmodel Merchant {\n  id            String   @id @default(uuid()) @db.Uuid\n  name          String   @db.VarChar(255)\n  email         String   @unique @db.VarChar(255)\n  apiKeyHash    String   @map(\"api_key_hash\") @db.VarChar(255)\n  apiKeySalt    String   @map(\"api_key_salt\") @db.VarChar(255)\n  keyPrefix     String   @map(\"key_prefix\") @db.VarChar(8)\n  walletAddress String   @unique @map(\"wallet_address\") @db.VarChar(255)\n  webhookUrl    String?  @map(\"webhook_url\")\n  isActive      Boolean  @default(true) @map(\"is_active\")\n  createdAt     DateTime @default(now()) @map(\"created_at\")\n  updatedAt     DateTime @updatedAt @map(\"updated_at\")\n\n  paymentIntents PaymentIntent[]\n\n  @@map(\"merchants\")\n}\n\nmodel PaymentIntent {\n  id                String   @id @default(uuid()) @db.Uuid\n  merchantId        String   @map(\"merchant_id\") @db.Uuid\n  amount            Decimal  @db.Decimal(20, 6)\n  currency          String   @db.VarChar(10)\n  status            String   @default(\"pending\") @db.VarChar(20)\n  verificationToken String   @unique @map(\"verification_token\") @db.VarChar(255)\n  expiresAt         DateTime @map(\"expires_at\")\n  metadata          Json?\n  createdAt         DateTime @default(now()) @map(\"created_at\")\n  updatedAt         DateTime @updatedAt @map(\"updated_at\")\n\n  merchant                 Merchant                  @relation(fields: [merchantId], references: [id])\n  verificationCertificates VerificationCertificate[]\n\n  @@map(\"payment_intents\")\n}\n\nmodel VerificationCertificate {\n  id        String   @id @default(uuid()) @db.Uuid\n  intentId  String?  @map(\"intent_id\") @db.Uuid\n  payload   String\n  signature String\n  encoded   String\n  createdAt DateTime @default(now()) @map(\"created_at\")\n\n  intent PaymentIntent? @relation(fields: [intentId], references: [id])\n\n  @@map(\"verification_certificates\")\n}\n",
+  "inlineSchema": "// dashboard/prisma/schema.prisma\n\ngenerator client {\n  provider = \"prisma-client\"\n  output   = \"../src/generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  // url and directUrl removed from here per Prisma 7 standards\n}\n\nmodel Merchant {\n  id            String   @id @default(uuid()) @db.Uuid\n  name          String   @db.VarChar(255)\n  email         String   @unique @db.VarChar(255)\n  apiKeyHash    String   @map(\"api_key_hash\") @db.VarChar(255)\n  apiKeySalt    String   @map(\"api_key_salt\") @db.VarChar(255)\n  keyPrefix     String   @map(\"key_prefix\") @db.VarChar(8)\n  walletAddress String   @unique @map(\"wallet_address\") @db.VarChar(255)\n  webhookUrl    String?  @map(\"webhook_url\")\n  isActive      Boolean  @default(true) @map(\"is_active\")\n  createdAt     DateTime @default(now()) @map(\"created_at\")\n  updatedAt     DateTime @updatedAt @map(\"updated_at\")\n\n  paymentIntents PaymentIntent[]\n\n  @@map(\"merchants\")\n}\n\nmodel PaymentIntent {\n  id                String   @id @default(uuid()) @db.Uuid\n  merchantId        String   @map(\"merchant_id\") @db.Uuid\n  amount            Decimal  @db.Decimal(20, 6)\n  currency          String   @db.VarChar(10)\n  status            String   @default(\"pending\") @db.VarChar(20)\n  verificationToken String   @unique @map(\"verification_token\") @db.VarChar(255)\n  expiresAt         DateTime @map(\"expires_at\")\n  metadata          Json?\n  createdAt         DateTime @default(now()) @map(\"created_at\")\n  updatedAt         DateTime @updatedAt @map(\"updated_at\")\n\n  merchant                 Merchant                  @relation(fields: [merchantId], references: [id])\n  verificationCertificates VerificationCertificate[]\n\n  @@map(\"payment_intents\")\n}\n\nmodel VerificationCertificate {\n  id        String   @id @default(uuid()) @db.Uuid\n  intentId  String?  @map(\"intent_id\") @db.Uuid\n  payload   String\n  signature String\n  encoded   String\n  createdAt DateTime @default(now()) @map(\"created_at\")\n\n  intent PaymentIntent? @relation(fields: [intentId], references: [id])\n\n  @@map(\"verification_certificates\")\n}\n",
   "runtimeDataModel": {
     "models": {},
     "enums": {},
@@ -67,7 +67,9 @@ export interface PrismaClientConstructor {
    * Type-safe database client for TypeScript
    * @example
    * ```
-   * const prisma = new PrismaClient()
+   * const prisma = new PrismaClient({
+   *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
+   * })
    * // Fetch zero or more Merchants
    * const merchants = await prisma.merchant.findMany()
    * ```
@@ -89,7 +91,9 @@ export interface PrismaClientConstructor {
  * Type-safe database client for TypeScript
  * @example
  * ```
- * const prisma = new PrismaClient()
+ * const prisma = new PrismaClient({
+ *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
+ * })
  * // Fetch zero or more Merchants
  * const merchants = await prisma.merchant.findMany()
  * ```

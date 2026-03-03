@@ -6,6 +6,9 @@ import { defineConfig, env } from "prisma/config";
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
-    url: env("DATABASE_URL"),
+    /** * For Supabase migrations in Prisma 7, use your DIRECT_URL here.
+     * The pooled DATABASE_URL is used in your app code (PrismaClient).
+     */
+    url: env("DIRECT_URL"), 
   },
 });

@@ -6,11 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  // In Prisma 7, the URL is primarily managed in prisma.config.ts, 
-  // but we keep these env calls for CLI compatibility.
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  // url and directUrl removed from here per Prisma 7 standards
 }
 
 model Merchant {
