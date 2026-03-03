@@ -413,9 +413,9 @@ router.get('/stats', authenticateApiKey, async (req: AuthRequest, res: Response)
     // Creator earnings: estimated commission (10% of 1.5% fee on confirmed volume)
     const feeRate = 0.015;
     const commissionRate = 0.10;
-    const creatorEarnings = parseFloat(
-      ((stats.totalConfirmedUsdc || 0) * feeRate * commissionRate).toFixed(6)
-    );
+    const creatorEarnings = Math.round(
+      (stats.totalConfirmedUsdc || 0) * feeRate * commissionRate * 1e6
+    ) / 1e6;
 
     res.json({
       success: true,

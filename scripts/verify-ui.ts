@@ -111,7 +111,7 @@ async function main() {
     // ── 3. Post-Login Dashboard ─────────────────────────────────────────
     console.log('📸 Capturing dashboard (post-login mock)...');
     // Attempt to submit login form
-    const submitBtn = await page.$('button[type="submit"], button:has-text("Login"), button:has-text("Sign")');
+    const submitBtn = await page.$('button[type="submit"]');
     if (submitBtn) {
       await submitBtn.click();
       await page.waitForTimeout(2000);
