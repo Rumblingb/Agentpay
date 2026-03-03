@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogIn, RefreshCw } from 'lucide-react';
+import { LogIn, RefreshCw, Shield, Lock, Coins } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,30 +39,48 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 animate-gradient text-white flex items-center justify-center p-4">
+      {/* Grid overlay */}
+      <div className="absolute inset-0 bg-grid pointer-events-none" />
+
+      {/* Floating orbs */}
+      <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl animate-orb pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-orb-slow pointer-events-none" />
+      <div className="absolute top-1/2 right-1/3 w-48 h-48 bg-emerald-400/5 rounded-full blur-2xl animate-orb pointer-events-none" />
+
+      <div className="relative z-10 w-full max-w-md">
+        {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-emerald-400">AgentPay</h1>
-          <p className="text-slate-400 text-sm mt-1">Merchant Dashboard</p>
+          <h1 className="text-4xl font-extrabold tracking-tight">
+            <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+              AgentPay
+            </span>
+          </h1>
+          <p className="text-slate-400 text-sm mt-2">Merchant Dashboard</p>
         </div>
 
-        <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-2xl shadow-xl">
+        {/* Glassmorphism card */}
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl">
           <div className="flex items-center gap-3 mb-6">
-            <div className="bg-emerald-500/10 p-2 rounded-lg">
+            <div className="bg-emerald-500/10 p-2.5 rounded-xl">
               <LogIn className="text-emerald-400" size={20} />
             </div>
-            <h2 className="text-lg font-semibold">Sign in</h2>
+            <div>
+              <h2 className="text-lg font-bold">Sign in</h2>
+              <p className="text-xs text-slate-500">Access your payment dashboard</p>
+            </div>
           </div>
 
           {error && (
-            <div className="mb-4 bg-red-900/30 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">
-              {error}
+            <div className="mb-4 bg-red-900/30 border border-red-700/50 text-red-300 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
+              <Shield className="shrink-0 mt-0.5" size={14} />
+              <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
                 Email
               </label>
               <input
@@ -71,11 +89,11 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                className="bg-black/40 border border-slate-700 rounded-lg px-4 py-3 text-sm w-full text-slate-300 focus:outline-none focus:border-emerald-600"
+                className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm w-full text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200"
               />
             </div>
             <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
                 API Key
               </label>
               <input
@@ -84,30 +102,64 @@ export default function LoginPage() {
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="ap_…"
                 autoComplete="current-password"
-                className="bg-black/40 border border-slate-700 rounded-lg px-4 py-3 text-sm w-full font-mono text-slate-300 focus:outline-none focus:border-emerald-600"
+                className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm w-full font-mono text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-semibold transition"
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-50 disabled:hover:from-emerald-600 disabled:hover:to-emerald-500 text-white py-3 rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
             >
               {loading ? <RefreshCw className="animate-spin" size={16} /> : <LogIn size={16} />}
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? 'Signing in…' : 'Access Dashboard'}
             </button>
           </form>
 
-          <p className="mt-5 text-xs text-slate-500 text-center">
+          {/* Demo hint */}
+          <div className="mt-5 bg-emerald-500/5 border border-emerald-500/10 rounded-xl px-4 py-3">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              <span className="text-emerald-400 font-semibold">Demo:</span>{' '}
+              Use your registered email and API key.{' '}
+              <a
+                href="https://github.com/Rumblingb/Agentpay#readme"
+                className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View setup docs →
+              </a>
+            </p>
+          </div>
+
+          <p className="mt-4 text-xs text-slate-500 text-center">
             Don&apos;t have an account? Register via the{' '}
             <a
               href="https://github.com/Rumblingb/Agentpay"
-              className="text-emerald-400 hover:underline"
+              className="text-emerald-400 hover:text-emerald-300 transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
             >
               API
             </a>
             .
           </p>
+        </div>
+
+        {/* Trust badges */}
+        <div className="mt-6 flex items-center justify-center gap-6">
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <Shield size={12} />
+            <span className="text-[10px] uppercase tracking-wider font-semibold">Secured</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <Lock size={12} />
+            <span className="text-[10px] uppercase tracking-wider font-semibold">Encrypted</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <Coins size={12} />
+            <span className="text-[10px] uppercase tracking-wider font-semibold">USDC</span>
+          </div>
         </div>
       </div>
     </div>
