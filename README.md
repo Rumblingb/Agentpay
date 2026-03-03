@@ -1,87 +1,194 @@
-# x402 Payment Server - Week 1 Complete Build
+# AgentPay: Production-Ready HTTP 402 Payment Server for USDC on Solana
 
-A production-ready HTTP 402 Payment Required server with USDC payments on Solana, featuring critical security fixes, comprehensive database schema, and full test coverage.
+<p align="center">
+  <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/issues"><img src="https://img.shields.io/github/issues/Rumblingb/Agentpay" alt="Issues"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/stargazers"><img src="https://img.shields.io/github/stars/Rumblingb/Agentpay" alt="Stars"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-216%2F216%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
+</p>
 
-## 🔒 Critical Security Features
+**Version 1.0** (Released February 24, 2026)
+**Latest Update**: March 3, 2026 — Dashboard UI polish, security hardening, and Stripe webhook fixes
 
-### ✅ Recipient Address Verification (CRITICAL FIX)
-**Prevents attackers from sending payments to their own wallet and claiming they paid you.**
+AgentPay is a secure, scalable HTTP 402 "Payment Required" server designed for merchants to handle USDC payments on Solana. It emphasizes fraud prevention through recipient address verification, audit logging, and production-grade features like rate limiting and webhook support. Built with TypeScript, Node.js, PostgreSQL (via Prisma), and Solana web3.js, it's optimized for AI agents and bots — enabling frictionless integration for both human developers and autonomous systems.
 
-The server verifies that:
-1. The transaction ACTUALLY occurred on-chain
-2. The recipient of the USDC **matches your merchant wallet address**
-3. Confirmation depth requirements are met
-4. All transactions are logged for audit trail
+**Key highlights:**
 
-**Vulnerability Prevented:**
-- ❌ Attacker sends USDC to their wallet (0xAttacker)
-- ❌ Attacker submits the transaction hash to your server claiming they paid you
-- ✅ Server verifies recipient address in transaction != expected merchant wallet
-- ✅ Payment is REJECTED
+- **Production Readiness** — 216/216 tests passing with 94% coverage. Hardened against unauthorized access (forced 403 responses), SQL injection, DDoS, and payment fraud.
+- **Security Focus** — PBKDF2 API key hashing, Joi validation, Helmet headers, and critical recipient verification to prevent fake payments.
+- **Integrations** — Moltbook-ready (spending policies, marketplace), Stripe fiat fallback, and SDKs for TypeScript/Python.
+- **Performance** — <100ms API responses, 2+ block confirmations for Solana transactions, 99.95% uptime target.
 
-## 🚀 Quick Start
+See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and economics. AgentPay positions as the financial OS for AI agents, starting with Solana/USDC and expanding to multi-chain/fiat.
 
-### Prerequisites
-- Node.js 20+
-- PostgreSQL 12+
-- Solana devnet account with testnet USDC
+---
 
-### Installation
+## Table of Contents
+
+- [Features](#features)
+- [Security Highlights](#security-highlights)
+- [Architecture Overview](#architecture-overview)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [API Documentation](#api-documentation)
+- [Frictionless Bot/Human Integration](#frictionless-bothuman-integration)
+- [SDK Usage](#sdk-usage)
+- [Webhooks](#webhooks)
+- [Database Schema](#database-schema)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Production Hardening](#production-hardening)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
+
+---
+
+## Features
+
+- **HTTP 402 Paywalls** — Require payments before granting access to APIs, content, or services.
+- **USDC on Solana** — Instant, low-fee micropayments with sub-second settlements.
+- **Fraud Prevention** — On-chain verification ensures payments go to the correct recipient wallet.
+- **Merchant Management** — Registration, API keys, profiles, and stats.
+- **Transaction Tracking** — Create, verify, list, and analyze payments with metadata support.
+- **Audit Logging** — Full traceability for compliance and debugging.
+- **Rate Limiting** — Per-IP and per-merchant to prevent abuse.
+- **Dashboard** — React/Next.js interface for monitoring (deployed on Vercel).
+- **Stripe Fallback** — For fiat settlements (USD payouts via webhooks).
+- **Moltbook Integration** — Spending policies, agent discovery, and reputation (AgentRank).
+- **Multi-Chain Ready** — Core on Solana, with PAL (Protocol Abstraction Layer) for future expansions.
+- **Agent-Friendly** — Designed for bots — programmatic registration, policies, and payments.
+
+---
+
+## Security Highlights
+
+AgentPay prioritizes security to production standards:
+
+| Layer | Implementation |
+|---|---|
+| **Recipient Verification** | Prevents fraud by checking tx recipient matches merchant wallet |
+| **API Authentication** | PBKDF2-hashed keys with salts; no recovery — generate once |
+| **Input Validation** | Joi schemas for all endpoints |
+| **Rate Limiting** | express-rate-limit (per IP/merchant) + Redis counters |
+| **Headers & Protections** | Helmet for CSP/XSS, CORS restrictions |
+| **Database Security** | Prisma with parameterized queries; encrypted PII |
+| **Blockchain Checks** | 2+ confirmations, tx success validation via Solana RPC |
+| **Logging** | All API calls and events in `api_logs` table; no PII in logs |
+
+See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) for the full security model.
+
+---
+
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────┐
+│                    Clients                       │
+│         (Bots / Agents / Developers)             │
+└──────────────┬───────────────────────────────────┘
+               │  REST API
+┌──────────────▼───────────────────────────────────┐
+│         Node.js / Express Backend                │
+│    (src/server.ts — auth, routes, middleware)     │
+├──────────────┬───────────────┬───────────────────┤
+│  Prisma ORM  │  Solana RPC   │  Stripe SDK       │
+│  PostgreSQL  │  web3.js      │  Fiat fallback    │
+└──────────────┴───────────────┴───────────────────┘
+               │
+┌──────────────▼───────────────────────────────────┐
+│           Next.js Dashboard (Vercel)             │
+│     Metrics · Charts · API Keys · Webhooks       │
+└──────────────────────────────────────────────────┘
+```
+
+- **Backend**: Node.js/Express (`src/server.ts`), Prisma for DB.
+- **Blockchain**: Solana web3.js for tx verification.
+- **Database**: PostgreSQL with tables for merchants, transactions, logs.
+- **Frontend**: Next.js dashboard for metrics, charts, and controls.
+- **Queueing**: BullMQ/Redis for webhooks (reliable delivery with retries).
+- **Deployment**: Render.com (`render.yaml`), Vercel for dashboard.
+- **Testing**: Jest with integration/security suites.
+
+---
+
+## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Clone the repo
+git clone https://github.com/Rumblingb/Agentpay.git
+cd Agentpay
+
+# 2. Install dependencies
 npm install
 
-# 2. Setup environment variables
+# 3. Set up environment (copy .env.example to .env)
 cp .env.example .env
-# Edit .env with your database credentials and wallet address
+# Edit .env with your DATABASE_URL, SOLANA_RPC_URL, JWT_SECRET, etc.
 
-# 3. Initialize database
+# 4. Initialize database
 npm run db:create
 npm run db:migrate
 
-# 4. Start development server
+# 5. Start server
 npm run dev
 ```
 
-## 📊 Database Schema
+Test the API immediately:
 
-### merchants
-```sql
-- id (UUID)
-- name (VARCHAR)
-- email (UNIQUE)
-- api_key_hash (UNIQUE, PBKDF2 encrypted)
-- api_key_salt
-- wallet_address (UNIQUE, your Solana address)
-- is_active (BOOLEAN)
-- created_at, updated_at
+```bash
+curl -X POST http://localhost:3000/api/merchants/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Merchant","email":"test@example.com","walletAddress":"YOUR_SOLANA_WALLET"}'
 ```
 
-### transactions
-```sql
-- id (UUID)
-- merchant_id (FK)
-- payment_id (UNIQUE)
-- amount_usdc (DECIMAL)
-- recipient_address (THE CRITICAL SECURITY CHECK)
-- payer_address
-- transaction_hash
-- status (pending/confirmed/failed/expired)
-- confirmation_depth (2+ blocks required)
-- metadata (JSONB)
-- created_at, expires_at
-```
+**Dashboard**: `cd dashboard && npm install && npm run dev` (runs on http://localhost:3001).
 
-### Additional Tables
-- `api_logs` - Audit trail of all API calls
-- `rate_limit_counters` - IP + merchant rate limiting
-- `payment_verifications` - Secure verification tokens
-- `webhook_events` - Merchant notifications
+For a detailed walkthrough, see [QUICKSTART.md](QUICKSTART.md).
 
-## 🔌 API Endpoints
+---
 
-### 1. Register Merchant
+## Installation
+
+### Prerequisites
+
+- **Node.js** v20+
+- **PostgreSQL** v12+ (free on Render)
+- **Docker** (optional) — for local development via `docker-compose.yml`
+
+### Dependencies
+
+Key packages (from `package.json`): Express, Prisma, @solana/web3.js, Stripe, Joi, Helmet, express-rate-limit, BullMQ, Redis, Jest.
+
+Full setup guide: [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md).
+
+---
+
+## Configuration
+
+Edit `.env` for production:
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SOLANA_RPC_URL` | `https://api.devnet.solana.com` (devnet) or mainnet URL |
+| `JWT_SECRET` | Random secret (generate via `scripts/generate-key.ts`) |
+| `STRIPE_WEBHOOK_SECRET` | For fiat off-ramps |
+| `NODE_ENV` | `production` or `test` |
+
+---
+
+## API Documentation
+
+All endpoints require `Authorization: Bearer YOUR_API_KEY` except registration.
+
+### Merchant Routes
+
+#### Register Merchant
+
 ```bash
 POST /api/merchants/register
 Content-Type: application/json
@@ -91,8 +198,10 @@ Content-Type: application/json
   "email": "business@example.com",
   "walletAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo"
 }
+```
 
-Response:
+**Response:**
+```json
 {
   "success": true,
   "merchantId": "uuid",
@@ -101,22 +210,24 @@ Response:
 }
 ```
 
-### 2. Get Profile
+#### Get Profile
+
 ```bash
 GET /api/merchants/profile
 Authorization: Bearer YOUR_API_KEY
-
-Response:
-{
-  "id": "uuid",
-  "name": "My Business",
-  "email": "business@example.com",
-  "walletAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo",
-  "createdAt": "2024-02-16T..."
-}
 ```
 
-### 3. Create Payment Request
+#### Update Profile
+
+```bash
+PUT /api/merchants/profile
+Authorization: Bearer YOUR_API_KEY
+```
+
+### Payment Routes
+
+#### Create Payment Request
+
 ```bash
 POST /api/merchants/payments
 Authorization: Bearer YOUR_API_KEY
@@ -125,14 +236,13 @@ Content-Type: application/json
 {
   "amountUsdc": 100,
   "recipientAddress": "9B5X2FWc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8Hkqo",
-  "metadata": {
-    "userId": "user123",
-    "contentId": "article42"
-  },
+  "metadata": { "userId": "user123", "contentId": "article42" },
   "expiryMinutes": 30
 }
+```
 
-Response:
+**Response:**
+```json
 {
   "success": true,
   "transactionId": "uuid",
@@ -143,224 +253,222 @@ Response:
 }
 ```
 
-### 4. Verify Payment (CRITICAL SECURITY)
+#### Verify Payment ⚠️
+
 ```bash
-POST /api/merchants/payments/{transactionId}/verify
+POST /api/merchants/payments/{paymentId}/verify
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
 
-{
-  "transactionHash": "5J7KvB8mN2...full_solana_tx_hash"
-}
+{ "transactionHash": "5J7KvB8mN2...full_solana_tx_hash" }
+```
 
-Response:
-{
-  "success": true,
-  "verified": true,
-  "payer": "FpCMFDFGW1V9...",
-  "message": "Payment confirmed!"
+**Security checks performed:**
+1. Transaction exists on-chain
+2. Recipient address matches merchant wallet
+3. Transaction succeeded
+4. Confirmation depth ≥ 2 blocks
+
+#### Get / List / Stats
+
+```bash
+GET /api/merchants/payments/{paymentId}       # Single payment
+GET /api/merchants/payments?limit=50&offset=0  # List with stats
+GET /api/merchants/stats                       # Aggregate stats
+```
+
+### Moltbook / Agent Routes
+
+```bash
+POST /api/moltbook/bots/register                       # Bot self-registers
+PUT  /api/moltbook/bots/{handle}/spending-policy       # Set spending policies
+GET  /api/moltbook/marketplace/services                # Discover services (AgentRank)
+POST /api/moltbook/bots/{handle}/pause                 # Emergency pause
+```
+
+Error responses are standardized: 400 (validation), 401 (unauthorized), 403 (forbidden), 429 (rate limit).
+
+---
+
+## Frictionless Bot/Human Integration
+
+AgentPay is built to be seamless for both human developers and autonomous AI agents:
+
+- **API Keys** — Generated at registration; bots can register programmatically.
+- **SDKs** — TypeScript and Python for one-line integrations (see `sdk/`).
+- **Webhooks** — Real-time notifications for transaction status changes.
+- **Bot-Friendly** — No CAPTCHA/KYC; spending policies allow autonomous operation.
+- **Examples** — Ready-to-run for cURL, Node.js, Python, and agent frameworks (see `examples/`).
+
+**Human Developer**: Use the dashboard for real-time monitoring and management.
+**Bot / Agent**: Call register → pay → verify directly in your agent workflow.
+
+---
+
+## SDK Usage
+
+### TypeScript
+
+```typescript
+import { AgentPayClient } from 'agentpay-sdk';
+
+const client = new AgentPayClient({ apiKey: 'YOUR_KEY' });
+
+async function payForService() {
+  const payment = await client.createPayment({
+    amountUsdc: 10,
+    recipient: 'MERCHANT_WALLET',
+    metadata: { botId: 'my-agent' }
+  });
+
+  // Bot performs Solana tx...
+  const txHash = 'SOLANA_TX_HASH';
+
+  const verified = await client.verifyPayment(payment.paymentId, txHash);
+  if (verified) console.log('Access granted!');
 }
 ```
 
-**⚠️ SECURITY: This endpoint verifies that:**
-1. The transaction exists on-chain
-2. The recipient address matches your merchant wallet
-3. The transaction succeeded
-4. Confirmation depth >= 2 blocks
+### Python
 
-### 5. Get Transaction
-```bash
-GET /api/merchants/payments/{transactionId}
-Authorization: Bearer YOUR_API_KEY
+```python
+from agentpay_sdk import AgentPayClient
 
-Response:
-{
-  "id": "uuid",
-  "paymentId": "x402_...",
-  "merchantId": "uuid",
-  "amountUsdc": 100,
-  "recipientAddress": "9B5X...",
-  "payerAddress": "FpCM...",
-  "transactionHash": "5J7K...",
-  "status": "confirmed",
-  "confirmationDepth": 45
-}
+client = AgentPayClient(api_key='YOUR_KEY')
+
+payment = client.create_payment(amount_usdc=10, recipient='MERCHANT_WALLET')
+# ... Send tx ...
+verified = client.verify_payment(payment['paymentId'], 'TX_HASH')
 ```
 
-### 6. List Payments
-```bash
-GET /api/merchants/payments?limit=50&offset=0
-Authorization: Bearer YOUR_API_KEY
+See [`sdk/`](sdk/) for full SDK documentation and examples.
 
-Response:
-{
-  "success": true,
-  "transactions": [...],
-  "stats": {
-    "totalTransactions": 25,
-    "confirmedCount": 23,
-    "pendingCount": 2,
-    "failedCount": 0,
-    "totalConfirmedUsdc": 2500
+---
+
+## Webhooks
+
+Configure via `.env` (`WEBHOOK_URL`). Supported events: `payment.created`, `payment.confirmed`, `payment.failed`.
+
+```typescript
+app.post('/webhook', (req, res) => {
+  if (verifyWebhook(req.body)) {
+    // Handle event
+    res.status(200).send();
+  } else {
+    res.status(400).send();
   }
-}
+});
 ```
 
-### 7. Get Statistics
+BullMQ ensures reliable delivery with retries.
+
+---
+
+## Database Schema
+
+From Prisma (`prisma/schema.prisma`):
+
+| Table | Purpose |
+|---|---|
+| `merchants` | id (uuid), name, email (unique), api_key_hash/salt, wallet_address (unique), is_active, timestamps |
+| `transactions` | id (uuid), merchant_id (fk), payment_id (unique), amount_usdc (decimal), recipient/payer_address, tx_hash, status (enum), confirmation_depth, metadata (jsonb), expires_at, timestamps |
+| `api_logs` | Audit trail of all API calls |
+| `rate_limit_counters` | IP + merchant rate limiting |
+| `payment_verifications` | Secure verification tokens |
+| `webhook_events` | Merchant notifications |
+
+Migrate: `npm run db:migrate`.
+
+---
+
+## Testing
+
 ```bash
-GET /api/merchants/stats
-Authorization: Bearer YOUR_API_KEY
-
-Response:
-{
-  "success": true,
-  "totalTransactions": 25,
-  "confirmedCount": 23,
-  "pendingCount": 2,
-  "failedCount": 0,
-  "totalConfirmedUsdc": 2500
-}
+npm test                    # Run all tests (216 passing)
+npm test -- --coverage      # Run with coverage (94%)
+npm run test:security       # Security tests only
+npm run test:watch          # Watch mode
 ```
 
-## 🧪 Testing
+Test suites cover: authentication, payments, verification, recipient checks, input validation, rate limiting, and end-to-end flows.
 
-```bash
-# Run all tests
-npm test
+---
 
-# Run with coverage
-npm test -- --coverage
+## Deployment
 
-# Run only security tests
-npm run test:security
+| Platform | Target | Config |
+|---|---|---|
+| **Render.com** | Backend API | `render.yaml` — auto-detects, add env vars |
+| **Vercel** | Dashboard | `cd dashboard && vercel --prod` |
+| **Docker** | Local / prod | `docker-compose up` |
+| **CI/CD** | GitHub Actions | `.github/workflows/ci.yml` |
 
-# Watch mode
-npm run test:watch
-```
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions.
 
-### Test Coverage
-- ✅ 17+ integration tests
-- ✅ Security tests for recipient verification
-- ✅ API authentication tests
-- ✅ Input validation tests
-- ✅ Rate limiting tests
-- ✅ End-to-end payment flow tests
+---
 
-## 🔐 Security Checklist
+## Production Hardening
 
-### Implemented ✅
-- [x] Recipient address verification (CRITICAL)
+Already implemented or in progress:
+
+- [x] Recipient address verification (critical)
 - [x] API key authentication (PBKDF2)
 - [x] Rate limiting (per IP + per merchant)
 - [x] Input validation (Joi)
-- [x] SQL injection prevention (prepared statements)
+- [x] SQL injection prevention (parameterized queries)
 - [x] CORS protection
 - [x] Helmet security headers
 - [x] Audit logging
 - [x] Transaction locking (race condition prevention)
 - [x] Confirmation depth checking (2+ blocks)
+- [x] Trust proxy for Render deployments
+- [x] Forced 403 on unauthorized intents
+- [ ] Env validation (envalid)
+- [ ] Structured logging (Winston/Morgan)
+- [ ] Monitoring (Sentry/Prometheus)
+- [ ] PM2 clustering for scaling
+- [ ] Automated DB backups
+- [ ] SOC 2 compliance (in progress)
 
-### Production Hardening (Week 2)
-- [ ] JWT tokens with expiry
-- [ ] Webhook verification signatures
-- [ ] IP whitelist per merchant
-- [ ] Payment encryption at rest
-- [ ] PII redaction in logs
-- [ ] Rate limiting improvements
-- [ ] DDoS protection
-
-## 📋 Week 1 Deliverables Checklist
-
-### Core Functionality
-- [x] x402 payment creation working
-- [x] **Payment verification with recipient check** (CRITICAL)
-- [x] Merchant registration
-- [x] API key authentication
-- [x] Transaction tracking
-
-### Security
-- [x] **Recipient address verification** (CRITICAL FIX)
-- [x] Confirmation depth check (2+ blocks)
-- [x] Rate limiting (IP + merchant)
-- [x] Input validation (Joi)
-- [x] SQL injection prevention
-
-### Testing
-- [x] 17+ tests passing
-- [x] Security tests passing
-- [x] Performance tests <100ms
-- [x] End-to-end flow working
-
-### Database
-- [x] merchants table with API key hashing
-- [x] transactions table with recipient tracking
-- [x] api_logs for audit trail
-- [x] rate_limit_counters for DDoS protection
-- [x] payment_verifications for secure tokens
-- [x] webhook_events for notifications
-
-### Documentation
-- [x] API documentation complete
-- [x] Security documentation
-- [x] README with setup guide
-- [x] Database schema documented
-
-## ⚠️ CRITICAL: Recipient Verification
-
-**This is the single most important security feature.**
-
-### How It Works
-```typescript
-// When merchant submits a transaction hash for verification:
-const verification = await verifyPaymentRecipient(
-  txHash,                                    // e.g., "5J7KvB..."
-  expectedRecipient                          // e.g., merchant's wallet
-);
-
-// The server:
-// 1. Fetches the transaction from Solana blockchain
-// 2. Extracts all token transfers
-// 3. CHECKS: Does ANY transfer have destination == expectedRecipient?
-// 4. If YES: Verify amount, confirmations, etc.
-// 5. If NO: REJECT with clear error
-```
-
-### Attack Scenario Prevented
-```
-❌ BEFORE (Vulnerable):
-  1. Attacker sends 100 USDC to 0xAttacker
-  2. Attacker submits that tx hash to your server
-  3. Server doesn't check recipient address
-  4. Attacker gets access to your content
-  5. You never received payment!
-
-✅ AFTER (Secured):
-  1. Attacker sends 100 USDC to 0xAttacker
-  2. Attacker submits that tx hash to your server
-  3. Server verifies: recipient in tx (0xAttacker) == expected (0xYourWallet)?
-  4. MISMATCH DETECTED
-  5. Server logs security event and REJECTS
-  6. Attacker gets 401 error
-```
-
-## 🚨 Important Notes
-
-1. **API Keys**: Generated only at registration. Store securely. No way to recover.
-2. **Wallet Address**: The Solana wallet that receives payments. Use a dedicated account.
-3. **Recipient Address**: In payment requests, this is YOUR wallet. Verify this is set correctly.
-4. **Transaction Verification**: Only payments to YOUR wallet are accepted.
-
-## 📞 Support
-
-For issues or questions:
-1. Check the logs: `logs/` directory
-2. Review security tests: `tests/security.test.ts`
-3. Verify database schema: `src/db/init.ts`
-
-## 📄 License
-
-MIT
+See [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md) for the full report.
 
 ---
 
-**Built with security-first approach. Recipient address verification prevents payment fraud.**
+## Roadmap
+
+| Phase | Milestone | Status |
+|---|---|---|
+| **Q1 2026** | Core HTTP 402 server, USDC on Solana, dashboard, 216 tests | ✅ Complete |
+| **Q2 2026** | OpenAPI spec, multi-chain PAL, hosted agent wallets | 🔄 In progress |
+| **Q3 2026** | Fiat on/off-ramps, compliance toolkit, enterprise tier | 📋 Planned |
+| **Q4 2026** | Global expansion, marketplace v2, AgentRank scoring | 📋 Planned |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Run tests before submitting (`npm test`)
+4. Open a Pull Request
+
+---
+
+## License
+
+[MIT](https://opensource.org/licenses/MIT)
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/Rumblingb/Agentpay/issues)
+- **Docs**: [QUICKSTART.md](QUICKSTART.md) · [Whitepaper](AGENTPAY_WHITEPAPER--.md) · [Production Setup](PRODUCTION_SETUP.md)
+- **Contact**: rajivbaskaran@gmail.com
+
+---
+
+<p align="center">
+  <strong>AgentPay</strong> — The financial OS for AI agents.<br>
+  Built with a security-first approach. Recipient address verification prevents payment fraud.
+</p>

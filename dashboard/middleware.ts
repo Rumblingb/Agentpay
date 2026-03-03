@@ -8,13 +8,13 @@ export async function middleware(request: NextRequest) {
 
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   const isAuthenticated = session !== null;
-  const isLoginPage = pathname === '/login';
+  const isPublicPage = pathname === '/login' || pathname === '/';
 
-  if (!isAuthenticated && !isLoginPage) {
+  if (!isAuthenticated && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  if (isAuthenticated && isLoginPage) {
+  if (isAuthenticated && pathname === '/login') {
     return NextResponse.redirect(new URL('/overview', request.url));
   }
 
