@@ -1,10 +1,8 @@
-import { defineConfig, env } from "@prisma/config";
+// dashboard/prisma.config.ts
 
-/**
- * In Vercel, env variables are already loaded. 
- * The env() helper from @prisma/config handles 
- * this natively without needing 'dotenv'.
- */
+import "dotenv/config";
+import { defineConfig, env } from "prisma/config";
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
