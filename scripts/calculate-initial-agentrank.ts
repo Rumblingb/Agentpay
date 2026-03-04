@@ -28,6 +28,7 @@ import {
 
 const DEFAULT_WALLET_AGE_DAYS = 30;
 const DEFAULT_STAKE_USDC = 100;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Simulated data source (replace with real DB queries in production)
@@ -65,7 +66,7 @@ async function fetchAllAgents(): Promise<AgentRecord[]> {
     {
       id: 'agent-alpha',
       walletAddress: 'So1AgenTALpha11111111111111111111111111111',
-      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 90 * MS_PER_DAY),
       transactionCount: 150,
       successfulPayments: 145,
       totalPayments: 150,
@@ -78,7 +79,7 @@ async function fetchAllAgents(): Promise<AgentRecord[]> {
     {
       id: 'agent-beta',
       walletAddress: 'So1AgenTBETA111111111111111111111111111111',
-      createdAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 45 * MS_PER_DAY),
       transactionCount: 40,
       successfulPayments: 38,
       totalPayments: 40,
@@ -91,7 +92,7 @@ async function fetchAllAgents(): Promise<AgentRecord[]> {
     {
       id: 'agent-gamma',
       walletAddress: 'So1AgenTGAMMA11111111111111111111111111111',
-      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 5 * MS_PER_DAY),
       transactionCount: 5,
       successfulPayments: 4,
       totalPayments: 5,
@@ -117,7 +118,7 @@ function calculateForAgent(agent: AgentRecord) {
       : 0,
     transactionVolume: agent.transactionCount,
     walletAgeDays: Math.floor(
-      (Date.now() - agent.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+      (Date.now() - agent.createdAt.getTime()) / MS_PER_DAY,
     ),
     disputeRate: agent.totalEscrows > 0
       ? agent.disputes / agent.totalEscrows
