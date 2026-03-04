@@ -60,9 +60,11 @@ async function findAgentRankScore(identifier: string) {
     return null;
   } catch (err: any) {
     // agentrank_scores table may not exist yet (e.g. before first migration).
-    // Return null so the caller falls through to default score computation.
+    // Prisma throws P2021 when the table is missing. Return null so the
+    // caller falls through to default score computation.
     const isTableMissing =
-      typeof err?.message === 'string' && err.message.includes('does not exist');
+      err?.code === 'P2021' ||
+      (typeof err?.message === 'string' && err.message.includes('does not exist'));
     if (!isTableMissing) {
       logger.warn('AgentRank score lookup failed', { error: err?.message });
     }
