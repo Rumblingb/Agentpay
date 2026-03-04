@@ -9,10 +9,14 @@ import {
   KeyRound,
   CreditCard,
   LogOut,
+  Star,
+  Shield,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/agentrank', label: 'AgentRank', icon: Star },
+  { href: '/escrow', label: 'Escrow', icon: Shield },
   { href: '/intents', label: 'Intents', icon: ArrowLeftRight },
   { href: '/webhooks', label: 'Webhooks', icon: Webhook },
   { href: '/api-keys', label: 'API Keys', icon: KeyRound },

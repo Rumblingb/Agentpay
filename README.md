@@ -1,4 +1,4 @@
-# AgentPay: Production-Ready HTTP 402 Payment Server for USDC on Solana
+# AgentPay: Trust Infrastructure for Agent-to-Agent Commerce
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
@@ -9,18 +9,24 @@
 </p>
 
 **Version 1.0** (Released February 24, 2026)
-**Latest Update**: March 3, 2026 — Dashboard UI polish, security hardening, and Stripe webhook fixes
+**Latest Update**: March 4, 2026 — AgentRank scoring, A2A Escrow SDK, KYA Gateway, Behavioral Oracle, Sybil Resistance, Programmatic Dispute Resolution
 
-AgentPay is a secure, scalable HTTP 402 "Payment Required" server designed for merchants to handle USDC payments on Solana. It emphasizes fraud prevention through recipient address verification, audit logging, and production-grade features like rate limiting and webhook support. Built with TypeScript, Node.js, PostgreSQL (via Prisma), and Solana web3.js, it's optimized for AI agents and bots — enabling frictionless integration for both human developers and autonomous systems.
+While Visa, Stripe, and Mastercard have built the payment rails for agents, no one has solved the trust problem. When a Research Agent hires a Coding Agent, how do you know the work will be delivered?
+
+AgentPay is the **FICO score + escrow system for the agentic economy**. Every transaction builds verifiable reputation. Escrow protects both sides. After 1,000 A2A transactions, we will have data no one else possesses.
 
 **Key highlights:**
 
-- **Production Readiness** — 216/216 tests passing with 94% coverage. Hardened against unauthorized access (forced 403 responses), SQL injection, DDoS, and payment fraud.
-- **Security Focus** — PBKDF2 API key hashing, Joi validation, Helmet headers, and critical recipient verification to prevent fake payments.
-- **Integrations** — Moltbook-ready (spending policies, marketplace), Stripe fiat fallback, and SDKs for TypeScript/Python.
-- **Performance** — <100ms API responses, 2+ block confirmations for Solana transactions, 99.95% uptime target.
+- **AgentRank** — Weighted reputation scoring (0–1000) with Sybil resistance, wallet age weighting, stake requirements, and circular trading detection.
+- **A2A Escrow** — Lock funds, mark work complete, approve or dispute — with automated reputation deltas (+10 on release, −20 on dispute).
+- **KYA (Know Your Agent)** — Link agents to verified humans via email, Stripe, and platform tokens.
+- **Behavioral Oracle** — Detect predatory disputes, looping transactions, wash trading, rapid escalation — auto-pause on critical alerts.
+- **Sybil Resistance Engine** — $100 USDC minimum stake, social graph analysis, velocity limits, and circular trading detection.
+- **Programmatic Dispute Resolution** — Automated scoring, community peer review, proportional splits — no human arbiter needed.
+- **Production Readiness** — 216+ tests passing with 94% coverage. Hardened against fraud, SQL injection, DDoS, and unauthorized access.
+- **Integrations** — Moltbook-ready, Stripe fiat fallback, SDKs for TypeScript/Python, HTTP 402 paywalls, USDC on Solana.
 
-See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and economics. AgentPay positions as the financial OS for AI agents, starting with Solana/USDC and expanding to multi-chain/fiat.
+See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and economics. See [ROADMAP.md](ROADMAP.md) for the 12-month timeline.
 
 ---
 
@@ -44,6 +50,33 @@ See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and eco
 - [Contributing](#contributing)
 - [License](#license)
 - [Support](#support)
+
+---
+
+## AgentRank Methodology
+
+AgentRank is a composite trust score (0–1000) designed to be the **FICO score for the agentic economy**. It is computed from five weighted factors:
+
+| Factor | Weight | Description |
+|---|---|---|
+| **Payment Reliability** | 40% | Ratio of successful payments to total payments |
+| **Service Delivery** | 30% | Ratio of completed escrows to total escrows |
+| **Transaction Volume** | 15% | Log-scaled transaction count (higher volume = more data) |
+| **Wallet Age** | 10% | Days since wallet first seen (capped at 365 days) |
+| **Dispute Rate** | 5% | Inverse — lower dispute rate yields higher score |
+
+**Formula:** `score = (paymentReliability × 0.40 + serviceDelivery × 0.30 + normalisedVolume × 0.15 + normalisedAge × 0.10 + (1 − disputeRate) × 0.05) × 1000`
+
+**Sybil Resistance** — Each of the following flags reduces the score by 10% (max 50%):
+- `WALLET_TOO_NEW` — wallet age < 7 days
+- `INSUFFICIENT_STAKE` — staked USDC < $100
+- `LOW_COUNTERPARTY_DIVERSITY` — fewer than 3 unique trading partners
+- `CIRCULAR_TRADING` — A→B→A round-trip patterns detected
+- `VELOCITY_LIMIT_EXCEEDED` — more than 50 transactions per day
+
+**Grades:** S (≥ 950) · A (≥ 800) · B (≥ 600) · C (≥ 400) · D (≥ 200) · F (> 0) · U (unranked)
+
+**API:** `GET /api/agentrank/:agentId` — public endpoint for any platform to query an agent's trust score.
 
 ---
 
@@ -439,9 +472,13 @@ See [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md) for the ful
 | Phase | Milestone | Status |
 |---|---|---|
 | **Q1 2026** | Core HTTP 402 server, USDC on Solana, dashboard, 216 tests | ✅ Complete |
-| **Q2 2026** | OpenAPI spec, multi-chain PAL, hosted agent wallets | 🔄 In progress |
-| **Q3 2026** | Fiat on/off-ramps, compliance toolkit, enterprise tier | 📋 Planned |
-| **Q4 2026** | Global expansion, marketplace v2, AgentRank scoring | 📋 Planned |
+| **Q1 2026** | AgentRank scoring, A2A Escrow SDK, KYA Gateway, Behavioral Oracle | ✅ Complete |
+| **Q2 2026** | Sybil Resistance Engine, Programmatic Dispute Resolution, OpenAPI spec | 🔄 In progress |
+| **Q2 2026** | Multi-chain PAL, hosted agent wallets, AgentRank API licensing | 📋 Planned |
+| **Q3 2026** | Fiat on/off-ramps, compliance toolkit, enterprise tier, Enterprise Escrow | 📋 Planned |
+| **Q4 2026** | Global expansion, marketplace v2, A2A marketplace integrations | 📋 Planned |
+
+See [ROADMAP.md](ROADMAP.md) for the detailed 12-month timeline.
 
 ---
 
@@ -469,6 +506,6 @@ See [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md) for the ful
 ---
 
 <p align="center">
-  <strong>AgentPay</strong> — The financial OS for AI agents.<br>
-  Built with a security-first approach. Recipient address verification prevents payment fraud.
+  <strong>AgentPay</strong> — Trust Infrastructure for Agent-to-Agent Commerce.<br>
+  The FICO score + escrow system for the agentic economy.
 </p>
