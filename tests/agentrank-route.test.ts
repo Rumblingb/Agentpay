@@ -159,4 +159,21 @@ describe('AgentRank API Route', () => {
     expect(res.body.agentRank.score).toBe(35);
     expect(res.body.agentRank.grade).toBe('F');
   });
+
+  // --- Graceful handling when agentrank_scores table does not exist ------
+  it('handles missing agentrank_scores table gracefully', async () => {
+    const tableError = new Error(
+      'The table `public.agentrank_scores` does not exist in the current database.',
+    );
+    mockFindUnique.mockRejectedValue(tableError);
+    mockFindMany.mockRejectedValue(tableError);
+
+    const res = await request(app).get('/api/agentrank/DemoAgentNew300');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.agentRank.agentId).toBe('DemoAgentNew300');
+    expect(res.body.agentRank.score).toBe(35);
+    expect(res.body.agentRank.grade).toBe('F');
+  });
 });
