@@ -22,6 +22,9 @@ import {
   lookupAgentScore,
   evaluateTrustDecision,
   type AgentRankLookup,
+  UNKNOWN_WALLET_DEFAULT_SCORE,
+  UNKNOWN_WALLET_DEFAULT_GRADE,
+  MIN_TRUST_SCORE_THRESHOLD,
 } from '../lib/trust-logic';
 
 export type TrustFlowStep = 'input' | 'checking' | 'result' | 'escrow' | 'complete' | 'blocked';
@@ -55,8 +58,8 @@ export default function TrustPaymentFlow({ onComplete, onSkip }: TrustPaymentFlo
 
     const result = lookupAgentScore(walletAddress.trim());
     if (!result) {
-      // For unknown wallets, treat as mid-range for demo
-      setAgentInfo({ score: 500, grade: 'B' });
+      // Unknown wallets default to mid-range values
+      setAgentInfo({ score: UNKNOWN_WALLET_DEFAULT_SCORE, grade: UNKNOWN_WALLET_DEFAULT_GRADE });
     } else {
       setAgentInfo(result);
     }
@@ -148,13 +151,13 @@ export default function TrustPaymentFlow({ onComplete, onSkip }: TrustPaymentFlo
                 <p className="text-xs text-slate-500">Score</p>
               </div>
               <div className="text-center">
-                <p className={`text-2xl font-bold ${agentInfo.score >= 700 ? 'text-emerald-400' : agentInfo.score >= 400 ? 'text-yellow-400' : 'text-red-400'}`}>
+                <p className={`text-2xl font-bold ${agentInfo.score >= MIN_TRUST_SCORE_THRESHOLD ? 'text-emerald-400' : agentInfo.score >= 400 ? 'text-yellow-400' : 'text-red-400'}`}>
                   {agentInfo.grade}
                 </p>
                 <p className="text-xs text-slate-500">Grade</p>
               </div>
             </div>
-            {agentInfo.score >= 700 ? (
+            {agentInfo.score >= MIN_TRUST_SCORE_THRESHOLD ? (
               <p className="text-emerald-400 text-sm font-medium flex items-center gap-2">
                 <CheckCircle className="w-4 h-4" />
                 Trust Verified. Eligible for Insurance.
@@ -169,12 +172,12 @@ export default function TrustPaymentFlow({ onComplete, onSkip }: TrustPaymentFlo
           <button
             onClick={handleTrustDecision}
             className={`w-full font-semibold py-2.5 rounded-xl transition-colors ${
-              agentInfo.score >= 700
+              agentInfo.score >= MIN_TRUST_SCORE_THRESHOLD
                 ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
                 : 'bg-red-600 hover:bg-red-500 text-white'
             }`}
           >
-            {agentInfo.score >= 700 ? 'Proceed to Escrow →' : 'View Details'}
+            {agentInfo.score >= MIN_TRUST_SCORE_THRESHOLD ? 'Proceed to Escrow →' : 'View Details'}
           </button>
         </div>
       )}

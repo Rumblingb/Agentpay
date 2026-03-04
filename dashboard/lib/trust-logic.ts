@@ -17,6 +17,13 @@ export interface AgentRankLookup {
   grade: string;
 }
 
+// PRODUCTION FIX — DEMO FLOW: Minimum score threshold for trust verification
+export const MIN_TRUST_SCORE_THRESHOLD = 700;
+
+// PRODUCTION FIX — DEMO FLOW: Default values for unknown wallets
+export const UNKNOWN_WALLET_DEFAULT_SCORE = 500;
+export const UNKNOWN_WALLET_DEFAULT_GRADE = 'B';
+
 // PRODUCTION FIX — DEMO FLOW: Look up agent score from demo wallet table
 export function lookupAgentScore(walletAddress: string): AgentRankLookup | null {
   return DEMO_AGENT_SCORES[walletAddress] ?? null;
@@ -26,6 +33,6 @@ export function lookupAgentScore(walletAddress: string): AgentRankLookup | null 
 export function evaluateTrustDecision(
   score: number,
 ): 'proceed' | 'blocked' {
-  if (score >= 700) return 'proceed';
+  if (score >= MIN_TRUST_SCORE_THRESHOLD) return 'proceed';
   return 'blocked';
 }

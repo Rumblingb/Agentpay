@@ -12,6 +12,7 @@
 import {
   lookupAgentScore,
   evaluateTrustDecision,
+  MIN_TRUST_SCORE_THRESHOLD,
 } from '../dashboard/lib/trust-logic';
 
 describe('TrustPaymentFlow — Conditional Send Logic', () => {
@@ -42,8 +43,10 @@ describe('TrustPaymentFlow — Conditional Send Logic', () => {
     const result = lookupAgentScore('UnknownWalletXYZ');
     expect(result).toBeNull();
 
-    // Component defaults unknown wallets to score 500 — verify decision at that score
+    // Component defaults unknown wallets to score 500 which is below
+    // the MIN_TRUST_SCORE_THRESHOLD (700), so the decision is 'blocked'.
     const decision = evaluateTrustDecision(500);
     expect(decision).toBe('blocked');
+    expect(500).toBeLessThan(MIN_TRUST_SCORE_THRESHOLD);
   });
 });

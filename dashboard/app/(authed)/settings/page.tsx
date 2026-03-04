@@ -16,6 +16,9 @@
 import { useState } from 'react';
 import { Bell, CheckCircle, Settings } from 'lucide-react';
 
+// PRODUCTION FIX — DEMO FLOW: Toast auto-dismiss duration in milliseconds
+const TOAST_DURATION_MS = 3000;
+
 // PRODUCTION FIX — DEMO FLOW: Trust protocol event types
 const TRUST_EVENTS = [
   { id: 'escrow.locked', label: 'Escrow Locked', description: 'Fires when USDC is locked in escrow' },
@@ -59,7 +62,7 @@ export default function SettingsPage() {
 
     // Demo mock: show success toast
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
+    setTimeout(() => setShowToast(false), TOAST_DURATION_MS);
   }
 
   return (
