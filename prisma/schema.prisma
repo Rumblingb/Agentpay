@@ -143,6 +143,20 @@ model agent_identities {
   updated_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
+// PRODUCTION FIX — INSURANCE POOL TABLE
+// Backstop for the Behavioral Oracle — holds USDC reserves for automated
+// insurance payouts when critical alerts trigger reputation slashing.
+// Migration: npx prisma db push  (or add migration via npx prisma migrate dev)
+model insurance_pool {
+  id                   Int      @id @default(autoincrement())
+  current_balance_usdc Decimal  @db.Decimal(20, 6)
+  max_coverage_per_tx  Decimal  @default(100.00) @db.Decimal(20, 6)
+  total_claims         Int      @default(0)
+  updated_at           DateTime @updatedAt
+
+  @@map("insurance_pool")
+}
+
 // PRODUCTION FIX — ADDED BY COPILOT: Dispute resolution cases table
 model dispute_cases {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
