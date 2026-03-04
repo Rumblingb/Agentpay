@@ -139,7 +139,7 @@ export function detectLoopingTransactions(profile: AgentBehaviorProfile): Behavi
         agentId: profile.agentId,
         alertType: 'LOOPING_TX',
         severity: count >= 6 ? 'critical' : 'medium',
-        description: `Detected ${count} round-trip transactions between ${pair.replace('|', ' ↔ ')}`,
+        description: `Detected ${count} round-trip transactions between ${pair.split('|').join(' ↔ ')}`,
         autoPaused: count >= 6,
         reputationPenalty: count >= 6 ? CRITICAL_REPUTATION_PENALTY : -10,
         createdAt: new Date(),
