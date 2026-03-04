@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentPay Dashboard",
-  description: "Universal payment gateway for AI agents — powered by Solana USDC",
+  title: "AgentPay Trust Infrastructure",
+  description: "Trust infrastructure for agent-to-agent commerce — AgentRank, Escrow, KYA, and Behavioral Oracle",
 };
 
 export default function RootLayout({

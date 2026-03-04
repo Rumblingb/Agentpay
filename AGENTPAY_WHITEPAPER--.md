@@ -1,4 +1,4 @@
-# AgentPay: The Financial Operating System for Autonomous AI Agents
+# AgentPay: Trust Infrastructure for Agent-to-Agent Commerce
 
 **Whitepaper — March 2026**
 
@@ -16,16 +16,17 @@ https://github.com/Rumblingb/Agentpay
 
 ## Executive Summary
 
-The internet is being rebuilt for autonomous AI agents. In 2026, over 3.8 million AI agents operate across platforms like Moltbook (1.6M), AutoGPT, CrewAI, and enterprise systems. These agents execute workflows, purchase data, hire other agents, and transact at machine speed—but existing payment infrastructure breaks completely.
+The internet is being rebuilt for autonomous AI agents. In 2026, over 3.8 million AI agents operate across platforms like Moltbook (1.6M), AutoGPT, CrewAI, and enterprise systems. These agents execute workflows, purchase data, hire other agents, and transact at machine speed—but no one has solved the trust problem.
 
-**The Problem**: Credit cards reject bot traffic. Settlement takes days. Spending controls don't exist. Chargebacks fail for instant digital goods. Integration requires 40+ hours per protocol (Coinbase x402, Stripe ACP, Visa TAP, Google UCP).
+**The Problem**: When a Research Agent hires a Coding Agent, how do you know the work will be delivered? There is no credit score, no escrow, no identity verification, and no fraud detection for A2A commerce. Agents transact billions of dollars with zero trust infrastructure.
 
-**The Solution**: AgentPay is the universal economic layer for AI agents, providing:
+**The Solution**: AgentPay is the **trust infrastructure for the agentic economy**, providing:
+- **AgentRank** — The FICO score for AI agents (0–1000 weighted reputation with Sybil resistance)
+- **A2A Escrow** — Lock funds, verify delivery, auto-release or dispute with reputation deltas
+- **KYA (Know Your Agent)** — Link agents to verified human owners
+- **Behavioral Oracle** — Detect and prevent fraud patterns in real time
 - **Instant micropayments** ($0.01+, 2-second settlement via USDC)
-- **Autonomous spending policies** (daily limits, per-tx caps, merchant whitelists)
-- **Discovery marketplace** with AgentRank reputation scoring
 - **Protocol abstraction** (one integration supports all standards)
-- **Agent-to-agent payments** with escrow
 
 **Traction**:
 - ✅ **216/216 tests passing** — Production-ready infrastructure

@@ -73,3 +73,90 @@ model transactions {
   created_at               DateTime? @default(now()) @db.Timestamptz(6)
   updated_at               DateTime? @db.Timestamptz(6)
 }
+
+// PRODUCTION FIX — ADDED BY COPILOT: AgentRank persistence table
+model agentrank_scores {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id              String    @unique
+  score                 Int       @default(0)
+  grade                 String    @default("U")
+  payment_reliability   Decimal   @default(0) @db.Decimal(5, 4)
+  service_delivery      Decimal   @default(0) @db.Decimal(5, 4)
+  transaction_volume    Int       @default(0)
+  wallet_age_days       Int       @default(0)
+  dispute_rate          Decimal   @default(0) @db.Decimal(5, 4)
+  stake_usdc            Decimal   @default(0) @db.Decimal(20, 6)
+  unique_counterparties Int       @default(0)
+  factors               Json?     @default("{}")
+  history               Json?     @default("[]")
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Escrow transactions persistence table
+model escrow_transactions {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hiring_agent             String
+  working_agent            String
+  amount_usdc              Decimal   @db.Decimal(20, 6)
+  status                   String    @default("funded")
+  work_description         String?
+  deadline                 DateTime? @db.Timestamptz(6)
+  completed_at             DateTime? @db.Timestamptz(6)
+  reputation_delta_hiring  Int       @default(0)
+  reputation_delta_working Int       @default(0)
+  dispute_reason           String?
+  guilty_party             String?
+  escrow_account_pubkey    String?
+  transaction_signature    String?
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Behavioral oracle alerts table
+model behavior_alerts {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id           String
+  alert_type         String
+  severity           String    @default("low")
+  description        String?
+  auto_paused        Boolean   @default(false)
+  reputation_penalty Int       @default(0)
+  metadata           Json?     @default("{}")
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: KYA (Know Your Agent) identity table
+model agent_identities {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id        String    @unique
+  owner_email     String
+  owner_id        String?
+  verified        Boolean   @default(false)
+  kyc_status      String    @default("pending")
+  risk_score      Decimal   @default(0) @db.Decimal(5, 2)
+  stripe_account  String?
+  platform_token  String?
+  world_id_hash   String?
+  metadata        Json?     @default("{}")
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Dispute resolution cases table
+model dispute_cases {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  escrow_id        String
+  hiring_agent     String
+  working_agent    String
+  amount_usdc      Decimal   @db.Decimal(20, 6)
+  evidence         Json?     @default("{}")
+  completion_score Decimal?  @db.Decimal(5, 3)
+  peer_reviews     Json?     @default("[]")
+  outcome          String?
+  worker_payout    Decimal   @default(0) @db.Decimal(20, 6)
+  hirer_refund     Decimal   @default(0) @db.Decimal(20, 6)
+  resolved         Boolean   @default(false)
+  resolved_at      DateTime? @db.Timestamptz(6)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+}

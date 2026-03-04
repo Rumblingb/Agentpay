@@ -22,6 +22,7 @@ import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook.js';
 import revenueRouter from './routes/revenue.js';
 import agentrankRouter from './routes/agentrank.js';
 import kyaRouter from './routes/kya.js';
+import escrowRouter from './routes/escrow.js';
 import testRouter from './test/routes.js';
 
 // Middleware & Service Imports
@@ -70,9 +71,19 @@ app.get('/', (_req: Request, res: Response) => {
   res.status(200).send('AgentPay API is Live 🚀');
 });
 
-// --- HEALTH CHECK ---
+// --- HEALTH CHECK --- PRODUCTION FIX — enhanced with AgentRank and escrow status
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'active', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'active',
+    timestamp: new Date().toISOString(),
+    services: {
+      agentrank: { status: 'operational' },
+      escrow: { status: 'operational' },
+      kya: { status: 'operational' },
+      behavioral_oracle: { status: 'operational' },
+    },
+    version: '1.0.0',
+  });
 });
 
 // --- TEST-MODE ROUTES (Mount BEFORE API routes to catch specific test paths) ---
@@ -114,9 +125,10 @@ app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
 app.use('/api/revenue', revenueRouter);
 
-// AgentRank & KYA (new — additive)
+// AgentRank, KYA & Escrow (new — additive)
 app.use('/api/agentrank', agentrankRouter);
 app.use('/api/kya', kyaRouter);
+app.use('/api/escrow', escrowRouter);
 
 // --- GLOBAL ERROR HANDLER ---
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {

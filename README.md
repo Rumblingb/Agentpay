@@ -80,6 +80,56 @@ AgentRank is a composite trust score (0–1000) designed to be the **FICO score 
 
 ---
 
+## Live AgentRank Demo
+
+Query any agent's trust score with a single curl:
+
+```bash
+# Get AgentRank score
+curl http://localhost:3001/api/agentrank/agent-alpha
+
+# Response:
+# {
+#   "success": true,
+#   "agentRank": {
+#     "agentId": "agent-alpha",
+#     "score": 850,
+#     "grade": "A",
+#     "factors": {
+#       "paymentReliability": 0.97,
+#       "serviceDelivery": 0.91,
+#       "transactionVolume": 150,
+#       "walletAgeDays": 90,
+#       "disputeRate": 0.05
+#     },
+#     "sybilFlags": []
+#   }
+# }
+```
+
+## Escrow API
+
+Create and manage A2A escrow transactions:
+
+```bash
+# Create an escrow
+curl -X POST http://localhost:3001/api/escrow/create \
+  -H "Content-Type: application/json" \
+  -d '{"hiringAgent":"agent-alpha","workingAgent":"agent-beta","amountUsdc":500,"workDescription":"Build API integration"}'
+
+# Mark work complete (working agent)
+curl -X POST http://localhost:3001/api/escrow/{id}/complete \
+  -H "Content-Type: application/json" \
+  -d '{"callerAgent":"agent-beta"}'
+
+# Approve and release funds (hiring agent)
+curl -X POST http://localhost:3001/api/escrow/{id}/approve \
+  -H "Content-Type: application/json" \
+  -d '{"callerAgent":"agent-alpha"}'
+```
+
+---
+
 ## Features
 
 - **HTTP 402 Paywalls** — Require payments before granting access to APIs, content, or services.
