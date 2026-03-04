@@ -23,6 +23,12 @@ const mockPrismaClient = jest.fn().mockImplementation(() => ({
     findFirst: jest.fn(),
     findMany: jest.fn(),
   },
+  agentrank_scores: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
   $connect: jest.fn(),
   $disconnect: jest.fn(),
 }));

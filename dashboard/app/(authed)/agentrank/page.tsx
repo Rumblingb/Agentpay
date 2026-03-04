@@ -41,7 +41,7 @@ export default function AgentRankPage() {
       <div className="flex gap-3">
         <input
           type="text"
-          placeholder="Enter agent ID or wallet address"
+          placeholder="Enter handle, agent ID, or wallet address"
           value={agentId}
           onChange={(e) => setAgentId(e.target.value)}
           className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
