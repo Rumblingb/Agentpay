@@ -41,22 +41,35 @@ router.use(agentrankLimiter);
  * Tries exact match first, then case-insensitive match.
  */
 async function findAgentRankScore(identifier: string) {
-  // 1. Exact match on agent_id
-  let record = await prisma.agentrank_scores.findUnique({
-    where: { agent_id: identifier },
-  });
-  if (record) return record;
+  try {
+    // 1. Exact match on agent_id
+    let record = await prisma.agentrank_scores.findUnique({
+      where: { agent_id: identifier },
+    });
+    if (record) return record;
 
-  // 2. Case-insensitive match on agent_id
-  const rows = await prisma.agentrank_scores.findMany({
-    where: {
-      agent_id: { equals: identifier, mode: 'insensitive' },
-    },
-    take: 1,
-  });
-  if (rows.length > 0) return rows[0];
+    // 2. Case-insensitive match on agent_id
+    const rows = await prisma.agentrank_scores.findMany({
+      where: {
+        agent_id: { equals: identifier, mode: 'insensitive' },
+      },
+      take: 1,
+    });
+    if (rows.length > 0) return rows[0];
 
-  return null;
+    return null;
+  } catch (err: any) {
+    // agentrank_scores table may not exist yet (e.g. before first migration).
+    // Prisma throws P2021 when the table is missing. Return null so the
+    // caller falls through to default score computation.
+    const isTableMissing =
+      err?.code === 'P2021' ||
+      (typeof err?.message === 'string' && err.message.includes('does not exist'));
+    if (!isTableMissing) {
+      logger.warn('AgentRank score lookup failed', { error: err?.message });
+    }
+    return null;
+  }
 }
 
 /**
