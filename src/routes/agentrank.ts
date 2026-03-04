@@ -7,6 +7,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import {
   calculateAgentRank,
   type AgentRankFactors,
@@ -15,6 +16,17 @@ import {
 import { logger } from '../logger.js';
 
 const router = Router();
+
+// PRODUCTION FIX — rate limit on AgentRank endpoint
+const agentrankLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many AgentRank requests, please try again later.' },
+});
+
+router.use(agentrankLimiter);
 
 /**
  * GET /agentrank/:agentId
