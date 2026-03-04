@@ -88,8 +88,14 @@ async function findViaBotsTable(identifier: string) {
     }
 
     return null;
-  } catch {
-    // bots table may not exist — that's fine, return null
+  } catch (err: any) {
+    // bots table may not exist in environments that don't use Moltbook.
+    // Log unexpected errors for debugging but don't fail the request.
+    const isTableMissing =
+      typeof err?.message === 'string' && err.message.includes('does not exist');
+    if (!isTableMissing) {
+      logger.warn('Bots table fallback query failed', { error: err?.message });
+    }
     return null;
   }
 }
