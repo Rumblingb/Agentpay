@@ -20,6 +20,8 @@ import fiatRouter from './routes/fiat.js';
 import v1IntentsRouter from './routes/v1Intents.js';
 import { moltbookRouter, adminMoltbookRouter } from './routes/moltbook.js';
 import revenueRouter from './routes/revenue.js';
+import agentrankRouter from './routes/agentrank.js';
+import kyaRouter from './routes/kya.js';
 import testRouter from './test/routes.js';
 
 // Middleware & Service Imports
@@ -111,6 +113,10 @@ app.use('/api/v1/payment-intents', v1IntentsRouter);
 app.use('/api/moltbook', moltbookRouter);
 app.use('/api/admin/moltbook', adminMoltbookRouter);
 app.use('/api/revenue', revenueRouter);
+
+// AgentRank & KYA (new — additive)
+app.use('/api/agentrank', agentrankRouter);
+app.use('/api/kya', kyaRouter);
 
 // --- GLOBAL ERROR HANDLER ---
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
