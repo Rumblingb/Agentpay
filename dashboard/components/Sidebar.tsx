@@ -11,6 +11,7 @@ import {
   LogOut,
   Star,
   Shield,
+  Settings,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,8 @@ const navItems = [
   { href: '/webhooks', label: 'Webhooks', icon: Webhook },
   { href: '/api-keys', label: 'API Keys', icon: KeyRound },
   { href: '/billing', label: 'Billing', icon: CreditCard },
+  // PRODUCTION FIX — DEMO FLOW: Settings page with Trust Webhooks
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar() {

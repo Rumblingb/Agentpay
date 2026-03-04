@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { CheckCircle, Copy, Zap, PartyPopper } from 'lucide-react';
+// PRODUCTION FIX — DEMO FLOW: Import Trust Payment Flow for multi-step $1 send
+import TrustPaymentFlow from './TrustPaymentFlow';
 
 interface OnboardingTourProps {
   userName?: string;
@@ -16,6 +18,7 @@ export default function OnboardingTour({ userName, onComplete }: OnboardingTourP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // PRODUCTION FIX — DEMO FLOW: Updated greeting for Trust Infrastructure pivot
   const greeting = userName ? `Welcome, ${userName}!` : 'Welcome to AgentPay!';
 
   async function sendTestTip() {
@@ -59,8 +62,9 @@ export default function OnboardingTour({ userName, onComplete }: OnboardingTourP
             <div className="space-y-4 text-center">
               <div className="text-4xl">🎉</div>
               <h2 className="text-xl font-bold">{greeting}</h2>
+              {/* PRODUCTION FIX — DEMO FLOW: Trust Infrastructure welcome text */}
               <p className="text-slate-400 text-sm">
-                Let&apos;s get your bot earning money in under 5 minutes.
+                Welcome to AgentPay Trust Infrastructure. You are running on production USDC rails backed by our $10,000 Behavioral Insurance Pool.
               </p>
               <div className="bg-slate-800 rounded-xl p-4 text-left text-sm text-slate-300 space-y-1">
                 <div className="flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-400" /><span>API key auto-generated</span></div>
@@ -107,39 +111,19 @@ export default function OnboardingTour({ userName, onComplete }: OnboardingTourP
             </div>
           )}
 
-          {/* Step 3: Send Test Tip */}
+          {/* PRODUCTION FIX — DEMO FLOW: Step 3 — Trust-verified $1 payment */}
           {step === 3 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold">Send a Test Tip</h2>
-              <p className="text-slate-400 text-sm">
-                Click below to simulate a $1.00 tip and see exactly how AgentPay works.
-              </p>
-              <div className="bg-slate-800 rounded-xl p-4 text-sm text-slate-300">
-                <p className="font-medium mb-1">What will happen:</p>
-                <ul className="space-y-1 text-slate-400 text-xs">
-                  <li>→ $1.00 USDC tip simulated</li>
-                  <li>→ 5% platform fee applied ($0.05)</li>
-                  <li>→ Bot receives $0.95</li>
-                </ul>
-              </div>
-              {error && (
-                <p className="text-red-400 text-sm bg-red-900/20 border border-red-800 rounded-lg p-3">{error}</p>
-              )}
-              <button
-                onClick={sendTestTip}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold py-2.5 rounded-xl transition-colors"
-              >
-                <Zap className="w-4 h-4" />
-                {loading ? 'Sending...' : 'Send Test Tip ($1.00)'}
-              </button>
-              <button
-                onClick={() => setStep(4)}
-                className="w-full text-slate-400 hover:text-white text-sm py-1 transition-colors"
-              >
-                Skip →
-              </button>
-            </div>
+            <TrustPaymentFlow
+              onComplete={(result) => {
+                setTestResult(
+                  result.escrowed
+                    ? { amount: 1.0, fee: 0.05, botReceives: 0.95 }
+                    : null,
+                );
+                setStep(4);
+              }}
+              onSkip={() => setStep(4)}
+            />
           )}
 
           {/* Step 4: Success */}
