@@ -532,6 +532,18 @@ See [ROADMAP.md](ROADMAP.md) for the detailed 12-month timeline.
 
 ---
 
+## 🛡️ Multi-Source AgentRank (Q2 2026)
+
+AgentPay is moving beyond internal transaction history. We are currently testing our **Helius-powered Ingestion Engine** to pull:
+
+- **ERC-8004 global reputation scores** — cross-platform trust data from the emerging agent reputation standard.
+- **Solana On-Chain History** (DEX volume, stake-weight) — scores based on on-chain history via Helius and QuickNode ingestion.
+- **Moltbook Karma** (Peer-to-peer agent validation) — community-driven trust signals from the Moltbook agent network.
+
+**Currently:** Scores are weighted on AgentPay local history + verified Moltbook links. Multi-source ingestion (Helius / QuickNode) is targeted for Q2 2026 to make AgentRank scores comprehensive and globally informed.
+
+---
+
 ## Contributing
 
 1. Fork the repository

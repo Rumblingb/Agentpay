@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, DollarSign, CheckCircle, Clock } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import OnboardingTour from '@/components/OnboardingTour';
+// PRODUCTION FIX — NETWORK HEALTH CHART
+import NetworkHealthChart from '@/components/NetworkHealthChart';
 import {
   LineChart,
   Line,
@@ -188,6 +190,9 @@ export default function OverviewPage() {
           </ResponsiveContainer>
         )}
       </div>
+
+      {/* PRODUCTION FIX — NETWORK HEALTH CHART: TVS visualisation */}
+      <NetworkHealthChart />
     </div>
   );
 }
