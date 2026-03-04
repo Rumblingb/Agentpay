@@ -17,7 +17,10 @@ import {
 
 // ---------------------------------------------------------------------------
 // Default TVS data (shared with backend tests via src/data)
-// Re-exported here for convenience in dashboard-only contexts.
+// NOTE: Intentionally duplicated here rather than imported from
+// ../../src/data/network-health-data.ts because the dashboard is a separate
+// Next.js app with its own tsconfig — cross-package imports would break the
+// Next.js build. Keep in sync with src/data/network-health-data.ts.
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_TVS_DATA = [
