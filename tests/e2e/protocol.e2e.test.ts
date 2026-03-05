@@ -23,6 +23,8 @@ import request from 'supertest';
 import app from '../../src/server';
 import { closePool, query } from '../../src/db/index';
 
+const dbAvailable = process.env.DB_AVAILABLE !== 'false';
+
 // ── Local webhook receiver ────────────────────────────────────────────────────
 
 let webhookServer: http.Server;
@@ -62,28 +64,30 @@ let merchantId: string;
 let apiKey: string;
 let transactionId: string;
 
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
-
-beforeAll(async () => {
-  await startWebhookReceiver();
-  appServer = app.listen(0);
-  // Clean slate for this test run.
-  await query(
-    `TRUNCATE merchants, transactions, api_logs, rate_limit_counters,
-              payment_verifications, webhook_events, payment_audit_log
-     RESTART IDENTITY CASCADE`
-  );
-}, 30_000);
-
-afterAll(async () => {
-  await new Promise<void>((resolve) => appServer.close(() => resolve()));
-  await new Promise<void>((resolve) => webhookServer.close(() => resolve()));
-  await closePool();
-}, 30_000);
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('AgentPay E2E Protocol', () => {
+const describeIfDb = dbAvailable ? describe : describe.skip;
+
+describeIfDb('AgentPay E2E Protocol', () => {
+  // ── Lifecycle ───────────────────────────────────────────────────────────────
+
+  beforeAll(async () => {
+    await startWebhookReceiver();
+    appServer = app.listen(0);
+    // Clean slate for this test run.
+    await query(
+      `TRUNCATE merchants, transactions, api_logs, rate_limit_counters,
+                payment_verifications, webhook_events, payment_audit_log
+       RESTART IDENTITY CASCADE`
+    );
+  }, 30_000);
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => appServer.close(() => resolve()));
+    await new Promise<void>((resolve) => webhookServer.close(() => resolve()));
+    await closePool();
+  }, 30_000);
+
   // ── Step 1: Merchant registration ─────────────────────────────────────────
   describe('Step 1 – Merchant Registration', () => {
     it('registers a new merchant and returns credentials', async () => {

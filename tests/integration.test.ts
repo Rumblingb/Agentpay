@@ -3,6 +3,9 @@ import app from '../src/server';
 import { closePool } from '../src/db/index';
 import { query } from '../src/db/index';
 
+const dbAvailable = process.env.DB_AVAILABLE !== 'false';
+const describeIfDb = dbAvailable ? describe : describe.skip;
+
 let server: any;
 let merchantId: string = '';
 let apiKey: string = '';
@@ -25,7 +28,7 @@ afterAll(async () => {
   await closePool();
 });
 
-describe('x402 Payment Server', () => {
+describeIfDb('x402 Payment Server', () => {
   describe('Merchant Registration', () => {
     const testEmail = `test-${Date.now()}@example.com`;
     const testWallet = `5YNmS1R9n7VBjnMjhkKLhUXZhiANpvKaQYV8j8PqD`;
@@ -232,7 +235,7 @@ describe('x402 Payment Server', () => {
   });
 });
 
-describe('HTTP 402 Payment Required', () => {
+describeIfDb('HTTP 402 Payment Required', () => {
   it('should return 402 for protected endpoints', async () => {
     const res = await request(app).get('/api/protected');
 
@@ -241,7 +244,7 @@ describe('HTTP 402 Payment Required', () => {
   });
 });
 
-describe('Bot Registration', () => {
+describeIfDb('Bot Registration', () => {
   const testHandle = `@TestBot-${Date.now()}`;
 
   it('should register a new bot with only handle', async () => {

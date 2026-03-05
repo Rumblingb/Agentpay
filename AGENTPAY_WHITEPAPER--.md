@@ -1,4 +1,6 @@
-# AgentPay: Trust Infrastructure for Agent-to-Agent Commerce
+# AgentPay: The Trust & Capital Layer for the Agentic Economy
+
+**The universal financial OS that accepts every agentic payment protocol while powering real-time AgentRank scoring, programmatic escrow, and insurance-backed protection.**
 
 **Whitepaper — March 2026**
 
@@ -27,6 +29,10 @@ The internet is being rebuilt for autonomous AI agents. In 2026, over 3.8 millio
 - **Behavioral Oracle** — Detect and prevent fraud patterns in real time
 - **Instant micropayments** ($0.01+, 2-second settlement via USDC)
 - **Protocol abstraction** (one integration supports all standards)
+
+AgentPay is the **single integration point** for the entire agentic economy: agents and platforms call AgentPay once to gain Verified Trust (via AgentRank), secure escrow, fraud detection, and settlement — regardless of underlying protocol (x402, Google AP2, Virtuals ACP, A2A extensions, Stripe fiat fallback, future UACP/TAP) or chain.
+
+While emerging standards like x402 enable micropayments and ACPs enable coordination, none provide a persistent, cross-protocol reputation flywheel with economic skin-in-the-game (staking minimum + insurance pool). AgentPay closes this gap, turning every transaction into trust data and making safe A2A commerce scalable to billions in GMV.
 
 **Traction**:
 - ✅ **216/216 tests passing** — Production-ready infrastructure
@@ -84,7 +90,7 @@ These agents share five critical needs that existing infrastructure cannot satis
 
 ## 2. The AgentPay Solution: Two-Phase Strategy
 
-### Phase B (Today): Moltbook-Integrated Engine
+### Phase B (Live Today — March 2026): Solana-Native Engine
 
 **Strategy**: Start narrow, go deep
 
@@ -136,11 +142,11 @@ We begin with **Moltbook** (1.6M agents, Matt Turck of TheoryForge VC is COO), p
 - ✅ Revenue from day 1
 - ✅ Fast iteration with direct platform feedback
 
-### Phase A (12-18 Months): Universal Protocol Layer
+### Phase A (Q2–Q3 2026 — In Progress): Full Payment Abstraction Layer (PAL) Activation
 
 **Strategy**: Expand broadly, abstract complexity
 
-As Moltbook validates product-market fit, we become the **universal economic router**:
+As Moltbook validates product-market fit, we become the **universal economic router** — protocol unification and multi-chain settlement (Solana core + Ethereum/Base/Arbitrum/Polygon via Li.Fi bridging). AgentRank becomes portable and cross-protocol; insurance pool launches with staking-backed coverage for high-value disputes:
 
 1. **Protocol Unification**
    - Single integration covers x402, ACP, UCP, TAP
@@ -266,6 +272,8 @@ Chargeable actions:
 - Merchants integrate once, support all standards
 - **Value**: 160 hours saved vs. manual integration
 
+**Protocol Abstraction Layer (PAL)** — the heart of AgentPay's universality. PAL intelligently detects incoming formats (x402 headers, AP2 signed mandates, ACP payloads, raw A2A messages) and normalizes them into a unified internal model. All flows route through AgentRank checks, escrow enforcement, and Behavioral Oracle fraud signals before settlement — on Solana by default for speed (<200 ms), with automatic bridging for recipient preferences. This makes AgentPay the neutral router every agent framework and marketplace can integrate once to support all standards.
+
 **2. Intelligent Payment Router**
 - Analyzes payment characteristics (amount, urgency, source chain)
 - Routes via fastest, cheapest path
@@ -307,6 +315,8 @@ AgentRank = (0.30 × SuccessRate) +
 - All metrics cryptographically verifiable (blockchain data)
 - Impossible to fake (requires real economic transactions)
 - Self-correcting (30-day rolling window)
+
+Scores update in real-time from every escrow outcome (success/failure/dispute), creating a closed economic flywheel no competing protocol currently matches.
 
 **5. Enterprise Webhook System**
 - BullMQ + Redis for guaranteed delivery
@@ -398,6 +408,13 @@ AgentRank = (0.30 × SuccessRate) +
 3. **Protocol Abstraction**: Significant engineering complexity
 4. **Regulatory Compliance**: Non-custodial = lighter burden
 5. **Execution Speed**: 216 tests in weeks (vs. months for competitors)
+
+**Differentiation vs. Emerging Players (2026 Landscape)**  
+- Abba Baba (Base): Strong on-chain escrow + basic reputation, but chain-locked and no multi-protocol abstraction.  
+- Virtuals Protocol (ACP): Excellent for agent coordination + revenue sharing, but reputation is review-based (no weighted economic scoring or staking moat).  
+- x402 / AP2 standards: Enable payments, but lack trust scoring, programmatic disputes, and insurance.  
+
+AgentPay stands alone with a **persistent, protocol-agnostic reputation flywheel** (real transaction data → AgentRank deltas) + staking/insurance backing, making it the complementary trust layer these protocols need rather than a direct competitor.
 
 ### Market Timing: The 12-18 Month Window
 
@@ -496,9 +513,9 @@ AgentRank = (0.30 × SuccessRate) +
 ### Q2 2026 (Scale)
 
 **Engineering**:
-- Marketplace mainnet launch
-- Multi-chain support (Base, Ethereum)
-- x402 protocol adapter
+- Full PAL activation: live acceptance of x402, AP2, ACP, A2A — multi-chain settlement live
+- Insurance Pool launch: staking-backed coverage for programmatic disputes
+- SDK NPM/PyPI publish + one-click integrations (CrewAI, LangGraph, Virtuals ACP wrappers)
 - CLI tool
 
 **Business**:
@@ -702,7 +719,7 @@ AgentPay is building that infrastructure.
 A world where AI agents can **work, earn, spend, and improve themselves—autonomously, safely, and at machine speed**.
 
 We're not just building a payment processor.  
-We're building the **financial DNA of the machine economy**.
+We're building the **financial DNA of the machine economy** — the indispensable trust and capital layer that every agent, framework, and marketplace routes through to transact safely at internet scale.
 
 **The window is now. Let's build it together.**
 

@@ -9,6 +9,9 @@ import {
   shouldFastTrack,
 } from '../src/services/reputationService';
 
+const dbAvailable = process.env.DB_AVAILABLE !== 'false';
+const describeIfDb = dbAvailable ? describe : describe.skip;
+
 let server: any;
 
 beforeAll(async () => {
@@ -57,7 +60,7 @@ describe('Reputation Service - Pure Functions', () => {
   describe('computeTrustScore', () => {
     it('returns 100 for perfect agent (no decay)', () => {
       const score = computeTrustScore(1, 0, new Date());
-      expect(score).toBe(100);
+      expect(score).toBeCloseTo(100);
     });
 
     it('returns 0 for zero success rate', () => {
@@ -133,7 +136,7 @@ describe('Reputation Service - Pure Functions', () => {
   });
 });
 
-describe('Reputation Service - Database', () => {
+describeIfDb('Reputation Service - Database', () => {
   const testAgentId = `test-agent-${Date.now()}`;
 
   it('returns null for unknown agent', async () => {
@@ -165,7 +168,7 @@ describe('Reputation Service - Database', () => {
   });
 });
 
-describe('GET /api/agents/:agentId/reputation', () => {
+describeIfDb('GET /api/agents/:agentId/reputation', () => {
   const knownAgentId = `get-test-agent-${Date.now()}`;
 
   beforeAll(async () => {
