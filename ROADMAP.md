@@ -97,7 +97,7 @@
 
 | Stream | Timeline | Description |
 |---|---|---|
-| **Transaction Fees** | Live | 0.5–1% on USDC payments |
+| **Transaction Fees** | Live | 0.8–1.5% on USDC payments |
 | **AgentRank API Licensing** | Q2 2026 | Paid API access for platforms querying agent trust scores |
 | **Enterprise Escrow** | Q2 2026 | SLA-backed escrow for B2B agent hiring ($99–$999/mo) |
 | **Premium Dashboard** | Q3 2026 | Advanced analytics, team management, custom reports |
