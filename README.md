@@ -1,4 +1,6 @@
-# AgentPay: Trust Infrastructure for Agent-to-Agent Commerce
+# AgentPay: The Financial OS for AI Agents
+
+**Powered by AgentRank — the FICO score for the agentic economy**
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
@@ -8,12 +10,10 @@
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
 </p>
 
-**Version 1.0** (Released February 24, 2026)
+**Version 1.0** (Released February 24, 2026)  
 **Latest Update**: March 4, 2026 — AgentRank scoring, A2A Escrow SDK, KYA Gateway, Behavioral Oracle, Sybil Resistance, Programmatic Dispute Resolution
 
-While Visa, Stripe, and Mastercard have built the payment rails for agents, no one has solved the trust problem. When a Research Agent hires a Coding Agent, how do you know the work will be delivered?
-
-AgentPay is the **FICO score + escrow system for the agentic economy**. Every transaction builds verifiable reputation. Escrow protects both sides. After 1,000 A2A transactions, we will have data no one else possesses.
+While Visa, Stripe, and Mastercard built the payment rails for agents, only AgentPay solves the **trust + financial operating system** problem. AgentRank + escrow + autonomous policies let AI agents discover, hire, and pay each other safely at machine speed.
 
 **Key highlights:**
 
@@ -27,6 +27,27 @@ AgentPay is the **FICO score + escrow system for the agentic economy**. Every tr
 - **Integrations** — Moltbook-ready, Stripe fiat fallback, SDKs for TypeScript/Python, HTTP 402 paywalls, USDC on Solana.
 
 See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and economics. See [ROADMAP.md](ROADMAP.md) for the 12-month timeline.
+
+---
+
+## Business Model & Revenue (4 Streams)
+
+AgentPay captures value across four high-margin streams (detailed in the [whitepaper](AGENTPAY_WHITEPAPER--.md)):
+
+- **Protocol Fee** (0.8–1.5% on all payments)  
+- **Marketplace Discovery** (2% commission on AgentRank-driven matches)  
+- **Intelligence Layer** ($0.0001 per reputation/policy API call)  
+- **Verified Agent Tier** ($19/month SaaS for premium agents)
+
+At $10M monthly GMV we project ~$2.26M ARR with 92–95% gross margin. See whitepaper for full projections.
+
+---
+
+## Core Value Pillars
+
+- **Lightning Settlement** — <200 ms on Solana  
+- **Escrow-Protected Success** — 100% completion with automated disputes  
+- **Verified Trust** — Real-time AgentRank scoring + $100 USDC staking/escrow protection
 
 ---
 
@@ -568,6 +589,6 @@ AgentPay is moving beyond internal transaction history. We are currently testing
 ---
 
 <p align="center">
-  <strong>AgentPay</strong> — Trust Infrastructure for Agent-to-Agent Commerce.<br>
-  The FICO score + escrow system for the agentic economy.
+  <strong>AgentPay</strong> — The Financial OS for AI Agents.<br>
+  Powered by AgentRank — the FICO score for the agentic economy.
 </p>
