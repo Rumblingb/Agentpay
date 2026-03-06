@@ -33,7 +33,7 @@ const acpPaySchema = z.object({
   /** Preferred payment method: solana | stripe | agentpay */
   preferredMethod: z.enum(['solana', 'stripe', 'agentpay']).default('agentpay'),
   /** Optional metadata */
-  metadata: z.record(z.string()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const acpVerifySchema = z.object({

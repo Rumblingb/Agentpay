@@ -114,6 +114,98 @@ async function findViaBotsTable(identifier: string) {
 }
 
 /**
+ * GET /agentrank/leaderboard
+ *
+ * Public API — returns the top agents ranked by AgentRank score.
+ * Supports pagination and optional tier filter.
+ *
+ * IMPORTANT: This route must be defined BEFORE /:agentId to avoid
+ * "leaderboard" being captured as an agentId param.
+ *
+ * Query params:
+ *   limit    — number of results (1–100, default 20)
+ *   offset   — pagination offset (default 0)
+ *   tier     — filter by tier: S, A, B, C, D, F (optional)
+ *   minScore — minimum score threshold (optional)
+ */
+router.get('/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '20'), 10)));
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10));
+    const tierFilter = typeof req.query.tier === 'string' ? req.query.tier.toUpperCase() : null;
+    const minScore = req.query.minScore ? parseInt(String(req.query.minScore), 10) : null;
+
+    // Valid tiers as produced by scoreToGrade
+    const validTiers = ['S', 'A', 'B', 'C', 'D', 'F', 'U'];
+    if (tierFilter && !validTiers.includes(tierFilter)) {
+      res.status(400).json({ error: `Invalid tier. Must be one of: ${validTiers.join(', ')}` });
+      return;
+    }
+
+    // Try Prisma first (agentrank_scores table)
+    try {
+      const whereClause: Record<string, any> = {};
+      if (tierFilter) whereClause.grade = tierFilter;
+      if (minScore !== null && !isNaN(minScore)) whereClause.score = { gte: minScore };
+
+      const [records, total] = await Promise.all([
+        prisma.agentrank_scores.findMany({
+          where: whereClause,
+          orderBy: { score: 'desc' },
+          take: limit,
+          skip: offset,
+        }),
+        prisma.agentrank_scores.count({ where: whereClause }),
+      ]);
+
+      const leaderboard = records.map((r, idx) => ({
+        rank: offset + idx + 1,
+        agentId: r.agent_id,
+        score: r.score,
+        grade: r.grade,
+        paymentReliability: Number(r.payment_reliability),
+        serviceDelivery: Number(r.service_delivery),
+        transactionVolume: r.transaction_volume,
+        walletAgeDays: r.wallet_age_days,
+        disputeRate: Number(r.dispute_rate),
+        updatedAt: r.updated_at,
+      }));
+
+      res.json({
+        success: true,
+        leaderboard,
+        pagination: {
+          total,
+          limit,
+          offset,
+          hasMore: offset + limit < total,
+        },
+      });
+      return;
+    } catch (prismaErr: any) {
+      // Table may not exist yet — fall through to empty response
+      const isTableMissing =
+        prismaErr?.code === 'P2021' ||
+        (typeof prismaErr?.message === 'string' && prismaErr.message.includes('does not exist'));
+      if (!isTableMissing) {
+        throw prismaErr;
+      }
+    }
+
+    // Graceful fallback when table does not exist
+    res.json({
+      success: true,
+      leaderboard: [],
+      pagination: { total: 0, limit, offset, hasMore: false },
+      _note: 'AgentRank scores table not yet populated. Run npm run calculate-scores to seed.',
+    });
+  } catch (error: any) {
+    logger.error('AgentRank leaderboard error:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+/**
  * GET /agentrank/:agentId
  *
  * Public API — returns the AgentRank for a given agent.

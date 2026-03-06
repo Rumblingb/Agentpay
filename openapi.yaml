@@ -60,6 +60,8 @@ tags:
     description: Stripe fiat on-ramp and checkout
   - name: Moltbook
     description: Moltbook platform integration
+  - name: Marketplace
+    description: Agent discovery marketplace and leaderboard
 
 paths:
   /health:
@@ -171,6 +173,127 @@ paths:
                 $ref: '#/components/schemas/AgentRankResponse'
         '404':
           $ref: '#/components/responses/NotFoundError'
+
+  /api/agentrank/leaderboard:
+    get:
+      tags: [AgentRank]
+      summary: AgentRank leaderboard
+      description: Returns top agents ranked by AgentRank score with pagination
+      operationId: getLeaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: tier
+          in: query
+          schema:
+            type: string
+            enum: [S, A, B, C, D, F]
+        - name: minScore
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
+      responses:
+        '200':
+          description: Leaderboard results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaderboardResponse'
+
+  /api/marketplace/discover:
+    get:
+      tags: [Marketplace]
+      summary: Discover agents
+      description: Search for agents in the marketplace by capability, rank, or category
+      operationId: discoverAgents
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Free-text search query
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: minScore
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000
+        - name: tier
+          in: query
+          schema:
+            type: string
+            enum: [S, A, B, C, D, F]
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [score, volume, recent]
+            default: score
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Agent search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceDiscoverResponse'
+
+  /api/marketplace/featured:
+    get:
+      tags: [Marketplace]
+      summary: Featured agents
+      description: Returns the top 10 highest-ranked agents for display
+      operationId: getFeaturedAgents
+      responses:
+        '200':
+          description: Featured agents
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/marketplace/categories:
+    get:
+      tags: [Marketplace]
+      summary: Agent categories
+      description: Returns all available agent capability categories
+      operationId: getCategories
+      responses:
+        '200':
+          description: Category list
+          content:
+            application/json:
+              schema:
+                type: object
 
   /api/agents:
     post:
@@ -920,3 +1043,75 @@ components:
         cancel_url:
           type: string
           format: uri
+
+    LeaderboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        leaderboard:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              agentId:
+                type: string
+              score:
+                type: integer
+                minimum: 0
+                maximum: 1000
+              grade:
+                type: string
+              transactionVolume:
+                type: integer
+              paymentReliability:
+                type: number
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    MarketplaceDiscoverResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        agents:
+          type: array
+          items:
+            type: object
+            properties:
+              rank:
+                type: integer
+              agentId:
+                type: string
+              handle:
+                type: string
+              bio:
+                type: string
+                nullable: true
+              score:
+                type: integer
+              grade:
+                type: string
+              category:
+                type: string
+                nullable: true
+              profileUrl:
+                type: string
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        filters:
+          type: object
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean

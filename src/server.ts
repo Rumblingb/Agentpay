@@ -23,6 +23,7 @@ import revenueRouter from './routes/revenue.js';
 import agentrankRouter from './routes/agentrank.js';
 import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
+import marketplaceRouter from './routes/marketplace.js';
 import testRouter from './test/routes.js';
 import { acpRouter } from './protocols/acp.js';
 import { ap2Router } from './protocols/ap2.js';
@@ -133,6 +134,9 @@ app.use('/api/revenue', revenueRouter);
 app.use('/api/agentrank', agentrankRouter);
 app.use('/api/kya', kyaRouter);
 app.use('/api/escrow', escrowRouter);
+
+// Marketplace discovery
+app.use('/api/marketplace', marketplaceRouter);
 
 // Protocol Abstraction Layer (PAL) — multi-protocol support
 app.use('/api/acp', acpRouter);
