@@ -188,6 +188,21 @@ export async function enforceSpendingPolicy(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  // Emergency global pause (whitepaper §4.3)
+  // Set AGENTPAY_GLOBAL_PAUSE=true to immediately halt all new payments
+  // without a deployment. Clears automatically when env var is removed.
+  if (process.env.AGENTPAY_GLOBAL_PAUSE === 'true') {
+    logger.warn('[SpendingPolicy] Global pause active — rejecting payment', {
+      path: req.path,
+      ip: req.ip,
+    });
+    res.status(503).json({
+      error: 'SERVICE_PAUSED',
+      message: 'Service temporarily paused for security. Please try again shortly.',
+    });
+    return;
+  }
+
   const merchantId = (req as any).merchant?.id;
   const amountCents: number = req.body?.amount ?? 0;
   const recipientId: string | undefined = req.body?.recipient;

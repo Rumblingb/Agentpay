@@ -25,6 +25,36 @@ import { logger } from '../logger.js';
 
 const router = Router();
 
+// ---------------------------------------------------------------------------
+// Leaderboard in-memory cache (30-second TTL)
+// Avoids hammering the DB on every public leaderboard hit.
+// No external Redis dependency required.
+// ---------------------------------------------------------------------------
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number; // Unix ms
+}
+const leaderboardCache = new Map<string, CacheEntry<unknown>>();
+
+function cacheGet<T>(key: string): T | null {
+  const entry = leaderboardCache.get(key) as CacheEntry<T> | undefined;
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    leaderboardCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function cacheSet<T>(key: string, value: T, ttlMs = 30_000): void {
+  leaderboardCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+/** For testing only — clears the leaderboard cache */
+export function _clearLeaderboardCache(): void {
+  leaderboardCache.clear();
+}
+
 // PRODUCTION FIX — rate limit on AgentRank endpoint
 const agentrankLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -142,6 +172,15 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
       return;
     }
 
+    // Serve from cache when available (30-second TTL, cache-key encodes all params)
+    const cacheKey = `leaderboard:${limit}:${offset}:${tierFilter ?? ''}:${minScore ?? ''}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.set('X-Cache', 'HIT');
+      res.json(cached);
+      return;
+    }
+
     // Try Prisma first (agentrank_scores table)
     try {
       const whereClause: Record<string, any> = {};
@@ -171,7 +210,7 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
         updatedAt: r.updated_at,
       }));
 
-      res.json({
+      const response = {
         success: true,
         leaderboard,
         pagination: {
@@ -180,7 +219,11 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
           offset,
           hasMore: offset + limit < total,
         },
-      });
+      };
+
+      cacheSet(cacheKey, response);
+      res.set('X-Cache', 'MISS');
+      res.json(response);
       return;
     } catch (prismaErr: any) {
       // Table may not exist yet — fall through to empty response

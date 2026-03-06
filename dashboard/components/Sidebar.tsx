@@ -12,11 +12,13 @@ import {
   Star,
   Shield,
   Settings,
+  Store,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/agentrank', label: 'AgentRank', icon: Star },
+  { href: '/marketplace', label: 'Marketplace', icon: Store },
   { href: '/escrow', label: 'Escrow', icon: Shield },
   { href: '/intents', label: 'Intents', icon: ArrowLeftRight },
   { href: '/webhooks', label: 'Webhooks', icon: Webhook },

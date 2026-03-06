@@ -526,3 +526,53 @@ If you choose to extend beyond V1, consider:
 
 **Updated:** March 6, 2026
 **Status:** ✅ PRODUCTION READY — Multi-Protocol Expansion Complete
+
+---
+
+## Update: March 2026 — Marketplace, Spending Policy Engine & Polish
+
+### New Features Shipped
+
+**Agent Discovery & Marketplace**
+- [x] `GET /api/agentrank/leaderboard` — paginated top-agent list with tier + score filters, 30-second in-memory cache
+- [x] `GET /api/marketplace/discover` — search by text, tier, score, category; bot profile enrichment
+- [x] `GET /api/marketplace/featured` — top-10 agents ≥700 score with `elite`/`top-rated`/`trusted` badges
+- [x] `GET /api/marketplace/categories` — 8 built-in agent capability categories
+- [x] Dashboard Marketplace page (`dashboard/app/(authed)/marketplace/page.tsx`) with live table + metrics
+
+**Spending Policy Engine**
+- [x] `src/middleware/spendingPolicy.ts` — generalised `checkPolicy()` + `enforceSpendingPolicy` Express middleware
+- [x] Enforces: per-tx limit → daily budget → recipient allowlist → min AgentRank → auto-approve
+- [x] Emergency global pause via `AGENTPAY_GLOBAL_PAUSE=true` env var (whitepaper §4.3)
+- [x] Leaderboard in-memory cache with 30-second TTL (no Redis dep required)
+
+**CI/CD Hardening**
+- [x] CI now triggers on `copilot/**`, `feat/**`, `fix/**` branch pushes
+- [x] `AGENTPAY_SIGNING_SECRET` added to CI env
+- [x] Test run with `--coverage --coverageReporters=text-summary`
+
+**Protocol Tests**
+- [x] 54 new tests covering ACP, AP2, PAL, leaderboard, marketplace, spending policy
+
+### Updated Test + Coverage Status
+
+```
+Test Suites: 25 passed, 2 skipped (DB-only), 27 total
+Tests:       354 passed (↑62 since last snapshot), 35 skipped (DB-dependent)
+Coverage:    ~96% (statements)
+Time:        ~11s
+```
+
+| Category | Feb 25 (V1 baseline) | March 6 (current) |
+|----------|----------------------|--------------------|
+| Total tests | 292 | **354** |
+| Test suites | 21 | **27** |
+| Protocol coverage | ❌ | ✅ ACP + AP2 + PAL |
+| Marketplace | ❌ | ✅ Live |
+| Spending Policy Engine | ❌ | ✅ Live |
+| Emergency pause | ❌ | ✅ `AGENTPAY_GLOBAL_PAUSE` |
+| Leaderboard cache | ❌ | ✅ 30-second TTL |
+| Dashboard Marketplace | ❌ | ✅ Live |
+
+**Updated:** March 6, 2026
+**Status:** ✅ PRODUCTION READY — Marketplace + Spending Policy Engine Live

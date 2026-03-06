@@ -36,7 +36,7 @@ jest.mock('../src/db/index', () => ({
 
 import request from 'supertest';
 import express from 'express';
-import agentrankRouter from '../src/routes/agentrank';
+import agentrankRouter, { _clearLeaderboardCache } from '../src/routes/agentrank';
 import marketplaceRouter from '../src/routes/marketplace';
 
 const app = express();
@@ -77,6 +77,8 @@ const AGENT_B = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Clear leaderboard cache before each test so tests are independent
+  _clearLeaderboardCache();
   // Default: bots table lookup returns empty
   mockDbQuery.mockResolvedValue({ rows: [] });
 });
@@ -171,6 +173,38 @@ describe('GET /api/agentrank/leaderboard', () => {
     expect(entry).toHaveProperty('transactionVolume');
     expect(entry).toHaveProperty('walletAgeDays');
     expect(entry).toHaveProperty('disputeRate');
+  });
+
+  it('serves subsequent identical requests from cache (X-Cache: HIT)', async () => {
+    mockFindMany.mockResolvedValue([AGENT_A]);
+    mockCount.mockResolvedValue(1);
+
+    // First request — populates cache
+    const res1 = await request(app).get('/api/agentrank/leaderboard?limit=5');
+    expect(res1.status).toBe(200);
+    expect(res1.headers['x-cache']).toBe('MISS');
+    expect(mockFindMany).toHaveBeenCalledTimes(1);
+
+    // Second identical request — should hit cache, no extra DB call
+    const res2 = await request(app).get('/api/agentrank/leaderboard?limit=5');
+    expect(res2.status).toBe(200);
+    expect(res2.headers['x-cache']).toBe('HIT');
+    // mockFindMany must NOT have been called again
+    expect(mockFindMany).toHaveBeenCalledTimes(1);
+
+    // Response bodies should be identical
+    expect(res2.body).toEqual(res1.body);
+  });
+
+  it('uses different cache keys for different query params', async () => {
+    mockFindMany.mockResolvedValue([AGENT_A]);
+    mockCount.mockResolvedValue(1);
+
+    // Two requests with different limits — both should MISS cache
+    await request(app).get('/api/agentrank/leaderboard?limit=10');
+    await request(app).get('/api/agentrank/leaderboard?limit=20');
+
+    expect(mockFindMany).toHaveBeenCalledTimes(2);
   });
 });
 

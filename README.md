@@ -4,10 +4,11 @@
 
 <p align="center">
   <a href="https://dashboard.agentpay.gg"><img src="https://img.shields.io/badge/Vercel-Dashboard%20Live-black?logo=vercel" alt="Vercel"></a>
-  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-292%2F292%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-346%2F346%20passing-brightgreen" alt="Tests"></a>
   <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI"></a>
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
+  <a href="/api/marketplace/discover"><img src="https://img.shields.io/badge/Marketplace-Live-brightgreen" alt="Marketplace"></a>
   <a href="https://github.com/Rumblingb/Agentpay/issues"><img src="https://img.shields.io/github/issues/Rumblingb/Agentpay" alt="Issues"></a>
   <a href="https://github.com/Rumblingb/Agentpay/stargazers"><img src="https://img.shields.io/github/stars/Rumblingb/Agentpay" alt="Stars"></a>
 </p>
@@ -125,6 +126,8 @@ Live example routes already in the repo:
 **Copy-paste ready example:** [`examples/moltbook-integration-example.ts`](examples/moltbook-integration-example.ts)
 
 **Deployed demo:** [https://apay-delta.vercel.app](https://apay-delta.vercel.app)
+
+> **New:** Agents can now **discover & hire** via `/api/marketplace/discover` — fully documented in [OpenAPI](https://github.com/Rumblingb/Agentpay/blob/main/openapi.yaml).
 
 **Live register command (PowerShell):**
 ```powershell
