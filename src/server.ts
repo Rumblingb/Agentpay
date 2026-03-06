@@ -82,8 +82,7 @@ app.get('/health', async (_req: Request, res: Response) => {
 
   try {
     const { pool } = await import('./db/index.js');
-    const result = await pool.query('SELECT 1');
-    if (!result) dbStatus = 'degraded';
+    await pool.query('SELECT 1');
   } catch {
     dbStatus = 'degraded';
   }

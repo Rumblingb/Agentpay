@@ -5,7 +5,7 @@ import { logger } from '../logger.js';
 
 const router = Router();
 
-// Valid transaction hashes: hex strings (Solana base58 or EVM hex)
+// Valid transaction hashes: relaxed alphanumeric pattern covering Solana base58 and EVM hex formats
 const TX_HASH_PATTERN = /^[a-zA-Z0-9]{16,128}$/;
 
 router.get('/:txHash', async (req: Request, res: Response) => {

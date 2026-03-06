@@ -74,20 +74,20 @@ router.get('/account', authenticateApiKey, async (req: Request, res: Response) =
  */
 router.get('/onboard/return', async (req: Request, res: Response) => {
   try {
-    // Sanitize dashboardUrl to prevent XSS — only allow known patterns
+    // Use URL parsing for safe redirect — only allow http(s) schemes
     const rawUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    // Strip any characters that could break out of the JS string context
-    const dashboardUrl = rawUrl.replace(/[^a-zA-Z0-9:/.?=&_-]/g, '');
+    let dashboardUrl: string;
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error('Invalid protocol');
+      }
+      dashboardUrl = parsed.origin;
+    } catch {
+      dashboardUrl = 'http://localhost:3000';
+    }
     
-    res.send(`
-      <html>
-        <body>
-          <h1>Onboarding Complete!</h1>
-          <p>You can now close this window and return to the dashboard.</p>
-          <script>window.location.href = "${dashboardUrl}/dashboard?stripe=success";</script>
-        </body>
-      </html>
-    `);
+    res.redirect(`${dashboardUrl}/dashboard?stripe=success`);
   } catch (error) {
     res.status(500).send("Error returning from Stripe.");
   }
