@@ -5,11 +5,14 @@ import { logger } from '../logger.js';
 
 const router = Router();
 
+// Valid transaction hashes: hex strings (Solana base58 or EVM hex)
+const TX_HASH_PATTERN = /^[a-zA-Z0-9]{16,128}$/;
+
 router.get('/:txHash', async (req: Request, res: Response) => {
   const { txHash } = req.params;
 
-  if (!txHash) {
-    res.status(400).json({ error: 'txHash is required' });
+  if (!txHash || !TX_HASH_PATTERN.test(txHash)) {
+    res.status(400).json({ error: 'Invalid or missing txHash format' });
     return;
   }
 

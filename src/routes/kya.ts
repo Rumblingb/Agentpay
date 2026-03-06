@@ -8,31 +8,33 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { registerKya, getKya } from '../identity/kya-gateway.js';
 import { logger } from '../logger.js';
 
 const router = Router();
 
+const kyaRegisterSchema = z.object({
+  agentId: z.string().min(1).max(128),
+  ownerEmail: z.string().email().max(320),
+  ownerId: z.string().max(128).optional(),
+  stripeAccount: z.string().max(128).optional(),
+  platformToken: z.string().max(512).optional(),
+  worldIdHash: z.string().max(256).optional(),
+});
+
 /**
  * POST /kya/register
  */
 router.post('/register', async (req: Request, res: Response) => {
+  const parsed = kyaRegisterSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.issues.map((e) => e.message) });
+    return;
+  }
+
   try {
-    const { agentId, ownerEmail, ownerId, stripeAccount, platformToken, worldIdHash } = req.body;
-
-    if (!agentId || !ownerEmail) {
-      res.status(400).json({ error: 'agentId and ownerEmail are required' });
-      return;
-    }
-
-    const identity = registerKya({
-      agentId,
-      ownerEmail,
-      ownerId,
-      stripeAccount,
-      platformToken,
-      worldIdHash,
-    });
+    const identity = registerKya(parsed.data);
 
     res.status(201).json({ success: true, identity });
   } catch (error: any) {

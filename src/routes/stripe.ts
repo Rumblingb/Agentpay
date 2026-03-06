@@ -10,9 +10,36 @@ router.post('/connect', authenticateApiKey, async (req: Request, res: Response) 
     const merchant = (req as any).merchant!;
     const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
 
-    // Fix: Align these URLs with the test expectations
-    const returnUrl = req.body.returnUrl || `${baseUrl}/api/stripe/onboard/return`;
-    const refreshUrl = req.body.refreshUrl || `${baseUrl}/api/stripe/onboard/refresh`;
+    const defaultReturn = `${baseUrl}/api/stripe/onboard/return`;
+    const defaultRefresh = `${baseUrl}/api/stripe/onboard/refresh`;
+
+    // Validate URLs if provided — prevent open redirect
+    let returnUrl = defaultReturn;
+    let refreshUrl = defaultRefresh;
+
+    if (req.body.returnUrl) {
+      try {
+        const parsed = new URL(req.body.returnUrl);
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          returnUrl = req.body.returnUrl;
+        }
+      } catch {
+        res.status(400).json({ error: 'Invalid returnUrl format' });
+        return;
+      }
+    }
+
+    if (req.body.refreshUrl) {
+      try {
+        const parsed = new URL(req.body.refreshUrl);
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          refreshUrl = req.body.refreshUrl;
+        }
+      } catch {
+        res.status(400).json({ error: 'Invalid refreshUrl format' });
+        return;
+      }
+    }
 
     const { url, accountId } = await stripeService.createConnectOnboardingLink(
       merchant.id,
@@ -47,9 +74,10 @@ router.get('/account', authenticateApiKey, async (req: Request, res: Response) =
  */
 router.get('/onboard/return', async (req: Request, res: Response) => {
   try {
-    // In a real app, you might verify the account status with Stripe here
-    // then redirect to your frontend dashboard
-    const dashboardUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Sanitize dashboardUrl to prevent XSS — only allow known patterns
+    const rawUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Strip any characters that could break out of the JS string context
+    const dashboardUrl = rawUrl.replace(/[^a-zA-Z0-9:/.?=&_-]/g, '');
     
     res.send(`
       <html>
