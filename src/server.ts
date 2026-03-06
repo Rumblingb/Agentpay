@@ -76,12 +76,24 @@ app.get('/', (_req: Request, res: Response) => {
   res.status(200).send('AgentPay API is Live 🚀');
 });
 
-// --- HEALTH CHECK --- PRODUCTION FIX — enhanced with AgentRank and escrow status
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'active',
+// --- HEALTH CHECK --- PRODUCTION FIX — enhanced with real DB check
+app.get('/health', async (_req: Request, res: Response) => {
+  let dbStatus: 'operational' | 'degraded' = 'operational';
+
+  try {
+    const { pool } = await import('./db/index.js');
+    await pool.query('SELECT 1');
+  } catch {
+    dbStatus = 'degraded';
+  }
+
+  const overallStatus = dbStatus === 'operational' ? 'active' : 'degraded';
+
+  res.status(overallStatus === 'active' ? 200 : 503).json({
+    status: overallStatus,
     timestamp: new Date().toISOString(),
     services: {
+      database: { status: dbStatus },
       agentrank: { status: 'operational' },
       escrow: { status: 'operational' },
       kya: { status: 'operational' },

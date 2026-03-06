@@ -101,7 +101,7 @@ describe('ACP Protocol', () => {
   describe('POST /api/acp/verify', () => {
     it('verifies a valid-format payment token', async () => {
       const res = await request(app).post('/api/acp/verify').send({
-        paymentToken: 'tok_valid_token_12345',
+        paymentToken: '550e8400-e29b-41d4-a716-446655440000',
         senderId: 'agent-a',
         expectedAmountUsd: 5.0,
       });

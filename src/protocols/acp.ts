@@ -145,14 +145,15 @@ router.post('/verify', async (req: Request, res: Response) => {
 
   logger.info('[ACP] Verifying payment token', { paymentToken, senderId });
 
-  // In a production deployment, this would check the payment in the DB.
-  // For now, we validate format and return a structured ACP verification response.
-  const isValidFormat = paymentToken.length > 8;
+  // Validate token format: must be a valid UUID v4 (tokens are generated via uuidv4())
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const isValidFormat = uuidPattern.test(paymentToken);
 
   if (!isValidFormat) {
     res.status(400).json({
       verified: false,
-      reason: 'Invalid payment token format',
+      error: 'INVALID_TOKEN_FORMAT',
+      reason: 'Payment token must be a valid UUID v4',
       protocol: 'acp',
     });
     return;

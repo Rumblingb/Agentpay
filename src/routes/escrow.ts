@@ -14,6 +14,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import {
   createEscrow,
@@ -26,6 +27,25 @@ import {
 import { logger } from '../logger.js';
 
 const router = Router();
+
+// --- Validation schemas ---
+const escrowCreateSchema = z.object({
+  hiringAgent: z.string().min(1).max(128),
+  workingAgent: z.string().min(1).max(128),
+  amountUsdc: z.number().positive().max(1_000_000),
+  workDescription: z.string().max(1024).optional(),
+  deadlineHours: z.number().int().positive().max(720).optional(),
+});
+
+const callerAgentSchema = z.object({
+  callerAgent: z.string().min(1).max(128),
+});
+
+const disputeSchema = z.object({
+  callerAgent: z.string().min(1).max(128),
+  reason: z.string().min(1).max(1024),
+  guiltyParty: z.string().min(1).max(128),
+});
 
 // PRODUCTION FIX — rate limit on escrow endpoints
 const escrowLimiter = rateLimit({
@@ -42,20 +62,21 @@ router.use(escrowLimiter);
  * POST /escrow/create
  */
 router.post('/create', async (req: Request, res: Response) => {
-  try {
-    const { hiringAgent, workingAgent, amountUsdc, workDescription, deadlineHours } = req.body;
+  const parsed = escrowCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.issues.map((e) => e.message) });
+    return;
+  }
 
-    if (!hiringAgent || !workingAgent || !amountUsdc) {
-      res.status(400).json({ error: 'hiringAgent, workingAgent, and amountUsdc are required' });
-      return;
-    }
+  try {
+    const { hiringAgent, workingAgent, amountUsdc, workDescription, deadlineHours } = parsed.data;
 
     const escrow = createEscrow({
       hiringAgent,
       workingAgent,
-      amountUsdc: Number(amountUsdc),
+      amountUsdc,
       workDescription,
-      deadlineHours: deadlineHours ? Number(deadlineHours) : undefined,
+      deadlineHours,
     });
 
     logger.info('Escrow created', { escrowId: escrow.id, hiringAgent, workingAgent, amountUsdc });
@@ -70,15 +91,15 @@ router.post('/create', async (req: Request, res: Response) => {
  * POST /escrow/:id/complete
  */
 router.post('/:id/complete', async (req: Request, res: Response) => {
-  try {
-    const { callerAgent } = req.body;
-    if (!callerAgent) {
-      res.status(400).json({ error: 'callerAgent is required' });
-      return;
-    }
+  const parsed = callerAgentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.issues.map((e) => e.message) });
+    return;
+  }
 
-    const escrow = markComplete(req.params.id, callerAgent);
-    logger.info('Escrow marked complete', { escrowId: escrow.id, callerAgent });
+  try {
+    const escrow = markComplete(req.params.id, parsed.data.callerAgent);
+    logger.info('Escrow marked complete', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow complete error:', error);
@@ -90,15 +111,15 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
  * POST /escrow/:id/approve
  */
 router.post('/:id/approve', async (req: Request, res: Response) => {
-  try {
-    const { callerAgent } = req.body;
-    if (!callerAgent) {
-      res.status(400).json({ error: 'callerAgent is required' });
-      return;
-    }
+  const parsed = callerAgentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.issues.map((e) => e.message) });
+    return;
+  }
 
-    const escrow = approveWork(req.params.id, callerAgent);
-    logger.info('Escrow approved', { escrowId: escrow.id, callerAgent });
+  try {
+    const escrow = approveWork(req.params.id, parsed.data.callerAgent);
+    logger.info('Escrow approved', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow approve error:', error);
@@ -110,13 +131,14 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
  * POST /escrow/:id/dispute
  */
 router.post('/:id/dispute', async (req: Request, res: Response) => {
-  try {
-    const { callerAgent, reason, guiltyParty } = req.body;
-    if (!callerAgent || !reason || !guiltyParty) {
-      res.status(400).json({ error: 'callerAgent, reason, and guiltyParty are required' });
-      return;
-    }
+  const parsed = disputeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation error', details: parsed.error.issues.map((e) => e.message) });
+    return;
+  }
 
+  try {
+    const { callerAgent, reason, guiltyParty } = parsed.data;
     const escrow = disputeWork(req.params.id, callerAgent, reason, guiltyParty);
     logger.info('Escrow disputed', { escrowId: escrow.id, callerAgent, reason });
     res.json({ success: true, escrow });
