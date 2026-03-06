@@ -30,7 +30,7 @@ const ap2RequestSchema = z.object({
   taskDescription: z.string().min(1).max(512),
   callbackUrl: z.string().url().optional(),
   ttlSeconds: z.number().int().positive().max(3600).default(300),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 const ap2ReceiptSchema = z.object({
