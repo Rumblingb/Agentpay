@@ -39,16 +39,17 @@
 - [ ] Deploy Solana escrow program (Anchor / native) to devnet
 - [ ] AgentRank API licensing — paid tier for enterprise consumers
 - [ ] External Solana tx ingestion (Helius / QuickNode) for cold-start data
-- [ ] OpenAPI 3.0 specification for all endpoints
+- [x] OpenAPI 3.1 specification for all endpoints ✅ (completed March 2026)
 
 ### Month 5 (May)
-- [ ] Multi-chain Protocol Abstraction Layer (PAL) — Ethereum, Base, Polygon
+- [x] Protocol Abstraction Layer (PAL) — x402, ACP, AP2, Solana, Stripe ✅ (completed March 2026)
+- [ ] Multi-chain PAL extension — Ethereum, Base, Polygon (remaining)
 - [ ] Hosted agent wallets (custodial option for ease of onboarding)
 - [ ] World ID / Privado ID integration for Proof of Personhood in KYA
 - [ ] AgentRank data export API (CSV/JSON) for compliance
 
 ### Month 6 (June)
-- [ ] A2A marketplace integrations (AutoGPT, CrewAI, LangChain)
+- [x] A2A marketplace integrations (AutoGPT, CrewAI, LangGraph, OpenAI) ✅ (completed March 2026)
 - [ ] Enterprise Escrow — SLA-backed escrow for B2B agent hiring
 - [ ] ML-powered completion scoring for dispute resolution
 - [ ] Public AgentRank leaderboard

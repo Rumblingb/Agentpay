@@ -481,3 +481,48 @@ If you choose to extend beyond V1, consider:
 **Generated:** February 25, 2026
 **By:** Lead Engineer Review
 **Status:** ✅ APPROVED FOR PRODUCTION
+
+---
+
+## Update: March 2026 — Multi-Protocol & Integration Expansion
+
+### New Capabilities Added
+
+**Multi-Protocol Support (PAL)**
+- [x] x402 paywall middleware (`src/protocols/x402.ts`)
+- [x] ACP (Agent Communication Protocol) endpoints (`/api/acp/*`)
+- [x] AP2 (Agent Payment Protocol v2) endpoints (`/api/ap2/*`)
+- [x] Protocol Abstraction Layer auto-detection (`/api/protocol/detect`)
+- [x] Protocol info endpoint (`/api/protocol`)
+
+**OpenAPI & Documentation**
+- [x] Full OpenAPI 3.1 specification (`openapi.yaml`)
+- [x] Swagger UI at `/api/docs`
+- [x] Integration Hub guide (`docs/INTEGRATION_HUB.md`)
+- [x] Agent Onboarding Guide (`docs/AGENT_ONBOARDING_GUIDE.md`)
+- [x] ONE_PAGER.md for partner pitches
+- [x] Whitepaper expanded with protocol & DX sections
+
+**Framework Integrations**
+- [x] CrewAI tool (`examples/crewai-agentpay-tool.py`)
+- [x] LangGraph node (`examples/langgraph-payment-node.ts`)
+- [x] AutoGPT plugin (`examples/autogpt-plugin/agentpay.py`)
+- [x] OpenAI function calling (`examples/openai-function-calling/agentpay-tool.ts`)
+
+**DevOps & SDK**
+- [x] SDK publish automation (`scripts/publish-sdks.sh`)
+- [x] ROADMAP.md updated with Q2 completions
+
+### Updated Checklist Status
+
+| Category | Before | After |
+|----------|--------|-------|
+| Test coverage | 94% (216 tests) | 94% (292 tests) |
+| Protocol support | Solana + Stripe | x402 + ACP + AP2 + Solana + Stripe |
+| OpenAPI spec | ❌ | ✅ Full 3.1 spec |
+| Framework integrations | Moltbook only | Moltbook + CrewAI + LangGraph + AutoGPT + OpenAI |
+| SDK publish automation | ❌ | ✅ |
+| Agent onboarding docs | Partial | ✅ Complete step-by-step guide |
+
+**Updated:** March 6, 2026
+**Status:** ✅ PRODUCTION READY — Multi-Protocol Expansion Complete
