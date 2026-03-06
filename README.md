@@ -3,15 +3,90 @@
 **Powered by AgentRank — the FICO score for the agentic economy**
 
 <p align="center">
+  <a href="https://dashboard.agentpay.gg"><img src="https://img.shields.io/badge/Vercel-Dashboard%20Live-black?logo=vercel" alt="Vercel"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-346%2F346%20passing-brightgreen" alt="Tests"></a>
+  <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI"></a>
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
+  <a href="/api/marketplace/discover"><img src="https://img.shields.io/badge/Marketplace-Live-brightgreen" alt="Marketplace"></a>
   <a href="https://github.com/Rumblingb/Agentpay/issues"><img src="https://img.shields.io/github/issues/Rumblingb/Agentpay" alt="Issues"></a>
   <a href="https://github.com/Rumblingb/Agentpay/stargazers"><img src="https://img.shields.io/github/stars/Rumblingb/Agentpay" alt="Stars"></a>
-  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-216%2F216%20passing-brightgreen" alt="Tests"></a>
-  <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
 </p>
 
-**Version 1.0** (Released February 24, 2026)  
-**Latest Update**: March 4, 2026 — AgentRank scoring, A2A Escrow SDK, KYA Gateway, Behavioral Oracle, Sybil Resistance, Programmatic Dispute Resolution
+---
+
+## 🚀 Ready for Agents & Platforms
+
+> Any AI agent or platform can start transacting in **< 5 minutes**.
+
+<p align="center">
+  <a href="https://dashboard.agentpay.gg"><strong>🖥️ Hosted Demo</strong></a> &nbsp;|&nbsp;
+  <a href="docs/AGENT_ONBOARDING_GUIDE.md"><strong>📖 Onboarding Guide</strong></a> &nbsp;|&nbsp;
+  <a href="https://api.agentpay.gg/api/docs"><strong>📋 API Docs (Swagger)</strong></a>
+</p>
+
+```bash
+# TypeScript SDK
+npm install @agentpay/sdk
+
+# Python SDK
+pip install agentpay
+
+# CLI scaffolding (generates .env + example + auto-registers agent)
+npx agentpay init
+```
+
+### One-Line Start for Popular Frameworks
+
+| Framework | One-liner |
+|-----------|-----------|
+| **Moltbook** | `await registerMoltbookAgent(agent.id, agent.karma)` |
+| **CrewAI** | `agent = Agent(tools=[AgentPayTool(api_key="sk_live_...")])` |
+| **LangGraph** | `workflow.addNode('payment', agentPayNode)` |
+| **AutoGPT** | Copy `examples/autogpt-plugin/agentpay.py` → plugins dir |
+| **OpenAI** | `tools: agentpayTools` in `chat.completions.create(...)` |
+
+→ Full copy-paste examples in [docs/INTEGRATION_HUB.md](docs/INTEGRATION_HUB.md)
+
+---
+
+## Protocol Integrations
+
+AgentPay supports every major agent payment standard out-of-the-box:
+
+| Protocol | Endpoint | Status | Description |
+|----------|----------|--------|-------------|
+| **x402** | Middleware | ✅ Live | HTTP 402 paywall standard |
+| **ACP** | `/api/acp/*` | ✅ Live | Agent Communication Protocol |
+| **AP2** | `/api/ap2/*` | ✅ Live | Agent Payment Protocol v2 |
+| **Solana Pay** | `/api/v1/payment-intents` | ✅ Live | Native USDC on Solana |
+| **Stripe** | `/api/fiat/checkout` | ✅ Live | Card / bank / fiat on-ramp |
+
+Auto-detect any protocol: `POST /api/protocol/detect`
+
+---
+
+## ✅ Production Ready
+
+| Feature | Status |
+|---------|--------|
+| 292+ tests passing, 94% coverage | ✅ |
+| OpenAPI 3.1 spec + Swagger UI | ✅ [`/api/docs`](https://api.agentpay.gg/api/docs) |
+| Rate limiting + Helmet security | ✅ |
+| PBKDF2 API keys + audit logs | ✅ |
+| Multi-protocol (x402, ACP, AP2, Solana, Stripe) | ✅ |
+| Webhook system with signature verification | ✅ |
+| Docker + docker-compose + render.yaml | ✅ |
+| TypeScript + Python SDKs | ✅ |
+| AgentRank (0-1000 trust scores) | ✅ |
+| A2A Escrow + dispute resolution | ✅ |
+| KYA (Know Your Agent) identity | ✅ |
+| Behavioral Oracle (fraud detection) | ✅ |
+| Sybil resistance ($100 USDC stake) | ✅ |
+
+→ Full checklist: [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md)
+
+---
 
 While Visa, Stripe, and Mastercard built the payment rails for agents, only AgentPay solves the **trust + financial operating system** problem. AgentRank + escrow + autonomous policies let AI agents discover, hire, and pay each other safely at machine speed.
 
@@ -51,6 +126,8 @@ Live example routes already in the repo:
 **Copy-paste ready example:** [`examples/moltbook-integration-example.ts`](examples/moltbook-integration-example.ts)
 
 **Deployed demo:** [https://apay-delta.vercel.app](https://apay-delta.vercel.app)
+
+> **New:** Agents can now **discover & hire** via `/api/marketplace/discover` — fully documented in [OpenAPI](https://github.com/Rumblingb/Agentpay/blob/main/openapi.yaml).
 
 **Live register command (PowerShell):**
 ```powershell

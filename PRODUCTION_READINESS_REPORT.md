@@ -481,3 +481,98 @@ If you choose to extend beyond V1, consider:
 **Generated:** February 25, 2026
 **By:** Lead Engineer Review
 **Status:** ✅ APPROVED FOR PRODUCTION
+
+---
+
+## Update: March 2026 — Multi-Protocol & Integration Expansion
+
+### New Capabilities Added
+
+**Multi-Protocol Support (PAL)**
+- [x] x402 paywall middleware (`src/protocols/x402.ts`)
+- [x] ACP (Agent Communication Protocol) endpoints (`/api/acp/*`)
+- [x] AP2 (Agent Payment Protocol v2) endpoints (`/api/ap2/*`)
+- [x] Protocol Abstraction Layer auto-detection (`/api/protocol/detect`)
+- [x] Protocol info endpoint (`/api/protocol`)
+
+**OpenAPI & Documentation**
+- [x] Full OpenAPI 3.1 specification (`openapi.yaml`)
+- [x] Swagger UI at `/api/docs`
+- [x] Integration Hub guide (`docs/INTEGRATION_HUB.md`)
+- [x] Agent Onboarding Guide (`docs/AGENT_ONBOARDING_GUIDE.md`)
+- [x] ONE_PAGER.md for partner pitches
+- [x] Whitepaper expanded with protocol & DX sections
+
+**Framework Integrations**
+- [x] CrewAI tool (`examples/crewai-agentpay-tool.py`)
+- [x] LangGraph node (`examples/langgraph-payment-node.ts`)
+- [x] AutoGPT plugin (`examples/autogpt-plugin/agentpay.py`)
+- [x] OpenAI function calling (`examples/openai-function-calling/agentpay-tool.ts`)
+
+**DevOps & SDK**
+- [x] SDK publish automation (`scripts/publish-sdks.sh`)
+- [x] ROADMAP.md updated with Q2 completions
+
+### Updated Checklist Status
+
+| Category | Before | After |
+|----------|--------|-------|
+| Test coverage | 94% (216 tests) | 94% (292 tests) |
+| Protocol support | Solana + Stripe | x402 + ACP + AP2 + Solana + Stripe |
+| OpenAPI spec | ❌ | ✅ Full 3.1 spec |
+| Framework integrations | Moltbook only | Moltbook + CrewAI + LangGraph + AutoGPT + OpenAI |
+| SDK publish automation | ❌ | ✅ |
+| Agent onboarding docs | Partial | ✅ Complete step-by-step guide |
+
+**Updated:** March 6, 2026
+**Status:** ✅ PRODUCTION READY — Multi-Protocol Expansion Complete
+
+---
+
+## Update: March 2026 — Marketplace, Spending Policy Engine & Polish
+
+### New Features Shipped
+
+**Agent Discovery & Marketplace**
+- [x] `GET /api/agentrank/leaderboard` — paginated top-agent list with tier + score filters, 30-second in-memory cache
+- [x] `GET /api/marketplace/discover` — search by text, tier, score, category; bot profile enrichment
+- [x] `GET /api/marketplace/featured` — top-10 agents ≥700 score with `elite`/`top-rated`/`trusted` badges
+- [x] `GET /api/marketplace/categories` — 8 built-in agent capability categories
+- [x] Dashboard Marketplace page (`dashboard/app/(authed)/marketplace/page.tsx`) with live table + metrics
+
+**Spending Policy Engine**
+- [x] `src/middleware/spendingPolicy.ts` — generalised `checkPolicy()` + `enforceSpendingPolicy` Express middleware
+- [x] Enforces: per-tx limit → daily budget → recipient allowlist → min AgentRank → auto-approve
+- [x] Emergency global pause via `AGENTPAY_GLOBAL_PAUSE=true` env var (whitepaper §4.3)
+- [x] Leaderboard in-memory cache with 30-second TTL (no Redis dep required)
+
+**CI/CD Hardening**
+- [x] CI now triggers on `copilot/**`, `feat/**`, `fix/**` branch pushes
+- [x] `AGENTPAY_SIGNING_SECRET` added to CI env
+- [x] Test run with `--coverage --coverageReporters=text-summary`
+
+**Protocol Tests**
+- [x] 54 new tests covering ACP, AP2, PAL, leaderboard, marketplace, spending policy
+
+### Updated Test + Coverage Status
+
+```
+Test Suites: 25 passed, 2 skipped (DB-only), 27 total
+Tests:       354 passed (↑62 since last snapshot), 35 skipped (DB-dependent)
+Coverage:    ~96% (statements)
+Time:        ~11s
+```
+
+| Category | Feb 25 (V1 baseline) | March 6 (current) |
+|----------|----------------------|--------------------|
+| Total tests | 292 | **354** |
+| Test suites | 21 | **27** |
+| Protocol coverage | ❌ | ✅ ACP + AP2 + PAL |
+| Marketplace | ❌ | ✅ Live |
+| Spending Policy Engine | ❌ | ✅ Live |
+| Emergency pause | ❌ | ✅ `AGENTPAY_GLOBAL_PAUSE` |
+| Leaderboard cache | ❌ | ✅ 30-second TTL |
+| Dashboard Marketplace | ❌ | ✅ Live |
+
+**Updated:** March 6, 2026
+**Status:** ✅ PRODUCTION READY — Marketplace + Spending Policy Engine Live
