@@ -153,15 +153,16 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
 
     // Update AgentRank scores (+10) for both agents
     const REPUTATION_DELTA = 10;
-    for (const agentId of [escrow.hiringAgent, escrow.workingAgent]) {
+    const agentUpdates = [escrow.hiringAgent, escrow.workingAgent].map(async (agentId) => {
       try {
         const existing = await prisma.agentrank_scores.findUnique({ where: { agent_id: agentId } });
         if (existing) {
+          const newScore = Math.min(1000, existing.score + REPUTATION_DELTA);
           await prisma.agentrank_scores.update({
             where: { agent_id: agentId },
             data: {
-              score: Math.min(1000, existing.score + REPUTATION_DELTA),
-              grade: scoreToGrade(Math.min(1000, existing.score + REPUTATION_DELTA)),
+              score: newScore,
+              grade: scoreToGrade(newScore),
               updated_at: new Date(),
             },
           });
@@ -180,7 +181,8 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
         // agentrank_scores table may not exist — log and continue
         logger.warn('AgentRank update skipped', { agentId, error: rankErr?.message });
       }
-    }
+    });
+    await Promise.all(agentUpdates);
 
     res.json({ success: true, escrow });
   } catch (error: any) {
