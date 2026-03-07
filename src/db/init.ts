@@ -5,7 +5,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl:
     process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
+      ? { rejectUnauthorized: true }
       : false,
 });
 
@@ -357,6 +357,14 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_bots_handle ON bots(handle);
       CREATE INDEX IF NOT EXISTS idx_bots_wallet ON bots(wallet_address);
       CREATE INDEX IF NOT EXISTS idx_bots_reputation ON bots(reputation_score DESC);
+    `);
+
+    // ============ SCHEMA MIGRATIONS (safe, idempotent ALTER TABLE) ============
+    // Add total_volume to merchants — tracks cumulative USDC released via approved escrows.
+    // Used to compute the merchant's reputation grade for the dashboard AAA badge.
+    await client.query(`
+      ALTER TABLE merchants
+        ADD COLUMN IF NOT EXISTS total_volume NUMERIC(20, 6) NOT NULL DEFAULT 0;
     `);
 
     logger.info('✅ Database schema initialized successfully!');
