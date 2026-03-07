@@ -52,8 +52,14 @@ const globalLimiter = rateLimit({
 // --- SECURITY & UTILITY MIDDLEWARE ---
 // Disable Helmet's default CSP for API-only responses — CSP is a document-level
 // policy and causes false-positive "script-src eval" blocks when proxied through
-// the Next.js frontend.  All other Helmet protections remain active.
-app.use(helmet({ contentSecurityPolicy: false }));
+// the Next.js frontend.  Also disable crossOriginEmbedderPolicy and
+// crossOriginResourcePolicy so they don't leak through Next.js fallback rewrites
+// and block browser resource loading on the dashboard.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
+}));
 app.use(cors({
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
