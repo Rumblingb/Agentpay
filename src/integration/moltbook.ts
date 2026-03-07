@@ -7,6 +7,8 @@
  */
 
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import { query } from '../db/index.js';
+import { encryptKeypair, decryptKeypair, isEncrypted } from '../utils/walletEncryption.js';
 
 export interface MoltbookConfig {
   agentpayApiKey: string;
@@ -371,18 +373,37 @@ export class MoltbookIntegration {
     return res.json();
   }
 
-  /** Store encrypted wallet keypair (override in production with KMS/HSM).
-   * @throws In production, override this method — the default stub is a no-op
-   *         and the keypair will be lost. */
-  protected async storeWalletSecure(_botId: string, _wallet: Keypair): Promise<void> {
-    // Production: encrypt _wallet.secretKey with AES-256-GCM and persist securely.
-    // Leaving this unimplemented in production causes wallet loss on restart.
+  /** Store AES-256-GCM encrypted wallet keypair in the bots table. */
+  protected async storeWalletSecure(botId: string, wallet: Keypair): Promise<void> {
+    const encrypted = encryptKeypair(wallet.secretKey);
+    await query(
+      `UPDATE bots SET wallet_keypair_encrypted = $1, updated_at = NOW() WHERE id = $2`,
+      [encrypted, botId],
+    );
   }
 
-  /** Retrieve decrypted wallet for a bot. */
-  protected async getWallet(_botId: string): Promise<Keypair> {
-    // Production: fetch and decrypt keypair from secure storage.
-    return Keypair.generate();
+  /**
+   * Retrieve and decrypt the wallet keypair for a bot.
+   * Returns a freshly-generated throwaway Keypair if the stored value is
+   * empty or missing (e.g. dev environment without AGENTPAY_SIGNING_SECRET).
+   */
+  protected async getWallet(botId: string): Promise<Keypair> {
+    const result = await query(
+      `SELECT wallet_keypair_encrypted FROM bots WHERE id = $1 LIMIT 1`,
+      [botId],
+    );
+    const encrypted: string = result.rows[0]?.wallet_keypair_encrypted ?? '';
+    if (!encrypted || !isEncrypted(encrypted)) {
+      // No stored keypair — return ephemeral keypair (funds would be unrecoverable).
+      // Log at WARN so operators can identify affected bots and investigate.
+      const { logger } = await import('../logger.js');
+      logger.warn('getWallet: no valid encrypted keypair found — returning ephemeral keypair', {
+        botId,
+        stored: encrypted ? 'present but invalid format' : 'empty',
+      });
+      return Keypair.generate();
+    }
+    return Keypair.fromSecretKey(decryptKeypair(encrypted));
   }
 
   /** Update bot balance in the Moltbook/AgentPay database. */

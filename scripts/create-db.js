@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   webhook_url TEXT,
   stripe_connected_account_id VARCHAR(255),
   is_active BOOLEAN DEFAULT true,
+  total_volume NUMERIC(20, 6) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -244,6 +245,27 @@ CREATE INDEX IF NOT EXISTS idx_revenue_events_stream ON revenue_events(stream);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_created_at ON revenue_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_from_entity ON revenue_events(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_to_entity ON revenue_events(to_entity_id);
+
+CREATE TABLE IF NOT EXISTS agentrank_scores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id TEXT UNIQUE NOT NULL,
+  score INT NOT NULL DEFAULT 0 CHECK (score >= 0 AND score <= 1000),
+  grade TEXT NOT NULL DEFAULT 'U',
+  payment_reliability NUMERIC(5, 4) NOT NULL DEFAULT 0,
+  service_delivery NUMERIC(5, 4) NOT NULL DEFAULT 0,
+  transaction_volume INT NOT NULL DEFAULT 0,
+  wallet_age_days INT NOT NULL DEFAULT 0,
+  dispute_rate NUMERIC(5, 4) NOT NULL DEFAULT 0,
+  stake_usdc NUMERIC(20, 6) NOT NULL DEFAULT 0,
+  unique_counterparties INT NOT NULL DEFAULT 0,
+  factors JSONB DEFAULT '{}',
+  history JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agentrank_scores_agent_id ON agentrank_scores(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agentrank_scores_score ON agentrank_scores(score DESC);
 `;
 
 async function initializeDatabase() {
@@ -270,6 +292,7 @@ async function initializeDatabase() {
     console.log('   - merchant_invoices');
     console.log('   - bots');
     console.log('   - revenue_events');
+    console.log('   - agentrank_scores');
     
     client.release();
     await pool.end();

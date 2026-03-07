@@ -54,6 +54,13 @@ if (process.env.NODE_ENV === 'production') {
     console.error('[STARTUP] FATAL: DATABASE_URL is not set. Refusing to start in production.');
     process.exit(1);
   }
+  // Hard-block: AGENTPAY_TEST_MODE must never be true in production — it
+  // exposes the /api/test routes and a credential bypass (sk_test_sim key).
+  // Fix: set AGENTPAY_TEST_MODE=false (or remove it) in your Render env vars.
+  if (process.env.AGENTPAY_TEST_MODE === 'true') {
+    console.error('[STARTUP] FATAL: AGENTPAY_TEST_MODE=true in production. Refusing to start. Set AGENTPAY_TEST_MODE=false or remove it from environment variables.');
+    process.exit(1);
+  }
 } else if (process.env.NODE_ENV !== 'test' && (process.env.WEBHOOK_SECRET === 'change-me-in-production' || !process.env.WEBHOOK_SECRET)) {
   // Non-production: warn but don't exit
   console.warn('[STARTUP] WARNING: WEBHOOK_SECRET is not set or is using the insecure default. Set a strong secret before going to production.');
@@ -256,6 +263,14 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
 if (process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, () => {
     logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
+    if (process.env.NODE_ENV === 'production') {
+      // Warn operators about in-memory stores that lose data on restart.
+      logger.warn(
+        'NOTICE: Escrow transactions and AP2 payment requests are stored in-memory ' +
+        'and will be lost on server restart. Persist them to the DB before handling ' +
+        'real funds (see src/escrow/trust-escrow.ts and src/protocols/ap2.ts).',
+      );
+    }
   });
 
   // --- GRACEFUL SHUTDOWN — allow in-flight requests to finish before exit ---
