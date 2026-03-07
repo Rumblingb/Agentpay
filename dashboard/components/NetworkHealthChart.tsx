@@ -5,6 +5,7 @@
 
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   AreaChart,
   Area,
@@ -46,6 +47,14 @@ export interface NetworkHealthChartProps {
 export default function NetworkHealthChart({
   data = DEFAULT_TVS_DATA,
 }: NetworkHealthChartProps) {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) return null;
+
   return (
     <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
       <h2 className="font-semibold mb-5">Network Health — Total Value Secured (USDC)</h2>

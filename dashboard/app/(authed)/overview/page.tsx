@@ -106,6 +106,8 @@ function buildChartData(payments: Payment[]) {
 }
 
 export default function OverviewPage() {
+  const [isClient, setIsClient] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ['overview'],
     queryFn: fetchPaymentsData,
@@ -124,6 +126,7 @@ export default function OverviewPage() {
   const [showTour, setShowTour] = useState(false);
 
   useEffect(() => {
+    setIsClient(true);
     const dismissed = localStorage.getItem(TOUR_DISMISSED_KEY);
     if (!dismissed) setShowTour(true);
   }, []);
@@ -132,6 +135,8 @@ export default function OverviewPage() {
     localStorage.setItem(TOUR_DISMISSED_KEY, '1');
     setShowTour(false);
   }
+
+  if (!isClient) return null;
 
   const stats = data?.stats;
 
