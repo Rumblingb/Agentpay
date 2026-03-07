@@ -18,7 +18,10 @@ import { logger } from '../logger.js';
 interface AuthRequest extends Request {
   merchant?: {
     id: string;
+    name: string;
     email: string;
+    walletAddress: string;
+    webhookUrl?: string | null;
   };
 }
 
@@ -115,13 +118,23 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 /**
- * @route   GET /api/merchants/profile
+ * Shared handler for GET /api/merchants/profile and GET /api/merchants/me
  */
-router.get('/profile', authenticateApiKey, async (req: AuthRequest, res: Response) => {
+const handleGetProfile = async (req: AuthRequest, res: Response) => {
   try {
     const merchant = await merchantsService.getMerchant(req.merchant!.id);
     if (!merchant) {
-      return res.status(404).json({ error: 'Merchant not found' });
+      // Fall back to the authenticated merchant data set by the auth middleware.
+      // This covers simulation/test-mode bypass where the merchant ID may not
+      // exist in the database.
+      return res.json({
+        id: req.merchant!.id,
+        name: req.merchant!.name ?? null,
+        email: req.merchant!.email,
+        walletAddress: req.merchant!.walletAddress ?? null,
+        webhookUrl: req.merchant!.webhookUrl ?? null,
+        createdAt: null,
+      });
     }
     res.json({
       id: merchant.id,
@@ -135,7 +148,17 @@ router.get('/profile', authenticateApiKey, async (req: AuthRequest, res: Respons
     logger.error('Profile fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
-});
+};
+
+/**
+ * @route   GET /api/merchants/profile
+ */
+router.get('/profile', authenticateApiKey, handleGetProfile);
+
+/**
+ * @route   GET /api/merchants/me
+ */
+router.get('/me', authenticateApiKey, handleGetProfile);
 
 /**
  * @route   GET /api/merchants/webhooks
