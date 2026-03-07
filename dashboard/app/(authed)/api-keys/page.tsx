@@ -63,12 +63,13 @@ export default function ApiKeysPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Key size={14} className="text-blue-400" />
-            <label className="text-[10px] text-slate-500 uppercase font-bold">
+            <label htmlFor="current-api-key" className="text-[10px] text-slate-500 uppercase font-bold">
               Current API Key
             </label>
           </div>
           <div className="flex items-center gap-2">
             <input
+              id="current-api-key"
               type={showKey && newKey ? 'text' : 'password'}
               value={newKey ?? maskedKey}
               readOnly

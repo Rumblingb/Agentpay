@@ -98,8 +98,9 @@ export default function TrustPaymentFlow({ onComplete, onSkip }: TrustPaymentFlo
             Enter a target agent wallet to send $1.00 USDC with Trust verification.
           </p>
           <div className="space-y-2">
-            <label className="text-xs text-slate-400">Target Wallet Address</label>
+            <label htmlFor="target-wallet" className="text-xs text-slate-400">Target Wallet Address</label>
             <input
+              id="target-wallet"
               type="text"
               value={walletAddress}
               onChange={(e) => setWalletAddress(e.target.value)}

@@ -1,7 +1,48 @@
 import type { NextConfig } from "next";
 
+const BACKEND_URL =
+  process.env.AGENTPAY_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:3001";
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return {
+      beforeFiles: [],
+      afterFiles: [],
+      // Fallback rewrites apply only when no filesystem route (API route) matches.
+      // This proxies unmatched /api/* requests to the Express backend, eliminating
+      // CORS / CORB issues by keeping everything on the same origin.
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${BACKEND_URL}/api/:path*`,
+        },
+      ],
+    };
+  },
+
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

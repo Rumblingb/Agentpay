@@ -84,11 +84,12 @@ export default function SettingsPage() {
 
         {/* Event checkboxes */}
         <div className="space-y-3">
-          <label className="text-sm font-medium text-slate-300">Select Events</label>
+          <span className="text-sm font-medium text-slate-300">Select Events</span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {TRUST_EVENTS.map((event) => (
               <label
                 key={event.id}
+                htmlFor={`event-${event.id}`}
                 className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
                   selectedEvents.has(event.id)
                     ? 'border-emerald-600 bg-emerald-600/10'
@@ -96,6 +97,7 @@ export default function SettingsPage() {
                 }`}
               >
                 <input
+                  id={`event-${event.id}`}
                   type="checkbox"
                   checked={selectedEvents.has(event.id)}
                   onChange={() => toggleEvent(event.id)}
@@ -113,8 +115,9 @@ export default function SettingsPage() {
 
         {/* Webhook URL input */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-slate-300">Webhook Endpoint URL</label>
+          <label htmlFor="webhook-url" className="text-sm font-medium text-slate-300">Webhook Endpoint URL</label>
           <input
+            id="webhook-url"
             type="url"
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}

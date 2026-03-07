@@ -80,10 +80,11 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
+              <label htmlFor="login-email" className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
                 Email
               </label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -93,10 +94,11 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
+              <label htmlFor="login-apikey" className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
                 API Key
               </label>
               <input
+                id="login-apikey"
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
