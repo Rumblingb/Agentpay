@@ -23,7 +23,10 @@ import {
   disputeWork,
   getEscrow,
   listEscrowsForAgent,
+  getEscrowStats,
+  getReleasedEscrows,
 } from '../escrow/trust-escrow.js';
+import { adjustScore } from '../services/agentrankService.js';
 import { logger } from '../logger.js';
 
 const router = Router();
@@ -57,6 +60,32 @@ const escrowLimiter = rateLimit({
 });
 
 router.use(escrowLimiter);
+
+/**
+ * GET /escrow/stats
+ * Returns aggregate escrow statistics (released count, total revenue, etc.).
+ * Must be registered BEFORE /:id to avoid being captured as a param.
+ */
+router.get('/stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = getEscrowStats();
+    const released = getReleasedEscrows();
+    res.json({
+      success: true,
+      ...stats,
+      recentReleased: released.slice(0, 50).map((e) => ({
+        id: e.id,
+        amountUsdc: e.amountUsdc,
+        status: e.status,
+        createdAt: e.createdAt.toISOString(),
+        updatedAt: e.updatedAt.toISOString(),
+      })),
+    });
+  } catch (error: any) {
+    logger.error('Escrow stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch escrow stats' });
+  }
+});
 
 /**
  * POST /escrow/create
@@ -120,6 +149,14 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
   try {
     const escrow = approveWork(req.params.id, parsed.data.callerAgent);
     logger.info('Escrow approved', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
+
+    // Update AgentRank scores (+10) for both agents via unified service
+    const REPUTATION_DELTA = 10;
+    await Promise.all([
+      adjustScore(escrow.hiringAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+      adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+    ]);
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow approve error:', error);
@@ -141,6 +178,11 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
     const { callerAgent, reason, guiltyParty } = parsed.data;
     const escrow = disputeWork(req.params.id, callerAgent, reason, guiltyParty);
     logger.info('Escrow disputed', { escrowId: escrow.id, callerAgent, reason });
+
+    // Apply reputation penalty (−20) to guilty party via unified service
+    const DISPUTE_PENALTY = -20;
+    await adjustScore(guiltyParty, DISPUTE_PENALTY, 'escrow_dispute', `Escrow ${escrow.id}: ${reason}`);
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow dispute error:', error);

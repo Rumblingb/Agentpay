@@ -119,10 +119,10 @@ export async function getMerchantStats(merchantId: string): Promise<{
   try {
     const result = await query(
       `SELECT COUNT(*) as "totalCount",
-              SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as "confirmedCount",
+              SUM(CASE WHEN status IN ('confirmed', 'released') THEN 1 ELSE 0 END) as "confirmedCount",
               SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as "pendingCount",
               SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as "failedCount",
-              SUM(CASE WHEN status = 'confirmed' THEN amount_usdc ELSE 0 END) as "totalConfirmedUsdc"
+              SUM(CASE WHEN status IN ('confirmed', 'released') THEN amount_usdc ELSE 0 END) as "totalConfirmedUsdc"
        FROM transactions WHERE merchant_id = $1`,
       [merchantId]
     );

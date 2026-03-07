@@ -1,8 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, TrendingUp, AlertTriangle, Star } from 'lucide-react';
+import { Shield, TrendingUp, AlertTriangle, Star, History } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
+
+interface ScoreHistoryEntry {
+  score: number;
+  timestamp: string;
+  reason: string;
+}
 
 /**
  * AgentRank dashboard page — shows scores, history, alerts, and escrow status.
@@ -10,6 +16,7 @@ import MetricCard from '@/components/MetricCard';
 export default function AgentRankPage() {
   const [agentId, setAgentId] = useState('');
   const [result, setResult] = useState<any>(null);
+  const [history, setHistory] = useState<ScoreHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -18,13 +25,24 @@ export default function AgentRankPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/agentrank/${encodeURIComponent(agentId)}`);
-      if (!res.ok) throw new Error('Agent not found');
-      const data = await res.json();
+      const [scoreRes, historyRes] = await Promise.all([
+        fetch(`/api/agentrank/${encodeURIComponent(agentId)}`),
+        fetch(`/api/agentrank/${encodeURIComponent(agentId)}/history`),
+      ]);
+      if (!scoreRes.ok) throw new Error('Agent not found');
+      const data = await scoreRes.json();
       setResult(data.agentRank);
+
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        setHistory(historyData.history ?? []);
+      } else {
+        setHistory([]);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to fetch AgentRank');
       setResult(null);
+      setHistory([]);
     } finally {
       setLoading(false);
     }
@@ -127,6 +145,31 @@ export default function AgentRankPage() {
               </ul>
             </div>
           )}
+
+          {/* Score History */}
+          <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
+            <h2 className="font-semibold mb-4 flex items-center gap-2">
+              <History size={16} className="text-slate-400" />
+              Score History
+            </h2>
+            {history.length === 0 ? (
+              <p className="text-slate-500 text-sm">No score history recorded yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {[...history].reverse().map((entry, idx) => (
+                  <div key={idx} className="flex justify-between text-sm border-b border-slate-800 pb-2">
+                    <div>
+                      <span className="text-slate-400">
+                        {new Date(entry.timestamp).toLocaleString()}
+                      </span>
+                      <span className="text-slate-300 ml-3">{entry.reason}</span>
+                    </div>
+                    <span className="text-white font-mono">{entry.score}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
       )}
 

@@ -35,6 +35,19 @@ interface Payment {
   createdAt: string;
 }
 
+interface EscrowStats {
+  totalEscrows: number;
+  releasedCount: number;
+  totalReleasedUsdc: number;
+  recentReleased: Array<{
+    id: string;
+    amountUsdc: number;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
 async function fetchStats(): Promise<PaymentStats> {
   const res = await fetch('/api/me');
   if (!res.ok) throw new Error('Failed to fetch profile');
@@ -48,6 +61,16 @@ async function fetchPaymentsData(): Promise<{ transactions: Payment[]; stats: Pa
   const res = await fetch('/api/payments');
   if (!res.ok) throw new Error('Failed to load payments');
   return res.json();
+}
+
+async function fetchEscrowStats(): Promise<EscrowStats | null> {
+  try {
+    const res = await fetch('/api/escrow/stats');
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }
 
 async function fetchProfile(): Promise<{ name: string; email: string } | null> {
@@ -69,8 +92,9 @@ function buildChartData(payments: Payment[]) {
     // Convert to number first to avoid .toFixed error
     const amount = Number(p.amountUsdc) || 0;
     
-    // Only aggregate confirmed payments for the revenue chart
-    byDay[day] = (byDay[day] ?? 0) + (p.status === 'confirmed' ? amount : 0);
+    // Aggregate confirmed payments and released escrows for the revenue chart
+    const counted = p.status === 'confirmed' || p.status === 'released';
+    byDay[day] = (byDay[day] ?? 0) + (counted ? amount : 0);
   });
 
   return Object.entries(byDay)
@@ -85,6 +109,11 @@ export default function OverviewPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['overview'],
     queryFn: fetchPaymentsData,
+  });
+
+  const { data: escrowData } = useQuery({
+    queryKey: ['escrowStats'],
+    queryFn: fetchEscrowStats,
   });
 
   const { data: profile } = useQuery({
@@ -105,11 +134,27 @@ export default function OverviewPage() {
   }
 
   const stats = data?.stats;
-  const chartData = buildChartData(data?.transactions ?? []);
+
+  // Combine payment + escrow transactions for the chart
+  // Use updatedAt as the chart date for escrow releases (when funds were released)
+  const escrowPayments: Payment[] = (escrowData?.recentReleased ?? []).map((e) => ({
+    id: e.id,
+    paymentId: e.id,
+    amountUsdc: e.amountUsdc,
+    status: e.status,
+    createdAt: e.updatedAt,
+  }));
+  const allTransactions = [...(data?.transactions ?? []), ...escrowPayments];
+  const chartData = buildChartData(allTransactions);
+
+  // Combine stats: payment confirmed + escrow released
+  const combinedTotal = (stats?.totalTransactions ?? 0) + (escrowData?.totalEscrows ?? 0);
+  const combinedConfirmed = (stats?.confirmedCount ?? 0) + (escrowData?.releasedCount ?? 0);
+  const combinedRevenue = (stats?.totalConfirmedUsdc ?? 0) + (escrowData?.totalReleasedUsdc ?? 0);
 
   const successRate =
-    stats && stats.totalTransactions > 0
-      ? ((stats.confirmedCount / stats.totalTransactions) * 100).toFixed(1) + '%'
+    combinedTotal > 0
+      ? ((combinedConfirmed / combinedTotal) * 100).toFixed(1) + '%'
       : '—';
 
   return (
@@ -127,7 +172,7 @@ export default function OverviewPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Total Intents"
-          value={stats?.totalTransactions ?? '—'}
+          value={stats ? combinedTotal : '—'}
           icon={Activity}
           iconColor="text-purple-400"
           iconBg="bg-purple-500/10"
@@ -135,7 +180,7 @@ export default function OverviewPage() {
         />
         <MetricCard
           label="Total Revenue (USDC)"
-          value={stats ? `$${stats.totalConfirmedUsdc.toFixed(2)}` : '—'}
+          value={stats ? `$${combinedRevenue.toFixed(2)}` : '—'}
           icon={DollarSign}
           iconColor="text-blue-400"
           iconBg="bg-blue-500/10"
@@ -143,7 +188,7 @@ export default function OverviewPage() {
         />
         <MetricCard
           label="Confirmed"
-          value={stats?.confirmedCount ?? '—'}
+          value={stats ? combinedConfirmed : '—'}
           icon={CheckCircle}
           iconColor="text-emerald-400"
           iconBg="bg-emerald-500/10"
@@ -161,7 +206,7 @@ export default function OverviewPage() {
 
       {/* Chart */}
       <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
-        <h2 className="font-semibold mb-5">Payments Over Time (USDC confirmed)</h2>
+        <h2 className="font-semibold mb-5">Revenue Over Time (USDC confirmed + released)</h2>
         {isLoading ? (
           <div className="h-48 flex items-center justify-center text-slate-500">Loading…</div>
         ) : chartData.length === 0 ? (

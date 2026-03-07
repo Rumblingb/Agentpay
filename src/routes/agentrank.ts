@@ -1,7 +1,10 @@
 /**
  * AgentRank API route — public endpoint for querying agent reputation scores.
  *
- * GET /agentrank/:agentId — returns the AgentRank score, grade, factors, and Sybil flags.
+ * GET  /agentrank/leaderboard      — Top agents ranked by score
+ * GET  /agentrank/:agentId         — Score, grade, factors, and Sybil flags
+ * GET  /agentrank/:agentId/history — Score change history
+ * POST /agentrank/:agentId/adjust  — Manual score adjustment (admin)
  *
  * Accepts both handle (e.g. "DemoAgentSlash150") and agent ID / pubkey.
  * Queries the agentrank_scores table first; falls back to the bots table
@@ -11,6 +14,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import {
   calculateAgentRank,
@@ -19,6 +23,7 @@ import {
   type AgentRankFactors,
   type SybilSignals,
 } from '../reputation/agentrank-core.js';
+import { adjustScore, getScoreHistory } from '../services/agentrankService.js';
 import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
@@ -245,6 +250,77 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
   } catch (error: any) {
     logger.error('AgentRank leaderboard error:', error);
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// --- Validation schema for adjust endpoint ---
+const adjustSchema = z.object({
+  delta: z.number().int().min(-1000).max(1000),
+  reason: z.string().min(1).max(512),
+});
+
+/**
+ * GET /agentrank/:agentId/history
+ *
+ * Returns the score change history for an agent.
+ * Must be registered BEFORE the generic /:agentId route.
+ */
+router.get('/:agentId/history', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params;
+    if (!agentId || agentId.trim().length === 0) {
+      res.status(400).json({ error: 'Invalid agentId' });
+      return;
+    }
+
+    const data = await getScoreHistory(agentId.trim());
+    if (!data) {
+      res.json({ success: true, agentId, score: 0, grade: 'U', history: [] });
+      return;
+    }
+
+    res.json({ success: true, agentId, ...data });
+  } catch (error: any) {
+    logger.error('AgentRank history error:', error);
+    res.status(500).json({ error: 'Failed to fetch score history' });
+  }
+});
+
+/**
+ * POST /agentrank/:agentId/adjust
+ *
+ * Manually adjust an agent's AgentRank score.
+ * Requires a delta (integer) and a reason (string).
+ */
+router.post('/:agentId/adjust', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params;
+    if (!agentId || agentId.trim().length === 0) {
+      res.status(400).json({ error: 'Invalid agentId' });
+      return;
+    }
+
+    const parsed = adjustSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Validation error',
+        details: parsed.error.issues.map((e) => e.message),
+      });
+      return;
+    }
+
+    const { delta, reason } = parsed.data;
+    const result = await adjustScore(agentId.trim(), delta, 'manual_adjustment', reason);
+
+    if (!result) {
+      res.status(503).json({ error: 'AgentRank service unavailable — database not connected' });
+      return;
+    }
+
+    res.json({ success: true, agentId, ...result, delta, reason });
+  } catch (error: any) {
+    logger.error('AgentRank adjust error:', error);
+    res.status(500).json({ error: 'Failed to adjust score' });
   }
 });
 
