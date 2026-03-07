@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import QueryProvider from "@/components/QueryProvider";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,6 +31,7 @@ export default function RootLayout({
         suppressHydrationWarning // Add this line
       >
         <QueryProvider>{children}</QueryProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
