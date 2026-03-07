@@ -28,6 +28,26 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: [
           {
+            // CSP allows 'unsafe-eval' (required by Recharts `new Function()`)
+            // and 'unsafe-inline' (required by Next.js hydration data scripts).
+            // This is a net improvement over the previous state (no CSP at all).
+            // TODO: Migrate to nonce-based CSP when Next.js experimental
+            //       `contentSecurityPolicy` config is stable.
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "connect-src 'self'",
+              "img-src 'self' data: blob:",
+              "font-src 'self' data:",
+              "frame-src 'none'",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join("; "),
+          },
+          {
             key: "X-Content-Type-Options",
             value: "nosniff",
           },
