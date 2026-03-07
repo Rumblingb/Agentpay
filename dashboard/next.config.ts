@@ -30,15 +30,17 @@ const nextConfig: NextConfig = {
           {
             // CSP allows 'unsafe-eval' (required by Recharts `new Function()`)
             // and 'unsafe-inline' (required by Next.js hydration data scripts).
+            // *.supabase.co allows Supabase auth/data connections from the browser.
+            // *.vercel.app allows cross-app communication in Vercel preview environments.
             // This is a net improvement over the previous state (no CSP at all).
             // TODO: Migrate to nonce-based CSP when Next.js experimental
             //       `contentSecurityPolicy` config is stable.
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.supabase.co *.vercel.app",
               "style-src 'self' 'unsafe-inline'",
-              "connect-src 'self'",
+              "connect-src 'self' *.supabase.co",
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
               "frame-src 'none'",

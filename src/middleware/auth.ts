@@ -25,7 +25,7 @@ export async function authenticateApiKey(
       logger.warn('[Auth] Missing authorization header');
       res.status(401).json({
         code: 'AUTH_MISSING',
-        message: 'Missing authorization header',
+        message: 'Provide a token or API key.',
       });
       return;
     }
