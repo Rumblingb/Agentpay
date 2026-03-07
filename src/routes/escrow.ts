@@ -23,7 +23,11 @@ import {
   disputeWork,
   getEscrow,
   listEscrowsForAgent,
+  getEscrowStats,
+  getReleasedEscrows,
 } from '../escrow/trust-escrow.js';
+import prisma from '../lib/prisma.js';
+import { scoreToGrade } from '../reputation/agentrank-core.js';
 import { logger } from '../logger.js';
 
 const router = Router();
@@ -57,6 +61,32 @@ const escrowLimiter = rateLimit({
 });
 
 router.use(escrowLimiter);
+
+/**
+ * GET /escrow/stats
+ * Returns aggregate escrow statistics (released count, total revenue, etc.).
+ * Must be registered BEFORE /:id to avoid being captured as a param.
+ */
+router.get('/stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = getEscrowStats();
+    const released = getReleasedEscrows();
+    res.json({
+      success: true,
+      ...stats,
+      recentReleased: released.slice(0, 50).map((e) => ({
+        id: e.id,
+        amountUsdc: e.amountUsdc,
+        status: e.status,
+        createdAt: e.createdAt.toISOString(),
+        updatedAt: e.updatedAt.toISOString(),
+      })),
+    });
+  } catch (error: any) {
+    logger.error('Escrow stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch escrow stats' });
+  }
+});
 
 /**
  * POST /escrow/create
@@ -120,6 +150,38 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
   try {
     const escrow = approveWork(req.params.id, parsed.data.callerAgent);
     logger.info('Escrow approved', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
+
+    // Update AgentRank scores (+10) for both agents
+    const REPUTATION_DELTA = 10;
+    for (const agentId of [escrow.hiringAgent, escrow.workingAgent]) {
+      try {
+        const existing = await prisma.agentrank_scores.findUnique({ where: { agent_id: agentId } });
+        if (existing) {
+          await prisma.agentrank_scores.update({
+            where: { agent_id: agentId },
+            data: {
+              score: Math.min(1000, existing.score + REPUTATION_DELTA),
+              grade: scoreToGrade(Math.min(1000, existing.score + REPUTATION_DELTA)),
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          await prisma.agentrank_scores.create({
+            data: {
+              agent_id: agentId,
+              score: REPUTATION_DELTA,
+              grade: scoreToGrade(REPUTATION_DELTA),
+              updated_at: new Date(),
+            },
+          });
+        }
+        logger.info('AgentRank updated on escrow release', { agentId, delta: REPUTATION_DELTA });
+      } catch (rankErr: any) {
+        // agentrank_scores table may not exist — log and continue
+        logger.warn('AgentRank update skipped', { agentId, error: rankErr?.message });
+      }
+    }
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow approve error:', error);

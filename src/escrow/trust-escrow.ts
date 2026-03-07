@@ -248,3 +248,34 @@ export function getEscrow(escrowId: string): EscrowTransaction | null {
 export function listEscrowsForAgent(agentId: string): EscrowTransaction[] {
   return escrowStore.filter((e) => e.hiringAgent === agentId || e.workingAgent === agentId);
 }
+
+/**
+ * Aggregate escrow stats from the in-memory store.
+ */
+export function getEscrowStats(): {
+  totalEscrows: number;
+  releasedCount: number;
+  fundedCount: number;
+  completedCount: number;
+  disputedCount: number;
+  totalReleasedUsdc: number;
+} {
+  const released = escrowStore.filter((e) => e.status === 'released');
+  return {
+    totalEscrows: escrowStore.length,
+    releasedCount: released.length,
+    fundedCount: escrowStore.filter((e) => e.status === 'funded').length,
+    completedCount: escrowStore.filter((e) => e.status === 'completed').length,
+    disputedCount: escrowStore.filter((e) => e.status === 'disputed').length,
+    totalReleasedUsdc: released.reduce((sum, e) => sum + e.amountUsdc, 0),
+  };
+}
+
+/**
+ * Return recently released escrows (for chart/revenue display).
+ */
+export function getReleasedEscrows(): EscrowTransaction[] {
+  return escrowStore
+    .filter((e) => e.status === 'released')
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+}

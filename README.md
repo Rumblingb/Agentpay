@@ -256,6 +256,12 @@ curl -X POST http://localhost:3001/api/escrow/{id}/complete \
 curl -X POST http://localhost:3001/api/escrow/{id}/approve \
   -H "Content-Type: application/json" \
   -d '{"callerAgent":"agent-alpha"}'
+
+# Get escrow stats (released count, total revenue)
+curl http://localhost:3001/api/escrow/stats
+
+# Get escrow by ID
+curl http://localhost:3001/api/escrow/{id}
 ```
 
 ---
