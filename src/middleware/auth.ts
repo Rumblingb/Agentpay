@@ -50,15 +50,17 @@ export async function authenticateApiKey(
       return;
     }
 
-    // --- NEW: DEVELOPMENT BYPASS ---
-    // If we are in test mode and the simulation key is used, skip DB hashing
-    if (process.env.AGENTPAY_TEST_MODE === 'true' && apiKey === 'sk_test_sim_12345') {
+    // --- DEVELOPMENT BYPASS ---
+    // If we are in test mode and the simulation key is used, skip DB hashing.
+    // Accepts both 'sk_test_sim' and 'sk_test_sim_12345' for compatibility.
+    const TEST_KEYS = ['sk_test_sim', 'sk_test_sim_12345'];
+    if (process.env.AGENTPAY_TEST_MODE === 'true' && TEST_KEYS.includes(apiKey)) {
       logger.info('[Auth] 🧪 Using development bypass for simulation key');
       req.merchant = {
         id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
         name: 'Test Merchant',
         email: 'test@agentpay.com',
-        walletAddress: '9B5X2Fwc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8H' // From your screenshot
+        walletAddress: '9B5X2Fwc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8H'
       };
       return next();
     }

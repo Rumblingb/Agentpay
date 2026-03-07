@@ -39,6 +39,7 @@ dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
+const API_VERSION = '1.0.0';
 
 // --- RATE LIMITERS ---
 const globalLimiter = rateLimit({
@@ -93,8 +94,8 @@ app.get('/', (_req: Request, res: Response) => {
   res.status(200).send('AgentPay API is Live 🚀');
 });
 
-// --- HEALTH CHECK --- PRODUCTION FIX — enhanced with real DB check
-app.get('/health', async (_req: Request, res: Response) => {
+// --- HEALTH CHECK helper — shared by /health and /api/health ---
+async function healthCheckHandler(_req: Request, res: Response): Promise<void> {
   let dbStatus: 'operational' | 'degraded' = 'operational';
 
   try {
@@ -116,9 +117,23 @@ app.get('/health', async (_req: Request, res: Response) => {
       kya: { status: 'operational' },
       behavioral_oracle: { status: 'operational' },
     },
-    version: '1.0.0',
+    version: API_VERSION,
+  });
+}
+
+app.get('/health', healthCheckHandler);
+
+// --- API STATUS ROUTES — reachable at /api and /api/health ---
+app.get('/api', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'AgentPay API Active',
+    version: API_VERSION,
+    timestamp: new Date().toISOString(),
+    docs: '/api/docs',
   });
 });
+
+app.get('/api/health', healthCheckHandler);
 
 // --- TEST-MODE ROUTES (Mount BEFORE API routes to catch specific test paths) ---
 if (process.env.NODE_ENV === 'test' || process.env.AGENTPAY_TEST_MODE === 'true') {
@@ -174,6 +189,17 @@ app.use('/api/protocol', createPalRouter());
 
 // API Documentation — Swagger UI
 app.use('/api/docs', apiDocsRouter);
+
+// --- 404 HANDLER — catches unmatched routes and returns helpful JSON ---
+app.use((_req: Request, res: Response) => {
+  // Log only method + pathname, never query params (may contain tokens/secrets)
+  logger.warn(`404 Not Found: ${_req.method} ${_req.path}`);
+  res.status(404).json({
+    error: 'NOT_FOUND',
+    message: `Route ${_req.method} ${_req.path} not found`,
+    docs: '/api/docs',
+  });
+});
 
 // --- GLOBAL ERROR HANDLER ---
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
