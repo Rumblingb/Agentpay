@@ -16,7 +16,14 @@ export interface SessionPayload {
 }
 
 function getSecret(): string {
-  return process.env.DASHBOARD_SESSION_SECRET ?? 'dev-secret-please-change-this-value';
+  const secret = process.env.DASHBOARD_SESSION_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('DASHBOARD_SESSION_SECRET is not set. Refusing to create/verify sessions in production without a strong secret.');
+    }
+    return 'dev-secret-please-change-this-value';
+  }
+  return secret;
 }
 
 async function importKey(secret: string) {

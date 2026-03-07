@@ -1,17 +1,19 @@
 ﻿import { Pool, QueryResult } from "pg";
 import dotenv from "dotenv";
+import { logger } from "../logger.js";
 
 dotenv.config();
 
 // Initialize the Postgres Pool
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Use ssl if connecting to Supabase/AWS in production
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  // Enforce proper SSL certificate validation in production.
+  // rejectUnauthorized: false would allow MITM attacks against the DB connection.
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false
 });
 
 pool.on("error", (err) => {
-  console.error("Unexpected error on idle client", err);
+  logger.error({ err }, "Unexpected error on idle DB client");
 });
 
 /**
@@ -24,13 +26,13 @@ export function query(text: string, params?: any[]): Promise<QueryResult<any>> {
       const duration = Date.now() - start;
       
       if (duration > 1000) {
-        console.warn(`Query took ${duration}ms`, { text });
+        logger.warn({ query: text, durationMs: duration }, "Slow DB query");
       }
 
       if (err) {
         // Suppress duplicate key errors in test mode to keep logs clean
         if (process.env.NODE_ENV !== "test" || err.code !== "23505") {
-          console.error("Database query error:", { err: err.message || String(err), text });
+          logger.error({ err: err.message || String(err), query: text }, "Database query error");
         }
         reject(err);
       } else {
@@ -54,7 +56,7 @@ export async function closePool() {
       await pool.end();
     }
   } catch (e) {
-    console.log("Pool already closed or error during close:", e);
+    logger.warn({ err: e }, "Pool already closed or error during close");
   }
 }
 

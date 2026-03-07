@@ -63,11 +63,12 @@ const registerSchema = Joi.object({
   name: Joi.string().min(3).max(255).required(),
   email: Joi.string().email().required(),
   walletAddress: Joi.string().min(32).max(44).required(),
-  webhookUrl: Joi.string().uri().optional(),
+  // Enforce HTTPS-only webhook URLs at the schema level (defence-in-depth alongside SSRF check in webhooksService)
+  webhookUrl: Joi.string().uri({ scheme: 'https' }).optional(),
 });
 
 const webhookUpdateSchema = Joi.object({
-  webhookUrl: Joi.string().uri().required().allow(null),
+  webhookUrl: Joi.string().uri({ scheme: 'https' }).required().allow(null),
 });
 
 const paymentSchema = Joi.object({

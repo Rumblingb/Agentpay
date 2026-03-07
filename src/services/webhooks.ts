@@ -7,6 +7,47 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'change-me-in-production';
 const WEBHOOK_TIMEOUT_MS = 5000;
 const RETRY_DELAYS_MS = [0, 5000, 25000]; // 3 attempts: immediate, 5s, 25s
 
+// Private IPv4/IPv6 ranges that must not be reachable via webhook URLs (SSRF protection)
+const PRIVATE_IP_PATTERNS = [
+  /^localhost$/i,
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  // IPv6 — URL.hostname strips brackets on some runtimes, so match both forms
+  /^\[?::1\]?$/,
+  /^\[?fc00:/i,
+  /^\[?fd[0-9a-f]{2}:/i,
+  /^169\.254\./,    // link-local
+  /^0\./,           // 0.0.0.0/8
+];
+
+/**
+ * Validates a webhook URL is a safe, public HTTPS endpoint.
+ * Rejects private/loopback addresses to prevent SSRF attacks.
+ */
+export function validateWebhookUrl(url: string): { valid: boolean; reason?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, reason: 'URL is not valid' };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return { valid: false, reason: 'Webhook URL must use HTTPS' };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  for (const pattern of PRIVATE_IP_PATTERNS) {
+    if (pattern.test(hostname)) {
+      return { valid: false, reason: 'Webhook URL must not point to a private or loopback address' };
+    }
+  }
+
+  return { valid: true };
+}
+
 export interface WebhookPayload {
   event: string;
   transactionId: string;
@@ -113,6 +154,13 @@ export async function scheduleWebhook(
   merchantId: string,
   transactionId: string | null = null
 ): Promise<void> {
+  // SSRF protection — reject private/non-HTTPS URLs before touching the network
+  const urlCheck = validateWebhookUrl(webhookUrl);
+  if (!urlCheck.valid) {
+    logger.warn('Webhook delivery blocked: invalid URL', { webhookUrl, reason: urlCheck.reason, merchantId });
+    return;
+  }
+
   const payloadStr = JSON.stringify(payload);
   const signature = signPayload(payloadStr);
   const eventId = await createWebhookEvent(
@@ -122,6 +170,7 @@ export async function scheduleWebhook(
     webhookUrl,
     payload
   );
+
 
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     const delay = RETRY_DELAYS_MS[attempt];

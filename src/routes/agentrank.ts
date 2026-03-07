@@ -24,6 +24,7 @@ import {
   type SybilSignals,
 } from '../reputation/agentrank-core.js';
 import { adjustScore, getScoreHistory } from '../services/agentrankService.js';
+import { authenticateApiKey } from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
@@ -291,8 +292,9 @@ router.get('/:agentId/history', async (req: Request, res: Response) => {
  *
  * Manually adjust an agent's AgentRank score.
  * Requires a delta (integer) and a reason (string).
+ * Requires a valid merchant API key (admin operation).
  */
-router.post('/:agentId/adjust', async (req: Request, res: Response) => {
+router.post('/:agentId/adjust', authenticateApiKey, async (req: Request, res: Response) => {
   try {
     const { agentId } = req.params;
     if (!agentId || agentId.trim().length === 0) {

@@ -36,6 +36,29 @@ import { startSolanaListener } from './services/solana-listener.js';
 
 dotenv.config();
 
+// --- STARTUP VALIDATION — fail fast in production if required secrets are defaults ---
+if (process.env.NODE_ENV === 'production') {
+  const INSECURE_DEFAULTS: Record<string, string> = {
+    WEBHOOK_SECRET: 'change-me-in-production',
+    AGENTPAY_SIGNING_SECRET: 'your-signing-secret-here',
+    VERIFICATION_SECRET: 'your-verification-secret-here',
+  };
+  for (const [key, insecureValue] of Object.entries(INSECURE_DEFAULTS)) {
+    const val = process.env[key];
+    if (!val || val === insecureValue) {
+      console.error(`[STARTUP] FATAL: ${key} is not set or is an insecure default. Refusing to start in production.`);
+      process.exit(1);
+    }
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error('[STARTUP] FATAL: DATABASE_URL is not set. Refusing to start in production.');
+    process.exit(1);
+  }
+} else if (process.env.NODE_ENV !== 'test' && (process.env.WEBHOOK_SECRET === 'change-me-in-production' || !process.env.WEBHOOK_SECRET)) {
+  // Non-production: warn but don't exit
+  console.warn('[STARTUP] WARNING: WEBHOOK_SECRET is not set or is using the insecure default. Set a strong secret before going to production.');
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
@@ -231,9 +254,33 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 AgentPay API running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, () => {
+    logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
   });
+
+  // --- GRACEFUL SHUTDOWN — allow in-flight requests to finish before exit ---
+  const shutdown = (signal: string) => {
+    logger.info(`${signal} received — shutting down gracefully`);
+    server.close(async () => {
+      try {
+        const { closePool } = await import('./db/index.js');
+        await closePool();
+        logger.info('DB pool closed. Goodbye.');
+      } catch {
+        // pool may already be closed
+      }
+      process.exit(0);
+    });
+    // Force exit after 10s if requests don't drain
+    setTimeout(() => {
+      logger.error('Forceful shutdown after timeout');
+      process.exit(1);
+    }, 10_000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
   startSolanaListener();
 }
 

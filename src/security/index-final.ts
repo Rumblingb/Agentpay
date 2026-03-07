@@ -1,4 +1,5 @@
 import { Pool, QueryResult } from 'pg';
+import { logger } from '../logger.js';
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -7,12 +8,12 @@ export const pool = new Pool({
   connectionTimeoutMillis: 2000,
   ssl:
     process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
+      ? { rejectUnauthorized: true }
       : false,
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+  logger.error({ err }, 'Unexpected error on idle DB client');
 });
 
 export async function query(text: string, params?: any[]): Promise<QueryResult> {
@@ -21,11 +22,11 @@ export async function query(text: string, params?: any[]): Promise<QueryResult> 
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
     if (duration > 1000) {
-      console.warn(`Query took ${duration}ms`, { text });
+      logger.warn({ query: text, durationMs: duration }, 'Slow DB query');
     }
     return result;
   } catch (error) {
-    console.error('Database query error:', { error, text });
+    logger.error({ err: error, query: text }, 'Database query error');
     throw error;
   }
 }
