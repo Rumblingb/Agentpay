@@ -266,6 +266,28 @@ curl http://localhost:3001/api/escrow/{id}
 
 ---
 
+## AgentRank API
+
+Query and manage agent reputation scores:
+
+```bash
+# Look up an agent's AgentRank score
+curl http://localhost:3001/api/agentrank/agent-alpha
+
+# Get score history
+curl http://localhost:3001/api/agentrank/agent-alpha/history
+
+# Manually adjust score (admin)
+curl -X POST http://localhost:3001/api/agentrank/agent-alpha/adjust \
+  -H "Content-Type: application/json" \
+  -d '{"delta":10,"reason":"Manual bonus for community contribution"}'
+
+# Leaderboard (top agents)
+curl http://localhost:3001/api/agentrank/leaderboard?limit=10
+```
+
+---
+
 ## Features
 
 - **HTTP 402 Paywalls** — Require payments before granting access to APIs, content, or services.

@@ -26,8 +26,7 @@ import {
   getEscrowStats,
   getReleasedEscrows,
 } from '../escrow/trust-escrow.js';
-import prisma from '../lib/prisma.js';
-import { scoreToGrade } from '../reputation/agentrank-core.js';
+import { adjustScore } from '../services/agentrankService.js';
 import { logger } from '../logger.js';
 
 const router = Router();
@@ -151,38 +150,12 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
     const escrow = approveWork(req.params.id, parsed.data.callerAgent);
     logger.info('Escrow approved', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
 
-    // Update AgentRank scores (+10) for both agents
+    // Update AgentRank scores (+10) for both agents via unified service
     const REPUTATION_DELTA = 10;
-    const agentUpdates = [escrow.hiringAgent, escrow.workingAgent].map(async (agentId) => {
-      try {
-        const existing = await prisma.agentrank_scores.findUnique({ where: { agent_id: agentId } });
-        if (existing) {
-          const newScore = Math.min(1000, existing.score + REPUTATION_DELTA);
-          await prisma.agentrank_scores.update({
-            where: { agent_id: agentId },
-            data: {
-              score: newScore,
-              grade: scoreToGrade(newScore),
-              updated_at: new Date(),
-            },
-          });
-        } else {
-          await prisma.agentrank_scores.create({
-            data: {
-              agent_id: agentId,
-              score: REPUTATION_DELTA,
-              grade: scoreToGrade(REPUTATION_DELTA),
-              updated_at: new Date(),
-            },
-          });
-        }
-        logger.info('AgentRank updated on escrow release', { agentId, delta: REPUTATION_DELTA });
-      } catch (rankErr: any) {
-        // agentrank_scores table may not exist — log and continue
-        logger.warn('AgentRank update skipped', { agentId, error: rankErr?.message });
-      }
-    });
-    await Promise.all(agentUpdates);
+    await Promise.all([
+      adjustScore(escrow.hiringAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+      adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+    ]);
 
     res.json({ success: true, escrow });
   } catch (error: any) {
@@ -205,6 +178,11 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
     const { callerAgent, reason, guiltyParty } = parsed.data;
     const escrow = disputeWork(req.params.id, callerAgent, reason, guiltyParty);
     logger.info('Escrow disputed', { escrowId: escrow.id, callerAgent, reason });
+
+    // Apply reputation penalty (−20) to guilty party via unified service
+    const DISPUTE_PENALTY = -20;
+    await adjustScore(guiltyParty, DISPUTE_PENALTY, 'escrow_dispute', `Escrow ${escrow.id}: ${reason}`);
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow dispute error:', error);

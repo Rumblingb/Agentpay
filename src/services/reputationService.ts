@@ -1,4 +1,6 @@
 import { query } from '../db/index.js';
+import { adjustScore } from './agentrankService.js';
+import { logger } from '../logger.js';
 
 export interface Reputation {
   agentId: string;
@@ -43,6 +45,12 @@ export async function updateReputationOnVerification(agentId: string, success: b
        RETURNING *`,
       [agentId, successRate, trustScore]
     );
+
+    // Bridge to AgentRank: apply delta for new agent
+    const delta = success ? 5 : -5;
+    adjustScore(agentId, delta, 'payment_verification', success ? 'Payment verified' : 'Payment failed')
+      .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
+
     return (await getReputation(agentId))!; // Use getReputation to ensure type casting
   }
 
@@ -57,6 +65,11 @@ export async function updateReputationOnVerification(agentId: string, success: b
      WHERE agent_id = $4`,
     [newTotal, newSuccessRate, newTrustScore, agentId]
   );
+
+  // Bridge to AgentRank: apply delta for payment verification
+  const delta = success ? 5 : -5;
+  adjustScore(agentId, delta, 'payment_verification', success ? 'Payment verified' : 'Payment failed')
+    .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
 
   return (await getReputation(agentId))!;
 }
