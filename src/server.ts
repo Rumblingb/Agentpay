@@ -50,11 +50,19 @@ const globalLimiter = rateLimit({
 });
 
 // --- SECURITY & UTILITY MIDDLEWARE ---
-app.use(helmet());
+// Disable Helmet's default CSP for API-only responses — CSP is a document-level
+// policy and causes false-positive "script-src eval" blocks when proxied through
+// the Next.js frontend.  All other Helmet protections remain active.
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001'],
+    : [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:3001',
+        'https://apay-delta.vercel.app',
+      ],
   credentials: true,
 }));
 
