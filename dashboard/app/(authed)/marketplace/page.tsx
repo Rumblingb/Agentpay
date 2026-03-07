@@ -34,11 +34,13 @@ const BADGE_STYLE: Record<string, string> = {
  * Marketplace page — shows featured / top-ranked agents from the discovery API.
  */
 export default function MarketplacePage() {
+  const [isClient, setIsClient] = useState(false);
   const [agents, setAgents] = useState<FeaturedAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    setIsClient(true);
     async function load() {
       try {
         const res = await fetch('/api/marketplace/featured');
@@ -53,6 +55,8 @@ export default function MarketplacePage() {
     }
     load();
   }, []);
+
+  if (!isClient) return null;
 
   const totalVolume = agents.reduce((sum, a) => sum + a.transactionVolume, 0);
   const avgScore =
