@@ -171,7 +171,6 @@ export async function scheduleWebhook(
     payload
   );
 
-
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     const delay = RETRY_DELAYS_MS[attempt];
 
