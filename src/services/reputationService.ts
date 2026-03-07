@@ -46,11 +46,7 @@ export async function updateReputationOnVerification(agentId: string, success: b
       [agentId, successRate, trustScore]
     );
 
-    // Bridge to AgentRank: apply delta for new agent
-    const delta = success ? 5 : -5;
-    adjustScore(agentId, delta, 'payment_verification', success ? 'Payment verified' : 'Payment failed')
-      .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
-
+    bridgeToAgentRank(agentId, success);
     return (await getReputation(agentId))!; // Use getReputation to ensure type casting
   }
 
@@ -66,12 +62,16 @@ export async function updateReputationOnVerification(agentId: string, success: b
     [newTotal, newSuccessRate, newTrustScore, agentId]
   );
 
-  // Bridge to AgentRank: apply delta for payment verification
-  const delta = success ? 5 : -5;
-  adjustScore(agentId, delta, 'payment_verification', success ? 'Payment verified' : 'Payment failed')
-    .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
-
+  bridgeToAgentRank(agentId, success);
   return (await getReputation(agentId))!;
+}
+
+/** Fire-and-forget bridge: sync legacy reputation events to AgentRank scores. */
+function bridgeToAgentRank(agentId: string, success: boolean): void {
+  const delta = success ? 5 : -5;
+  const detail = success ? 'Payment verified' : 'Payment failed';
+  adjustScore(agentId, delta, 'payment_verification', detail)
+    .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
 }
 
 // Pure functions used in tests

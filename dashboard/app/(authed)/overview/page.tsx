@@ -136,6 +136,7 @@ export default function OverviewPage() {
   const stats = data?.stats;
 
   // Combine payment + escrow transactions for the chart
+  // Use updatedAt as the chart date for escrow releases (when funds were released)
   const escrowPayments: Payment[] = (escrowData?.recentReleased ?? []).map((e) => ({
     id: e.id,
     paymentId: e.id,
