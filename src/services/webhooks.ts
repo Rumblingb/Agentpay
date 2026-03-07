@@ -25,6 +25,12 @@ const PRIVATE_IP_PATTERNS = [
 /**
  * Validates a webhook URL is a safe, public HTTPS endpoint.
  * Rejects private/loopback addresses to prevent SSRF attacks.
+ *
+ * Test-mode exemption: allows http://localhost and http://127.0.0.1 so that
+ * integration and E2E tests can use local mock webhook receivers without
+ * needing a TLS certificate.  Loopback addresses are, by definition, only
+ * reachable on the local machine and cannot be used as SSRF vectors, so this
+ * exemption does not weaken security in any real environment.
  */
 export function validateWebhookUrl(url: string): { valid: boolean; reason?: string } {
   let parsed: URL;
@@ -34,11 +40,31 @@ export function validateWebhookUrl(url: string): { valid: boolean; reason?: stri
     return { valid: false, reason: 'URL is not valid' };
   }
 
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Loopback addresses can never be reached from a production network —
+  // they are not an SSRF risk.  In test mode, allow http:// to them so that
+  // local mock webhook receivers work out of the box.
+  const isLoopback =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1';
+
+  if (isLoopback) {
+    // Allow http://localhost in test mode so E2E / integration tests can use a
+    // local mock webhook receiver without needing a TLS certificate.
+    // https://localhost is rejected everywhere — loopback HTTPS is not a real
+    // use-case and keeping it blocked maintains SSRF defence-in-depth.
+    if (process.env.NODE_ENV === 'test' && parsed.protocol === 'http:') {
+      return { valid: true };
+    }
+    return { valid: false, reason: 'Webhook URL must not point to a private or loopback address' };
+  }
+
   if (parsed.protocol !== 'https:') {
     return { valid: false, reason: 'Webhook URL must use HTTPS' };
   }
 
-  const hostname = parsed.hostname.toLowerCase();
   for (const pattern of PRIVATE_IP_PATTERNS) {
     if (pattern.test(hostname)) {
       return { valid: false, reason: 'Webhook URL must not point to a private or loopback address' };

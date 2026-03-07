@@ -167,6 +167,33 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_merchant_invoices_merchant ON merchant_invoices(merchant_id);
           CREATE INDEX IF NOT EXISTS idx_merchant_invoices_intent ON merchant_invoices(intent_id);`,
   },
+  {
+    name: '013_create_agentrank_scores',
+    sql: `CREATE TABLE IF NOT EXISTS agentrank_scores (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            agent_id TEXT UNIQUE NOT NULL,
+            score INT NOT NULL DEFAULT 0 CHECK (score >= 0 AND score <= 1000),
+            grade TEXT NOT NULL DEFAULT 'U',
+            payment_reliability NUMERIC(5, 4) NOT NULL DEFAULT 0,
+            service_delivery NUMERIC(5, 4) NOT NULL DEFAULT 0,
+            transaction_volume INT NOT NULL DEFAULT 0,
+            wallet_age_days INT NOT NULL DEFAULT 0,
+            dispute_rate NUMERIC(5, 4) NOT NULL DEFAULT 0,
+            stake_usdc NUMERIC(20, 6) NOT NULL DEFAULT 0,
+            unique_counterparties INT NOT NULL DEFAULT 0,
+            factors JSONB DEFAULT '{}',
+            history JSONB DEFAULT '[]',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agentrank_scores_agent_id ON agentrank_scores(agent_id);
+          CREATE INDEX IF NOT EXISTS idx_agentrank_scores_score ON agentrank_scores(score DESC);`,
+  },
+  {
+    name: '014_add_total_volume_to_merchants',
+    sql: `ALTER TABLE merchants
+            ADD COLUMN IF NOT EXISTS total_volume NUMERIC(20, 6) NOT NULL DEFAULT 0;`,
+  },
 ];
 
 async function migrate() {
