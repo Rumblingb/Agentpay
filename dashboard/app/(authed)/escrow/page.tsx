@@ -73,7 +73,7 @@ export default function EscrowPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Active Escrows"
-          value={stats ? (stats.fundedCount + stats.completedCount) : '—'}
+          value={stats ? stats.fundedCount : '—'}
           icon={Shield}
           iconColor="text-purple-400"
           iconBg="bg-purple-500/10"

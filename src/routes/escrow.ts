@@ -282,7 +282,9 @@ router.post('/approve', authenticateApiKey, async (req: AuthRequest, res: Respon
         query(
           `UPDATE payment_intents SET status = 'completed', updated_at = NOW() WHERE id = $1`,
           [escrow.id],
-        ).catch(() => { /* table may not contain this escrow */ }),
+        ).catch((err) => {
+          logger.debug('payment_intents update skipped (escrow not in table or DB offline)', { escrowId: escrow.id, err: err?.message });
+        }),
       ]);
     }
 
@@ -340,7 +342,9 @@ router.post('/:id/approve', authenticateApiKey, async (req: AuthRequest, res: Re
         query(
           `UPDATE payment_intents SET status = 'completed', updated_at = NOW() WHERE id = $1`,
           [escrow.id],
-        ).catch(() => { /* table may not contain this escrow */ }),
+        ).catch((err) => {
+          logger.debug('payment_intents update skipped (escrow not in table or DB offline)', { escrowId: escrow.id, err: err?.message });
+        }),
       ]);
     }
 
