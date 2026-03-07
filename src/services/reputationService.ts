@@ -46,7 +46,7 @@ export async function updateReputationOnVerification(agentId: string, success: b
       [agentId, successRate, trustScore]
     );
 
-    bridgeToAgentRank(agentId, success);
+    await bridgeToAgentRank(agentId, success);
     return (await getReputation(agentId))!; // Use getReputation to ensure type casting
   }
 
@@ -62,16 +62,19 @@ export async function updateReputationOnVerification(agentId: string, success: b
     [newTotal, newSuccessRate, newTrustScore, agentId]
   );
 
-  bridgeToAgentRank(agentId, success);
+  await bridgeToAgentRank(agentId, success);
   return (await getReputation(agentId))!;
 }
 
-/** Fire-and-forget bridge: sync legacy reputation events to AgentRank scores. */
-function bridgeToAgentRank(agentId: string, success: boolean): void {
+/** Awaited bridge: sync legacy reputation events to AgentRank scores. */
+async function bridgeToAgentRank(agentId: string, success: boolean): Promise<void> {
   const delta = success ? 5 : -5;
   const detail = success ? 'Payment verified' : 'Payment failed';
-  adjustScore(agentId, delta, 'payment_verification', detail)
-    .catch((err) => logger.error('AgentRank bridge failed', { agentId, error: err?.message }));
+  try {
+    await adjustScore(agentId, delta, 'payment_verification', detail);
+  } catch (err: any) {
+    logger.error('AgentRank bridge failed', { agentId, error: err?.message });
+  }
 }
 
 // Pure functions used in tests
