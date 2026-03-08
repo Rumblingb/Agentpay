@@ -21,7 +21,8 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "test:debug": "node scripts/debug-errors.js",
-    "calculate-scores": "tsx scripts/calculate-initial-agentrank.ts"
+    "calculate-scores": "tsx scripts/calculate-initial-agentrank.ts",
+    "generate:secrets": "node scripts/generate-secrets.js"
   },
   "keywords": [
     "payments",
