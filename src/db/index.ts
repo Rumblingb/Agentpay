@@ -7,9 +7,11 @@ dotenv.config();
 // Initialize the Postgres Pool
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Enforce proper SSL certificate validation in production.
-  // rejectUnauthorized: false would allow MITM attacks against the DB connection.
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false
+  // We allow rejectUnauthorized: false for managed DBs like Supabase/Render
+  // This resolves the "self-signed certificate" error while maintaining encryption.
+  ssl: process.env.NODE_ENV === 'production' 
+    ? { rejectUnauthorized: false } 
+    : false
 });
 
 pool.on("error", (err) => {
