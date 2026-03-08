@@ -178,7 +178,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
       ...stats,
       recentReleased: released.slice(0, 50).map((e) => ({
         id: e.id,
-        amountUsdc: e.amountUsdc,
+        amountUsdc: Number(e.amountUsdc),
         status: e.status,
         createdAt: e.createdAt.toISOString(),
         updatedAt: e.updatedAt.toISOString(),

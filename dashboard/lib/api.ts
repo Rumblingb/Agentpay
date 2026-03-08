@@ -3,9 +3,12 @@
  * Calls the AgentPay backend with the merchant's API key.
  */
 
+// AGENTPAY_API_BASE_URL is a server-side-only variable (no NEXT_PUBLIC_ prefix).
+// It must NOT be replaced with a NEXT_PUBLIC_ variable here — this module is
+// imported exclusively by BFF API routes, and exposing the backend origin in a
+// NEXT_PUBLIC_ variable would leak it into client-side bundles.
 export const API_BASE =
   process.env.AGENTPAY_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
   'http://localhost:3001';
 
 export interface MerchantProfile {

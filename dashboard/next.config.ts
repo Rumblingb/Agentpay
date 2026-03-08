@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 
+// AGENTPAY_API_BASE_URL is evaluated at build time by next.config.ts (server-only).
+// Do NOT fall back to a NEXT_PUBLIC_ variable here — that would expose the backend
+// origin URL in client-side bundles via the inlined rewrite destination.
 const BACKEND_URL =
   process.env.AGENTPAY_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:3001";
 
 const nextConfig: NextConfig = {
