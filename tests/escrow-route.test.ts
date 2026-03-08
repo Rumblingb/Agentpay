@@ -24,6 +24,18 @@ jest.mock('../src/lib/prisma', () => ({
       update: jest.fn().mockResolvedValue({}),
       create: jest.fn().mockResolvedValue({}),
     },
+    escrow_transactions: {
+      create: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    transactions: {
+      create: jest.fn().mockResolvedValue({}),
+    },
+    paymentIntent: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   },
 }));
 

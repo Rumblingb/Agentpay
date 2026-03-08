@@ -314,10 +314,9 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
     if (process.env.NODE_ENV === 'production') {
       // Warn operators about in-memory stores that lose data on restart.
-      logger.warn(
-        'NOTICE: Escrow transactions and AP2 payment requests are stored in-memory ' +
-        'and will be lost on server restart. Persist them to the DB before handling ' +
-        'real funds (see src/escrow/trust-escrow.ts and src/protocols/ap2.ts).',
+      logger.info(
+        'Escrow transactions and AP2 payment requests are now persisted to Supabase via Prisma. ' +
+        'In-memory stores are used as L1 caches and cleared on restart; the DB is the source of truth.',
       );
     }
   });
