@@ -267,7 +267,7 @@ export function getEscrowStats(): {
     fundedCount: escrowStore.filter((e) => e.status === 'funded').length,
     completedCount: escrowStore.filter((e) => e.status === 'completed').length,
     disputedCount: escrowStore.filter((e) => e.status === 'disputed').length,
-    totalReleasedUsdc: released.reduce((sum, e) => sum + e.amountUsdc, 0),
+    totalReleasedUsdc: released.reduce((sum, e) => sum + Number(e.amountUsdc), 0),
   };
 }
 
