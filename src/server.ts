@@ -37,16 +37,35 @@ import { startSolanaListener } from './services/solana-listener.js';
 dotenv.config();
 
 // --- STARTUP VALIDATION — fail fast in production if required secrets are defaults ---
+// All known placeholder/example values that must never reach a real deployment.
+// Run `npm run generate:secrets` to produce safe replacements.
+const INSECURE_SECRET_DEFAULTS: Record<string, string[]> = {
+  WEBHOOK_SECRET: [
+    'change-me-in-production',
+    'your-webhook-secret-here',
+    'REPLACE_WITH_STRONG_RANDOM_SECRET',
+  ],
+  AGENTPAY_SIGNING_SECRET: [
+    'your-signing-secret-here',
+    'REPLACE_WITH_STRONG_RANDOM_SECRET',
+  ],
+  VERIFICATION_SECRET: [
+    'your-verification-secret-here',
+    'REPLACE_WITH_STRONG_RANDOM_SECRET',
+  ],
+};
+const MIN_SECRET_LENGTH = 32;
+
 if (process.env.NODE_ENV === 'production') {
-  const INSECURE_DEFAULTS: Record<string, string> = {
-    WEBHOOK_SECRET: 'change-me-in-production',
-    AGENTPAY_SIGNING_SECRET: 'your-signing-secret-here',
-    VERIFICATION_SECRET: 'your-verification-secret-here',
-  };
-  for (const [key, insecureValue] of Object.entries(INSECURE_DEFAULTS)) {
+  const GEN_CMD = 'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"';
+  for (const [key, insecureValues] of Object.entries(INSECURE_SECRET_DEFAULTS)) {
     const val = process.env[key];
-    if (!val || val === insecureValue) {
-      console.error(`[STARTUP] FATAL: ${key} is not set or is an insecure default. Refusing to start in production.`);
+    if (!val || insecureValues.includes(val) || val.length < MIN_SECRET_LENGTH) {
+      console.error(
+        `[STARTUP] FATAL: ${key} is not set, is an insecure placeholder, or is shorter than ${MIN_SECRET_LENGTH} characters. Refusing to start in production.\n` +
+        `  Fix: generate a secure value → ${GEN_CMD}\n` +
+        `  Then set ${key}=<generated_value> in your Render environment variables (or run: npm run generate:secrets).`,
+      );
       process.exit(1);
     }
   }
@@ -61,9 +80,14 @@ if (process.env.NODE_ENV === 'production') {
     console.error('[STARTUP] FATAL: AGENTPAY_TEST_MODE=true in production. Refusing to start. Set AGENTPAY_TEST_MODE=false or remove it from environment variables.');
     process.exit(1);
   }
-} else if (process.env.NODE_ENV !== 'test' && (process.env.WEBHOOK_SECRET === 'change-me-in-production' || !process.env.WEBHOOK_SECRET)) {
-  // Non-production: warn but don't exit
-  console.warn('[STARTUP] WARNING: WEBHOOK_SECRET is not set or is using the insecure default. Set a strong secret before going to production.');
+} else if (process.env.NODE_ENV !== 'test') {
+  for (const [key, insecureValues] of Object.entries(INSECURE_SECRET_DEFAULTS)) {
+    const val = process.env[key];
+    if (!val || insecureValues.includes(val) || val.length < MIN_SECRET_LENGTH) {
+      // Non-production: warn but don't exit
+      console.warn(`[STARTUP] WARNING: ${key} is not set, is a placeholder, or is too short. Set a strong secret (≥${MIN_SECRET_LENGTH} chars) before going to production. Run: npm run generate:secrets`);
+    }
+  }
 }
 
 const app = express();
