@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signSession, COOKIE_NAME, SESSION_MAX_AGE } from '@/lib/session';
-import { fetchProfile } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
+import type { MerchantProfile } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,12 +14,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify credentials against the backend
-    let profile;
+    // Verify credentials against the backend.
+    // We do the fetch inline here (rather than calling fetchProfile) so we can
+    // inspect the response status and return a precise error to the caller:
+    //   401 from backend → bad API key → show "Invalid credentials"
+    //   any other error  → backend unreachable → show "Service unavailable"
+    let profile: MerchantProfile;
+    let backendRes: Response;
     try {
-      profile = await fetchProfile(apiKey);
+      backendRes = await fetch(`${API_BASE}/api/merchants/profile`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
     } catch {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      // Network error — backend is unreachable (Render cold-start, DNS, etc.)
+      return NextResponse.json(
+        { error: 'Service unavailable. The backend could not be reached. Please try again in a moment.' },
+        { status: 502 },
+      );
+    }
+
+    if (backendRes.status === 401) {
+      return NextResponse.json(
+        { error: 'Invalid credentials. Check your API key and make sure it was registered via POST /api/merchants/register.' },
+        { status: 401 },
+      );
+    }
+
+    if (!backendRes.ok) {
+      return NextResponse.json(
+        { error: `Backend returned an unexpected error (${backendRes.status}). Please try again.` },
+        { status: 502 },
+      );
+    }
+
+    try {
+      profile = await backendRes.json();
+    } catch {
+      return NextResponse.json(
+        { error: 'Unexpected response from the backend. Please try again.' },
+        { status: 502 },
+      );
     }
 
     // Confirm the email matches
