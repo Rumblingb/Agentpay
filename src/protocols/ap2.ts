@@ -416,7 +416,7 @@ router.get('/schema', (_req: Request, res: Response) => {
  */
 router.post('/payment', optionalAuth, (req: Request, res: Response, next: NextFunction) => {
   req.url = '/request';
-  router.handle(req, res, next);
+  router(req, res, next);
 });
 
 export { router as ap2Router };

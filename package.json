@@ -34,6 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.1",
+    "@sentry/node": "^10.42.0",
     "@solana/spl-token": "^0.1.8",
     "@solana/web3.js": "^1.91.0",
     "axios": "^1.6.5",
