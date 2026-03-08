@@ -17,6 +17,16 @@ interface PendingTx {
   webhookUrl: string | null;
 }
 
+interface PendingIntent {
+  intentId: string;
+  merchantId: string;
+  amountUsdc: number;
+  recipientAddress: string;
+  txHash: string;
+  metadata: Record<string, unknown> | null;
+  webhookUrl: string | null;
+}
+
 let listenerInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -49,6 +59,32 @@ async function fetchPendingWithHash(): Promise<PendingTx[]> {
      LIMIT 50`
   );
   return result.rows as PendingTx[];
+}
+
+/**
+ * Fetches pending payment_intents that have had a tx_hash submitted via the
+ * verify endpoint and stored in metadata.  These are intent-based payments
+ * that have not yet had a transactions row created.
+ */
+async function fetchPendingIntentsWithHash(): Promise<PendingIntent[]> {
+  const result = await query(
+    `SELECT
+       pi.id          AS "intentId",
+       pi.merchant_id AS "merchantId",
+       pi.amount      AS "amountUsdc",
+       m.wallet_address AS "recipientAddress",
+       pi.metadata->>'tx_hash' AS "txHash",
+       pi.metadata    AS "metadata",
+       m.webhook_url  AS "webhookUrl"
+     FROM payment_intents pi
+     JOIN merchants m ON pi.merchant_id = m.id
+     WHERE pi.status = 'pending'
+       AND pi.metadata->>'tx_hash' IS NOT NULL
+       AND pi.expires_at > NOW()
+     ORDER BY pi.created_at ASC
+     LIMIT 50`
+  );
+  return result.rows as PendingIntent[];
 }
 
 /**
@@ -127,6 +163,101 @@ async function processTransaction(tx: PendingTx): Promise<void> {
 }
 
 /**
+ * Processes a pending payment_intent that has had a tx_hash submitted.
+ *
+ * When the transaction is confirmed on-chain this function:
+ *   1. Updates payment_intent.status → 'completed'
+ *   2. Creates a durable transactions row with status='released'
+ *
+ * Both writes are wrapped in a prisma.$transaction to guarantee atomicity.
+ */
+async function processIntent(intent: PendingIntent): Promise<void> {
+  const verification = await verifyPaymentRecipient(intent.txHash, intent.recipientAddress);
+
+  if (!verification.valid) {
+    logger.debug('Listener: intent tx not yet valid on-chain', {
+      intentId: intent.intentId,
+      reason: verification.error,
+    });
+    return;
+  }
+
+  if (!verification.verified) {
+    logger.debug('Listener: intent awaiting more confirmations', {
+      intentId: intent.intentId,
+      depth: verification.confirmationDepth,
+    });
+    return;
+  }
+
+  // Strip the tx_hash sentinel so a re-check doesn't double-process.
+  // We update status to 'completed' and write a clean metadata snapshot.
+  const { tx_hash: _removed, ...cleanMeta } = (intent.metadata ?? {}) as Record<string, unknown>;
+
+  try {
+    // Atomic: update the intent AND create the transactions row together.
+    await prisma.$transaction([
+      prisma.paymentIntent.updateMany({
+        where: { id: intent.intentId, status: 'pending' },
+        data: {
+          status: 'completed',
+          metadata: { ...cleanMeta, tx_hash: intent.txHash },
+        },
+      }),
+      prisma.transactions.create({
+        data: {
+          merchant_id: intent.merchantId,
+          payment_id: intent.intentId,
+          amount_usdc: intent.amountUsdc,
+          recipient_address: intent.recipientAddress,
+          payer_address: verification.payer ?? null,
+          transaction_hash: intent.txHash,
+          status: 'released',
+          webhook_status: 'not_sent',
+          confirmation_depth: verification.confirmationDepth ?? 0,
+          metadata: intent.metadata as object ?? undefined,
+        },
+      }),
+    ]);
+  } catch (err: any) {
+    // P2002 = unique_violation on payment_id — already processed by concurrent poll or trigger
+    if (err?.code === 'P2002') {
+      logger.debug('Listener: intent transactions row already exists, skipping', {
+        intentId: intent.intentId,
+      });
+      return;
+    }
+    throw err;
+  }
+
+  logger.info('Listener: intent payment released', {
+    intentId: intent.intentId,
+    merchantId: intent.merchantId,
+    amountUsdc: intent.amountUsdc,
+    confirmationDepth: verification.confirmationDepth,
+  });
+
+  // Fire webhook asynchronously — non-blocking
+  if (intent.webhookUrl) {
+    const payload: WebhookPayload = {
+      event: 'payment.confirmed',
+      transactionId: intent.intentId,
+      merchantId: intent.merchantId,
+      paymentId: intent.intentId,
+      amountUsdc: intent.amountUsdc,
+      recipientAddress: intent.recipientAddress,
+      payerAddress: verification.payer,
+      transactionHash: intent.txHash,
+      verified: true,
+      timestamp: new Date().toISOString(),
+    };
+    webhooksService
+      .scheduleWebhook(intent.webhookUrl, payload, intent.merchantId, intent.intentId)
+      .catch((err) => logger.error('Listener: intent webhook scheduling error', { err }));
+  }
+}
+
+/**
  * One poll cycle: expire stale transactions, then check pending ones.
  */
 async function poll(): Promise<void> {
@@ -141,6 +272,17 @@ async function poll(): Promise<void> {
     for (const tx of pending) {
       await processTransaction(tx).catch((err) =>
         logger.error('Listener: error processing transaction', { id: tx.id, err })
+      );
+    }
+
+    const pendingIntents = await fetchPendingIntentsWithHash();
+    if (pendingIntents.length > 0) {
+      logger.debug(`Listener: checking ${pendingIntents.length} pending intent(s) with tx_hash`);
+    }
+
+    for (const intent of pendingIntents) {
+      await processIntent(intent).catch((err) =>
+        logger.error('Listener: error processing intent', { intentId: intent.intentId, err })
       );
     }
   } catch (err) {

@@ -398,6 +398,7 @@ router.get('/schema', (_req: Request, res: Response) => {
     flow: ['request → receipt → confirm'],
     endpoints: {
       request: { method: 'POST', path: '/api/ap2/request', description: 'Initiate payment' },
+      payment: { method: 'POST', path: '/api/ap2/payment', description: 'Alias for /request' },
       receipt: { method: 'POST', path: '/api/ap2/receipt', description: 'Payee issues receipt' },
       confirm: { method: 'POST', path: '/api/ap2/confirm', description: 'Payer confirms' },
       status: { method: 'GET', path: '/api/ap2/status/:id', description: 'Get transaction status' },
@@ -405,6 +406,17 @@ router.get('/schema', (_req: Request, res: Response) => {
     },
     docs: 'https://docs.agentpay.gg/protocols/ap2',
   });
+});
+
+/**
+ * POST /api/ap2/payment
+ * Convenience alias for POST /api/ap2/request so integrations that target
+ * the `/payment` path (e.g. older SDK versions or direct API calls) continue
+ * to work without code changes.
+ */
+router.post('/payment', optionalAuth, (req: Request, res: Response, next: NextFunction) => {
+  req.url = '/request';
+  router.handle(req, res, next);
 });
 
 export { router as ap2Router };

@@ -70,6 +70,7 @@ model transactions {
   confirmation_depth       Int?      @default(0)
   required_depth           Int?      @default(2)
   expires_at               DateTime?
+  metadata                 Json?
   created_at               DateTime? @default(now()) @db.Timestamptz(6)
   updated_at               DateTime? @db.Timestamptz(6)
 }
@@ -173,4 +174,20 @@ model dispute_cases {
   resolved         Boolean   @default(false)
   resolved_at      DateTime? @db.Timestamptz(6)
   created_at       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// Hosted/custodial wallet for walletless agents (e.g. Moltbook bots).
+// The private key is stored AES-256-GCM encrypted via walletEncryption.ts.
+model agent_wallets {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id              String    @unique
+  public_key            String
+  encrypted_private_key String
+  balance_usdc          Decimal   @default(0) @db.Decimal(20, 6)
+  label                 String?
+  is_active             Boolean   @default(true)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@map("agent_wallets")
 }

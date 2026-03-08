@@ -419,4 +419,70 @@ router.get('/:agentId', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Helius enrichment — multi-source on-chain signal ingestion
+// ---------------------------------------------------------------------------
+const enrichSchema = z.object({
+  walletAddress: z.string().min(32).max(44),
+});
+
+/**
+ * POST /api/agentrank/:agentId/enrich
+ *
+ * Fetches on-chain signals for the agent's wallet from Helius, converts them
+ * to a score delta, and applies the delta to the agent's AgentRank.
+ *
+ * Idempotent: calling this multiple times will keep adjusting the score with
+ * the latest on-chain data.  Rate-limit to once per 24h in production via the
+ * existing global limiter.
+ *
+ * @auth Merchant API key required
+ */
+router.post('/:agentId/enrich', authenticateApiKey, async (req: Request, res: Response) => {
+  const { agentId } = req.params;
+  const parsed = enrichSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'Validation error',
+      details: parsed.error.issues.map((e) => e.message),
+    });
+    return;
+  }
+
+  const { walletAddress } = parsed.data;
+
+  try {
+    // Lazy import so the rest of the module doesn't require HELIUS_API_KEY at boot
+    const { getOnChainSignals, signalsToDelta } = await import('../services/heliusService.js');
+
+    const signals = await getOnChainSignals(walletAddress);
+    const delta = signalsToDelta(signals);
+
+    let updated: { score: number; grade: string } | null = null;
+    if (delta > 0) {
+      updated = await adjustScore(
+        agentId,
+        delta,
+        'helius_enrichment',
+        `wallet=${walletAddress} txVolume=${signals.txVolume} usdcReceived=${signals.usdcVolumeReceived.toFixed(2)} uniquePayers=${signals.uniquePayers} walletAge=${signals.walletAgeDays}d`,
+      );
+    }
+
+    res.json({
+      success: true,
+      agentId,
+      walletAddress,
+      signals,
+      scoreDelta: delta,
+      updatedScore: updated?.score ?? null,
+      updatedGrade: updated?.grade ?? null,
+    });
+  } catch (err: any) {
+    logger.error('AgentRank enrich error', { agentId, err });
+    res.status(500).json({ error: 'Failed to enrich AgentRank' });
+  }
+});
+
 export default router;
+

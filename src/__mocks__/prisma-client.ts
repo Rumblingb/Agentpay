@@ -14,9 +14,24 @@ const mockPrismaClient = jest.fn().mockImplementation(() => ({
   paymentIntent: {
     create: jest.fn(),
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     delete: jest.fn(),
+  },
+  transactions: {
+    create: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
+  agent_wallets: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
   },
   verificationCertificate: {
     create: jest.fn(),
@@ -31,7 +46,13 @@ const mockPrismaClient = jest.fn().mockImplementation(() => ({
   },
   $connect: jest.fn(),
   $disconnect: jest.fn(),
+  $transaction: jest.fn().mockImplementation((ops: any) =>
+    Array.isArray(ops) ? Promise.all(ops) : ops(mockInstance)
+  ),
 }));
+
+// Expose a shared instance so $transaction callback can reference it
+const mockInstance = new (mockPrismaClient as any)();
 
 export { mockPrismaClient as PrismaClient };
 export const Prisma = {};

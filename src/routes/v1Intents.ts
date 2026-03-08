@@ -172,4 +172,95 @@ router.get('/:intentId', async (req: Request, res: Response) => {
   }
 });
 
+const verifyIntentSchema = Joi.object({
+  txHash: Joi.string().alphanum().min(32).max(128).required(),
+});
+
+/**
+ * POST /api/v1/payment-intents/:intentId/verify
+ *
+ * Agents submit the on-chain transaction hash that pays this intent.
+ * The hash is stored in the intent's metadata so the Solana listener can
+ * pick it up on the next poll cycle, verify it on-chain, and atomically
+ * update the intent status + create a transactions record.
+ *
+ * Returns immediately with `queued: true` — the listener confirms within
+ * one poll interval (default 30 s).
+ */
+router.post('/:intentId/verify', async (req: Request, res: Response) => {
+  const { intentId } = req.params;
+
+  if (!intentId || !uuidValidate(intentId)) {
+    res.status(400).json({ error: 'Invalid intent ID' });
+    return;
+  }
+
+  const { error, value } = verifyIntentSchema.validate(req.body);
+  if (error) {
+    res.status(400).json({
+      error: 'Validation error',
+      details: error.details.map((d) => d.message),
+    });
+    return;
+  }
+
+  try {
+    const result = await query(
+      `SELECT id, status, metadata, expires_at
+         FROM payment_intents WHERE id = $1`,
+      [intentId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Payment intent not found' });
+      return;
+    }
+
+    const intent = result.rows[0];
+
+    if (intent.status !== 'pending') {
+      res.status(409).json({
+        error: 'Intent is not pending',
+        status: intent.status,
+      });
+      return;
+    }
+
+    if (new Date(intent.expires_at) < new Date()) {
+      await query(
+        `UPDATE payment_intents SET status = 'expired', updated_at = NOW() WHERE id = $1`,
+        [intentId]
+      );
+      res.status(410).json({ error: 'Payment intent has expired' });
+      return;
+    }
+
+    // Merge tx_hash into the intent's metadata; the listener will process it
+    const existingMeta = (intent.metadata ?? {}) as Record<string, unknown>;
+    const updatedMeta = { ...existingMeta, tx_hash: value.txHash };
+
+    await query(
+      `UPDATE payment_intents
+          SET metadata   = $1::jsonb,
+              updated_at = NOW()
+        WHERE id = $2 AND status = 'pending'`,
+      [JSON.stringify(updatedMeta), intentId]
+    );
+
+    logger.info('Intent tx_hash queued for verification', { intentId, txHash: value.txHash });
+
+    res.json({
+      success: true,
+      queued: true,
+      intentId,
+      txHash: value.txHash,
+      message: 'Transaction hash received. The listener will confirm on-chain within the next poll cycle.',
+    });
+  } catch (err: any) {
+    logger.error('Intent verify error', { err });
+    res.status(500).json({ error: 'Failed to queue verification' });
+  }
+});
+
 export default router;
+
