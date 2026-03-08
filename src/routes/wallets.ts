@@ -22,6 +22,11 @@ import { logger } from '../logger.js';
 
 const router = Router();
 
+// Maximum single-transaction send limit.
+// Protects against fat-finger mistakes and reduces blast radius if a key is compromised.
+// Raise in Render env vars via WALLET_MAX_SEND_USDC if needed.
+const MAX_WALLET_SEND_USDC = parseInt(process.env.WALLET_MAX_SEND_USDC ?? '100000', 10);
+
 // Strict rate limit on wallet operations — these touch real keys
 const walletLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -41,7 +46,7 @@ const createWalletSchema = z.object({
 
 const sendSchema = z.object({
   toAddress: z.string().min(32).max(44),
-  amountUsdc: z.number().positive().max(100_000),
+  amountUsdc: z.number().positive().max(MAX_WALLET_SEND_USDC),
 });
 
 /**

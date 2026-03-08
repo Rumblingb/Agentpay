@@ -129,7 +129,8 @@ describe('POST /api/ap2/payment', () => {
 // 2. POST /api/v1/payment-intents/:intentId/verify
 // ---------------------------------------------------------------------------
 const VALID_UUID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-const VALID_TX_HASH = 'AbCdEfGhIjKlMnOpQrStUvWxYz123456abcdef12345678';
+// Valid Solana base58 tx hash (no 0, O, I, l characters)
+const VALID_TX_HASH = '5KtPn1LGuxhFiwjxErkxUR4uFdkKMnxNMxAgrCzqCdgJGFnFUaFnoC3rCCcnzFMGrgh2kB1x8QNZM';
 
 describe('POST /api/v1/payment-intents/:intentId/verify', () => {
   beforeEach(() => {

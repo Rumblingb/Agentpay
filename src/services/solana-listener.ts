@@ -190,9 +190,10 @@ async function processIntent(intent: PendingIntent): Promise<void> {
     return;
   }
 
-  // Strip the tx_hash sentinel so a re-check doesn't double-process.
-  // We update status to 'completed' and write a clean metadata snapshot.
-  const { tx_hash: _removed, ...cleanMeta } = (intent.metadata ?? {}) as Record<string, unknown>;
+  // Strip the tx_hash sentinel from cleanMeta so a re-check doesn't double-process.
+  // We update status to 'completed' and write a clean metadata snapshot that
+  // preserves the submitted hash for audit purposes.
+  const { tx_hash: _txHash, ...cleanMeta } = (intent.metadata ?? {}) as Record<string, unknown>;
 
   try {
     // Atomic: update the intent AND create the transactions row together.

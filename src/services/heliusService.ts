@@ -159,16 +159,23 @@ export async function getOnChainSignals(walletAddress: string): Promise<OnChainS
  * Convert raw on-chain signals to an AgentRank score delta.
  *
  * Scoring weights (tune as needed):
- *   - Each unique payer:    +2  (max 100 pts)
- *   - Wallet age per 30d:   +5  (max 100 pts)
- *   - USDC volume tiers:    +1 per $100 received (max 100 pts)
- *   - Tx volume per 10:     +1  (max 50 pts)
+ *   - Each unique payer:    +PAYER_WEIGHT  (cap PAYER_CAP pts)
+ *   - Wallet age per 30d:   +AGE_WEIGHT    (cap AGE_CAP pts)
+ *   - USDC volume per $100: +VOLUME_WEIGHT (cap VOLUME_CAP pts)
+ *   - Tx count per 10:      +TX_WEIGHT     (cap TX_CAP pts)
+ *
+ * Total maximum delta: 350 points (PAYER_CAP + AGE_CAP + VOLUME_CAP + TX_CAP).
  */
+const PAYER_WEIGHT  = 2;  const PAYER_CAP   = 100;  // unique payers × 2, capped at 100
+const AGE_WEIGHT    = 5;  const AGE_CAP     = 100;  // every 30 days × 5, capped at 100
+const VOLUME_WEIGHT = 1;  const VOLUME_CAP  = 100;  // every $100 USDC received × 1, capped at 100
+const TX_WEIGHT     = 1;  const TX_CAP      = 50;   // every 10 txs × 1, capped at 50
+
 export function signalsToDelta(signals: OnChainSignals): number {
-  const payerScore    = Math.min(signals.uniquePayers * 2, 100);
-  const ageScore      = Math.min(Math.floor(signals.walletAgeDays / 30) * 5, 100);
-  const volumeScore   = Math.min(Math.floor(signals.usdcVolumeReceived / 100), 100);
-  const txScore       = Math.min(Math.floor(signals.txVolume / 10), 50);
+  const payerScore  = Math.min(signals.uniquePayers * PAYER_WEIGHT, PAYER_CAP);
+  const ageScore    = Math.min(Math.floor(signals.walletAgeDays / 30) * AGE_WEIGHT, AGE_CAP);
+  const volumeScore = Math.min(Math.floor(signals.usdcVolumeReceived / 100) * VOLUME_WEIGHT, VOLUME_CAP);
+  const txScore     = Math.min(Math.floor(signals.txVolume / 10) * TX_WEIGHT, TX_CAP);
 
   return payerScore + ageScore + volumeScore + txScore;
 }

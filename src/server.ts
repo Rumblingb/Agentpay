@@ -54,7 +54,7 @@ async function initSentry(): Promise<void> {
     SentryInstance = Sentry;
     logger.info('Sentry initialised');
   } catch {
-    logger.warn('Sentry package not installed — error tracking disabled. Run: npm install @sentry/node');
+    logger.warn('Sentry package not installed — error tracking is disabled. To enable it, run: npm install @sentry/node (only needed when SENTRY_DSN is configured)');
   }
 }
 

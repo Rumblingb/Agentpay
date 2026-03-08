@@ -173,7 +173,12 @@ router.get('/:intentId', async (req: Request, res: Response) => {
 });
 
 const verifyIntentSchema = Joi.object({
-  txHash: Joi.string().alphanum().min(32).max(128).required(),
+  // Solana transaction signatures are base58-encoded 64-byte values (88 chars).
+  // We also accept shorter hashes for future multi-chain support.
+  txHash: Joi.string()
+    .pattern(/^[1-9A-HJ-NP-Za-km-z]{32,128}$/)
+    .required()
+    .messages({ 'string.pattern.base': '"txHash" must be a valid base58-encoded transaction signature' }),
 });
 
 /**

@@ -205,7 +205,9 @@ export async function sendUsdc(
         fromPubkey: fromKeypair.publicKey.toBase58(),
       });
 
-      const simSignature = `sim-${Date.now()}-${fromKeypair.publicKey.toBase58().slice(0, 8)}`;
+      // Use a clearly-prefixed stub signature that can never collide with real
+      // 88-char base58 Solana signatures in logs or debugging output.
+      const simSignature = `agentpay-stub-${Date.now()}-${fromKeypair.publicKey.toBase58().slice(0, 8)}`;
 
       await prisma.agent_wallets.update({
         where: { agent_id: fromAgentId },
@@ -224,7 +226,8 @@ export async function sendUsdc(
   }
 
   // Dev/test mode: simulate the transfer, update only DB balance
-  const simSignature = `db-only-${Date.now()}`;
+  // Prefix distinctly so stub signatures can never be confused with real 88-char base58 on-chain sigs.
+  const simSignature = `agentpay-db-only-${Date.now()}`;
   await prisma.agent_wallets.update({
     where: { agent_id: fromAgentId },
     data: {
