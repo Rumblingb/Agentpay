@@ -66,12 +66,14 @@ export async function authenticateApiKey(
     }
 
     // 4. Call the service
-    const merchant = await merchantsService.authenticateMerchant(apiKey);
+    const result = await merchantsService.authenticateMerchant(apiKey);
 
-    if (!merchant) {
-      logger.warn('[Auth] Authentication failed for key', { 
-        keyPreview: `${apiKey.substring(0, 8)}...` 
-      });
+    if (!result.merchant) {
+      if (result.reason === 'prefix_not_found') {
+        logger.warn(`[Auth] Authentication failed: Key prefix '${apiKey.substring(0, 8)}...' not found in database`);
+      } else {
+        logger.warn(`[Auth] Authentication failed: PBKDF2 hash mismatch for key prefix '${apiKey.substring(0, 8)}...' — key may have been rotated or was inserted with the wrong algorithm (run: node scripts/generate-hash.cjs <key> <email>)`);
+      }
       res.status(401).json({
         code: 'AUTH_INVALID',
         message: 'Invalid API key',
@@ -85,7 +87,7 @@ export async function authenticateApiKey(
     }
 
     // 5. Success
-    req.merchant = merchant;
+    req.merchant = result.merchant;
     next();
   } catch (error: any) {
     logger.error('Auth middleware error:', { 

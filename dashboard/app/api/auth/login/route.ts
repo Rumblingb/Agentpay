@@ -27,7 +27,9 @@ export async function POST(request: NextRequest) {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(10_000),
+        // Render free-tier instances can take 30+ seconds to cold-start;
+        // use 25 s so a slow wake-up doesn't produce a false "unreachable" error.
+        signal: AbortSignal.timeout(25_000),
       });
     } catch {
       // Network error — backend is unreachable (Render cold-start, DNS, etc.)

@@ -16,7 +16,8 @@ export interface MerchantProfile {
   name: string;
   email: string;
   walletAddress: string;
-  createdAt: string;
+  webhookUrl?: string | null;
+  createdAt: string | null;
 }
 
 export interface PaymentStats {

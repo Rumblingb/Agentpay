@@ -48,15 +48,6 @@ interface EscrowStats {
   }>;
 }
 
-async function fetchStats(): Promise<PaymentStats> {
-  const res = await fetch('/api/me');
-  if (!res.ok) throw new Error('Failed to fetch profile');
-  // Use the payments endpoint for stats
-  const statsRes = await fetch('/api/stats');
-  if (!statsRes.ok) throw new Error('Failed to fetch stats');
-  return statsRes.json();
-}
-
 async function fetchPaymentsData(): Promise<{ transactions: Payment[]; stats: PaymentStats }> {
   const res = await fetch('/api/payments');
   if (!res.ok) throw new Error('Failed to load payments');
