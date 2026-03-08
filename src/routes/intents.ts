@@ -6,8 +6,50 @@ import * as stripeService from '../services/stripeService.js';
 import { query } from '../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../logger.js';
+import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+// GET /api/intents — list payment intents for the authenticated merchant
+router.get('/', authenticateApiKey, async (req: Request, res: Response) => {
+  try {
+    const merchant = (req as any).merchant;
+    const intents = await prisma.paymentIntent.findMany({
+      where: { merchantId: merchant.id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        status: true,
+        verificationToken: true,
+        expiresAt: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      intents: intents.map((i) => ({
+        intentId: i.id,
+        amount: Number(i.amount),
+        currency: i.currency,
+        status: i.status,
+        verificationToken: i.verificationToken,
+        expiresAt: i.expiresAt.toISOString(),
+        metadata: i.metadata,
+        createdAt: i.createdAt?.toISOString() ?? null,
+        updatedAt: i.updatedAt?.toISOString() ?? null,
+      })),
+    });
+  } catch (err: any) {
+    logger.error('List intents error:', err);
+    res.status(500).json({ error: 'Failed to fetch payment intents' });
+  }
+});
 
 // POST /api/intents – create a new payment intent (merchant auth required)
 router.post('/', authenticateApiKey, createIntent);

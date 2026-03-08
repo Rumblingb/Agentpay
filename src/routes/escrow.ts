@@ -27,9 +27,11 @@ import {
   listEscrowsForAgent,
   getEscrowStats,
   getReleasedEscrows,
+  EscrowTransaction,
 } from '../escrow/trust-escrow.js';
 import { adjustScore } from '../services/agentrankService.js';
 import { query } from '../db/index.js';
+import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
 
 const router = Router();
@@ -162,6 +164,122 @@ async function incrementMerchantVolume(merchantId: string, amountUsdc: number): 
 }
 
 // ---------------------------------------------------------------------------
+// Helper — persist escrow to escrow_transactions (best-effort; DB may be offline)
+// ---------------------------------------------------------------------------
+
+async function persistEscrowToEscrowTransactions(escrow: EscrowTransaction): Promise<void> {
+  try {
+    await prisma.escrow_transactions.create({
+      data: {
+        id: escrow.id,
+        hiring_agent: escrow.hiringAgent,
+        working_agent: escrow.workingAgent,
+        amount_usdc: escrow.amountUsdc,
+        status: escrow.status,
+        work_description: escrow.workDescription ?? null,
+        deadline: escrow.deadline ?? null,
+      },
+    });
+    logger.info('Escrow persisted to escrow_transactions', { escrowId: escrow.id });
+  } catch (err: any) {
+    logger.warn('Could not persist to escrow_transactions (DB may be unavailable)', {
+      escrowId: escrow.id,
+      error: err?.message,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper — update escrow status in escrow_transactions
+// ---------------------------------------------------------------------------
+
+async function updateEscrowTransactionStatus(
+  escrowId: string,
+  update: {
+    status: string;
+    completedAt?: Date | null;
+    reputationDeltaHiring?: number;
+    reputationDeltaWorking?: number;
+    disputeReason?: string | null;
+    guiltyParty?: string | null;
+  },
+): Promise<void> {
+  try {
+    await prisma.escrow_transactions.updateMany({
+      where: { id: escrowId },
+      data: {
+        status: update.status,
+        completed_at: update.completedAt ?? undefined,
+        reputation_delta_hiring: update.reputationDeltaHiring ?? undefined,
+        reputation_delta_working: update.reputationDeltaWorking ?? undefined,
+        dispute_reason: update.disputeReason ?? undefined,
+        guilty_party: update.guiltyParty ?? undefined,
+        updated_at: new Date(),
+      },
+    });
+  } catch (err: any) {
+    logger.warn('Could not update escrow_transactions status', {
+      escrowId,
+      error: err?.message,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper — create a transactions record on escrow release
+// ---------------------------------------------------------------------------
+
+async function createTransactionRecord(
+  merchantId: string,
+  escrowId: string,
+  amountUsdc: number,
+  recipientAddress: string,
+): Promise<void> {
+  try {
+    await prisma.transactions.create({
+      data: {
+        // These fields use snake_case because they map directly to the DB columns
+        // in the `transactions` Prisma model (which was auto-generated from the schema).
+        merchant_id: merchantId,
+        payment_id: escrowId,
+        amount_usdc: amountUsdc,
+        recipient_address: recipientAddress,
+        status: 'confirmed',
+      },
+    });
+    logger.info('Transactions record created for escrow release', { escrowId, merchantId });
+  } catch (err: any) {
+    logger.warn('Could not create transactions record for escrow', {
+      escrowId,
+      error: err?.message,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper — map a DB escrow_transactions row to the EscrowTransaction shape
+// ---------------------------------------------------------------------------
+
+function dbRowToEscrowTransaction(row: any): EscrowTransaction {
+  return {
+    id: row.id,
+    hiringAgent: row.hiring_agent,
+    workingAgent: row.working_agent,
+    amountUsdc: Number(row.amount_usdc),
+    status: row.status as EscrowTransaction['status'],
+    workDescription: row.work_description ?? null,
+    deadline: row.deadline ? new Date(row.deadline) : null,
+    completedAt: row.completed_at ? new Date(row.completed_at) : null,
+    reputationDeltaHiring: row.reputation_delta_hiring ?? 0,
+    reputationDeltaWorking: row.reputation_delta_working ?? 0,
+    disputeReason: row.dispute_reason ?? null,
+    guiltyParty: row.guilty_party ?? null,
+    createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Routes — static paths MUST be registered before param routes
 // ---------------------------------------------------------------------------
 
@@ -213,6 +331,9 @@ router.post('/create', async (req: Request, res: Response) => {
     });
 
     logger.info('Escrow created', { escrowId: escrow.id, hiringAgent, workingAgent, amountUsdc });
+
+    // Persist to escrow_transactions table (best-effort)
+    await persistEscrowToEscrowTransactions(escrow);
 
     // Persist to payment_intents table if a merchant is authenticated (best-effort)
     const merchant = (req as AuthRequest).merchant;
@@ -275,7 +396,14 @@ router.post('/approve', authenticateApiKey, async (req: AuthRequest, res: Respon
       adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
     ]);
 
-    // Update merchant total_volume + payment_intents status
+    // Persist escrow status + create transactions record
+    await updateEscrowTransactionStatus(escrow.id, {
+      status: 'released',
+      reputationDeltaHiring: REPUTATION_DELTA,
+      reputationDeltaWorking: REPUTATION_DELTA,
+    });
+
+    // Update merchant total_volume + payment_intents status + transactions record
     if (req.merchant) {
       await Promise.all([
         incrementMerchantVolume(req.merchant.id, escrow.amountUsdc),
@@ -285,6 +413,7 @@ router.post('/approve', authenticateApiKey, async (req: AuthRequest, res: Respon
         ).catch((err) => {
           logger.debug('payment_intents update skipped (escrow not in table or DB offline)', { escrowId: escrow.id, err: err?.message });
         }),
+        createTransactionRecord(req.merchant.id, escrow.id, escrow.amountUsdc, escrow.workingAgent),
       ]);
     }
 
@@ -308,6 +437,13 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
   try {
     const escrow = markComplete(req.params.id, parsed.data.callerAgent);
     logger.info('Escrow marked complete', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
+
+    // Persist status change to escrow_transactions (best-effort)
+    await updateEscrowTransactionStatus(escrow.id, {
+      status: 'completed',
+      completedAt: escrow.completedAt,
+    });
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow complete error:', error);
@@ -335,7 +471,14 @@ router.post('/:id/approve', authenticateApiKey, async (req: AuthRequest, res: Re
       adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
     ]);
 
-    // Update merchant total_volume + mark payment_intent completed
+    // Persist escrow status change
+    await updateEscrowTransactionStatus(escrow.id, {
+      status: 'released',
+      reputationDeltaHiring: REPUTATION_DELTA,
+      reputationDeltaWorking: REPUTATION_DELTA,
+    });
+
+    // Update merchant total_volume + mark payment_intent completed + create transactions record
     if (req.merchant) {
       await Promise.all([
         incrementMerchantVolume(req.merchant.id, escrow.amountUsdc),
@@ -345,6 +488,7 @@ router.post('/:id/approve', authenticateApiKey, async (req: AuthRequest, res: Re
         ).catch((err) => {
           logger.debug('payment_intents update skipped (escrow not in table or DB offline)', { escrowId: escrow.id, err: err?.message });
         }),
+        createTransactionRecord(req.merchant.id, escrow.id, escrow.amountUsdc, escrow.workingAgent),
       ]);
     }
 
@@ -373,6 +517,15 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
     const DISPUTE_PENALTY = -20;
     await adjustScore(guiltyParty, DISPUTE_PENALTY, 'escrow_dispute', `Escrow ${escrow.id}: ${reason}`);
 
+    // Persist dispute status to escrow_transactions (best-effort)
+    await updateEscrowTransactionStatus(escrow.id, {
+      status: 'disputed',
+      disputeReason: reason,
+      guiltyParty,
+      reputationDeltaHiring: guiltyParty === escrow.hiringAgent ? DISPUTE_PENALTY : 0,
+      reputationDeltaWorking: guiltyParty === escrow.workingAgent ? DISPUTE_PENALTY : 0,
+    });
+
     res.json({ success: true, escrow });
   } catch (error: any) {
     logger.error('Escrow dispute error:', error);
@@ -385,7 +538,18 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const escrow = getEscrow(req.params.id);
+    let escrow: EscrowTransaction | null = getEscrow(req.params.id);
+
+    // Cache miss — try the DB (e.g., after a server restart)
+    if (!escrow) {
+      const dbRow = await prisma.escrow_transactions
+        .findUnique({ where: { id: req.params.id } })
+        .catch(() => null);
+      if (dbRow) {
+        escrow = dbRowToEscrowTransaction(dbRow);
+      }
+    }
+
     if (!escrow) {
       res.status(404).json({ error: 'Escrow not found' });
       return;
@@ -403,7 +567,28 @@ router.get('/:id', async (req: Request, res: Response) => {
  */
 router.get('/agent/:agentId', async (req: Request, res: Response) => {
   try {
-    const escrows = listEscrowsForAgent(req.params.agentId);
+    const memEscrows = listEscrowsForAgent(req.params.agentId);
+    const memIds = new Set(memEscrows.map((e) => e.id));
+
+    // Merge with DB results so data persisted before a restart is included
+    const dbRows = await prisma.escrow_transactions
+      .findMany({
+        where: {
+          OR: [
+            { hiring_agent: req.params.agentId },
+            { working_agent: req.params.agentId },
+          ],
+        },
+        orderBy: { created_at: 'desc' },
+        take: 100,
+      })
+      .catch(() => []);
+
+    const dbEscrows = dbRows
+      .filter((row) => !memIds.has(row.id))
+      .map(dbRowToEscrowTransaction);
+
+    const escrows = [...memEscrows, ...dbEscrows];
     res.json({ success: true, escrows });
   } catch (error: any) {
     logger.error('Escrow list error:', error);

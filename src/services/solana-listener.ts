@@ -3,6 +3,7 @@ import { logger } from '../logger.js';
 import { verifyPaymentRecipient } from '../security/payment-verification.js';
 import * as webhooksService from './webhooks.js';
 import type { WebhookPayload } from './webhooks.js';
+import prisma from '../lib/prisma.js';
 
 const LISTENER_POLL_INTERVAL_MS = parseInt(process.env.LISTENER_POLL_INTERVAL_MS || '30000', 10);
 
@@ -91,6 +92,19 @@ async function processTransaction(tx: PendingTx): Promise<void> {
     payer: verification.payer,
     confirmationDepth: verification.confirmationDepth,
   });
+
+  // Also mark the linked payment intent as completed (best-effort)
+  prisma.paymentIntent
+    .updateMany({
+      where: { id: tx.paymentId },
+      data: { status: 'completed' },
+    })
+    .catch((err: any) =>
+      logger.debug('Listener: could not update payment_intents status', {
+        paymentId: tx.paymentId,
+        error: err?.message,
+      }),
+    );
 
   // Fire webhook asynchronously — non-blocking
   if (tx.webhookUrl) {
