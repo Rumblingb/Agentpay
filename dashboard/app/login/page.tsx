@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogIn, RefreshCw, Shield, Lock, Coins } from 'lucide-react';
+import { LogIn, RefreshCw, Shield, Lock, Coins, AlertTriangle, CheckCircle2 } from 'lucide-react';
+
+type HealthStatus = 'checking' | 'ok' | 'degraded' | 'unreachable';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +12,24 @@ export default function LoginPage() {
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [health, setHealth] = useState<HealthStatus>('checking');
+
+  // Check backend health once on mount so the user knows if Render is cold-starting
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.status === 'active') setHealth('ok');
+        else if (data.status === 'unreachable') setHealth('unreachable');
+        else setHealth('degraded');
+      })
+      .catch(() => {
+        if (!cancelled) setHealth('unreachable');
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -70,6 +90,32 @@ export default function LoginPage() {
               <p className="text-xs text-slate-500">Access your payment dashboard</p>
             </div>
           </div>
+
+          {/* Backend health banner */}
+          {health === 'checking' && (
+            <div className="mb-4 bg-slate-800/60 border border-slate-700/50 text-slate-400 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
+              <RefreshCw className="shrink-0 animate-spin" size={12} />
+              <span>Checking backend status…</span>
+            </div>
+          )}
+          {health === 'unreachable' && (
+            <div className="mb-4 bg-yellow-900/30 border border-yellow-700/50 text-yellow-300 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2">
+              <AlertTriangle className="shrink-0 mt-0.5" size={13} />
+              <span>Backend unreachable — Render may be cold-starting. Wait ~30 s and refresh before logging in.</span>
+            </div>
+          )}
+          {health === 'degraded' && (
+            <div className="mb-4 bg-yellow-900/30 border border-yellow-700/50 text-yellow-300 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2">
+              <AlertTriangle className="shrink-0 mt-0.5" size={13} />
+              <span>Backend is degraded (database may be unavailable). Login may fail.</span>
+            </div>
+          )}
+          {health === 'ok' && (
+            <div className="mb-4 bg-emerald-900/20 border border-emerald-700/30 text-emerald-400 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
+              <CheckCircle2 className="shrink-0" size={12} />
+              <span>Backend is online</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 bg-red-900/30 border border-red-700/50 text-red-300 px-4 py-3 rounded-xl text-sm flex items-start gap-2">

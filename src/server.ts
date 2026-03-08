@@ -119,14 +119,39 @@ app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 app.use(cors({
-  origin: process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'http://localhost:3001',
-        'https://apay-delta.vercel.app',
-      ],
+  origin: (incomingOrigin, callback) => {
+    // Always allow same-origin / non-browser requests (no Origin header)
+    if (!incomingOrigin) {
+      callback(null, true);
+      return;
+    }
+
+    // Explicit allowlist (env override takes precedence)
+    const allowlist: string[] = process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+      : [
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+          'http://localhost:3001',
+          'https://apay-delta.vercel.app',
+        ];
+
+    if (allowlist.includes(incomingOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    // Allow Vercel preview deployment URLs for this project.
+    // Pattern matches: https://<agentpay|apay>-<hash>-<team>.vercel.app
+    // Restricting to the known project name prefix prevents unrelated Vercel
+    // apps from satisfying the CORS check.
+    if (/^https:\/\/(agentpay|apay)-[a-z0-9-]+\.vercel\.app$/.test(incomingOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS: origin '${incomingOrigin}' not allowed`));
+  },
   credentials: true,
 }));
 

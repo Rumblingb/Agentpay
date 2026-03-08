@@ -50,9 +50,18 @@ export async function registerMerchant(
   }
 }
 
-export async function authenticateMerchant(apiKey: string): Promise<Merchant | null> {
+/**
+ * Typed result returned by authenticateMerchant.
+ * The `reason` field pinpoints the exact failure so callers can emit
+ * granular log messages without a second DB round-trip.
+ */
+export type AuthenticateResult =
+  | { merchant: Merchant; reason: null }
+  | { merchant: null; reason: 'prefix_not_found' | 'hash_mismatch' };
+
+export async function authenticateMerchant(apiKey: string): Promise<AuthenticateResult> {
   if (!apiKey) {
-    return null;
+    return { merchant: null, reason: 'prefix_not_found' };
   }
   try {
     // Use key_prefix for efficient indexed lookup instead of scanning all merchants
@@ -65,7 +74,7 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
     );
 
     if (!result.rows || result.rows.length === 0) {
-      return null;
+      return { merchant: null, reason: 'prefix_not_found' };
     }
 
     for (const row of result.rows) {
@@ -74,17 +83,22 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
 
       if (testHash === row.apiKeyHash) {
         return {
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          walletAddress: row.walletAddress,
-          webhookUrl: row.webhookUrl ?? null,
-          createdAt: row.createdAt,
+          merchant: {
+            id: row.id,
+            name: row.name,
+            email: row.email,
+            walletAddress: row.walletAddress,
+            webhookUrl: row.webhookUrl ?? null,
+            createdAt: row.createdAt,
+          },
+          reason: null,
         };
       }
     }
 
-    return null;
+    // Prefix was found but no hash matched — key has been rotated or was
+    // manually inserted with the wrong algorithm (e.g. SHA-256 instead of PBKDF2).
+    return { merchant: null, reason: 'hash_mismatch' };
   } catch (error: any) {
     throw error;
   }
