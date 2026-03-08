@@ -1,10 +1,14 @@
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import crypto from 'crypto';
+import { promisify } from 'util';
 import { query } from '../db/index.js';
 
 const PBKDF2_ITERATIONS = 100000;
 const PBKDF2_KEYLEN = 32;
 const PBKDF2_DIGEST = 'sha256';
+
+// Async PBKDF2 — avoids blocking the event loop for ~100–300 ms per call.
+const pbkdf2Async = promisify(crypto.pbkdf2);
 
 export interface Merchant {
   id: string;
@@ -25,9 +29,8 @@ export async function registerMerchant(
   const apiKey = crypto.randomBytes(32).toString('hex');
   const keyPrefix = apiKey.substring(0, 8);
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto
-    .pbkdf2Sync(apiKey, salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
-    .toString('hex');
+  const hashBuf = await pbkdf2Async(apiKey, salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST);
+  const hash = hashBuf.toString('hex');
 
   try {
     // Parameters: id, name, email, api_key_hash, api_key_salt, key_prefix,
@@ -66,9 +69,8 @@ export async function authenticateMerchant(apiKey: string): Promise<Merchant | n
     }
 
     for (const row of result.rows) {
-      const testHash = crypto
-        .pbkdf2Sync(apiKey, row.apiKeySalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
-        .toString('hex');
+      const hashBuf = await pbkdf2Async(apiKey, row.apiKeySalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST);
+      const testHash = hashBuf.toString('hex');
 
       if (testHash === row.apiKeyHash) {
         return {
@@ -125,9 +127,8 @@ export async function rotateApiKey(merchantId: string): Promise<{ apiKey: string
   const newApiKey = crypto.randomBytes(32).toString('hex');
   const newKeyPrefix = newApiKey.substring(0, 8);
   const newSalt = crypto.randomBytes(16).toString('hex');
-  const newHash = crypto
-    .pbkdf2Sync(newApiKey, newSalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST)
-    .toString('hex');
+  const newHashBuf = await pbkdf2Async(newApiKey, newSalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST);
+  const newHash = newHashBuf.toString('hex');
 
   const result = await query(
     `UPDATE merchants

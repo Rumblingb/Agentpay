@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { Keypair } from '@solana/web3.js';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
+import { encryptKeypair, decryptKeypair } from '../utils/walletEncryption.js';
 
 const SALT_ROUNDS = 12;
 
@@ -84,6 +85,33 @@ async function fireSpendAlert(
 
 // ── Bot Registration ───────────────────────────────────────────────────────
 
+/**
+ * Encrypts a Solana keypair's secret key.
+ * Falls back to empty string if AGENTPAY_SIGNING_SECRET is not configured
+ * (e.g. local development without .env) so registration doesn't hard-fail,
+ * but logs a warning so operators know the keypair is unprotected.
+ */
+function encryptKeypairSafe(keypair: Keypair): string {
+  try {
+    return encryptKeypair(keypair.secretKey);
+  } catch (err: any) {
+    const isDevEnv = process.env.NODE_ENV !== 'production';
+    if (isDevEnv) {
+      logger.warn('Wallet keypair encryption skipped — AGENTPAY_SIGNING_SECRET not set', {
+        error: err?.message,
+        env: process.env.NODE_ENV,
+      });
+    } else {
+      logger.error(
+        'CRITICAL: Wallet keypair encryption failed in production — AGENTPAY_SIGNING_SECRET missing. ' +
+        'Bot wallet will be unrecoverable.',
+        { error: err?.message, env: process.env.NODE_ENV },
+      );
+    }
+    return '';
+  }
+}
+
 export interface BotRegistrationResult {
   botId: string;
   platformBotId: string;
@@ -131,10 +159,11 @@ export async function registerBot(
         options?.created_by ?? null,
         options?.primary_function ?? null,
         walletAddress,
-        // TODO: In production, encrypt wallet.secretKey with AES-256-GCM and store it here.
-        // Leaving this empty means the private key is not persisted and wallet recovery is impossible.
-        // See: https://docs.agentpay.gg/security/wallet-storage
-        '',
+        // AES-256-GCM encrypted secret key, keyed off AGENTPAY_SIGNING_SECRET.
+        // Empty string is stored as a fallback when the secret is not configured
+        // (e.g. local dev without .env) — wallet recovery will not be possible
+        // in that case, but no exception is raised so bot registration still works.
+        encryptKeypairSafe(wallet),
         DEFAULT_SPENDING_POLICY.daily_spending_limit,
         DEFAULT_SPENDING_POLICY.per_tx_limit,
         DEFAULT_SPENDING_POLICY.auto_approve_under,

@@ -32,6 +32,7 @@ const nextConfig: NextConfig = {
             // and 'unsafe-inline' (required by Next.js hydration data scripts).
             // *.supabase.co allows Supabase auth/data connections from the browser.
             // *.vercel.app allows cross-app communication in Vercel preview environments.
+            // *.onrender.com allows direct connections to the Express backend on Render.
             // This is a net improvement over the previous state (no CSP at all).
             // TODO: Migrate to nonce-based CSP when Next.js experimental
             //       `contentSecurityPolicy` config is stable.
@@ -40,7 +41,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.supabase.co *.vercel.app",
               "style-src 'self' 'unsafe-inline'",
-              "connect-src 'self' *.supabase.co",
+              "connect-src 'self' *.supabase.co *.onrender.com *.vercel.app",
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
               "frame-src 'none'",

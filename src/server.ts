@@ -36,9 +36,40 @@ import { startSolanaListener } from './services/solana-listener.js';
 
 dotenv.config();
 
+// --- STARTUP VALIDATION — fail fast in production if required secrets are defaults ---
+if (process.env.NODE_ENV === 'production') {
+  const INSECURE_DEFAULTS: Record<string, string> = {
+    WEBHOOK_SECRET: 'change-me-in-production',
+    AGENTPAY_SIGNING_SECRET: 'your-signing-secret-here',
+    VERIFICATION_SECRET: 'your-verification-secret-here',
+  };
+  for (const [key, insecureValue] of Object.entries(INSECURE_DEFAULTS)) {
+    const val = process.env[key];
+    if (!val || val === insecureValue) {
+      console.error(`[STARTUP] FATAL: ${key} is not set or is an insecure default. Refusing to start in production.`);
+      process.exit(1);
+    }
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error('[STARTUP] FATAL: DATABASE_URL is not set. Refusing to start in production.');
+    process.exit(1);
+  }
+  // Hard-block: AGENTPAY_TEST_MODE must never be true in production — it
+  // exposes the /api/test routes and a credential bypass (sk_test_sim key).
+  // Fix: set AGENTPAY_TEST_MODE=false (or remove it) in your Render env vars.
+  if (process.env.AGENTPAY_TEST_MODE === 'true') {
+    console.error('[STARTUP] FATAL: AGENTPAY_TEST_MODE=true in production. Refusing to start. Set AGENTPAY_TEST_MODE=false or remove it from environment variables.');
+    process.exit(1);
+  }
+} else if (process.env.NODE_ENV !== 'test' && (process.env.WEBHOOK_SECRET === 'change-me-in-production' || !process.env.WEBHOOK_SECRET)) {
+  // Non-production: warn but don't exit
+  console.warn('[STARTUP] WARNING: WEBHOOK_SECRET is not set or is using the insecure default. Set a strong secret before going to production.');
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
+const API_VERSION = '1.0.0';
 
 // --- RATE LIMITERS ---
 const globalLimiter = rateLimit({
@@ -93,8 +124,8 @@ app.get('/', (_req: Request, res: Response) => {
   res.status(200).send('AgentPay API is Live 🚀');
 });
 
-// --- HEALTH CHECK --- PRODUCTION FIX — enhanced with real DB check
-app.get('/health', async (_req: Request, res: Response) => {
+// --- HEALTH CHECK helper — shared by /health and /api/health ---
+async function healthCheckHandler(_req: Request, res: Response): Promise<void> {
   let dbStatus: 'operational' | 'degraded' = 'operational';
 
   try {
@@ -116,9 +147,23 @@ app.get('/health', async (_req: Request, res: Response) => {
       kya: { status: 'operational' },
       behavioral_oracle: { status: 'operational' },
     },
-    version: '1.0.0',
+    version: API_VERSION,
+  });
+}
+
+app.get('/health', healthCheckHandler);
+
+// --- API STATUS ROUTES — reachable at /api and /api/health ---
+app.get('/api', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'AgentPay API Active',
+    version: API_VERSION,
+    timestamp: new Date().toISOString(),
+    docs: '/api/docs',
   });
 });
+
+app.get('/api/health', healthCheckHandler);
 
 // --- TEST-MODE ROUTES (Mount BEFORE API routes to catch specific test paths) ---
 if (process.env.NODE_ENV === 'test' || process.env.AGENTPAY_TEST_MODE === 'true') {
@@ -175,6 +220,17 @@ app.use('/api/protocol', createPalRouter());
 // API Documentation — Swagger UI
 app.use('/api/docs', apiDocsRouter);
 
+// --- 404 HANDLER — catches unmatched routes and returns helpful JSON ---
+app.use((_req: Request, res: Response) => {
+  // Log only method + pathname, never query params (may contain tokens/secrets)
+  logger.warn(`404 Not Found: ${_req.method} ${_req.path}`);
+  res.status(404).json({
+    error: 'NOT_FOUND',
+    message: `Route ${_req.method} ${_req.path} not found`,
+    docs: '/api/docs',
+  });
+});
+
 // --- GLOBAL ERROR HANDLER ---
 app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   const code: string = error.code ?? error.type ?? 'INTERNAL_ERROR';
@@ -205,9 +261,41 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 AgentPay API running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, () => {
+    logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
+    if (process.env.NODE_ENV === 'production') {
+      // Warn operators about in-memory stores that lose data on restart.
+      logger.warn(
+        'NOTICE: Escrow transactions and AP2 payment requests are stored in-memory ' +
+        'and will be lost on server restart. Persist them to the DB before handling ' +
+        'real funds (see src/escrow/trust-escrow.ts and src/protocols/ap2.ts).',
+      );
+    }
   });
+
+  // --- GRACEFUL SHUTDOWN — allow in-flight requests to finish before exit ---
+  const shutdown = (signal: string) => {
+    logger.info(`${signal} received — shutting down gracefully`);
+    server.close(async () => {
+      try {
+        const { closePool } = await import('./db/index.js');
+        await closePool();
+        logger.info('DB pool closed. Goodbye.');
+      } catch {
+        // pool may already be closed
+      }
+      process.exit(0);
+    });
+    // Force exit after 10s if requests don't drain
+    setTimeout(() => {
+      logger.error('Forceful shutdown after timeout');
+      process.exit(1);
+    }, 10_000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
   startSolanaListener();
 }
 

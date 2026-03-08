@@ -63,10 +63,16 @@ const registerSchema = Joi.object({
   name: Joi.string().min(3).max(255).required(),
   email: Joi.string().email().required(),
   walletAddress: Joi.string().min(32).max(44).required(),
+  // Accept any syntactically valid URI here. The SSRF-protection and HTTPS
+  // enforcement are handled by validateWebhookUrl() inside scheduleWebhook()
+  // which is the authoritative security layer. Using a single validation point
+  // avoids environment-dependent schema divergence and keeps registration-time
+  // errors focused on payload shape rather than delivery policy.
   webhookUrl: Joi.string().uri().optional(),
 });
 
 const webhookUpdateSchema = Joi.object({
+  // URI syntax check only; SSRF/HTTPS enforcement is in scheduleWebhook.
   webhookUrl: Joi.string().uri().required().allow(null),
 });
 

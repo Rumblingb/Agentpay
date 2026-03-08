@@ -58,6 +58,8 @@
  * @module trust-escrow
  */
 
+import { v4 as uuidv4 } from 'uuid';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -103,16 +105,14 @@ const AUTO_RELEASE_HOURS = 24;
 // ---------------------------------------------------------------------------
 
 let escrowStore: EscrowTransaction[] = [];
-let idCounter = 1;
 
 function generateId(): string {
-  return `escrow-${Date.now()}-${idCounter++}`;
+  return uuidv4();
 }
 
 /** Reset store — useful for tests */
 export function _resetStore(): void {
   escrowStore = [];
-  idCounter = 1;
 }
 
 // ---------------------------------------------------------------------------
