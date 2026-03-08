@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, DollarSign, CheckCircle, Clock } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, DollarSign, CheckCircle, Clock, Play, Loader2 } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import OnboardingTour from '@/components/OnboardingTour';
+import RecentActivity from '@/components/RecentActivity';
 // PRODUCTION FIX — NETWORK HEALTH CHART
 import NetworkHealthChart from '@/components/NetworkHealthChart';
 import {
@@ -98,6 +99,28 @@ function buildChartData(payments: Payment[]) {
 
 export default function OverviewPage() {
   const [isClient, setIsClient] = useState(false);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [demoSuccess, setDemoSuccess] = useState(false);
+  const queryClient = useQueryClient();
+
+  const runDemo = useCallback(async () => {
+    setDemoRunning(true);
+    setDemoSuccess(false);
+    try {
+      const res = await fetch('/api/demo', { method: 'POST' });
+      if (res.ok) {
+        setDemoSuccess(true);
+        // Refresh payments and activity data
+        queryClient.invalidateQueries({ queryKey: ['overview'] });
+        queryClient.invalidateQueries({ queryKey: ['escrowStats'] });
+        setTimeout(() => setDemoSuccess(false), 4000);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setDemoRunning(false);
+    }
+  }, [queryClient]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['overview'],
@@ -234,6 +257,31 @@ export default function OverviewPage() {
 
       {/* PRODUCTION FIX — NETWORK HEALTH CHART: TVS visualisation */}
       <NetworkHealthChart />
+
+      {/* Recent Agent Payments activity feed */}
+      <RecentActivity />
+
+      {/* One-Click Demo */}
+      <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        <div className="flex-1">
+          <h2 className="font-semibold mb-1">Run AI Agent Payment Demo</h2>
+          <p className="text-sm text-slate-400">
+            Simulate a full agent-initiated $0.10 USDC payment end-to-end — no wallet required.
+          </p>
+        </div>
+        <button
+          onClick={runDemo}
+          disabled={demoRunning}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+            demoSuccess
+              ? 'bg-emerald-500 text-white scale-105'
+              : 'bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50'
+          }`}
+        >
+          {demoRunning ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+          {demoRunning ? 'Running…' : demoSuccess ? '✓ Payment Confirmed!' : 'Run Agent Demo'}
+        </button>
+      </div>
     </div>
   );
 }

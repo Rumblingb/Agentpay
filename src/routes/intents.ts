@@ -128,4 +128,43 @@ router.post('/fiat', authenticateApiKey, async (req: Request, res: Response) => 
   }
 });
 
+// GET /api/activity — return last 20 transactions for activity feed
+router.get('/activity', authenticateApiKey, async (req: Request, res: Response) => {
+  try {
+    const merchant = (req as any).merchant;
+    const rows = await prisma.transactions.findMany({
+      where: { merchant_id: merchant.id },
+      orderBy: { created_at: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        amount_usdc: true,
+        recipient_address: true,
+        status: true,
+        metadata: true,
+        created_at: true,
+      },
+    });
+
+    const activity = rows.map((r) => {
+      const meta = (r.metadata as Record<string, unknown>) ?? {};
+      return {
+        id: r.id,
+        amount: Number(r.amount_usdc),
+        currency: 'USDC',
+        recipientAddress: r.recipient_address,
+        sourceAgent: (meta['source_agent'] as string) ?? 'Autonomous Agent',
+        destinationService: (meta['destination_service'] as string) ?? null,
+        status: r.status,
+        createdAt: r.created_at?.toISOString() ?? null,
+      };
+    });
+
+    res.json({ success: true, activity });
+  } catch (err: any) {
+    logger.error('Activity feed error:', err);
+    res.status(500).json({ error: 'Failed to fetch activity feed' });
+  }
+});
+
 export default router;

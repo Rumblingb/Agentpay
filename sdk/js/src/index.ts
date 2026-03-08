@@ -10,6 +10,8 @@ import type {
   CreateIntentResponse,
   IntentMetadata,
   IntentStatusResponse,
+  PaymentConfig,
+  PaymentResult,
   ValidateCertificateResponse,
 } from './types.js';
 
@@ -20,6 +22,9 @@ export type {
   IntentMetadata,
   IntentStatus,
   IntentStatusResponse,
+  PaymentConfig,
+  PaymentResult,
+  PaymentStatus,
   ValidateCertificateResponse,
 } from './types.js';
 
@@ -29,6 +34,110 @@ export {
   VerificationFailedError,
   VerificationTimeoutError,
 } from './errors.js';
+
+/**
+ * Class-based AgentPay SDK client.
+ *
+ * Allows AI agents to create and execute payments with minimal code:
+ *
+ * ```ts
+ * const agentpay = new AgentPay({ apiKey: process.env.AGENTPAY_API_KEY });
+ * const payment = await agentpay.pay({ amount: 1, currency: 'USDC' });
+ * console.log(payment.status);
+ * ```
+ */
+export class AgentPay {
+  private readonly client: HttpClient;
+
+  constructor(private readonly config: AgentPayConfig) {
+    this.client = new HttpClient(
+      config.baseUrl,
+      config.apiKey,
+      config.timeoutMs,
+    );
+  }
+
+  /**
+   * Create a new payment intent.
+   *
+   * @param amount - Amount in USDC
+   * @param currency - Currency code (default: "USDC")
+   * @param metadata - Optional metadata to attach
+   */
+  async createIntent(
+    amount: number,
+    currency = 'USDC',
+    metadata?: IntentMetadata,
+  ): Promise<CreateIntentResponse> {
+    return this.client.post<CreateIntentResponse>('/api/intents', {
+      amount,
+      currency,
+      ...(metadata ? { metadata } : {}),
+    });
+  }
+
+  /**
+   * Get the current status of a payment intent.
+   *
+   * @param intentId - ID of the intent to query
+   */
+  async getIntent(intentId: string): Promise<IntentStatusResponse> {
+    return this.client.get<IntentStatusResponse>(
+      `/api/intents/${intentId}/status`,
+    );
+  }
+
+  /**
+   * High-level helper: create an intent and return a PaymentResult with the
+   * Solana Pay URI. For fully autonomous payments, follow up with verify().
+   *
+   * @param config - Payment configuration (amount, currency, recipient, metadata)
+   */
+  async pay(config: PaymentConfig): Promise<PaymentResult> {
+    const { amount, currency = 'USDC', recipient, metadata } = config;
+
+    const meta: IntentMetadata = {
+      ...(metadata ?? {}),
+      ...(recipient ? { recipient } : {}),
+    };
+
+    const intent = await this.createIntent(
+      amount,
+      currency,
+      Object.keys(meta).length > 0 ? meta : undefined,
+    );
+
+    // Extract the Solana Pay URI from the instructions if present
+    const solanaPayUri =
+      (intent as any).instructions?.solanaPayUri ??
+      (intent as any).solanaPayUri ??
+      '';
+
+    return {
+      intentId: intent.intentId,
+      verificationToken: (intent as any).verificationToken ?? '',
+      solanaPayUri,
+      status: 'created',
+      expiresAt: intent.expiresAt,
+    };
+  }
+
+  /**
+   * Verify that a payment intent has been confirmed on-chain.
+   * Polls until verified, expired, failed, or timeout is exceeded.
+   *
+   * @param intentId - ID of the intent to verify
+   * @param timeoutMs - Maximum polling duration in ms (default: 60_000)
+   * @param pollIntervalMs - Polling interval in ms (default: 2_000)
+   */
+  async verify(
+    intentId: string,
+    timeoutMs = 60_000,
+    pollIntervalMs = 2_000,
+  ): Promise<IntentStatusResponse> {
+    return waitForVerification(this.config, intentId, timeoutMs, pollIntervalMs);
+  }
+}
 
 /**
  * Create a new payment intent.
@@ -135,3 +244,4 @@ export async function validateCertificate(
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
