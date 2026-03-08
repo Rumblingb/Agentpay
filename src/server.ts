@@ -24,6 +24,7 @@ import agentrankRouter from './routes/agentrank.js';
 import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
 import marketplaceRouter from './routes/marketplace.js';
+import walletsRouter from './routes/wallets.js';
 import testRouter from './test/routes.js';
 import { acpRouter } from './protocols/acp.js';
 import { ap2Router } from './protocols/ap2.js';
@@ -35,6 +36,27 @@ import { logger } from './logger.js';
 import { startSolanaListener } from './services/solana-listener.js';
 
 dotenv.config();
+
+// ---------------------------------------------------------------------------
+// Sentry — soft init (only when SENTRY_DSN is provided)
+// ---------------------------------------------------------------------------
+let SentryInstance: any = null;
+async function initSentry(): Promise<void> {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn) return;
+  try {
+    const Sentry = await import('@sentry/node');
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV ?? 'development',
+      tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    });
+    SentryInstance = Sentry;
+    logger.info('Sentry initialised');
+  } catch {
+    logger.warn('Sentry package not installed — error tracking is disabled. To enable it, run: npm install @sentry/node (only needed when SENTRY_DSN is configured)');
+  }
+}
 
 // --- STARTUP VALIDATION — fail fast in production if required secrets are defaults ---
 // All known placeholder/example values that must never reach a real deployment.
@@ -102,6 +124,24 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+});
+
+// Tighter limiter for public payment endpoints to prevent abuse
+const paymentIntentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many payment intent requests. Please wait before retrying.' },
+});
+
+// AP2/ACP protocol limiters — per minute per IP
+const protocolLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many protocol requests, please slow down.' },
 });
 
 // --- SECURITY & UTILITY MIDDLEWARE ---
@@ -246,7 +286,7 @@ app.use('/api/agents/delegation', delegationRouter);
 // Public & Fiat
 app.use('/api/verify', verifyRouter);
 app.use('/api/fiat', fiatRouter);
-app.use('/api/v1/payment-intents', v1IntentsRouter);
+app.use('/api/v1/payment-intents', paymentIntentLimiter, v1IntentsRouter);
 
 // Ecosystem & Revenue
 app.use('/api/moltbook', moltbookRouter);
@@ -258,13 +298,16 @@ app.use('/api/agentrank', agentrankRouter);
 app.use('/api/kya', kyaRouter);
 app.use('/api/escrow', escrowRouter);
 
+// Hosted wallets for walletless agents (Moltbook bots, etc.)
+app.use('/api/wallets', walletsRouter);
+
 // Marketplace discovery
 app.use('/api/marketplace', marketplaceRouter);
 
 // Protocol Abstraction Layer (PAL) — multi-protocol support
-app.use('/api/acp', acpRouter);
-app.use('/api/ap2', ap2Router);
-app.use('/api/protocol', createPalRouter());
+app.use('/api/acp', protocolLimiter, acpRouter);
+app.use('/api/ap2', protocolLimiter, ap2Router);
+app.use('/api/protocol', protocolLimiter, createPalRouter());
 
 // API Documentation — Swagger UI
 app.use('/api/docs', apiDocsRouter);
@@ -289,6 +332,11 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('Database Schema Error: Missing Table', { message: error.message });
   }
 
+  // Capture unhandled errors in Sentry (non-operational errors only)
+  if (SentryInstance && (error.status || 500) >= 500) {
+    SentryInstance.captureException(error);
+  }
+
   // Handle spending policy violations (Status 402)
   if (code === 'SPENDING_POLICY_VIOLATION' || (error.message && /spending policy/i.test(error.message))) {
     return res.status(402).json({
@@ -310,41 +358,44 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  const server = app.listen(PORT, () => {
-    logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
-    if (process.env.NODE_ENV === 'production') {
-      // Warn operators about in-memory stores that lose data on restart.
-      logger.info(
-        'Escrow transactions and AP2 payment requests are now persisted to Supabase via Prisma. ' +
-        'In-memory stores are used as L1 caches and cleared on restart; the DB is the source of truth.',
-      );
-    }
-  });
-
-  // --- GRACEFUL SHUTDOWN — allow in-flight requests to finish before exit ---
-  const shutdown = (signal: string) => {
-    logger.info(`${signal} received — shutting down gracefully`);
-    server.close(async () => {
-      try {
-        const { closePool } = await import('./db/index.js');
-        await closePool();
-        logger.info('DB pool closed. Goodbye.');
-      } catch {
-        // pool may already be closed
+  // Initialise Sentry before starting server so first-request errors are captured
+  initSentry().then(() => {
+    const server = app.listen(PORT, () => {
+      logger.info(`🚀 AgentPay API running on http://localhost:${PORT}`);
+      if (process.env.NODE_ENV === 'production') {
+        // Warn operators about in-memory stores that lose data on restart.
+        logger.info(
+          'Escrow transactions and AP2 payment requests are now persisted to Supabase via Prisma. ' +
+          'In-memory stores are used as L1 caches and cleared on restart; the DB is the source of truth.',
+        );
       }
-      process.exit(0);
     });
-    // Force exit after 10s if requests don't drain
-    setTimeout(() => {
-      logger.error('Forceful shutdown after timeout');
-      process.exit(1);
-    }, 10_000).unref();
-  };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+    // --- GRACEFUL SHUTDOWN — allow in-flight requests to finish before exit ---
+    const shutdown = (signal: string) => {
+      logger.info(`${signal} received — shutting down gracefully`);
+      server.close(async () => {
+        try {
+          const { closePool } = await import('./db/index.js');
+          await closePool();
+          logger.info('DB pool closed. Goodbye.');
+        } catch {
+          // pool may already be closed
+        }
+        process.exit(0);
+      });
+      // Force exit after 10s if requests don't drain
+      setTimeout(() => {
+        logger.error('Forceful shutdown after timeout');
+        process.exit(1);
+      }, 10_000).unref();
+    };
 
-  startSolanaListener();
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
+    startSolanaListener();
+  });
 }
 
 export default app;

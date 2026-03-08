@@ -194,6 +194,60 @@ const migrations = [
     sql: `ALTER TABLE merchants
             ADD COLUMN IF NOT EXISTS total_volume NUMERIC(20, 6) NOT NULL DEFAULT 0;`,
   },
+  {
+    name: '015_add_metadata_to_transactions',
+    sql: `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS metadata JSONB;`,
+  },
+  {
+    name: '016_create_agent_wallets',
+    sql: `CREATE TABLE IF NOT EXISTS agent_wallets (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            agent_id TEXT UNIQUE NOT NULL,
+            public_key TEXT NOT NULL,
+            encrypted_private_key TEXT NOT NULL,
+            balance_usdc NUMERIC(20, 6) DEFAULT 0,
+            label TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_wallets_agent_id ON agent_wallets(agent_id);
+          CREATE INDEX IF NOT EXISTS idx_agent_wallets_public_key ON agent_wallets(public_key);`,
+  },
+  {
+    name: '017_trigger_auto_create_transaction',
+    sql: `
+      CREATE OR REPLACE FUNCTION auto_create_transaction_on_intent_complete()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN
+          INSERT INTO transactions
+            (merchant_id, payment_id, amount_usdc, recipient_address,
+             status, webhook_status, metadata, created_at, updated_at)
+          SELECT
+            NEW.merchant_id,
+            NEW.id,
+            NEW.amount::NUMERIC(20,6),
+            m.wallet_address,
+            'released',
+            'not_sent',
+            NEW.metadata,
+            NOW(),
+            NOW()
+          FROM merchants m
+          WHERE m.id = NEW.merchant_id
+          ON CONFLICT (payment_id) DO NOTHING;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trigger_auto_transaction ON payment_intents;
+      CREATE TRIGGER trigger_auto_transaction
+        AFTER UPDATE OF status ON payment_intents
+        FOR EACH ROW
+        EXECUTE FUNCTION auto_create_transaction_on_intent_complete();`,
+  },
 ];
 
 async function migrate() {
