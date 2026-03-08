@@ -21,26 +21,16 @@ export async function GET(request: NextRequest) {
 
   try {
     const res = await fetch(`${API_BASE}/api/escrow/stats`, {
-      headers: {
-        Authorization: `Bearer ${session.apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      signal: AbortSignal.timeout(5000),
+      headers: { Authorization: `Bearer ${session.apiKey}` },
     });
 
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch escrow stats' },
-        { status: res.status },
-      );
-    }
+    if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
 
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {
-    console.error('[BFF /api/escrow/stats] upstream fetch failed:', err);
-    return NextResponse.json(
-      { error: 'Failed to fetch escrow stats' },
-      { status: 502 },
-    );
+    console.error('[BFF Error]:', (err as Error).message);
+    return NextResponse.json({ error: 'Backend unreachable' }, { status: 502 });
   }
 }
