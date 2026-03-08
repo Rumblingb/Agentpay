@@ -52,3 +52,32 @@ export interface AgentPayConfig {
   /** Request timeout in milliseconds (default: 10000) */
   timeoutMs?: number;
 }
+
+/** Configuration for a payment request */
+export interface PaymentConfig {
+  /** Amount in USDC */
+  amount: number;
+  /** Currency (default: "USDC") */
+  currency?: string;
+  /** Optional recipient identifier or wallet address */
+  recipient?: string;
+  /** Optional metadata to attach to the payment */
+  metadata?: IntentMetadata;
+}
+
+/** Result returned from the pay() method */
+export interface PaymentResult {
+  /** ID of the created payment intent */
+  intentId: string;
+  /** Verification token for this payment */
+  verificationToken: string;
+  /** Solana Pay URI for wallet-based payments */
+  solanaPayUri: string;
+  /** Current payment status */
+  status: PaymentStatus;
+  /** When this payment intent expires */
+  expiresAt: string;
+}
+
+/** High-level payment status for the pay() lifecycle */
+export type PaymentStatus = 'created' | 'pending' | 'confirmed' | 'verified' | 'failed' | 'expired';

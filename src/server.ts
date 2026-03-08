@@ -25,6 +25,7 @@ import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
 import marketplaceRouter from './routes/marketplace.js';
 import walletsRouter from './routes/wallets.js';
+import demoRouter from './routes/demo.js';
 import testRouter from './test/routes.js';
 import { acpRouter } from './protocols/acp.js';
 import { ap2Router } from './protocols/ap2.js';
@@ -303,6 +304,9 @@ app.use('/api/wallets', walletsRouter);
 
 // Marketplace discovery
 app.use('/api/marketplace', marketplaceRouter);
+
+// Demo engine — one-click agent payment simulation
+app.use('/api/demo', demoRouter);
 
 // Protocol Abstraction Layer (PAL) — multi-protocol support
 app.use('/api/acp', protocolLimiter, acpRouter);
