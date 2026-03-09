@@ -11,7 +11,6 @@ interface LeaderEntry {
 function useNetworkStats() {
   const [totalVolume, setTotalVolume] = useState<number | null>(null);
   const [totalJobs, setTotalJobs] = useState<number | null>(null);
-  const [prevVolume, setPrevVolume] = useState<number | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [flashing, setFlashing] = useState(false);
 
@@ -30,7 +29,6 @@ function useNetworkStats() {
           if (flashTimer.current) clearTimeout(flashTimer.current);
           flashTimer.current = setTimeout(() => setFlashing(false), 900);
         }
-        setPrevVolume(prev);
         return vol;
       });
       setTotalJobs(jobs);
@@ -49,7 +47,7 @@ function useNetworkStats() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { totalVolume, totalJobs, prevVolume, flashing };
+  return { totalVolume, totalJobs, flashing };
 }
 
 /** A thin top-of-page banner showing the live total network value transacted. */

@@ -56,7 +56,7 @@ if (!taskArg || taskArg.trim().length === 0) {
 if (!API_KEY) {
   console.error('\n❌  AGENTPAY_API_KEY environment variable is required.');
   console.error('    Get your key from the AgentPay dashboard, then run:');
-  console.error('    AGENTPAY_API_KEY=sk_live_xxx node run-buyer.js "<task>"\n');
+  console.error('    AGENTPAY_API_KEY=sk_test_xxx node run-buyer.js "<task>"\n');
   process.exit(1);
 }
 

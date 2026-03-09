@@ -334,24 +334,39 @@ router.post('/complete', async (req: Request, res: Response) => {
       data: { status: 'completed', output: output ?? {} },
     });
 
-    // Release escrow
+    // Resolve the escrow and determine how much the seller actually receives.
+    // The escrow.amount holds the NET payout (gross minus the 1% platform fee
+    // that was deducted at hire time). We use this — not tx.amount — so the
+    // leaderboard reflects real seller earnings, not inflated gross amounts.
+    let sellerNetAmount = tx.amount; // safe fallback when no escrow row exists
     if (tx.escrowId) {
+      const escrow = await (prisma as any).agentEscrow.findUnique({
+        where: { id: tx.escrowId },
+        select: { amount: true },
+      });
+      if (escrow) {
+        sellerNetAmount = escrow.amount;
+      }
       await (prisma as any).agentEscrow.update({
         where: { id: tx.escrowId },
         data: { status: 'released' },
       });
     }
 
-    // Update seller agent earnings and task count
+    // Credit the seller's net earnings (after platform fee) to their total
     await prisma.agent.updateMany({
       where: { id: tx.sellerAgentId },
       data: {
-        totalEarnings: { increment: tx.amount },
+        totalEarnings: { increment: sellerNetAmount },
         tasksCompleted: { increment: 1 },
       },
     });
 
-    logger.info('Agent transaction completed', { transactionId, sellerAgentId: tx.sellerAgentId });
+    logger.info('Agent transaction completed', {
+      transactionId,
+      sellerAgentId: tx.sellerAgentId,
+      sellerNetAmount,
+    });
 
     res.json({
       success: true,

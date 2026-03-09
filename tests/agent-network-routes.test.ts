@@ -21,6 +21,7 @@ const mockTxUpdate = jest.fn();
 const mockTxFindMany = jest.fn();
 const mockTxCount = jest.fn();
 const mockEscrowCreate = jest.fn();
+const mockEscrowFindUnique = jest.fn();
 const mockEscrowUpdate = jest.fn();
 
 jest.mock('../src/lib/prisma', () => ({
@@ -41,6 +42,7 @@ jest.mock('../src/lib/prisma', () => ({
     },
     agentEscrow: {
       create: (...args: any[]) => mockEscrowCreate(...args),
+      findUnique: (...args: any[]) => mockEscrowFindUnique(...args),
       update: (...args: any[]) => mockEscrowUpdate(...args),
     },
   },
@@ -416,7 +418,8 @@ describe('POST /api/agents/complete', () => {
     jest.clearAllMocks();
   });
 
-  it('marks transaction complete and releases escrow', async () => {
+  it('marks transaction complete, releases escrow, credits NET amount to seller', async () => {
+    // tx.amount = 2.0 (gross); escrow.amount = 1.98 (net after 1% fee)
     mockTxFindUnique.mockResolvedValue({
       id: 'tx-456',
       status: 'running',
@@ -425,6 +428,8 @@ describe('POST /api/agents/complete', () => {
       amount: 2.0,
     });
     mockTxUpdate.mockResolvedValue({ id: 'tx-456', status: 'completed' });
+    // findUnique returns the escrow with the NET amount
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-123', amount: 1.98 });
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-123', status: 'released' });
     mockAgentUpdateMany.mockResolvedValue({ count: 1 });
 
@@ -436,13 +441,43 @@ describe('POST /api/agents/complete', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.status).toBe('completed');
     expect(res.body.escrowStatus).toBe('released');
+    // Seller should be credited 1.98 (net), not 2.0 (gross)
     expect(mockAgentUpdateMany).toHaveBeenCalledWith({
       where: { id: 'seller-id' },
       data: {
-        totalEarnings: { increment: 2.0 },
+        totalEarnings: { increment: 1.98 },
         tasksCompleted: { increment: 1 },
       },
     });
+  });
+
+  it('falls back to tx.amount when escrow row is missing', async () => {
+    mockTxFindUnique.mockResolvedValue({
+      id: 'tx-no-escrow',
+      status: 'running',
+      sellerAgentId: 'seller-id',
+      escrowId: null, // no escrow
+      amount: 1.5,
+    });
+    mockTxUpdate.mockResolvedValue({ id: 'tx-no-escrow', status: 'completed' });
+    mockAgentUpdateMany.mockResolvedValue({ count: 1 });
+
+    const res = await request(app)
+      .post('/api/agents/complete')
+      .send({ transactionId: 'tx-no-escrow' });
+
+    expect(res.status).toBe(200);
+    // Without escrow, falls back to gross tx.amount
+    expect(mockAgentUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'seller-id' },
+      data: {
+        totalEarnings: { increment: 1.5 },
+        tasksCompleted: { increment: 1 },
+      },
+    });
+    // escrow methods should not be called
+    expect(mockEscrowFindUnique).not.toHaveBeenCalled();
+    expect(mockEscrowUpdate).not.toHaveBeenCalled();
   });
 
   it('returns 404 for unknown transaction', async () => {
