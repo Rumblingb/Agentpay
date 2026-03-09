@@ -760,6 +760,86 @@ We're building the **financial DNA of the machine economy** — the indispensabl
 
 ---
 
+## Appendix C: Risks & How This Plan Mitigates Them
+
+AgentPay operates in a rapidly evolving ecosystem where large infrastructure providers, AI platforms, and regulatory environments may change quickly. The project design explicitly considers these risks.
+
+### Risk 1 — Stripe Clones the Gateway
+
+Large payment providers such as Stripe could replicate basic agent payment APIs.
+
+**Mitigation**
+
+AgentPay's roadmap intentionally evolves beyond a gateway model toward a protocol and middleware layer for agent economies.
+
+Instead of competing purely as SaaS infrastructure, AgentPay aims to become the standard coordination layer between autonomous agents and payment networks.
+
+In such a model:
+
+- Agent identity
+- Intent verification
+- Trust scoring
+- Escrow arbitration
+
+become protocol primitives.
+
+This shifts competition from "API gateway" to ecosystem standard, making it more advantageous for providers like Stripe to integrate rather than compete.
+
+### Risk 2 — Native Agent Payments from OpenAI
+
+AI platforms such as OpenAI may introduce their own payment infrastructure for autonomous agents.
+
+**Mitigation**
+
+AgentPay focuses on agent trust infrastructure, not only payment execution.
+
+The protocol introduces:
+
+- Agent identity layers
+- Behavior scoring (AgentRank)
+- Escrow arbitration
+- Transaction verification
+
+Running these systems internally would require AI platforms to operate full financial reputation networks, which is operationally complex and legally sensitive.
+
+By specializing in the trust and settlement layer, AgentPay becomes a neutral coordination network across multiple AI ecosystems.
+
+### Risk 3 — Launching Too Early / Breaking the Existing Demo
+
+Rapid iteration introduces the possibility of breaking the working payment flow used in early demos and integrations.
+
+**Mitigation**
+
+The current development plan prioritizes:
+
+- Soft migrations
+- Backwards compatibility
+- Non-breaking security hardening
+
+Launch security improvements (PR #77) deliberately preserve existing system behavior while strengthening validation, authentication, and transaction verification.
+
+This allows AgentPay to iterate safely while maintaining demo stability.
+
+### Risk 4 — Regulatory Exposure
+
+Payments infrastructure can introduce regulatory obligations, particularly when funds are custodied or intermediated.
+
+**Mitigation**
+
+AgentPay is designed as a non-custodial coordination protocol:
+
+- Funds move directly between wallets or existing payment networks
+- AgentPay verifies intents and coordinates execution
+- AgentPay does not custody user funds
+
+This architecture reduces regulatory burden compared with full payment processors.
+
+AgentPay's documentation and terms clearly state:
+
+> *AgentPay does not custody user funds and acts as a protocol layer coordinating payment intents between parties.*
+
+---
+
 **For inquiries**: rajivbaskaran@gmail.com  
 **Last Updated**: March 2026  
 **Version**: 3.0  

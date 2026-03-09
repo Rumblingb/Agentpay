@@ -15,6 +15,9 @@ import { logger } from '../logger.js';
 
 export type SupportedPaymentProtocol = 'solana' | 'x402' | 'ap2' | 'acp';
 
+/** Maximum single-payment amount allowed through the protocol router (in USD/USDC). */
+const MAX_PROTOCOL_AMOUNT = 100_000;
+
 export interface ProtocolPayload {
   [key: string]: unknown;
 }
@@ -99,6 +102,11 @@ export async function routeProtocolPayment(
   payload: ProtocolPayload,
 ): Promise<ProtocolResult> {
   logger.info('[ProtocolRouter] Dispatching payment', { protocol });
+
+  const amount = payload['amount'] as number | undefined;
+  if (typeof amount === 'number' && amount > MAX_PROTOCOL_AMOUNT) {
+    throw new Error(`[ProtocolRouter] Protocol limit exceeded: ${amount} > ${MAX_PROTOCOL_AMOUNT}`);
+  }
 
   switch (protocol) {
     case 'solana':

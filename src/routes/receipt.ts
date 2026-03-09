@@ -8,6 +8,8 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
+import { sanitizeIntent } from '../utils/sanitizeIntent.js';
+import { receiptLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -15,7 +17,7 @@ const router = Router();
  * GET /api/receipt/:intentId
  * Returns public receipt data for an intent.
  */
-router.get('/:intentId', async (req: Request, res: Response) => {
+router.get('/:intentId', receiptLimiter, async (req: Request, res: Response) => {
   const { intentId } = req.params;
 
   try {
@@ -47,27 +49,30 @@ router.get('/:intentId', async (req: Request, res: Response) => {
       return;
     }
 
+    const intentPayload = {
+      id: intent.id,
+      amount: Number(intent.amount),
+      currency: intent.currency,
+      status: intent.status,
+      protocol: intent.protocol ?? null,
+      agentId: intent.agentId ?? null,
+      // verificationToken is intentionally omitted — it is a sensitive internal
+      // proof-of-payment token that must not be exposed on the public receipt endpoint.
+      expiresAt: intent.expiresAt.toISOString(),
+      createdAt: intent.createdAt?.toISOString() ?? null,
+      updatedAt: intent.updatedAt?.toISOString() ?? null,
+      agent: intent.agent
+        ? {
+            id: intent.agent.id,
+            displayName: intent.agent.displayName,
+            riskScore: intent.agent.riskScore,
+          }
+        : null,
+    };
+
     res.json({
       success: true,
-      intent: {
-        id: intent.id,
-        amount: Number(intent.amount),
-        currency: intent.currency,
-        status: intent.status,
-        protocol: intent.protocol ?? null,
-        agentId: intent.agentId ?? null,
-        verificationToken: intent.verificationToken,
-        expiresAt: intent.expiresAt.toISOString(),
-        createdAt: intent.createdAt?.toISOString() ?? null,
-        updatedAt: intent.updatedAt?.toISOString() ?? null,
-        agent: intent.agent
-          ? {
-              id: intent.agent.id,
-              displayName: intent.agent.displayName,
-              riskScore: intent.agent.riskScore,
-            }
-          : null,
-      },
+      intent: sanitizeIntent(intentPayload),
       // Escrow data is omitted here — in a future release this will query
       // escrow_transactions by the intent/agent relationship.
       escrow: null,

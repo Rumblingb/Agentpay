@@ -92,6 +92,23 @@ async function fetchPendingIntentsWithHash(): Promise<PendingIntent[]> {
  * If the payment is confirmed on-chain, updates the DB and fires a webhook.
  */
 async function processTransaction(tx: PendingTx): Promise<void> {
+  // Cross-check that the transaction's stored recipient still matches the
+  // merchant's current wallet address, guarding against transaction replay
+  // attacks where a hash is re-submitted against a different merchant record.
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: tx.merchantId },
+    select: { walletAddress: true },
+  });
+
+  if (!merchant || tx.recipientAddress !== merchant.walletAddress) {
+    logger.warn('Listener: transaction destination mismatch — skipping', {
+      id: tx.id,
+      storedRecipient: tx.recipientAddress,
+      currentWallet: merchant?.walletAddress ?? 'not found',
+    });
+    throw new Error('Transaction destination mismatch');
+  }
+
   const verification = await verifyPaymentRecipient(tx.transactionHash, tx.recipientAddress);
 
   if (!verification.valid) {
