@@ -22,16 +22,34 @@ model Merchant {
   updatedAt                DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   paymentIntents PaymentIntent[]
+  agents         Agent[]
 
   @@map("merchants")
+}
+
+// First-class agent entity — owns intents and carries identity/risk data.
+model Agent {
+  id          String    @id @default(uuid()) @db.Uuid
+  merchantId  String?   @map("merchant_id") @db.Uuid
+  merchant    Merchant? @relation(fields: [merchantId], references: [id])
+  displayName String    @map("display_name")
+  publicKey   String?   @map("public_key")
+  riskScore   Int       @default(500) @map("risk_score")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  intents     PaymentIntent[]
+
+  @@map("agents")
 }
 
 model PaymentIntent {
   id                String    @id @db.Uuid
   merchantId        String    @map("merchant_id") @db.Uuid
+  agentId           String?   @map("agent_id") @db.Uuid
   amount            Decimal   @db.Decimal(20, 6)
   currency          String    @default("USDC")
   status            String    @default("pending")
+  protocol          String?
   verificationToken String    @unique @map("verification_token")
   expiresAt         DateTime  @map("expires_at")
   metadata          Json?
@@ -39,6 +57,7 @@ model PaymentIntent {
   updatedAt         DateTime? @updatedAt @map("updated_at")
 
   merchant Merchant @relation(fields: [merchantId], references: [id])
+  agent    Agent?   @relation(fields: [agentId], references: [id])
 
   @@map("payment_intents")
 }

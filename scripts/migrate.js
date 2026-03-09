@@ -215,6 +215,25 @@ const migrations = [
           CREATE INDEX IF NOT EXISTS idx_agent_wallets_public_key ON agent_wallets(public_key);`,
   },
   {
+    name: '018_create_agents',
+    sql: `CREATE TABLE IF NOT EXISTS agents (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            merchant_id  UUID REFERENCES merchants(id) ON DELETE SET NULL,
+            display_name VARCHAR(255) NOT NULL,
+            public_key   TEXT,
+            risk_score   INTEGER NOT NULL DEFAULT 500,
+            created_at   TIMESTAMPTZ DEFAULT NOW(),
+            updated_at   TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agents_merchant_id ON agents(merchant_id);`,
+  },
+  {
+    name: '019_add_agent_id_protocol_to_payment_intents',
+    sql: `ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES agents(id) ON DELETE SET NULL;
+          ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS protocol VARCHAR(50);
+          CREATE INDEX IF NOT EXISTS idx_payment_intents_agent_id ON payment_intents(agent_id);`,
+  },
+  {
     name: '017_trigger_auto_create_transaction',
     sql: `
       CREATE OR REPLACE FUNCTION auto_create_transaction_on_intent_complete()

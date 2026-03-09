@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authenticateApiKey } from '../middleware/auth.js';
 import * as webhookController from '../controllers/webhookController.js';
+import { verifyWebhookSignature } from '../middleware/verifyWebhook.js';
 import { logger } from '../logger.js';
 
 const router = Router();
@@ -68,6 +69,24 @@ router.delete('/:id', authenticateApiKey, async (req: Request, res: Response) =>
   } catch (err: any) {
     logger.error('Failed to delete webhook subscription', { err });
     res.status(500).json({ error: 'Failed to delete subscription' });
+  }
+});
+
+/**
+ * POST /api/webhooks/inbound
+ *
+ * Receive inbound webhook events from agents or external partners.
+ * Requires valid HMAC-SHA256 signature via x-agentpay-signature header.
+ */
+router.post('/inbound', verifyWebhookSignature, async (req: Request, res: Response) => {
+  try {
+    const { event, payload } = req.body ?? {};
+    logger.info('[Webhook] Inbound event received', { event });
+    // Acknowledge receipt — specific event processing is handled downstream.
+    res.status(200).json({ success: true, received: true, event: event ?? 'unknown' });
+  } catch (err: any) {
+    logger.error('Inbound webhook processing error', { err });
+    res.status(500).json({ error: 'Failed to process inbound webhook' });
   }
 });
 

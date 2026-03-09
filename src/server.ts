@@ -31,10 +31,12 @@ import { acpRouter } from './protocols/acp.js';
 import { ap2Router } from './protocols/ap2.js';
 import { createPalRouter } from './protocols/index.js';
 import apiDocsRouter from './routes/apiDocs.js';
+import receiptRouter from './routes/receipt.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
 import { startSolanaListener } from './services/solana-listener.js';
+import { verifyWebhookSignature } from './middleware/verifyWebhook.js';
 
 dotenv.config();
 
@@ -315,6 +317,9 @@ app.use('/api/protocol', protocolLimiter, createPalRouter());
 
 // API Documentation — Swagger UI
 app.use('/api/docs', apiDocsRouter);
+
+// Public receipt pages — no auth required
+app.use('/api/receipt', receiptRouter);
 
 // --- 404 HANDLER — catches unmatched routes and returns helpful JSON ---
 app.use((_req: Request, res: Response) => {

@@ -4,8 +4,10 @@ import prisma from '../lib/prisma.js';
 
 export interface CreateIntentParams {
   merchantId: string;
+  agentId?: string;
   amount: number;
   currency: string;
+  protocol?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -30,7 +32,7 @@ function generateVerificationToken(): string {
 }
 
 export async function createIntent(params: CreateIntentParams): Promise<PaymentIntentResult> {
-  const { merchantId, amount, currency, metadata } = params;
+  const { merchantId, agentId, amount, currency, protocol, metadata } = params;
 
   // Look up merchant wallet for payment instructions
   const merchant = await prisma.merchant.findUniqueOrThrow({
@@ -46,9 +48,11 @@ export async function createIntent(params: CreateIntentParams): Promise<PaymentI
     data: {
       id: intentId,
       merchantId,
+      ...(agentId ? { agentId } : {}),
       amount,
       currency,
       status: 'pending',
+      ...(protocol ? { protocol } : {}),
       verificationToken,
       expiresAt,
       ...(metadata !== undefined && { metadata: metadata as object }),
