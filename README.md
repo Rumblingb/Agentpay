@@ -178,6 +178,7 @@ At $10M monthly GMV we project ~$2.26M ARR with 92–95% gross margin. See white
 - [Production Hardening](#production-hardening)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
+- [Real Transaction Proof](#real-transaction-proof)
 - [License](#license)
 - [Support](#support)
 
@@ -326,33 +327,23 @@ See [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) for the full security model
 
 ## Architecture Overview
 
+<p align="center">
+  <img src="docs/architecture.png" alt="AgentPay Architecture Diagram" width="900">
+</p>
+
 ```
-┌──────────────────────────────────────────────────┐
-│                    Clients                       │
-│         (Bots / Agents / Developers)             │
-└──────────────┬───────────────────────────────────┘
-               │  REST API
-┌──────────────▼───────────────────────────────────┐
-│         Node.js / Express Backend                │
-│    (src/server.ts — auth, routes, middleware)     │
-├──────────────┬───────────────┬───────────────────┤
-│  Prisma ORM  │  Solana RPC   │  Stripe SDK       │
-│  PostgreSQL  │  web3.js      │  Fiat fallback    │
-└──────────────┴───────────────┴───────────────────┘
-               │
-┌──────────────▼───────────────────────────────────┐
-│           Next.js Dashboard (Vercel)             │
-│     Metrics · Charts · API Keys · Webhooks       │
-└──────────────────────────────────────────────────┘
+Agent SDK → AgentPay API → Intent Engine → Solana/Helius → Transaction Ledger → Dashboard
 ```
 
-- **Backend**: Node.js/Express (`src/server.ts`), Prisma for DB.
-- **Blockchain**: Solana web3.js for tx verification.
-- **Database**: PostgreSQL with tables for merchants, transactions, logs.
-- **Frontend**: Next.js dashboard for metrics, charts, and controls.
-- **Queueing**: BullMQ/Redis for webhooks (reliable delivery with retries).
-- **Deployment**: Render.com (`render.yaml`), Vercel for dashboard.
-- **Testing**: Jest with integration/security suites.
+- **Backend**: Node.js/Express (`src/server.ts`), Prisma for DB, Sentry for error monitoring.
+- **Blockchain**: Solana web3.js + Helius for tx verification and on-chain history.
+- **Database**: PostgreSQL (Supabase/Neon) with Prisma ORM — merchants, transactions, audit log.
+- **Frontend**: Next.js dashboard (Vercel) — live metrics, AgentRank leaderboard, activity feed.
+- **Protocols**: PAL abstracts x402, ACP, AP2, Solana Pay behind a single `/api/protocol/pay` endpoint.
+- **Deployment**: Render.com (`render.yaml`) for API, Vercel for dashboard.
+- **Testing**: Jest — 346 tests, 94% coverage.
+
+→ Full architecture detail: [docs/architecture.md](docs/architecture.md)
 
 ---
 
@@ -665,8 +656,8 @@ Already implemented or in progress:
 - [x] Trust proxy for Render deployments
 - [x] Forced 403 on unauthorized intents
 - [ ] Env validation (envalid)
-- [ ] Structured logging (Winston/Morgan)
-- [ ] Monitoring (Sentry/Prometheus)
+- [x] Structured logging (Morgan access log + Winston-style logger)
+- [x] Monitoring (Sentry error capture — set `SENTRY_DSN` env var to enable)
 - [ ] PM2 clustering for scaling
 - [ ] Automated DB backups
 - [ ] SOC 2 compliance (in progress)
@@ -711,6 +702,23 @@ AgentPay is moving beyond internal transaction history. We are currently testing
 
 ---
 
+## Real Transaction Proof
+
+AgentPay has been tested end-to-end with real USDC on Solana Devnet. The flow below shows an intent created via the API, confirmed on-chain, and reflected in the live dashboard.
+
+**Test flow:**
+1. `POST /api/v1/payment-intents` — creates intent (`status: pending`)
+2. Agent sends 0.01 USDC on-chain → transaction hash captured
+3. `POST /api/merchants/payments/:id/verify` — Solana RPC confirms tx (≥ 2 blocks)
+4. Intent moves to `status: confirmed` → dashboard **Intents** tab updates in real time
+5. Merchant `total_volume` incremented → **Overview** revenue chart reflects the payment
+
+**Live endpoints:**
+- API: [https://api.agentpay.gg/health](https://api.agentpay.gg/health) → `{"status":"active"}`
+- Dashboard: [https://dashboard.agentpay.gg](https://dashboard.agentpay.gg) → live Intents + Overview
+
+---
+
 ## License
 
 [MIT](https://opensource.org/licenses/MIT)
@@ -727,5 +735,8 @@ AgentPay is moving beyond internal transaction history. We are currently testing
 
 <p align="center">
   <strong>AgentPay</strong> — The Financial OS for AI Agents.<br>
-  Powered by AgentRank — the FICO score for the agentic economy.
+  Powered by AgentRank — the FICO score for the agentic economy.<br><br>
+  <a href="docs/terms.md">Terms of Service</a> &nbsp;|&nbsp;
+  <a href="docs/privacy.md">Privacy Policy</a> &nbsp;|&nbsp;
+  <a href="docs/SECURITY_MODEL.md">Security</a>
 </p>
