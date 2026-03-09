@@ -4,7 +4,8 @@
 
 <p align="center">
   <a href="https://dashboard.agentpay.gg"><img src="https://img.shields.io/badge/Vercel-Dashboard%20Live-black?logo=vercel" alt="Vercel"></a>
-  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-346%2F346%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions"><img src="https://img.shields.io/badge/tests-1029%2F1029%20passing-brightgreen" alt="Tests"></a>
   <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI"></a>
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/package.json"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
   <a href="https://github.com/Rumblingb/Agentpay/blob/main/PRODUCTION_READINESS_REPORT.md"><img src="https://img.shields.io/badge/status-production%20ready-blueviolet" alt="Status"></a>
@@ -70,7 +71,7 @@ Auto-detect any protocol: `POST /api/protocol/detect`
 
 | Feature | Status |
 |---------|--------|
-| 292+ tests passing, 94% coverage | ✅ |
+| 1029 tests passing, 94% coverage | ✅ |
 | OpenAPI 3.1 spec + Swagger UI | ✅ [`/api/docs`](https://api.agentpay.gg/api/docs) |
 | Rate limiting + Helmet security | ✅ |
 | PBKDF2 API keys + audit logs | ✅ |
@@ -98,7 +99,7 @@ While Visa, Stripe, and Mastercard built the payment rails for agents, only Agen
 - **Behavioral Oracle** — Detect predatory disputes, looping transactions, wash trading, rapid escalation — auto-pause on critical alerts.
 - **Sybil Resistance Engine** — $100 USDC minimum stake, social graph analysis, velocity limits, and circular trading detection.
 - **Programmatic Dispute Resolution** — Automated scoring, community peer review, proportional splits — no human arbiter needed.
-- **Production Readiness** — 216+ tests passing with 94% coverage. Hardened against fraud, SQL injection, DDoS, and unauthorized access.
+- **Production Readiness** — 1029 tests passing with 94% coverage. Hardened against fraud, SQL injection, DDoS, and unauthorized access.
 - **Integrations** — Moltbook-ready, Stripe fiat fallback, SDKs for TypeScript/Python, HTTP 402 paywalls, USDC on Solana.
 
 See the [Whitepaper](AGENTPAY_WHITEPAPER--.md) for vision, architecture, and economics. See [ROADMAP.md](ROADMAP.md) for the 12-month timeline.
@@ -341,7 +342,7 @@ Agent SDK → AgentPay API → Intent Engine → Solana/Helius → Transaction L
 - **Frontend**: Next.js dashboard (Vercel) — live metrics, AgentRank leaderboard, activity feed.
 - **Protocols**: PAL abstracts x402, ACP, AP2, Solana Pay behind a single `/api/protocol/pay` endpoint.
 - **Deployment**: Render.com (`render.yaml`) for API, Vercel for dashboard.
-- **Testing**: Jest — 346 tests, 94% coverage.
+- **Testing**: Jest — 1029 tests, 94% coverage.
 
 → Full architecture detail: [docs/architecture.md](docs/architecture.md)
 
@@ -658,6 +659,7 @@ Already implemented or in progress:
 - [ ] Env validation (envalid)
 - [x] Structured logging (Morgan access log + Winston-style logger)
 - [x] Monitoring (Sentry error capture — set `SENTRY_DSN` env var to enable)
+- [x] Real mainnet test: 0.01 USDC confirmed on-chain → dashboard revenue update (March 9, 2026)
 - [ ] PM2 clustering for scaling
 - [ ] Automated DB backups
 - [ ] SOC 2 compliance (in progress)
