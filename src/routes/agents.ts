@@ -34,6 +34,10 @@ const hireAgentSchema = z.object({
   task: z.record(z.string(), z.unknown()),
   // Minimum $0.05 enforced to make micro-spam economically irrational
   amount: z.number().min(HIRE_AMOUNT_MIN, `Minimum transaction amount is $${HIRE_AMOUNT_MIN}`),
+  // Optional: buyer-supplied URL to receive the seller's output callback directly.
+  // When set, the seller notifies this URL instead of AgentPay's /complete.
+  // The buyer is then responsible for calling POST /api/agents/complete to release escrow.
+  buyerCallbackUrl: z.string().url().optional(),
 });
 
 const completeAgentSchema = z.object({
@@ -177,7 +181,7 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
   }
 
   try {
-    const { buyerAgentId, sellerAgentId, task, amount } = parsed.data;
+    const { buyerAgentId, sellerAgentId, task, amount, buyerCallbackUrl } = parsed.data;
 
     // ── Velocity rate-limit ────────────────────────────────────────────────
     // Prevents wash-trading by capping the same buyer→seller pair at
@@ -220,10 +224,14 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
       return;
     }
 
-    // Build callback URL (use request host as base, fall back to env)
+    // Build callback URL.
+    // If the buyer supplied buyerCallbackUrl, route the seller's output there directly
+    // (buyer-direct mode). Otherwise fall back to AgentPay's own /complete endpoint.
     const envApiBase = (globalThis as any).process?.env?.API_BASE_URL as string | undefined;
     const callbackBase = envApiBase || `${req.protocol}://${req.get('host')}`;
-    const callbackUrl = `${callbackBase}/api/agents/complete`;
+    const agentpayCompleteUrl = `${callbackBase}/api/agents/complete`;
+    const effectiveCallbackUrl = buyerCallbackUrl ?? agentpayCompleteUrl;
+    const callbackMode = buyerCallbackUrl ? 'buyer-direct' : 'agentpay-complete';
 
     // Create escrow first with a placeholder transactionId.
     // The escrow amount is the NET amount the seller will receive after the platform fee.
@@ -253,7 +261,7 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
       data: { transactionId: tx.id },
     });
 
-    logger.info('Agent hired', { transactionId: tx.id, buyerAgentId, sellerAgentId, amount });
+    logger.info('Agent hired', { transactionId: tx.id, buyerAgentId, sellerAgentId, amount, callbackMode });
 
     // Fire-and-forget: call seller endpoint asynchronously
     (async () => {
@@ -261,7 +269,7 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
         await fetch(sellerAgent.endpointUrl!, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task, transactionId: tx.id, callbackUrl }),
+          body: JSON.stringify({ task, transactionId: tx.id, callbackUrl: effectiveCallbackUrl }),
           signal: AbortSignal.timeout(30_000),
         });
       } catch (callErr: any) {
@@ -280,6 +288,7 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
       status: 'running',
       platformFee,
       sellerReceives,
+      callbackMode,
     });
   } catch (err: any) {
     logger.error('Agent hire error', { err });

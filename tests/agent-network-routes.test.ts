@@ -331,6 +331,58 @@ describe('POST /api/agents/hire', () => {
     expect(res.status).toBe(201);
   });
 
+  it('routes seller callback to buyerCallbackUrl when provided', async () => {
+    mockTxCount.mockResolvedValue(0);
+    mockAgentFindUnique.mockResolvedValue({
+      id: 'seller-id',
+      endpointUrl: 'https://seller.example.com/execute',
+      service: 'research',
+    });
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-buyer-cb' });
+    mockTxCreate.mockResolvedValue({ id: 'tx-buyer-cb', amount: 1.5 });
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-buyer-cb' });
+
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-id',
+        task: { query: 'top AI coins' },
+        amount: 1.5,
+        buyerCallbackUrl: 'https://buyer.example.com/callback',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.callbackMode).toBe('buyer-direct');
+  });
+
+  it('defaults to agentpay-complete callbackMode when no buyerCallbackUrl given', async () => {
+    mockTxCount.mockResolvedValue(0);
+    mockAgentFindUnique.mockResolvedValue({
+      id: 'seller-id',
+      endpointUrl: 'https://seller.example.com/execute',
+      service: 'research',
+    });
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-default-cb' });
+    mockTxCreate.mockResolvedValue({ id: 'tx-default-cb', amount: 1.5 });
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-default-cb' });
+
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-id',
+        task: { query: 'top AI coins' },
+        amount: 1.5,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.callbackMode).toBe('agentpay-complete');
+  });
+
+
   it('returns 404 if seller agent not found', async () => {
     mockTxCount.mockResolvedValue(0);
     mockAgentFindUnique.mockResolvedValue(null);
