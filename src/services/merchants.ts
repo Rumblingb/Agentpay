@@ -59,12 +59,44 @@ export type AuthenticateResult =
   | { merchant: Merchant; reason: null }
   | { merchant: null; reason: 'prefix_not_found' | 'hash_mismatch' };
 
+/**
+ * Normalise an API key that may arrive in either of two formats:
+ *
+ *   1. Raw key  – 64-char hex string, e.g.
+ *        5f16cbbedd9d2199ad25505f1d07344c8887f652c5bb27db4f572475cc9ec507
+ *
+ *   2. Prefixed key – {8-char-prefix}_{raw-key}, e.g.
+ *        5f16cbbe_5f16cbbedd9d2199ad25505f1d07344c8887f652c5bb27db4f572475cc9ec507
+ *
+ * For format (2) the PBKDF2 hash stored in the database was derived from
+ * just the raw-key portion (everything after the first underscore), so we
+ * must strip the prefix before hashing.  The 8-char prefix is still used
+ * for the indexed DB lookup either way.
+ */
+function extractRawKey(apiKey: string): string {
+  // Detect "{8-hex-chars}_{rest}" pattern: underscore at position 8, preceded
+  // by valid hex chars.  Raw hex keys (0-9a-f only) never contain underscores,
+  // so this check is unambiguous.
+  // Minimum valid length: 8 (prefix) + 1 (underscore) + 1 (at least one raw-key char) = 10.
+  const PREFIX_PLUS_SEPARATOR_LEN = 9; // 8-char hex prefix + 1 underscore
+  if (
+    apiKey.length > PREFIX_PLUS_SEPARATOR_LEN &&
+    apiKey[8] === '_' &&
+    /^[0-9a-f]{8}$/i.test(apiKey.substring(0, 8))
+  ) {
+    return apiKey.slice(PREFIX_PLUS_SEPARATOR_LEN);
+  }
+  return apiKey;
+}
+
 export async function authenticateMerchant(apiKey: string): Promise<AuthenticateResult> {
   if (!apiKey) {
     return { merchant: null, reason: 'prefix_not_found' };
   }
   try {
-    // Use key_prefix for efficient indexed lookup instead of scanning all merchants
+    // Use key_prefix for efficient indexed lookup instead of scanning all merchants.
+    // The key_prefix is always the first 8 characters of whatever is presented,
+    // regardless of whether the key is in raw or prefixed format.
     const keyPrefix = apiKey.substring(0, 8);
     const result = await query(
       `SELECT id, name, email, wallet_address as "walletAddress", webhook_url as "webhookUrl",
@@ -77,8 +109,13 @@ export async function authenticateMerchant(apiKey: string): Promise<Authenticate
       return { merchant: null, reason: 'prefix_not_found' };
     }
 
+    // Strip the optional "{prefix}_" portion before hashing so that both
+    // raw keys and prefixed keys (e.g. "5f16cbbe_5f16cbbe...") verify
+    // correctly against the stored hash.
+    const rawKey = extractRawKey(apiKey);
+
     for (const row of result.rows) {
-      const hashBuf = await pbkdf2Async(apiKey, row.apiKeySalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST);
+      const hashBuf = await pbkdf2Async(rawKey, row.apiKeySalt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST);
       const testHash = hashBuf.toString('hex');
 
       if (testHash === row.apiKeyHash) {
