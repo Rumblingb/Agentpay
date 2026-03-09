@@ -25,9 +25,11 @@ export default {
     // Strip .js extensions so Jest (CommonJS) resolves the .ts source files
     '^(\\.{1,2}/.*)\\.js$': '$1',
     // The generated Prisma client uses import.meta.url (ESM-only), which
-    // breaks Jest's CommonJS transform. Map it to a lightweight mock.
-    '\\.\\./generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
-    '\\./generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
-    'src/generated/prisma/client': '<rootDir>/src/__mocks__/prisma-client.ts',
+    // breaks Jest's CommonJS transform. Map it to a lightweight mock kept
+    // outside of any __mocks__ directory to avoid jest-haste-map duplicate
+    // manual mock warnings.
+    '\\.\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
+    '\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
+    'src/generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
   },
 };
