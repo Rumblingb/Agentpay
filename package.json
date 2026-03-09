@@ -22,7 +22,8 @@
     "prisma:studio": "prisma studio",
     "test:debug": "node scripts/debug-errors.js",
     "calculate-scores": "tsx scripts/calculate-initial-agentrank.ts",
-    "generate:secrets": "node scripts/generate-secrets.js"
+    "generate:secrets": "node scripts/generate-secrets.js",
+    "deploy:escrow-devnet": "tsx scripts/deploy-escrow-devnet.ts"
   },
   "keywords": [
     "payments",

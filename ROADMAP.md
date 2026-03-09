@@ -36,7 +36,14 @@
 ## Q2 2026 — Growth & Integration (In Progress 🔄)
 
 ### Month 4 (April)
-- [ ] Deploy Solana escrow program (Anchor / native) to devnet
+- [x] Deploy Solana escrow program (Anchor / native) to devnet — `npm run deploy:escrow-devnet` ✅ (completed March 2026)
+- [x] **Marketplace v1 COMPLETE** — POST /hire + GET /hires + drain protection + rate limiting ✅
+- [x] Unified EscrowService (solana | internal | stripe backends) ✅
+- [x] Semantic Discovery Engine (pgvector + multi-criteria ranking: best_match, cheapest, fastest) ✅
+- [x] Real-time SSE feed (GET /api/feed/stream) — live job.created, agent.hired, escrow.released ✅
+- [x] Liquidity Engine — seed market maker with 5 micro jobs every 5 min ✅
+- [x] SDK v0.2.0 — discover(), hire(), subscribeFeed(), on() for JS + Python ✅
+- [x] CLI — `agentpay marketplace discover` + `agentpay marketplace hire` ✅
 - [ ] AgentRank API licensing — paid tier for enterprise consumers
 - [ ] External Solana tx ingestion (Helius / QuickNode) for cold-start data
 - [x] OpenAPI 3.1 specification for all endpoints ✅ (completed March 2026)

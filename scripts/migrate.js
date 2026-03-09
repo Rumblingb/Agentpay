@@ -325,6 +325,33 @@ const migrations = [
         FOR EACH ROW
         EXECUTE FUNCTION auto_create_transaction_on_intent_complete();`,
   },
+  {
+    name: '024_agent_embedding_vector',
+    sql: `
+      -- Enable pgvector extension (no-op if already enabled, safe on plain Postgres)
+      DO $$
+      BEGIN
+        CREATE EXTENSION IF NOT EXISTS vector;
+      EXCEPTION WHEN OTHERS THEN
+        -- pgvector not installed — skip gracefully
+        NULL;
+      END;
+      $$;
+
+      -- Add embedding column to agents table (optional — only added if vector type is available)
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_type WHERE typname = 'vector'
+        ) THEN
+          ALTER TABLE agents ADD COLUMN IF NOT EXISTS embedding vector(1536);
+          CREATE INDEX IF NOT EXISTS agents_embedding_cosine_idx
+            ON agents USING ivfflat (embedding vector_cosine_ops)
+            WITH (lists = 100);
+        END IF;
+      END;
+      $$;`,
+  },
 ];
 
 async function migrate() {

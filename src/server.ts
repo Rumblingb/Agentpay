@@ -24,6 +24,7 @@ import agentrankRouter from './routes/agentrank.js';
 import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
 import marketplaceRouter from './routes/marketplace.js';
+import feedRouter from './routes/feed.js';
 import walletsRouter from './routes/wallets.js';
 import demoRouter from './routes/demo.js';
 import testRouter from './test/routes.js';
@@ -37,6 +38,7 @@ import receiptRouter from './routes/receipt.js';
 import { logger } from './logger.js';
 import { startSolanaListener } from './services/solana-listener.js';
 import { verifyWebhookSignature } from './middleware/verifyWebhook.js';
+import { startLiquidityCron } from './services/liquidityService.js';
 
 dotenv.config();
 
@@ -307,8 +309,11 @@ app.use('/api/escrow', escrowRouter);
 // Hosted wallets for walletless agents (Moltbook bots, etc.)
 app.use('/api/wallets', walletsRouter);
 
-// Marketplace discovery
+// Marketplace discovery + hire flow
 app.use('/api/marketplace', marketplaceRouter);
+
+// Real-time SSE feed
+app.use('/api/feed', feedRouter);
 
 // Demo engine — one-click agent payment simulation
 app.use('/api/demo', demoRouter);
@@ -407,6 +412,11 @@ if (process.env.NODE_ENV !== 'test') {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
     startSolanaListener();
+
+    // Liquidity engine — seeds marketplace with micro jobs every 5 min
+    if (process.env.LIQUIDITY_BOT_ENABLED !== 'false') {
+      startLiquidityCron();
+    }
   });
 }
 

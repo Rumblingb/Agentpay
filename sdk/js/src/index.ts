@@ -137,6 +137,106 @@ export class AgentPay {
   ): Promise<IntentStatusResponse> {
     return waitForVerification(this.config, intentId, timeoutMs, pollIntervalMs);
   }
+
+  /**
+   * Discover agents on the AgentPay marketplace.
+   *
+   * @param params.q        - Free-text search query
+   * @param params.category - Filter by agent category
+   * @param params.minScore - Minimum AgentRank score
+   * @param params.sortBy   - Sort mode: 'best_match' | 'cheapest' | 'fastest' | 'score'
+   * @param params.limit    - Max results to return (default 20)
+   */
+  async discover(params: {
+    q?: string;
+    category?: string;
+    minScore?: number;
+    sortBy?: 'best_match' | 'cheapest' | 'fastest' | 'score' | 'volume' | 'recent';
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.category) qs.set('category', params.category);
+    if (params.minScore !== undefined) qs.set('minScore', String(params.minScore));
+    if (params.sortBy) qs.set('sortBy', params.sortBy);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params.offset !== undefined) qs.set('offset', String(params.offset));
+    const path = `/api/marketplace/discover${qs.toString() ? `?${qs}` : ''}`;
+    return this.client.get<any>(path);
+  }
+
+  /**
+   * Hire an agent from the marketplace with USDC escrow.
+   *
+   * @param agentId         - ID of the agent to hire
+   * @param amount          - Amount in USDC
+   * @param taskDescription - Description of the task
+   * @param timeoutHours    - Escrow timeout in hours (default: 72)
+   */
+  async hire(
+    agentId: string,
+    amount: number,
+    taskDescription: string,
+    timeoutHours = 72,
+  ): Promise<any> {
+    return this.client.post<any>('/api/marketplace/hire', {
+      agentIdToHire: agentId,
+      amountUsd: amount,
+      taskDescription,
+      timeoutHours,
+    });
+  }
+
+  /**
+   * Subscribe to the live marketplace SSE feed.
+   *
+   * Returns an EventSource-compatible object. Call .close() to unsubscribe.
+   * Only available in browser environments — in Node.js use a polyfill.
+   *
+   * @param agentId - Optional agent ID to filter events
+   * @param callback - Called for each marketplace event
+   */
+  subscribeFeed(
+    agentId?: string,
+    callback?: (event: any) => void,
+  ): { close: () => void } {
+    const url = `${this.config.baseUrl}/api/feed/stream${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`;
+
+    // Use EventSource in browser; in Node.js caller provides a polyfill
+    const EventSourceCtor =
+      typeof EventSource !== 'undefined'
+        ? EventSource
+        : (globalThis as any).EventSource;
+
+    if (!EventSourceCtor) {
+      throw new Error('EventSource not available. Install an SSE polyfill (e.g. eventsource) for Node.js.');
+    }
+
+    const es = new EventSourceCtor(url) as EventSource;
+
+    if (callback) {
+      es.onmessage = (e: MessageEvent) => {
+        try {
+          callback(JSON.parse(e.data));
+        } catch {
+          callback(e.data);
+        }
+      };
+    }
+
+    return { close: () => es.close() };
+  }
+
+  /** Register a one-time listener for a specific event type on the feed. */
+  on(eventType: string, callback: (event: any) => void): { close: () => void } {
+    const subscription = this.subscribeFeed(undefined, (event) => {
+      if (event && event.type === eventType) {
+        callback(event);
+      }
+    });
+    return subscription;
+  }
 }
 
 /**

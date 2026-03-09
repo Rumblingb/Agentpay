@@ -297,4 +297,107 @@ program
     }
   });
 
+// ─── Marketplace commands ─────────────────────────────────────────────────────
+
+/**
+ * agentpay marketplace discover
+ * Search for agents on the AgentPay marketplace.
+ */
+const marketplace = program
+  .command('marketplace')
+  .description('Interact with the AgentPay marketplace');
+
+marketplace
+  .command('discover')
+  .description('Search for agents on the AgentPay marketplace')
+  .option('-q, --query <text>', 'Free-text search query')
+  .option('-c, --category <cat>', 'Filter by category')
+  .option('--min-score <n>', 'Minimum AgentRank score', parseInt)
+  .option('--sort <mode>', 'Sort mode: best_match | cheapest | fastest | score', 'best_match')
+  .option('-l, --limit <n>', 'Max results', parseInt, 10)
+  .option('-k, --api-key <key>', 'AgentPay API key (or set AGENTPAY_API_KEY)')
+  .action(async (opts) => {
+    const apiKey = opts.apiKey || getApiKey();
+    const apiBase = getApiBase();
+
+    const params = new URLSearchParams();
+    if (opts.query) params.set('q', opts.query);
+    if (opts.category) params.set('category', opts.category);
+    if (opts.minScore !== undefined) params.set('minScore', String(opts.minScore));
+    params.set('sortBy', opts.sort);
+    params.set('limit', String(opts.limit || 10));
+
+    try {
+      const res = await axios.get(`${apiBase}/api/marketplace/discover?${params}`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      });
+      const { agents = [], pagination } = res.data;
+
+      console.log('\n🔍 AgentPay Marketplace — Discovery Results\n');
+      console.log('─'.repeat(80));
+      console.log(
+        'Rank'.padEnd(6) + 'Agent ID'.padEnd(38) + 'Score'.padEnd(8) + 'Grade'.padEnd(7) + 'Reliability',
+      );
+      console.log('─'.repeat(80));
+      for (const a of agents) {
+        console.log(
+          `${String(a.rank).padEnd(6)}${(a.agentId || a.handle || '').slice(0, 36).padEnd(38)}${String(a.score).padEnd(8)}${(a.grade || '-').padEnd(7)}${(a.paymentReliability * 100).toFixed(1)}%`,
+        );
+      }
+      console.log(`\nShowing ${agents.length} of ${pagination?.total ?? '?'} agents.\n`);
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message;
+      console.error(`\n❌ Discovery failed: ${msg}`);
+      process.exit(1);
+    }
+  });
+
+/**
+ * agentpay marketplace hire
+ * Hire an agent from the marketplace.
+ */
+marketplace
+  .command('hire')
+  .description('Hire an agent from the AgentPay marketplace with USDC escrow')
+  .requiredOption('-a, --agent-id <id>', 'Agent ID to hire')
+  .requiredOption('-m, --amount <usdc>', 'Amount in USDC', parseFloat)
+  .requiredOption('-t, --task <description>', 'Task description')
+  .option('--timeout <hours>', 'Escrow timeout in hours', parseInt, 72)
+  .option('-k, --api-key <key>', 'AgentPay API key (or set AGENTPAY_API_KEY)')
+  .action(async (opts) => {
+    const apiKey = opts.apiKey || getApiKey();
+    if (!apiKey) {
+      console.error('❌ API key required. Pass --api-key or set AGENTPAY_API_KEY.');
+      process.exit(1);
+    }
+
+    const apiBase = getApiBase();
+    console.log(`\n💼 Hiring agent ${opts.agentId} for $${opts.amount} USDC…`);
+
+    try {
+      const res = await axios.post(
+        `${apiBase}/api/marketplace/hire`,
+        {
+          agentIdToHire: opts.agentId,
+          amountUsd: opts.amount,
+          taskDescription: opts.task,
+          timeoutHours: opts.timeout,
+        },
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+
+      const { escrowId, paymentUrl, status, intentId } = res.data;
+      console.log('\n✅ Hire successful!\n');
+      console.log(`  Escrow ID:   ${escrowId}`);
+      console.log(`  Status:      ${status}`);
+      if (intentId) console.log(`  Intent ID:   ${intentId}`);
+      if (paymentUrl) console.log(`  Payment URL: ${paymentUrl}`);
+      console.log();
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message;
+      console.error(`\n❌ Hire failed: ${msg}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();

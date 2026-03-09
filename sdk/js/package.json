@@ -1,6 +1,6 @@
 {
   "name": "@agentpay/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "JavaScript/TypeScript SDK for AgentPay - Universal payment gateway for AI agents",
   "type": "module",
   "main": "./dist/index.js",
