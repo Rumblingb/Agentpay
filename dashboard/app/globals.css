@@ -57,3 +57,37 @@ body {
     linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
 }
+
+/* Horizontal scrolling ticker (used by network feed ticker) */
+@keyframes marquee {
+  from { transform: translateX(0%); }
+  to   { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+  will-change: transform;
+}
+
+/* Slide-in + green flash for newly arrived feed transactions */
+@keyframes feed-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-10px);
+    background-color: rgba(52, 211, 153, 0.18);
+  }
+  40% {
+    opacity: 1;
+    transform: translateX(0);
+    background-color: rgba(52, 211, 153, 0.10);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    background-color: transparent;
+  }
+}
+
+.feed-item-new {
+  animation: feed-slide-in 0.75s ease-out forwards;
+}

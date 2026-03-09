@@ -282,6 +282,9 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/stripe', stripeRouter); 
 
 // Agent API Routes
+// NOTE: agentsRouter is mounted first and owns POST /register (AgentPay Network
+// marketplace registration). agentIdentityRouter's POST /register (legacy identity
+// endpoint) is intentionally shadowed — its functionality is covered by /kya/register.
 app.use('/api/agents', agentsRouter);
 app.use('/api/agents', agentIdentityRouter);
 app.use('/api/agents/delegation', delegationRouter);
