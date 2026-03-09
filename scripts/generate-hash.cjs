@@ -35,15 +35,31 @@ const PBKDF2_KEYLEN     = 32;        // ← 32 bytes → 64-char hex hash
 const PBKDF2_DIGEST     = 'sha256';
 // ───────────────────────────────────────────────────────────────────────────
 
-const apiKey = process.argv[2];
-const email  = process.argv[3];
+const inputKey = process.argv[2];
+const email    = process.argv[3];
 
-if (!apiKey) {
+if (!inputKey) {
   console.error('Usage: node scripts/generate-hash.cjs <apiKey> [email]');
   console.error('');
-  console.error('Example:');
-  console.error('  node scripts/generate-hash.cjs ak_live_fcbb663e3332cc240782cb284f8be2eb demo@example.com');
+  console.error('Accepts either format:');
+  console.error('  Raw key  : node scripts/generate-hash.cjs 5f16cbbedd9d2199...          demo@example.com');
+  console.error('  Prefixed : node scripts/generate-hash.cjs 5f16cbbe_5f16cbbedd9d2199... demo@example.com');
   process.exit(1);
+}
+
+// If the key is in "{8-char-prefix}_{rawKey}" format (underscore at position 8),
+// extract only the raw key portion for hashing — this is what the backend stores.
+// NOTE: This detection mirrors the extractRawKey() helper in src/services/merchants.ts.
+//       Keep both in sync if the format rules ever change.
+const PREFIX_PLUS_SEPARATOR_LEN = 9; // 8-char hex prefix + 1 underscore
+let apiKey = inputKey;
+if (
+  inputKey.length > PREFIX_PLUS_SEPARATOR_LEN &&
+  inputKey[8] === '_' &&
+  /^[0-9a-f]{8}$/i.test(inputKey.substring(0, 8))
+) {
+  apiKey = inputKey.slice(PREFIX_PLUS_SEPARATOR_LEN);
+  console.error(`[info] Detected prefixed key format — using raw key portion for hashing: ${apiKey.substring(0, 8)}...`);
 }
 
 // Generate a fresh random 16-byte salt (32 hex chars)

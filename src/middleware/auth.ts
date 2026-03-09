@@ -69,10 +69,18 @@ export async function authenticateApiKey(
     const result = await merchantsService.authenticateMerchant(apiKey);
 
     if (!result.merchant) {
+      const prefix = apiKey.substring(0, 8);
+      const isPrefixedFormat = apiKey.length > 9 && apiKey[8] === '_';
       if (result.reason === 'prefix_not_found') {
-        logger.warn(`[Auth] Authentication failed: Key prefix '${apiKey.substring(0, 8)}...' not found in database`);
+        logger.warn(`[Auth] Authentication failed: Key prefix '${prefix}...' not found in database`);
       } else {
-        logger.warn(`[Auth] Authentication failed: PBKDF2 hash mismatch for key prefix '${apiKey.substring(0, 8)}...' — key may have been rotated or was inserted with the wrong algorithm (run: node scripts/generate-hash.cjs <key> <email>)`);
+        logger.warn(
+          `[Auth] Authentication failed: PBKDF2 hash mismatch for key prefix '${prefix}...'` +
+          (isPrefixedFormat
+            ? ` — key was supplied in "{prefix}_{rawKey}" format and the raw-key portion was used for hashing`
+            : ` — key may have been rotated or was inserted with the wrong algorithm`) +
+          ` (run: node scripts/generate-hash.cjs <key> <email>)`
+        );
       }
       res.status(401).json({
         code: 'AUTH_INVALID',
