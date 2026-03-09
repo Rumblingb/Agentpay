@@ -31,6 +31,10 @@
     "fintech"
   ],
   "author": "Your Name",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rumblingb/Agentpay"
+  },
   "license": "MIT",
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.1",
