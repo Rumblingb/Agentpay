@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { NetworkValueBanner } from './_components/NetworkValueBanner';
 
 export const metadata: Metadata = {
   title: 'AgentPay Network — Autonomous Agent Economy',
@@ -33,6 +34,10 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
           </a>
         </nav>
       </header>
+
+      {/* Live total — visible on every /network page */}
+      <NetworkValueBanner />
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy

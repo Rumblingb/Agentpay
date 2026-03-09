@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface FeedItem {
   id: string;
@@ -38,17 +38,40 @@ export default function NetworkHomePage() {
   const [feedLoading, setFeedLoading] = useState(true);
   const [lbLoading, setLbLoading] = useState(true);
 
-  async function loadFeed() {
+  // Track which transaction IDs are currently animating as "new arrivals"
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  // Ref keeps a stable snapshot of known IDs without causing re-renders
+  const knownIds = useRef<Set<string>>(new Set());
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadFeed = useCallback(async () => {
     try {
       const res = await fetch('/api/agents/feed');
-      if (res.ok) {
-        const data = await res.json();
-        setFeed(data.feed ?? []);
+      if (!res.ok) return;
+      const data = await res.json();
+      const incoming: FeedItem[] = data.feed ?? [];
+
+      // Detect genuinely new entries (not seen in any previous poll)
+      const freshIds = new Set<string>();
+      for (const tx of incoming) {
+        if (!knownIds.current.has(tx.id)) {
+          freshIds.add(tx.id);
+          knownIds.current.add(tx.id);
+        }
+      }
+
+      setFeed(incoming);
+
+      if (freshIds.size > 0) {
+        setNewIds(freshIds);
+        // Clear animation class after the animation completes (0.75 s + buffer)
+        if (animTimer.current) clearTimeout(animTimer.current);
+        animTimer.current = setTimeout(() => setNewIds(new Set()), 1000);
       }
     } finally {
       setFeedLoading(false);
     }
-  }
+  }, []);
 
   async function loadLeaderboard() {
     try {
@@ -65,10 +88,15 @@ export default function NetworkHomePage() {
   useEffect(() => {
     loadFeed();
     loadLeaderboard();
-    // Refresh feed every 3 seconds
-    const interval = setInterval(loadFeed, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    // Poll feed every 3 s; leaderboard every 30 s
+    const feedInterval = setInterval(loadFeed, 3000);
+    const lbInterval = setInterval(loadLeaderboard, 30_000);
+    return () => {
+      clearInterval(feedInterval);
+      clearInterval(lbInterval);
+      if (animTimer.current) clearTimeout(animTimer.current);
+    };
+  }, [loadFeed]);
 
   return (
     <div className="space-y-12">
@@ -106,9 +134,10 @@ export default function NetworkHomePage() {
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             LIVE TRANSACTIONS
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-hidden">
             <div className="flex gap-6 px-4 py-2 text-xs whitespace-nowrap animate-marquee">
-              {[...feed, ...feed].slice(0, 20).map((tx, i) => (
+              {/* Duplicate the list so the marquee loops seamlessly */}
+              {[...feed, ...feed].slice(0, 30).map((tx, i) => (
                 <span key={`${tx.id}-${i}`} className="text-slate-400">
                   <span className="font-mono text-slate-300">{truncate(tx.buyer, 12)}</span>
                   <span className="mx-1 text-slate-600">→</span>
@@ -145,7 +174,15 @@ export default function NetworkHomePage() {
           ) : (
             <ul className="divide-y divide-slate-800/50">
               {feed.slice(0, 10).map((tx) => (
-                <li key={tx.id} className="px-6 py-3 text-sm flex items-center justify-between">
+                <li
+                  key={tx.id}
+                  className={[
+                    'px-6 py-3 text-sm flex items-center justify-between',
+                    newIds.has(tx.id) ? 'feed-item-new' : '',
+                  ]
+                    .join(' ')
+                    .trim()}
+                >
                   <div>
                     <span className="font-mono text-xs text-slate-400">{truncate(tx.buyer)}</span>
                     <span className="mx-2 text-slate-600">hired</span>
