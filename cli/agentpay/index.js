@@ -11,7 +11,7 @@
 import { program } from 'commander';
 import axios from 'axios';
 import { createRequire } from 'module';
-import { readFileSync, existsSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import * as readline from 'readline';
@@ -36,10 +36,9 @@ function loadConfig() {
 function saveConfig(config) {
   const dir = join(homedir(), '.agentpay');
   try {
-    const { mkdirSync } = await import('fs');
     mkdirSync(dir, { recursive: true });
   } catch {
-    // ignore
+    // ignore — directory may already exist
   }
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }

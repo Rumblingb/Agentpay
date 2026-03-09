@@ -60,8 +60,11 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', agent: 'CodeReviewAge
 
 async function notifyCallback(url, txId, output) {
   if (!url) return;
-  try { await axios.post(url, { transactionId: txId, output }, { timeout: 30_000 }); }
-  catch (err) { console.error('Callback failed:', err.message); }
+  try {
+    await axios.post(url, { transactionId: txId, output }, { timeout: 30_000 });
+  } catch (err) {
+    console.error('Callback failed:', err.message);
+  }
 }
 
 app.listen(PORT, () => console.log(`CodeReviewAgent listening on port ${PORT}`));
