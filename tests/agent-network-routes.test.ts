@@ -19,6 +19,7 @@ const mockTxCreate = jest.fn();
 const mockTxFindUnique = jest.fn();
 const mockTxUpdate = jest.fn();
 const mockTxFindMany = jest.fn();
+const mockTxCount = jest.fn();
 const mockEscrowCreate = jest.fn();
 const mockEscrowUpdate = jest.fn();
 
@@ -36,6 +37,7 @@ jest.mock('../src/lib/prisma', () => ({
       findUnique: (...args: any[]) => mockTxFindUnique(...args),
       update: (...args: any[]) => mockTxUpdate(...args),
       findMany: (...args: any[]) => mockTxFindMany(...args),
+      count: (...args: any[]) => mockTxCount(...args),
     },
     agentEscrow: {
       create: (...args: any[]) => mockEscrowCreate(...args),
@@ -189,7 +191,8 @@ describe('POST /api/agents/hire', () => {
     jest.clearAllMocks();
   });
 
-  it('creates a transaction and escrow', async () => {
+  it('creates a transaction and escrow, returning fee breakdown', async () => {
+    mockTxCount.mockResolvedValue(0); // velocity check: no recent transactions
     mockAgentFindUnique.mockResolvedValue({
       id: 'seller-agent-id',
       endpointUrl: 'https://seller.example.com/execute',
@@ -214,9 +217,122 @@ describe('POST /api/agents/hire', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.transactionId).toBe('tx-456');
     expect(res.body.status).toBe('running');
+    // Platform fee: max(2.0 * 0.01, 0.01) = 0.02
+    expect(res.body.platformFee).toBeCloseTo(0.02, 6);
+    expect(res.body.sellerReceives).toBeCloseTo(1.98, 6);
+  });
+
+  it('deducts minimum fee of $0.01 for small transactions', async () => {
+    mockTxCount.mockResolvedValue(0);
+    mockAgentFindUnique.mockResolvedValue({
+      id: 'seller-agent-id',
+      endpointUrl: 'https://seller.example.com/execute',
+      service: 'translation',
+    });
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-min-fee' });
+    mockTxCreate.mockResolvedValue({ id: 'tx-min-fee', amount: 0.05 });
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-min-fee' });
+
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-agent-id',
+        task: { type: 'translate' },
+        amount: 0.05, // 1% = $0.0005, but minimum fee is $0.01
+      });
+
+    expect(res.status).toBe(201);
+    // Minimum fee of $0.01 applies because 1% of $0.05 < $0.01
+    expect(res.body.platformFee).toBeCloseTo(0.01, 6);
+    expect(res.body.sellerReceives).toBeCloseTo(0.04, 6);
+
+    // Escrow should be created with the net (seller-receives) amount
+    expect(mockEscrowCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ amount: 0.04 }) }),
+    );
+  });
+
+  it('returns 400 when amount is below $0.05 minimum', async () => {
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-id',
+        task: { type: 'test' },
+        amount: 0.04, // below $0.05 minimum
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Validation error');
+    // Should never even reach the DB layer
+    expect(mockTxCount).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when amount is zero', async () => {
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-id',
+        task: { type: 'test' },
+        amount: 0,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Validation error');
+  });
+
+  it('returns 429 when velocity limit exceeded (≥5 hires in 60s)', async () => {
+    mockTxCount.mockResolvedValue(5); // at the limit
+
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'spammer-buyer',
+        sellerAgentId: 'spammer-seller',
+        task: { type: 'spam' },
+        amount: 0.10,
+      });
+
+    expect(res.status).toBe(429);
+    expect(res.body.error).toBe('Rate limit exceeded');
+    expect(res.body.retryAfter).toBe(60);
+    // Should not proceed to create a transaction
+    expect(mockTxCreate).not.toHaveBeenCalled();
+    expect(mockEscrowCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows hire when count is exactly 4 (one below limit)', async () => {
+    mockTxCount.mockResolvedValue(4); // below limit, should proceed
+    mockAgentFindUnique.mockResolvedValue({
+      id: 'seller-id',
+      endpointUrl: 'https://seller.example.com/execute',
+      service: 'research',
+    });
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-ok' });
+    mockTxCreate.mockResolvedValue({ id: 'tx-ok', amount: 1.0 });
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-ok' });
+
+    const res = await request(app)
+      .post('/api/agents/hire')
+      .set('Authorization', 'Bearer sk_test_sim_12345')
+      .send({
+        buyerAgentId: 'buyer-id',
+        sellerAgentId: 'seller-id',
+        task: { type: 'research' },
+        amount: 1.0,
+      });
+
+    expect(res.status).toBe(201);
   });
 
   it('returns 404 if seller agent not found', async () => {
+    mockTxCount.mockResolvedValue(0);
     mockAgentFindUnique.mockResolvedValue(null);
 
     const res = await request(app)

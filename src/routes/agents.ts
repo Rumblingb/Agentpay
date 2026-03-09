@@ -21,11 +21,19 @@ const registerAgentSchema = z.object({
   pricing: z.record(z.string(), z.unknown()).optional(),
 });
 
+// Anti-wash-trading constants
+const NETWORK_FEE_RATE = 0.01;   // 1% platform fee
+const NETWORK_FEE_MIN  = 0.01;   // $0.01 floor
+const HIRE_AMOUNT_MIN  = 0.05;   // $0.05 minimum per transaction
+const VELOCITY_LIMIT   = 5;      // max hires between same pair per window
+const VELOCITY_WINDOW_MS = 60_000; // 60-second rolling window
+
 const hireAgentSchema = z.object({
   buyerAgentId: z.string().min(1),
   sellerAgentId: z.string().min(1),
   task: z.record(z.string(), z.unknown()),
-  amount: z.number().positive(),
+  // Minimum $0.05 enforced to make micro-spam economically irrational
+  amount: z.number().min(HIRE_AMOUNT_MIN, `Minimum transaction amount is $${HIRE_AMOUNT_MIN}`),
 });
 
 const completeAgentSchema = z.object({
@@ -171,6 +179,36 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
   try {
     const { buyerAgentId, sellerAgentId, task, amount } = parsed.data;
 
+    // ── Velocity rate-limit ────────────────────────────────────────────────
+    // Prevents wash-trading by capping the same buyer→seller pair at
+    // VELOCITY_LIMIT transactions within a rolling 60-second window.
+    const windowStart = new Date(Date.now() - VELOCITY_WINDOW_MS);
+    const recentCount = await (prisma as any).agentTransaction.count({
+      where: { buyerAgentId, sellerAgentId, createdAt: { gte: windowStart } },
+    });
+    if (recentCount >= VELOCITY_LIMIT) {
+      res.status(429).json({
+        error: 'Rate limit exceeded',
+        message: `Maximum ${VELOCITY_LIMIT} hires between the same agent pair per 60 seconds.`,
+        retryAfter: 60,
+      });
+      return;
+    }
+
+    // ── Platform fee ───────────────────────────────────────────────────────
+    // 1% of transaction amount, floored at $0.01.
+    // Deducted from the seller's escrow payout, making micro-spam unprofitable.
+    const platformFee = parseFloat(Math.max(amount * NETWORK_FEE_RATE, NETWORK_FEE_MIN).toFixed(6));
+    const sellerReceives = parseFloat((amount - platformFee).toFixed(6));
+
+    logger.info('AgentPay Network fee applied', {
+      grossAmount: amount,
+      platformFee,
+      sellerReceives,
+      buyerAgentId,
+      sellerAgentId,
+    });
+
     // Verify seller agent exists and has an endpoint
     const sellerAgent = await prisma.agent.findUnique({
       where: { id: sellerAgentId },
@@ -187,11 +225,12 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
     const callbackBase = envApiBase || `${req.protocol}://${req.get('host')}`;
     const callbackUrl = `${callbackBase}/api/agents/complete`;
 
-    // Create escrow first with a placeholder transactionId
+    // Create escrow first with a placeholder transactionId.
+    // The escrow amount is the NET amount the seller will receive after the platform fee.
     const escrow = await (prisma as any).agentEscrow.create({
       data: {
         transactionId: 'pending',
-        amount,
+        amount: sellerReceives,
         status: 'locked',
       },
     });
@@ -239,6 +278,8 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
       transactionId: tx.id,
       escrowId: escrow.id,
       status: 'running',
+      platformFee,
+      sellerReceives,
     });
   } catch (err: any) {
     logger.error('Agent hire error', { err });
