@@ -79,6 +79,8 @@ const webhookUpdateSchema = Joi.object({
 const paymentSchema = Joi.object({
   amountUsdc: Joi.number().positive().required(),
   recipientAddress: Joi.string().min(32).max(44).required(),
+  agentId: Joi.string().uuid().optional(),
+  protocol: Joi.string().valid('solana', 'x402', 'ap2', 'acp').optional(),
   metadata: Joi.object().optional(),
   expiryMinutes: Joi.number().min(1).max(1440).optional(),
 });
@@ -226,6 +228,8 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
       merchantId: req.merchant!.id,
       paymentId,
       amount: value.amountUsdc,
+      agentId: value.agentId ?? null,
+      protocol: value.protocol ?? null,
     });
 
     res.status(201).json({

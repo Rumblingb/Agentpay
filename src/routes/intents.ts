@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
+import { z } from 'zod';
 import { authenticateApiKey } from '../middleware/auth.js';
 import { createIntent, getIntentStatus } from '../controllers/intentController.js';
 import * as stripeService from '../services/stripeService.js';
@@ -23,6 +24,8 @@ router.get('/', authenticateApiKey, async (req: Request, res: Response) => {
         amount: true,
         currency: true,
         status: true,
+        protocol: true,
+        agentId: true,
         verificationToken: true,
         expiresAt: true,
         metadata: true,
@@ -38,6 +41,8 @@ router.get('/', authenticateApiKey, async (req: Request, res: Response) => {
         amount: Number(i.amount),
         currency: i.currency,
         status: i.status,
+        protocol: i.protocol ?? null,
+        agentId: i.agentId ?? null,
         verificationToken: i.verificationToken,
         expiresAt: i.expiresAt.toISOString(),
         metadata: i.metadata,
@@ -56,6 +61,82 @@ router.post('/', authenticateApiKey, createIntent);
 
 // GET /api/intents/:intentId/status – get intent status (merchant auth required)
 router.get('/:intentId/status', authenticateApiKey, getIntentStatus);
+
+const attachAgentSchema = z.object({
+  agentId: z.string().uuid('agentId must be a valid UUID'),
+});
+
+/**
+ * PATCH /api/intents/:intentId/agent
+ * Attach an agent to an existing intent (must be owned by the authenticated merchant).
+ */
+router.patch('/:intentId/agent', authenticateApiKey, async (req: Request, res: Response) => {
+  const parsed = attachAgentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'Validation error',
+      details: parsed.error.issues.map((e) => e.message),
+    });
+    return;
+  }
+
+  try {
+    const merchant = (req as any).merchant;
+    const { intentId } = req.params;
+    const { agentId } = parsed.data;
+
+    const intent = await prisma.paymentIntent.findUnique({
+      where: { id: intentId },
+      select: { merchantId: true },
+    });
+
+    if (!intent) {
+      res.status(404).json({ error: 'Payment intent not found' });
+      return;
+    }
+
+    if (intent.merchantId !== merchant.id) {
+      res.status(403).json({ error: 'Unauthorized access to this payment intent' });
+      return;
+    }
+
+    const updated = await prisma.paymentIntent.update({
+      where: { id: intentId },
+      data: { agentId },
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        status: true,
+        protocol: true,
+        agentId: true,
+        expiresAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    logger.info('Agent attached to intent', { intentId, agentId, merchantId: merchant.id });
+
+    res.json({
+      success: true,
+      intent: {
+        intentId: updated.id,
+        amount: Number(updated.amount),
+        currency: updated.currency,
+        status: updated.status,
+        protocol: updated.protocol ?? null,
+        agentId: updated.agentId ?? null,
+        expiresAt: updated.expiresAt.toISOString(),
+        createdAt: updated.createdAt?.toISOString() ?? null,
+        updatedAt: updated.updatedAt?.toISOString() ?? null,
+      },
+    });
+  } catch (err: any) {
+    logger.error('Attach agent error', { err });
+    res.status(500).json({ error: 'Failed to attach agent to intent' });
+  }
+});
 
 const fiatIntentSchema = Joi.object({
   amountUsd: Joi.number().positive().required(),

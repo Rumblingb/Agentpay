@@ -6,6 +6,8 @@ import { logger } from '../logger.js';
 const createIntentSchema = Joi.object({
   amount: Joi.number().positive().required(),
   currency: Joi.string().valid('USDC').uppercase().required(),
+  agentId: Joi.string().uuid().optional(),
+  protocol: Joi.string().valid('solana', 'x402', 'ap2', 'acp').optional(),
   metadata: Joi.object().optional(),
 });
 
@@ -26,12 +28,19 @@ export async function createIntent(req: Request, res: Response): Promise<void> {
     const merchant = (req as any).merchant;
     const result = await intentService.createIntent({
       merchantId: merchant.id,
+      agentId: value.agentId,
       amount: value.amount,
       currency: value.currency,
+      protocol: value.protocol,
       metadata: value.metadata,
     });
 
-    logger.info('Payment intent created', { intentId: result.intentId, merchantId: merchant.id });
+    logger.info('Payment intent created', {
+      intentId: result.intentId,
+      merchantId: merchant.id,
+      agentId: value.agentId ?? null,
+      protocol: value.protocol ?? null,
+    });
 
     res.status(201).json({
       success: true,
