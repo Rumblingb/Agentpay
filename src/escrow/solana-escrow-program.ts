@@ -236,3 +236,37 @@ export async function disputeOnChain(
     onChain: isSolanaAvailable(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// High-level wrapper used by EscrowService
+// ---------------------------------------------------------------------------
+
+export interface CreateSolanaEscrowParams {
+  hiringAgent: string;
+  workingAgent: string;
+  amountUsdc: number;
+  workDescription?: string;
+  deadlineHours?: number;
+}
+
+/**
+ * Create a Solana escrow with structured parameters.
+ * Wraps createOnChainEscrow and logs task metadata.
+ *
+ * To deploy the escrow program to devnet run:
+ *   npm run deploy:escrow-devnet
+ *
+ * (requires SOLANA_DEPLOY_KEYPAIR and SOLANA_RPC_URL set in .env)
+ */
+export async function createSolanaEscrow(
+  params: CreateSolanaEscrowParams,
+): Promise<EscrowCreateResult> {
+  const { hiringAgent, workingAgent, amountUsdc, workDescription } = params;
+  logger.info('[solana-escrow] createSolanaEscrow called', {
+    hiringAgent,
+    workingAgent,
+    amountUsdc,
+    workDescription: workDescription?.slice(0, 80),
+  });
+  return createOnChainEscrow(hiringAgent, workingAgent, amountUsdc);
+}

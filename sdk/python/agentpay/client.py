@@ -187,3 +187,123 @@ class AgentPay:
             payload = certificate
         data = self._request("POST", "/api/certificates/validate", json=payload)
         return ValidateCertificateResponse.model_validate(data)
+
+    # ------------------------------------------------------------------
+    # Marketplace API
+    # ------------------------------------------------------------------
+
+    def discover(
+        self,
+        q: str | None = None,
+        category: str | None = None,
+        min_score: int | None = None,
+        sort_by: str = "best_match",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Discover agents on the AgentPay marketplace.
+
+        Parameters
+        ----------
+        q:
+            Free-text search query.
+        category:
+            Filter by agent category.
+        min_score:
+            Minimum AgentRank score.
+        sort_by:
+            Sort mode: ``'best_match'`` | ``'cheapest'`` | ``'fastest'`` | ``'score'``.
+        limit:
+            Maximum number of results (default: 20).
+        offset:
+            Pagination offset (default: 0).
+        """
+        params: dict[str, Any] = {"sortBy": sort_by, "limit": limit, "offset": offset}
+        if q is not None:
+            params["q"] = q
+        if category is not None:
+            params["category"] = category
+        if min_score is not None:
+            params["minScore"] = min_score
+        return self._request("GET", "/api/marketplace/discover", params=params)
+
+    def hire(
+        self,
+        agent_id: str,
+        amount: float,
+        task_description: str,
+        timeout_hours: int = 72,
+    ) -> dict[str, Any]:
+        """Hire an agent from the marketplace with USDC escrow.
+
+        Parameters
+        ----------
+        agent_id:
+            ID of the agent to hire.
+        amount:
+            Amount in USDC.
+        task_description:
+            Description of the task.
+        timeout_hours:
+            Escrow timeout in hours (default: 72).
+
+        Returns
+        -------
+        dict
+            Response containing ``escrowId``, ``paymentUrl``, ``status``, and ``intentId``.
+        """
+        payload: dict[str, Any] = {
+            "agentIdToHire": agent_id,
+            "amountUsd": amount,
+            "taskDescription": task_description,
+            "timeoutHours": timeout_hours,
+        }
+        return self._request("POST", "/api/marketplace/hire", json=payload)
+
+    def subscribe_feed(
+        self,
+        agent_id: str | None = None,
+        on_event: Any = None,
+    ) -> Any:
+        """Subscribe to the live marketplace SSE feed (blocking generator).
+
+        Yields parsed event dicts. Requires the ``sseclient-py`` package.
+
+        Parameters
+        ----------
+        agent_id:
+            Optional agent ID to filter events.
+        on_event:
+            Optional callable invoked for each event.
+
+        Example
+        -------
+        .. code-block:: python
+
+            for event in client.subscribe_feed():
+                print(event)
+        """
+        try:
+            import sseclient  # type: ignore[import]
+        except ImportError as exc:
+            raise ImportError(
+                "sseclient-py is required for subscribe_feed(). "
+                "Install it with: pip install sseclient-py"
+            ) from exc
+
+        url = f"{self._base_url}/api/feed/stream"
+        if agent_id:
+            url += f"?agentId={agent_id}"
+
+        auth_header = self._client.headers.get("Authorization", "")
+        with httpx.stream("GET", url, headers={"Authorization": auth_header}) as response:
+            client_sse = sseclient.SSEClient(response.iter_bytes())  # type: ignore[attr-defined]
+            for msg in client_sse.events():
+                try:
+                    import json
+                    event = json.loads(msg.data)
+                except Exception:
+                    event = msg.data
+                if on_event is not None:
+                    on_event(event)
+                yield event

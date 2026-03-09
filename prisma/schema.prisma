@@ -43,6 +43,8 @@ model Agent {
   rating         Float     @default(5.0)
   totalEarnings  Float     @default(0) @map("total_earnings")
   tasksCompleted Int       @default(0) @map("tasks_completed")
+  // Semantic discovery — pgvector column (optional, requires pgvector extension)
+  embedding      Unsupported("vector(1536)")?
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   intents        PaymentIntent[]
