@@ -14,7 +14,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';
@@ -44,7 +44,7 @@ const hireLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request) => {
     const authReq = req as AuthRequest;
-    return authReq.merchant?.id ?? req.ip ?? 'unknown';
+    return authReq.merchant?.id ?? (req.ip ? ipKeyGenerator(req.ip) : 'unknown');
   },
   message: { error: 'Too many hire requests, please slow down.' },
 });
