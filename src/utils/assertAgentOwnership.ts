@@ -17,6 +17,6 @@ export async function assertAgentOwnership(agentId: string, merchantId: string):
   });
 
   if (!agent) {
-    throw new Error('Agent does not belong to merchant');
+    throw new Error('Agent not found or access denied');
   }
 }

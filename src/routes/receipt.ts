@@ -56,7 +56,8 @@ router.get('/:intentId', receiptLimiter, async (req: Request, res: Response) => 
       status: intent.status,
       protocol: intent.protocol ?? null,
       agentId: intent.agentId ?? null,
-      verificationToken: intent.verificationToken,
+      // verificationToken is intentionally omitted — it is a sensitive internal
+      // proof-of-payment token that must not be exposed on the public receipt endpoint.
       expiresAt: intent.expiresAt.toISOString(),
       createdAt: intent.createdAt?.toISOString() ?? null,
       updatedAt: intent.updatedAt?.toISOString() ?? null,

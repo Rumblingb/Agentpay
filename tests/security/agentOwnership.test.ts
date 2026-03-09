@@ -37,7 +37,7 @@ describe('assertAgentOwnership', () => {
     mockFindFirst.mockResolvedValue(null);
 
     await expect(assertAgentOwnership(agentId, merchantId)).rejects.toThrow(
-      'Agent does not belong to merchant',
+      'Agent not found or access denied',
     );
   });
 
@@ -45,7 +45,7 @@ describe('assertAgentOwnership', () => {
     mockFindFirst.mockResolvedValue(null);
 
     await expect(assertAgentOwnership('nonexistent-agent', merchantId)).rejects.toThrow(
-      'Agent does not belong to merchant',
+      'Agent not found or access denied',
     );
   });
 });
