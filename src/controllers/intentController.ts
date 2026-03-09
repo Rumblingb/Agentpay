@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Joi from 'joi';
 import * as intentService from '../services/intentService.js';
+import { assertAgentOwnership } from '../utils/assertAgentOwnership.js';
 import { logger } from '../logger.js';
 
 const createIntentSchema = Joi.object({
@@ -26,6 +27,18 @@ export async function createIntent(req: Request, res: Response): Promise<void> {
     }
 
     const merchant = (req as any).merchant;
+
+    // Enforce agent ↔ merchant ownership before creating the intent.
+    // If agentId is provided it must belong to the authenticated merchant.
+    if (value.agentId) {
+      try {
+        await assertAgentOwnership(value.agentId, merchant.id);
+      } catch {
+        res.status(403).json({ error: 'Agent does not belong to merchant' });
+        return;
+      }
+    }
+
     const result = await intentService.createIntent({
       merchantId: merchant.id,
       agentId: value.agentId,
