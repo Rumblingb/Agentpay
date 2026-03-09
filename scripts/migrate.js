@@ -233,6 +233,64 @@ const migrations = [
           ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS protocol VARCHAR(50);
           CREATE INDEX IF NOT EXISTS idx_payment_intents_agent_id ON payment_intents(agent_id);`,
   },
+  // ── AgentPay Network migrations ──────────────────────────────────────────
+  {
+    name: '020_add_network_fields_to_agents',
+    sql: `ALTER TABLE agents
+            ADD COLUMN IF NOT EXISTS service VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS endpoint_url TEXT,
+            ADD COLUMN IF NOT EXISTS pricing_model JSONB DEFAULT '{}',
+            ADD COLUMN IF NOT EXISTS rating FLOAT NOT NULL DEFAULT 5.0,
+            ADD COLUMN IF NOT EXISTS total_earnings FLOAT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS tasks_completed INT NOT NULL DEFAULT 0;
+          CREATE INDEX IF NOT EXISTS idx_agents_service ON agents(service);
+          CREATE INDEX IF NOT EXISTS idx_agents_rating ON agents(rating DESC);`,
+  },
+  {
+    name: '021_create_agent_transactions',
+    sql: `CREATE TABLE IF NOT EXISTS agent_transactions (
+            id             TEXT PRIMARY KEY,
+            buyer_agent_id TEXT NOT NULL,
+            seller_agent_id TEXT NOT NULL,
+            task           JSONB NOT NULL DEFAULT '{}',
+            status         VARCHAR(50) NOT NULL DEFAULT 'pending',
+            amount         FLOAT NOT NULL,
+            escrow_id      TEXT,
+            output         JSONB,
+            created_at     TIMESTAMPTZ DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_tx_buyer ON agent_transactions(buyer_agent_id);
+          CREATE INDEX IF NOT EXISTS idx_agent_tx_seller ON agent_transactions(seller_agent_id);
+          CREATE INDEX IF NOT EXISTS idx_agent_tx_status ON agent_transactions(status);
+          CREATE INDEX IF NOT EXISTS idx_agent_tx_created ON agent_transactions(created_at DESC);`,
+  },
+  {
+    name: '022_create_agent_escrow',
+    sql: `CREATE TABLE IF NOT EXISTS agent_escrow (
+            id             TEXT PRIMARY KEY,
+            transaction_id TEXT NOT NULL,
+            amount         FLOAT NOT NULL,
+            status         VARCHAR(50) NOT NULL DEFAULT 'locked',
+            created_at     TIMESTAMPTZ DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_escrow_tx ON agent_escrow(transaction_id);`,
+  },
+  {
+    name: '023_create_agent_reputation_network',
+    sql: `CREATE TABLE IF NOT EXISTS agent_reputation_network (
+            id               TEXT PRIMARY KEY,
+            agent_id         TEXT UNIQUE NOT NULL,
+            success_rate     FLOAT NOT NULL DEFAULT 1.0,
+            dispute_rate     FLOAT NOT NULL DEFAULT 0.0,
+            avg_response_time INT NOT NULL DEFAULT 0,
+            rating           FLOAT NOT NULL DEFAULT 5.0,
+            total_tx         INT NOT NULL DEFAULT 0,
+            updated_at       TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_agent_rep_network_agent_id ON agent_reputation_network(agent_id);`,
+  },
   {
     name: '017_trigger_auto_create_transaction',
     sql: `

@@ -28,18 +28,69 @@ model Merchant {
 }
 
 // First-class agent entity — owns intents and carries identity/risk data.
+// Network fields (service, endpointUrl, etc.) support the AgentPay Network marketplace.
 model Agent {
-  id          String    @id @default(uuid()) @db.Uuid
-  merchantId  String?   @map("merchant_id") @db.Uuid
-  merchant    Merchant? @relation(fields: [merchantId], references: [id])
-  displayName String    @map("display_name")
-  publicKey   String?   @map("public_key")
-  riskScore   Int       @default(500) @map("risk_score")
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  intents     PaymentIntent[]
+  id             String    @id @default(uuid()) @db.Uuid
+  merchantId     String?   @map("merchant_id") @db.Uuid
+  merchant       Merchant? @relation(fields: [merchantId], references: [id])
+  displayName    String    @map("display_name")
+  publicKey      String?   @map("public_key")
+  riskScore      Int       @default(500) @map("risk_score")
+  // AgentPay Network marketplace fields
+  service        String?
+  endpointUrl    String?   @map("endpoint_url")
+  pricingModel   Json?     @default("{}") @map("pricing_model")
+  rating         Float     @default(5.0)
+  totalEarnings  Float     @default(0) @map("total_earnings")
+  tasksCompleted Int       @default(0) @map("tasks_completed")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  intents        PaymentIntent[]
 
   @@map("agents")
+}
+
+// AgentPay Network: records every agent-to-agent job/hire.
+model AgentTransaction {
+  id            String   @id @default(cuid())
+  buyerAgentId  String   @map("buyer_agent_id")
+  sellerAgentId String   @map("seller_agent_id")
+  task          Json
+  status        String   @default("pending")
+  amount        Float
+  escrowId      String?  @map("escrow_id")
+  output        Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_transactions")
+}
+
+// AgentPay Network: escrow record per hire.
+model AgentEscrow {
+  id            String   @id @default(cuid())
+  transactionId String   @map("transaction_id")
+  amount        Float
+  status        String   @default("locked")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_escrow")
+}
+
+// AgentPay Network: per-agent reputation derived from network transactions.
+// TODO: extend into a full trust graph (success chains, peer endorsements).
+model AgentReputation {
+  id              String   @id @default(cuid())
+  agentId         String   @unique @map("agent_id")
+  successRate     Float    @default(1.0) @map("success_rate")
+  disputeRate     Float    @default(0.0) @map("dispute_rate")
+  avgResponseTime Int      @default(0) @map("avg_response_time")
+  rating          Float    @default(5.0)
+  totalTx         Int      @default(0) @map("total_tx")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_reputation_network")
 }
 
 model PaymentIntent {
