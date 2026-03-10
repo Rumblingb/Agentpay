@@ -37,6 +37,7 @@ import apiDocsRouter from './routes/apiDocs.js';
 import receiptRouter from './routes/receipt.js';
 import kycRouter from './routes/kyc.js';
 import legalRouter from './routes/legal.js';
+import foundationAgentsRouter from './routes/foundationAgents.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
@@ -350,6 +351,9 @@ app.use('/api/kyc', kycRouter);
 
 // Legal policies
 app.use('/api/legal', legalRouter);
+
+// Foundation agents — constitutional layer trust infrastructure
+app.use('/api/foundation-agents', foundationAgentsRouter);
 
 // Prometheus metrics endpoint (restrict to internal networks in production)
 app.get('/metrics', (_req: Request, res: Response) => {

@@ -517,6 +517,106 @@ const migrations = [
       END;
       $$;`,
   },
+
+  // ── 030 Foundation Agents tables ─────────────────────────────────────────
+  {
+    name: '030_foundation_agents',
+    sql: `
+      -- Agent trust score + operator ownership (IdentityVerifierAgent)
+      ALTER TABLE agents ADD COLUMN IF NOT EXISTS operator_id TEXT;
+      ALTER TABLE agents ADD COLUMN IF NOT EXISTS trust_score FLOAT DEFAULT 50.0;
+
+      -- Agent-to-agent fee ledger (all 4 constitutional agents)
+      CREATE TABLE IF NOT EXISTS agent_fee_transactions (
+        id          TEXT PRIMARY KEY,
+        from_agent  TEXT NOT NULL,
+        to_agent    TEXT NOT NULL,
+        amount      FLOAT NOT NULL,
+        status      TEXT DEFAULT 'completed',
+        description TEXT,
+        metadata    JSONB DEFAULT '{}',
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aft_from ON agent_fee_transactions(from_agent);
+      CREATE INDEX IF NOT EXISTS idx_aft_to   ON agent_fee_transactions(to_agent);
+
+      -- IdentityVerifierAgent: issued credentials
+      CREATE TABLE IF NOT EXISTS verification_credentials (
+        id          TEXT PRIMARY KEY,
+        agent_id    TEXT NOT NULL,
+        operator_id TEXT NOT NULL,
+        environment JSONB NOT NULL,
+        issued_at   TIMESTAMPTZ NOT NULL,
+        expires_at  TIMESTAMPTZ NOT NULL,
+        signature   TEXT NOT NULL,
+        trust_level TEXT NOT NULL,
+        revoked     BOOLEAN DEFAULT FALSE,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_vc_agent ON verification_credentials(agent_id);
+
+      -- IdentityVerifierAgent: cross-platform identity links
+      CREATE TABLE IF NOT EXISTS identity_links (
+        id                   TEXT PRIMARY KEY,
+        primary_agent_id     TEXT NOT NULL,
+        linked_agent_ids     TEXT[] NOT NULL DEFAULT '{}',
+        cross_platform_proof JSONB NOT NULL DEFAULT '{}',
+        created_at           TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_il_primary ON identity_links(primary_agent_id);
+
+      -- ReputationOracleAgent: query audit log
+      CREATE TABLE IF NOT EXISTS reputation_query_logs (
+        id                  TEXT PRIMARY KEY,
+        requesting_agent_id TEXT NOT NULL,
+        queried_agent_id    TEXT NOT NULL,
+        depth               TEXT DEFAULT 'standard',
+        trust_score         FLOAT NOT NULL,
+        risk_level          TEXT NOT NULL,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_rql_requesting ON reputation_query_logs(requesting_agent_id);
+      CREATE INDEX IF NOT EXISTS idx_rql_queried    ON reputation_query_logs(queried_agent_id);
+
+      -- DisputeResolverAgent: structured dispute cases
+      CREATE TABLE IF NOT EXISTS disputes (
+        id             TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        claimant       TEXT NOT NULL,
+        respondent     TEXT NOT NULL,
+        claim          TEXT NOT NULL,
+        category       TEXT NOT NULL,
+        evidence       JSONB DEFAULT '{"claimant":[],"respondent":[]}',
+        status         TEXT DEFAULT 'filed',
+        resolution     JSONB,
+        filed_at       TIMESTAMPTZ DEFAULT NOW(),
+        resolved_at    TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_disputes_claimant    ON disputes(claimant);
+      CREATE INDEX IF NOT EXISTS idx_disputes_respondent  ON disputes(respondent);
+      CREATE INDEX IF NOT EXISTS idx_disputes_transaction ON disputes(transaction_id);
+
+      -- IntentCoordinatorAgent: multi-protocol routing log
+      CREATE TABLE IF NOT EXISTS coordinated_transactions (
+        id             TEXT PRIMARY KEY,
+        intent_id      TEXT UNIQUE NOT NULL,
+        from_agent     TEXT NOT NULL,
+        to_agent       TEXT NOT NULL,
+        amount         FLOAT NOT NULL,
+        currency       TEXT NOT NULL,
+        purpose        TEXT NOT NULL,
+        status         TEXT DEFAULT 'pending',
+        route          JSONB NOT NULL DEFAULT '{}',
+        steps          JSONB NOT NULL DEFAULT '[]',
+        external_tx_id TEXT,
+        metadata       JSONB DEFAULT '{}',
+        created_at     TIMESTAMPTZ DEFAULT NOW(),
+        completed_at   TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_ct_intent     ON coordinated_transactions(intent_id);
+      CREATE INDEX IF NOT EXISTS idx_ct_from_agent ON coordinated_transactions(from_agent);
+    `,
+  },
 ];
 
 async function migrate() {
