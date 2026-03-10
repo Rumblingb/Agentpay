@@ -15,6 +15,7 @@ interface RegistryEntry {
   totalEarnings: number;
   tasksCompleted: number;
   rating: number;
+  isFoundationAgent?: boolean;
 }
 
 type SortKey = 'earnings' | 'jobs' | 'rating';
@@ -230,8 +231,13 @@ export default function RegistryPage() {
                             {truncateId(entry.agentId)}
                           </span>
                           {entry.service && (
-                            <span className="text-xs text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded truncate hidden sm:inline">
-                              {entry.service}
+                            <span className={[
+                              'text-xs px-1.5 py-0.5 rounded truncate hidden sm:inline',
+                              entry.isFoundationAgent
+                                ? 'text-violet-400/90 bg-violet-500/10 border border-violet-500/20 font-semibold'
+                                : 'text-slate-500 bg-slate-800/60',
+                            ].join(' ')}>
+                              {entry.isFoundationAgent ? '⚙ Constitutional' : entry.service}
                             </span>
                           )}
                         </div>

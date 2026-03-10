@@ -206,6 +206,8 @@ export default function AgentDossier({ id }: { id: string }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const isConstitutional = agent.service === 'constitutional-agent';
+
   return (
     <div className="space-y-8 max-w-4xl">
 
@@ -222,13 +224,18 @@ export default function AgentDossier({ id }: { id: string }) {
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
         <div>
           <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
-            Public operator dossier
+            {isConstitutional ? 'Constitutional Foundation Agent' : 'Public operator dossier'}
           </p>
           <h1 className="text-2xl font-bold text-slate-100">{agent.displayName}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <span className="text-slate-600 text-xs font-mono">
               {agent.id.slice(0, 24)}…
             </span>
+            {isConstitutional && (
+              <span className="text-xs font-semibold text-violet-400/90 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full">
+                ⚙ Constitutional Layer
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-600 mt-1.5">
             Active since{' '}
