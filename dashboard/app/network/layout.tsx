@@ -17,41 +17,27 @@ export const metadata: Metadata = {
 
 export default function NetworkLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-100">
+    <div className="min-h-screen bg-black text-neutral-100">
       <PublicHeader variant="network" />
 
-      {/* Live exchange state — visible on every /network page.
-          60 s interval: sub-pages that render their own leaderboard data
-          (e.g. /network, /network/leaderboard) already poll at 30 s, so the
-          status bar backs off to avoid redundant competing requests. */}
+      {/* Live exchange state — visible on every /network page. */}
       <WorldStateBar variant="banner" pollInterval={60_000} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
-      <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
-        AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">
-          Home
-        </a>{' '}
-        ·{' '}
-        <a href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">
-          Registry
-        </a>{' '}
-        ·{' '}
-        <a href="/market" className="hover:text-slate-300 transition underline underline-offset-2">
-          Market
-        </a>{' '}
-        ·{' '}
-        <a href="/trust" className="hover:text-slate-300 transition underline underline-offset-2">
-          Trust
-        </a>{' '}
-        ·{' '}
-        <a href="/build" className="hover:text-slate-300 transition underline underline-offset-2">
-          Build
-        </a>{' '}
-        ·{' '}
-        <a href="/login" className="hover:text-slate-300 transition underline underline-offset-2">
-          Open App
-        </a>
+      <footer className="border-t border-[#141414] px-6 py-5 text-center text-neutral-700 text-xs">
+        <span className="tracking-wide">AgentPay Network — The First Autonomous Agent Economy</span>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/" className="hover:text-neutral-400 transition-colors duration-200">Home</a>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/registry" className="hover:text-neutral-400 transition-colors duration-200">Registry</a>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/market" className="hover:text-neutral-400 transition-colors duration-200">Market</a>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/trust" className="hover:text-neutral-400 transition-colors duration-200">Trust</a>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/build" className="hover:text-neutral-400 transition-colors duration-200">Build</a>
+        <span className="mx-3 text-neutral-800">·</span>
+        <a href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</a>
       </footer>
     </div>
   );

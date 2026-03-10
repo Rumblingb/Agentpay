@@ -25,7 +25,7 @@ interface ExchangeStats {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
-const FLASH_DURATION_MS = 900;
+const FLASH_DURATION_MS = 1_100;
 
 /**
  * Polls /api/agents/leaderboard and returns aggregated live exchange stats.
@@ -80,17 +80,25 @@ function useExchangeStats(pollInterval = DEFAULT_POLL_INTERVAL_MS) {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function Stat({ value, label }: { value: string; label: string }) {
+function StatItem({ value, label, flash = false }: { value: string; label: string; flash?: boolean }) {
   return (
-    <span className="tabular-nums">
-      <span className="font-mono font-semibold text-slate-200">{value}</span>
-      <span className="ml-1.5 text-slate-500 text-xs uppercase tracking-wide">{label}</span>
+    <span className="tabular-nums flex items-baseline gap-1.5">
+      <span
+        className={[
+          'font-mono font-medium text-sm transition-colors duration-500',
+          flash ? 'text-emerald-300' : 'text-neutral-200',
+        ].join(' ')}
+        style={flash ? { textShadow: '0 0 10px rgba(52,211,153,0.4)' } : undefined}
+      >
+        {value}
+      </span>
+      <span className="text-neutral-600 text-xs uppercase tracking-widest font-medium">{label}</span>
     </span>
   );
 }
 
-function Sep({ className = '' }: { className?: string }) {
-  return <span className={`text-slate-700 select-none ${className}`}>·</span>;
+function Divider() {
+  return <span className="text-neutral-800 select-none text-xs">|</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,11 +116,11 @@ interface WorldStateBarProps {
 }
 
 /**
- * WorldStateBar — compact live exchange status strip.
+ * WorldStateBar — live exchange state ribbon.
  *
  * Shows real metrics derived from /api/agents/leaderboard:
  *   - Active agent count
- *   - Total settled volume (flashes green on increase)
+ *   - Total settled volume (flashes on increase)
  *   - Completed jobs
  *   - Top-ranked agent name
  *
@@ -124,21 +132,21 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
   const isCard = variant === 'card';
 
   const containerCls = isCard
-    ? 'border border-slate-800 bg-slate-900/60 backdrop-blur-sm rounded-xl px-6 py-3'
-    : 'border-b border-slate-800 bg-slate-900/40 px-4 py-2.5';
+    ? 'border border-[#1c1c1c] bg-[#0b0b0b]/80 backdrop-blur rounded-xl px-6 py-3.5'
+    : 'border-b border-[#1a1a1a] bg-[#060606]/90 backdrop-blur-sm px-4 py-2.5';
 
   const innerCls = isCard
-    ? 'flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm'
-    : 'max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm';
+    ? 'flex flex-wrap items-center justify-center gap-x-7 gap-y-2'
+    : 'max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5';
 
   // Loading skeleton — consistent height avoids layout shift
   if (!stats) {
     return (
       <div className={containerCls}>
-        <div className={`${innerCls} text-slate-600 text-xs`}>
+        <div className={`${innerCls} text-neutral-700 text-xs`}>
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/40 animate-pulse" />
-            Connecting…
+            <span className="w-1 h-1 rounded-full bg-emerald-500/40 animate-pulse" />
+            <span className="text-xs uppercase tracking-widest font-medium">Connecting</span>
           </span>
         </div>
       </div>
@@ -155,52 +163,45 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
   return (
     <div className={containerCls}>
       <div className={innerCls}>
-        {/* Live pulse indicator + label */}
-        <span className="flex items-center gap-1.5 text-slate-500 text-xs uppercase tracking-wide font-semibold flex-shrink-0">
+        {/* Live pulse indicator */}
+        <span className="flex items-center gap-2 flex-shrink-0">
           <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-40" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
           </span>
-          Exchange
+          <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">
+            Exchange
+          </span>
         </span>
 
         {agentCount === 0 ? (
-          <span className="text-slate-600 text-xs">
+          <span className="text-neutral-700 text-xs tracking-wide">
             Network initializing — be the first to deploy
           </span>
         ) : (
           <>
+            <Divider />
+
             {/* Agents */}
-            <Stat value={String(agentCount)} label="agents" />
+            <StatItem value={String(agentCount)} label="operators" />
 
-            <Sep />
+            <Divider />
 
-            {/* Volume — flashes green when it ticks up */}
-            <span className="tabular-nums">
-              <span
-                className={[
-                  'font-mono font-semibold transition-colors duration-300',
-                  flashing ? 'text-emerald-300' : 'text-emerald-400',
-                ].join(' ')}
-                style={flashing ? { textShadow: '0 0 8px rgba(52,211,153,0.5)' } : undefined}
-              >
-                ${volumeFormatted}
-              </span>
-              <span className="ml-1.5 text-slate-500 text-xs uppercase tracking-wide">settled</span>
-            </span>
+            {/* Volume */}
+            <StatItem value={`$${volumeFormatted}`} label="settled" flash={flashing} />
 
-            <Sep />
+            <Divider />
 
             {/* Jobs */}
-            <Stat value={totalJobs.toLocaleString()} label="jobs completed" />
+            <StatItem value={totalJobs.toLocaleString()} label="jobs" />
 
-            {/* Top agent — hidden on small screens to keep strip compact */}
+            {/* Top agent */}
             {topAgentName && (
               <>
-                <Sep className="hidden sm:inline" />
-                <span className="hidden sm:inline text-slate-500 text-xs">
-                  lead{' '}
-                  <span className="text-slate-300 font-medium">{topAgentName}</span>
+                <Divider />
+                <span className="hidden sm:flex items-baseline gap-1.5">
+                  <span className="text-neutral-600 text-xs uppercase tracking-widest font-medium">Lead</span>
+                  <span className="text-neutral-300 text-sm font-medium">{topAgentName}</span>
                 </span>
               </>
             )}
