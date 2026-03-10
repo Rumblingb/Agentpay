@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Link2, Check } from 'lucide-react';
 import { STATUS_COLOR, STATUS_DOT, timeAgo, truncateId } from '../../../_components/FeedEventRow';
+import { formatPricing, formatPricingDetail } from '../../../_lib/formatPricing';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,14 +51,6 @@ function gradeColor(grade: string): string {
     case 'F': return 'text-red-400';
     default:  return 'text-slate-600';
   }
-}
-
-/** Prettifies a camelCase key into a readable label. */
-function prettifyKey(key: string): string {
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (c) => c.toUpperCase())
-    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -191,11 +184,11 @@ export default function AgentDossier({ id }: { id: string }) {
       <div className="px-6 py-16 text-center space-y-4">
         <p className="text-slate-400 text-sm">{error || 'Operator not found'}</p>
         <Link
-          href="/network/leaderboard"
+          href="/market"
           className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition"
         >
           <ArrowLeft size={11} />
-          Back to operator registry
+          Back to market
         </Link>
       </div>
     );
@@ -206,10 +199,10 @@ export default function AgentDossier({ id }: { id: string }) {
   const hasRank = agentRank !== null && agentRank.score > 0;
   const rankGrade = agentRank?.grade ?? 'U';
   const rankScore = agentRank?.score ?? 0;
-  const hasPricing =
-    agent.pricing !== null &&
-    agent.pricing !== undefined &&
-    Object.keys(agent.pricing).length > 0;
+
+  const pricingSummary = formatPricing(agent.pricing);
+  const pricingDetail = formatPricingDetail(agent.pricing);
+  const hasCapabilitySection = !!(agent.service || pricingSummary);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -218,11 +211,11 @@ export default function AgentDossier({ id }: { id: string }) {
 
       {/* Breadcrumb */}
       <Link
-        href="/network/leaderboard"
+        href="/market"
         className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition"
       >
         <ArrowLeft size={11} />
-        Operator Registry
+        Agent Market
       </Link>
 
       {/* ── Identity block ───────────────────────────────────────────────── */}
@@ -233,11 +226,6 @@ export default function AgentDossier({ id }: { id: string }) {
           </p>
           <h1 className="text-2xl font-bold text-slate-100">{agent.displayName}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-2">
-            {agent.service && (
-              <span className="bg-slate-800 border border-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded">
-                {agent.service}
-              </span>
-            )}
             <span className="text-slate-600 text-xs font-mono">
               {agent.id.slice(0, 24)}…
             </span>
@@ -329,33 +317,55 @@ export default function AgentDossier({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* ── Service model / pricing ──────────────────────────────────────── */}
-      {hasPricing && (
+      {/* ── Capability / Service surface ──────────────────────────────── */}
+      {hasCapabilitySection && (
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-800">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
-              Service Model
-            </p>
-            <h2 className="font-semibold text-sm text-slate-200">Pricing</h2>
+          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+                Capability
+              </p>
+              <h2 className="font-semibold text-sm text-slate-200">Offered Service</h2>
+            </div>
+            {/* Capability class pill — matches /market style */}
+            {agent.service && (
+              <span className="text-xs font-semibold text-emerald-400/80 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full flex-shrink-0">
+                {agent.service}
+              </span>
+            )}
           </div>
-          <div className="px-6 py-4">
-            <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-0">
-              {Object.entries(agent.pricing!).map(([key, value]) => (
-                <div
-                  key={key}
-                  className="flex items-baseline justify-between gap-4 py-2 border-b border-slate-800/50 last:border-0"
-                >
-                  <dt className="text-xs text-slate-500">{prettifyKey(key)}</dt>
-                  <dd className="text-sm font-semibold text-slate-200 text-right tabular-nums">
-                    {typeof value === 'number'
-                      ? value
-                      : typeof value === 'string'
-                        ? value
-                        : JSON.stringify(value)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+          <div className="px-6 py-4 space-y-4">
+            {/* Pricing summary line */}
+            {pricingSummary && (
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-xs text-slate-500">Price</span>
+                <span className="text-sm font-semibold text-slate-200 font-mono">
+                  {pricingSummary}
+                </span>
+              </div>
+            )}
+
+            {/* Secondary pricing fields (e.g. minAmount, description, etc.) */}
+            {pricingDetail.length > 0 && (
+              <dl className="space-y-0 border-t border-slate-800/50 pt-3">
+                {pricingDetail.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-baseline justify-between gap-4 py-1.5"
+                  >
+                    <dt className="text-xs text-slate-500">{label}</dt>
+                    <dd className="text-xs text-slate-300 text-right tabular-nums">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+
+            {/* No pricing available — state it plainly */}
+            {!pricingSummary && pricingDetail.length === 0 && agent.service && (
+              <p className="text-xs text-slate-600">
+                Pricing not published — contact via the exchange to negotiate terms.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -447,7 +457,14 @@ export default function AgentDossier({ id }: { id: string }) {
           Network
         </Link>
         <Link
-          href="/network/leaderboard"
+          href="/market"
+          className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+        >
+          Agent Market
+          <ArrowRight size={11} />
+        </Link>
+        <Link
+          href="/registry"
           className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >
           Operator Registry
