@@ -44,6 +44,12 @@ interface DisputeCase {
     respondent: Evidence[];
   };
   status: 'filed' | 'evidence_collection' | 'under_review' | 'resolved';
+  /**
+   * notificationMode reflects whether parties were automatically notified
+   * about this dispute event. "disabled" means no automatic notification
+   * was sent — you must manually inform the respondent of this case.
+   */
+  notificationMode: 'disabled' | 'live';
   resolution?: {
     decision: 'claimant_favor' | 'respondent_favor' | 'split' | 'no_fault';
     reasoning: string;
@@ -58,6 +64,18 @@ interface DisputeCase {
 
 class DisputeResolverAgent {
   private agentId = 'dispute_resolver_001';
+
+  /**
+   * notificationMode: "disabled" means notifyRespondent and notifyResolution
+   * are no-ops — parties are NOT automatically notified of dispute events.
+   *
+   * Operators must manually inform parties, or implement a webhook integration
+   * before enabling "live" mode.
+   *
+   * This must remain "disabled" until a real email/webhook delivery mechanism
+   * is wired into notifyRespondent() and notifyResolution().
+   */
+  readonly notificationMode: 'disabled' | 'live' = 'disabled';
 
   private getFee(transactionAmount: number): number {
     if (transactionAmount < 100) return 50;
@@ -118,6 +136,7 @@ class DisputeResolverAgent {
         respondent: []
       },
       status: 'evidence_collection',
+      notificationMode: this.notificationMode,
       filedAt: new Date()
     };
 
@@ -404,6 +423,9 @@ class DisputeResolverAgent {
       category: record.category,
       evidence: record.evidence as any,
       status: record.status as any,
+      // Stored records may have been created before notificationMode was added.
+      // Conservatively reflect the current mode (not historical).
+      notificationMode: this.notificationMode,
       resolution: record.resolution as any,
       filedAt: record.filedAt,
       resolvedAt: record.resolvedAt ?? undefined
@@ -423,16 +445,48 @@ class DisputeResolverAgent {
     });
   }
 
+  /**
+   * BETA STUB — parties are NOT automatically notified.
+   *
+   * Production: send email or webhook to the respondent containing the
+   * case ID, claim summary, evidence deadline, and API endpoint for
+   * submitting their response.
+   */
   private async notifyRespondent(_dispute: DisputeCase): Promise<void> {
-    // Production: send email/webhook to respondent with 48h deadline
+    console.warn(
+      `[DisputeResolverAgent] BETA: notifyRespondent is disabled — ` +
+      `respondent "${_dispute.respondent}" was NOT notified of case "${_dispute.caseId}". ` +
+      `Manual notification is required.`
+    );
   }
 
+  /**
+   * BETA STUB — resolution scheduling is not implemented.
+   *
+   * Production: enqueue a background job that will call resolveDispute()
+   * after the EVIDENCE_PERIOD_HOURS window expires. Without this, disputes
+   * remain in "under_review" indefinitely until resolve_dispute is called manually.
+   */
   private async beginResolution(_caseId: string): Promise<void> {
-    // Production: schedule auto-resolution job after review period
+    console.warn(
+      `[DisputeResolverAgent] BETA: beginResolution is disabled — ` +
+      `case "${_caseId}" will NOT auto-resolve after the evidence period. ` +
+      `Call resolve_dispute manually.`
+    );
   }
 
+  /**
+   * BETA STUB — parties are NOT automatically notified of resolution.
+   *
+   * Production: send email or webhook to both claimant and respondent with
+   * the decision, reasoning, and reputation impact.
+   */
   private async notifyResolution(_dispute: DisputeCase): Promise<void> {
-    // Production: notify both parties of the outcome
+    console.warn(
+      `[DisputeResolverAgent] BETA: notifyResolution is disabled — ` +
+      `neither party was notified of resolution for case "${_dispute.caseId}". ` +
+      `Manual notification is required.`
+    );
   }
 
   private generateCaseId(): string {
@@ -444,6 +498,12 @@ export const disputeResolverAgent = new DisputeResolverAgent();
 
 export async function handleDisputeResolution(req: any, res: any) {
   const { action, ...params } = req.body;
+
+  // The authenticated merchant ID is available as req.merchant.id.
+  // It is not used for billing here (dispute fees are charged to the filing agent),
+  // but it is threaded through so future authorization checks can verify the
+  // merchant owns the filedBy agent.
+  const _merchantId: string = req.merchant?.id;
 
   try {
     switch (action) {

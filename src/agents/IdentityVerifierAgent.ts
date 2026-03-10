@@ -41,6 +41,24 @@ interface VerificationCredential {
   expiresAt: Date;
   signature: string;
   trustLevel: 'verified' | 'attested' | 'self-reported';
+  /**
+   * keyMode indicates whether this credential was signed with a stable configured
+   * key ("configured") or an ephemeral per-process random key ("ephemeral").
+   *
+   * Credentials issued in "ephemeral" mode CANNOT be verified after a server
+   * restart because the signing key is lost. They should be treated as
+   * session-scoped attestations only, not durable identity proofs.
+   */
+  keyMode: 'configured' | 'ephemeral';
+  /**
+   * proofVerificationMode indicates whether external proof verification
+   * (signature checks, deployment URL checks) is live or stubbed.
+   *
+   * "beta_stub" = proof functions always return true; credentials are NOT
+   * cryptographically auditable proofs. Do NOT treat "verified" trust level
+   * as a hard security guarantee when this field is "beta_stub".
+   */
+  proofVerificationMode: 'live' | 'beta_stub';
 }
 
 interface IdentityLink {
@@ -55,16 +73,57 @@ class IdentityVerifierAgent {
   private agentId = 'identity_verifier_001';
   private privateKey: string;
 
+  /**
+   * keyMode tracks whether a stable configured key is in use.
+   * "ephemeral" means IDENTITY_VERIFIER_PRIVATE_KEY was not set — a random
+   * key was generated for this process instance. Credentials issued in
+   * ephemeral mode cannot be verified after a server restart.
+   */
+  readonly keyMode: 'configured' | 'ephemeral';
+
   // Pricing
   private VERIFICATION_FEE_BASIC = 10;
   private VERIFICATION_FEE_ADVANCED = 50;
 
-  // Credential validity
+  // Credential validity (days)
   private CREDENTIAL_VALIDITY_DAYS = 90;
 
+  /**
+   * Beta stub — tracks whether external proof verification is live.
+   *
+   * proofVerificationMode: "beta_stub" means verifySignatureProof and
+   * verifyDeploymentProof are NOT performing real cryptographic or network
+   * verification. Any credential issued with this flag should NOT be
+   * treated as a cryptographically auditable identity proof.
+   *
+   * This must remain "beta_stub" until:
+   *   - verifySignatureProof implements Ed25519/secp256k1 signature checking
+   *   - verifyDeploymentProof implements deployment URL + response verification
+   */
+  private readonly proofVerificationMode: 'beta_stub' | 'live' = 'beta_stub';
+
   constructor() {
-    // HS256 uses a shared secret (hex string is fine for HMAC-SHA256)
-    this.privateKey = process.env.IDENTITY_VERIFIER_PRIVATE_KEY || crypto.randomBytes(32).toString('hex');
+    const configuredKey = process.env.IDENTITY_VERIFIER_PRIVATE_KEY;
+
+    if (configuredKey && configuredKey.length >= 32) {
+      // HS256 uses a shared secret (hex string is fine for HMAC-SHA256)
+      this.privateKey = configuredKey;
+      this.keyMode = 'configured';
+    } else {
+      // No stable key — generate an ephemeral one for this process.
+      // Credentials issued here CANNOT be verified after a server restart.
+      this.privateKey = crypto.randomBytes(32).toString('hex');
+      this.keyMode = 'ephemeral';
+
+      const warning =
+        '[IdentityVerifierAgent] WARNING: IDENTITY_VERIFIER_PRIVATE_KEY is not set ' +
+        'or is shorter than 32 characters. An ephemeral random key has been generated. ' +
+        'Credentials issued now will be unverifiable after a server restart. ' +
+        'Set IDENTITY_VERIFIER_PRIVATE_KEY in production to use durable credential signing. ' +
+        'Generate a key: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"';
+
+      console.warn(warning);
+    }
   }
 
   /**
@@ -241,7 +300,7 @@ class IdentityVerifierAgent {
 
     for (const proof of proofs) {
       if (proof.type === 'signature') {
-        const valid = await this.verifySignatureProof(agentId, proof.value);
+        const valid = await this._betaStub_verifySignatureProof(agentId, proof.value);
         if (!valid) return false;
       }
     }
@@ -252,7 +311,7 @@ class IdentityVerifierAgent {
   private async verifyEnvironment(environment: any, proofs: any[]): Promise<boolean> {
     for (const proof of proofs) {
       if (proof.type === 'deployment') {
-        const valid = await this.verifyDeploymentProof(environment, proof.value);
+        const valid = await this._betaStub_verifyDeploymentProof(environment, proof.value);
         if (!valid) return false;
       }
     }
@@ -265,6 +324,13 @@ class IdentityVerifierAgent {
     proofCount: number
   ): 'verified' | 'attested' | 'self-reported' {
     if (ownershipVerified && environmentVerified && proofCount >= 2) {
+      // "verified" requires:
+      //   1. A stable configured signing key (not ephemeral)
+      //   2. Live proof verification (not beta stubs)
+      // Without both, the highest achievable level is "attested".
+      if (this.keyMode === 'ephemeral' || this.proofVerificationMode === 'beta_stub') {
+        return 'attested';
+      }
       return 'verified';
     }
     if (ownershipVerified && proofCount >= 1) {
@@ -290,7 +356,9 @@ class IdentityVerifierAgent {
       issuedAt: now,
       expiresAt,
       signature: '',
-      trustLevel
+      trustLevel,
+      keyMode: this.keyMode,
+      proofVerificationMode: this.proofVerificationMode,
     };
 
     credential.signature = await this.signCredential(credential);
@@ -372,7 +440,13 @@ class IdentityVerifierAgent {
       issuedAt: cred.issuedAt,
       expiresAt: cred.expiresAt,
       signature: cred.signature,
-      trustLevel: cred.trustLevel as any
+      trustLevel: cred.trustLevel as any,
+      // Credentials fetched from the DB do not know which key mode was active
+      // when they were issued. Treat stored credentials as 'configured' — if the
+      // signature check in verifyCredential() passes, the key must still be valid.
+      keyMode: 'configured',
+      // Conservatively mark as beta_stub since we cannot tell how they were issued.
+      proofVerificationMode: 'beta_stub',
     };
   }
 
@@ -396,14 +470,42 @@ class IdentityVerifierAgent {
     _linkedIds: string[],
     proofs: any[]
   ): Promise<any> {
-    return { verified: true, proofs };
+    // BETA STUB: cross-platform proof is recorded but not independently verified.
+    return { verified: true, proofs, verificationMode: 'beta_stub' };
   }
 
-  private async verifySignatureProof(_agentId: string, _signature: string): Promise<boolean> {
+  /**
+   * BETA STUB — always returns true.
+   *
+   * Production implementation must verify the provided signature against
+   * the agent's registered public key using Ed25519 or secp256k1.
+   *
+   * This stub means "signature" proofs do NOT add real cryptographic weight
+   * to a credential. The trust level is capped at "attested" because of this.
+   */
+  private async _betaStub_verifySignatureProof(_agentId: string, _signature: string): Promise<boolean> {
+    console.warn(
+      '[IdentityVerifierAgent] BETA: verifySignatureProof is a stub — ' +
+      'signature not cryptographically verified. Proof accepted unconditionally.'
+    );
     return true;
   }
 
-  private async verifyDeploymentProof(_environment: any, _proof: string): Promise<boolean> {
+  /**
+   * BETA STUB — always returns true.
+   *
+   * Production implementation must ping the claimed deployment URL, parse the
+   * response, and verify a signed token that proves the deployment belongs to
+   * the claimed operator.
+   *
+   * This stub means "deployment" proofs do NOT add real environment verification.
+   * The trust level is capped at "attested" because of this.
+   */
+  private async _betaStub_verifyDeploymentProof(_environment: any, _proof: string): Promise<boolean> {
+    console.warn(
+      '[IdentityVerifierAgent] BETA: verifyDeploymentProof is a stub — ' +
+      'deployment not independently verified. Proof accepted unconditionally.'
+    );
     return true;
   }
 
@@ -434,10 +536,17 @@ export const identityVerifierAgent = new IdentityVerifierAgent();
 export async function handleIdentityVerification(req: any, res: any) {
   const { action, ...params } = req.body;
 
+  // The authenticated merchant ID is the billing operator.
+  // Always use req.merchant.id — never trust a caller-supplied operatorId for billing.
+  const merchantId: string = req.merchant?.id;
+
   try {
     switch (action) {
       case 'verify': {
-        const credential = await identityVerifierAgent.verifyIdentity(params);
+        const credential = await identityVerifierAgent.verifyIdentity({
+          ...params,
+          requestingOperatorId: merchantId,
+        });
         return res.json({ success: true, credential });
       }
       case 'link': {
@@ -445,7 +554,7 @@ export async function handleIdentityVerification(req: any, res: any) {
           params.primaryAgentId,
           params.linkedAgentIds,
           params.proofs,
-          params.operatorId
+          merchantId,   // always use authenticated merchant, not caller-supplied operatorId
         );
         return res.json({ success: true, link });
       }

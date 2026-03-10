@@ -41,6 +41,16 @@ interface CoordinatedTransaction {
   route: RouteDecision;
   externalTxId?: string;
   steps: TransactionStep[];
+  /**
+   * executionMode indicates whether protocol execution steps are live or simulated.
+   *
+   * "simulated" = no real API calls were made to Stripe, Solana, x402, AP2, or banks.
+   * Steps are recorded and status is returned as "completed" but NO actual funds
+   * moved. Do NOT use "simulated" responses to verify payment.
+   *
+   * "live" = real API calls were made; externalTxId reflects the real transaction.
+   */
+  executionMode: 'live' | 'simulated';
   createdAt: Date;
   completedAt?: Date;
 }
@@ -65,6 +75,20 @@ interface ProtocolCapabilities {
 
 class IntentCoordinatorAgent {
   private agentId = 'intent_coordinator_001';
+
+  /**
+   * executionMode: "simulated" means all protocol execution methods
+   * (executeViaStripe, executeViaSolana, etc.) are stubs — no real API
+   * calls are made and no funds actually move.
+   *
+   * Steps are created and status is returned as "completed" to allow
+   * integration testing, but the externalTxId values are randomly generated
+   * placeholders, not real transaction references.
+   *
+   * This must remain "simulated" until each executeVia* method is wired
+   * to its real API client.
+   */
+  readonly executionMode: 'live' | 'simulated' = 'simulated';
 
   private COORDINATION_FEE = {
     instant: 1.00,
@@ -127,6 +151,7 @@ class IntentCoordinatorAgent {
       status: 'routing',
       route,
       steps: [],
+      executionMode: this.executionMode,
       createdAt: new Date()
     };
 
@@ -154,6 +179,9 @@ class IntentCoordinatorAgent {
       route: transaction.route as any,
       externalTxId: transaction.externalTxId ?? undefined,
       steps: transaction.steps as any,
+      // Conservatively mark fetched transactions as simulated since we cannot
+      // know what mode was active when they were created.
+      executionMode: this.executionMode,
       createdAt: transaction.createdAt,
       completedAt: transaction.completedAt ?? undefined
     };
@@ -231,13 +259,21 @@ class IntentCoordinatorAgent {
     return `${protocol}: ${reasons.join(', ')}`;
   }
 
-  // Protocol execution methods (stubs — wire in actual clients in production)
+  // Protocol execution methods (SIMULATED STUBS — wire actual clients in production)
 
   private async executeIntent(
     transaction: CoordinatedTransaction,
     intent: PaymentIntent
   ): Promise<void> {
     transaction.status = 'executing';
+
+    if (this.executionMode === 'simulated') {
+      console.warn(
+        `[IntentCoordinatorAgent] BETA: executionMode is "simulated" — ` +
+        `intent "${transaction.intentId}" via ${transaction.route.protocol} ` +
+        `will NOT make real API calls. No funds will move.`
+      );
+    }
 
     try {
       switch (transaction.route.protocol) {
@@ -268,35 +304,59 @@ class IntentCoordinatorAgent {
     await this.updateTransaction(transaction);
   }
 
+  /**
+   * SIMULATED STUB — no real Stripe API call is made.
+   * Production: replace with await stripe.paymentIntents.create({...})
+   * and set transaction.externalTxId to the real PaymentIntent ID.
+   */
   private async executeViaStripe(transaction: CoordinatedTransaction, _intent: PaymentIntent): Promise<void> {
     this.addStep(transaction, 'stripe_init', 'in_progress');
     // Production: await stripe.paymentIntents.create({...})
     this.addStep(transaction, 'stripe_completed', 'completed', {
-      externalId: `pi_${crypto.randomBytes(12).toString('hex')}`
+      externalId: `pi_${crypto.randomBytes(12).toString('hex')}`,  // placeholder — not a real Stripe ID
+      simulated: true,
     });
   }
 
+  /**
+   * SIMULATED STUB — no real Solana transaction is submitted.
+   * Production: replace with await connection.sendTransaction({...})
+   * and set transaction.externalTxId to the real transaction signature.
+   */
   private async executeViaSolana(transaction: CoordinatedTransaction, _intent: PaymentIntent): Promise<void> {
     this.addStep(transaction, 'solana_init', 'in_progress');
     // Production: await sendTransaction({...})
     this.addStep(transaction, 'solana_confirmed', 'completed', {
-      signature: crypto.randomBytes(32).toString('hex')
+      signature: crypto.randomBytes(32).toString('hex'),  // placeholder — not a real Solana signature
+      simulated: true,
     });
   }
 
+  /**
+   * SIMULATED STUB — no real x402 payment is made.
+   * Production: implement x402 payment channel call.
+   */
   private async executeViaX402(transaction: CoordinatedTransaction, _intent: PaymentIntent): Promise<void> {
     this.addStep(transaction, 'x402_init', 'in_progress');
-    this.addStep(transaction, 'x402_settled', 'completed');
+    this.addStep(transaction, 'x402_settled', 'completed', { simulated: true });
   }
 
+  /**
+   * SIMULATED STUB — no real AP2 transaction is executed.
+   * Production: implement AP2 protocol call via src/protocols/ap2.ts.
+   */
   private async executeViaAP2(transaction: CoordinatedTransaction, _intent: PaymentIntent): Promise<void> {
     this.addStep(transaction, 'ap2_init', 'in_progress');
-    this.addStep(transaction, 'ap2_completed', 'completed');
+    this.addStep(transaction, 'ap2_completed', 'completed', { simulated: true });
   }
 
+  /**
+   * SIMULATED STUB — no real bank/ACH transfer is initiated.
+   * Production: implement ACH/wire transfer via your banking partner API.
+   */
   private async executeViaBank(transaction: CoordinatedTransaction, _intent: PaymentIntent): Promise<void> {
     this.addStep(transaction, 'bank_init', 'in_progress');
-    this.addStep(transaction, 'bank_submitted', 'completed');
+    this.addStep(transaction, 'bank_submitted', 'completed', { simulated: true });
   }
 
   // Helper methods
@@ -365,12 +425,17 @@ export const intentCoordinatorAgent = new IntentCoordinatorAgent();
 export async function handleIntentCoordination(req: any, res: any) {
   const { action, ...params } = req.body;
 
+  // The authenticated merchant ID is the billing entity for create_intent.
+  // Always use req.merchant.id — never trust caller-supplied fromAgent for billing.
+  const merchantId: string = req.merchant?.id;
+
   try {
     switch (action) {
       case 'create_intent': {
         const intent: PaymentIntent = {
           intentId: `intent_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
-          ...params
+          ...params,
+          fromAgent: merchantId,   // always use authenticated merchant, not caller-supplied
         };
         const transaction = await intentCoordinatorAgent.createIntent(intent);
         return res.json(transaction);

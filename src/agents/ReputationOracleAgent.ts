@@ -442,31 +442,38 @@ export const reputationOracleAgent = new ReputationOracleAgent();
 export async function handleReputationQuery(req: any, res: any) {
   const { action, ...params } = req.body;
 
+  // The authenticated merchant ID is the billing requester.
+  // Always use req.merchant.id — never trust a caller-supplied requestingAgentId for billing.
+  const merchantId: string = req.merchant?.id;
+
   try {
     switch (action) {
       case 'get_reputation': {
-        const score = await reputationOracleAgent.getReputation(params);
+        const score = await reputationOracleAgent.getReputation({
+          ...params,
+          requestingAgentId: merchantId,
+        });
         return res.json(score);
       }
       case 'compare': {
         const comparison = await reputationOracleAgent.compareAgents(
           params.agentId1,
           params.agentId2,
-          params.requestingAgentId
+          merchantId,   // always use authenticated merchant, not caller-supplied
         );
         return res.json(comparison);
       }
       case 'get_trust_score': {
         const trustScore = await reputationOracleAgent.getTrustScore(
           params.agentId,
-          params.requestingAgentId
+          merchantId,   // always use authenticated merchant
         );
         return res.json({ trustScore });
       }
       case 'batch_lookup': {
         const results = await reputationOracleAgent.batchLookup(
           params.agentIds,
-          params.requestingAgentId
+          merchantId,   // always use authenticated merchant
         );
         return res.json({ results: Object.fromEntries(results) });
       }

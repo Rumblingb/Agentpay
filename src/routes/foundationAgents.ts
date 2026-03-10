@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import { authenticateApiKey, type AuthRequest } from '../middleware/auth.js';
 import {
   handleIdentityVerification,
   handleReputationQuery,
@@ -9,47 +10,12 @@ import {
 const router = Router();
 
 /**
- * POST /api/foundation-agents/identity
- *
- * Actions: verify | link | verify_credential | get_identity
- */
-router.post('/identity', (req: Request, res: Response) =>
-  handleIdentityVerification(req, res)
-);
-
-/**
- * POST /api/foundation-agents/reputation
- *
- * Actions: get_reputation | compare | get_trust_score | batch_lookup
- */
-router.post('/reputation', (req: Request, res: Response) =>
-  handleReputationQuery(req, res)
-);
-
-/**
- * POST /api/foundation-agents/dispute
- *
- * Actions: file_dispute | submit_evidence | resolve_dispute | get_case | get_history
- */
-router.post('/dispute', (req: Request, res: Response) =>
-  handleDisputeResolution(req, res)
-);
-
-/**
- * POST /api/foundation-agents/intent
- *
- * Actions: create_intent | get_status | recommend_route
- */
-router.post('/intent', (req: Request, res: Response) =>
-  handleIntentCoordination(req, res)
-);
-
-/**
  * GET /api/foundation-agents
  *
- * Lists all registered foundation agents (discovery endpoint).
+ * Public discovery manifest — lists all 4 constitutional agents with their
+ * endpoints, actions, and pricing. No auth required (read-only).
  */
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', (_req: AuthRequest, res: Response) => {
   res.json({
     foundationAgents: [
       {
@@ -91,5 +57,60 @@ router.get('/', (_req: Request, res: Response) => {
     ],
   });
 });
+
+/**
+ * POST /api/foundation-agents/identity
+ *
+ * Actions: verify | link | verify_credential | get_identity
+ *
+ * Requires merchant API key auth. Fee-bearing actions (verify, link) use the
+ * authenticated merchant ID as the billing operator.
+ */
+router.post(
+  '/identity',
+  authenticateApiKey,
+  (req: AuthRequest, res: Response) => handleIdentityVerification(req, res),
+);
+
+/**
+ * POST /api/foundation-agents/reputation
+ *
+ * Actions: get_reputation | compare | get_trust_score | batch_lookup
+ *
+ * Requires merchant API key auth. All actions charge a query fee against the
+ * authenticated merchant's account.
+ */
+router.post(
+  '/reputation',
+  authenticateApiKey,
+  (req: AuthRequest, res: Response) => handleReputationQuery(req, res),
+);
+
+/**
+ * POST /api/foundation-agents/dispute
+ *
+ * Actions: file_dispute | submit_evidence | resolve_dispute | get_case | get_history
+ *
+ * Requires merchant API key auth. Filing a dispute charges a fee and requires
+ * the authenticated merchant to be a party to the referenced transaction.
+ */
+router.post(
+  '/dispute',
+  authenticateApiKey,
+  (req: AuthRequest, res: Response) => handleDisputeResolution(req, res),
+);
+
+/**
+ * POST /api/foundation-agents/intent
+ *
+ * Actions: create_intent | get_status | recommend_route
+ *
+ * Requires merchant API key auth. create_intent charges a coordination fee.
+ */
+router.post(
+  '/intent',
+  authenticateApiKey,
+  (req: AuthRequest, res: Response) => handleIntentCoordination(req, res),
+);
 
 export default router;
