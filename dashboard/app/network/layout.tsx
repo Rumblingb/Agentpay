@@ -47,6 +47,10 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
         ·{' '}
         <a href="/build" className="hover:text-slate-300 transition underline underline-offset-2">
           Build
+        </a>{' '}
+        ·{' '}
+        <a href="/login" className="hover:text-slate-300 transition underline underline-offset-2">
+          Open App
         </a>
       </footer>
     </div>
