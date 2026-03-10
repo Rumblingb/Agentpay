@@ -212,7 +212,7 @@ npm run db:migrate   # Run migrations
 
 ## Testing
 
-The test suite has ~850 tests across unit, route integration, security, and protocol tests.
+The test suite has 852 tests across 62 suites covering unit, route integration, security, and protocol flows.
 
 ```
 tests/
@@ -235,7 +235,7 @@ CI runs on every push with a real PostgreSQL 15 instance.
 | Docker | `docker-compose.yml` | Local dev and self-hosted |
 | Vercel | `dashboard/vercel.json` | Dashboard only |
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment instructions.
 
 ---
 
@@ -243,6 +243,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions.
 
 | Document | Description |
 |----------|-------------|
+| [QUICKSTART.md](QUICKSTART.md) | Step-by-step local setup and first API calls |
+| [ONE_PAGER.md](ONE_PAGER.md) | Product overview and competitive positioning |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Deploy to Render, Vercel, Docker, or bare metal |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and domain boundaries |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security controls and responsible disclosure |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | STRIDE threat model and attack trees |

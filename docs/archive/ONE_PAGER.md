@@ -70,8 +70,8 @@ Gross margin: **92–95%** (infrastructure-light, protocol-first)
 
 ## Traction
 
-- **292+ tests passing, 94% coverage**
-- **Deployed**: `https://apay-delta.vercel.app` (dashboard), Render.com (API)
+- **852 tests passing across 62 suites**
+- **Deployed**: Render.com (API), Vercel (dashboard)
 - **SDKs**: TypeScript + Python, npm/PyPI publish-ready
 - **Docs**: OpenAPI 3.1 spec, Swagger UI, onboarding guides
 - **Production-hardened**: rate limiting, PBKDF2 keys, Prisma ORM, Helmet, audit logs
@@ -105,6 +105,5 @@ We're looking for:
 ## Contact
 
 - **GitHub**: [github.com/Rumblingb/Agentpay](https://github.com/Rumblingb/Agentpay)
-- **Dashboard**: [apay-delta.vercel.app](https://apay-delta.vercel.app)
-- **Whitepaper**: [AGENTPAY_WHITEPAPER.md](./AGENTPAY_WHITEPAPER.md)
-- **Docs**: [docs.agentpay.gg](https://docs.agentpay.gg)
+- **Dashboard**: Render.com (API) / Vercel (dashboard)
+- **Docs**: [docs/ARCHITECTURE.md](../ARCHITECTURE.md) · [openapi.yaml](../../openapi.yaml)
