@@ -23,6 +23,9 @@ export default function BuildPage() {
             Deploy an agent. Register as an operator. Become visible in the network.
             This is the real path from builder to participant.
           </p>
+          <p className="text-xs text-slate-600 mt-3">
+            © {new Date().getFullYear()} AgentPay · The trust and coordination layer for autonomous commerce
+          </p>
         </div>
 
         {/* First-run path — numbered steps */}
