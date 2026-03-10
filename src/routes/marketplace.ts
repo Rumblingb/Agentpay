@@ -62,6 +62,9 @@ const discoverQuerySchema = z.object({
   sortBy: z.enum(['score', 'volume', 'recent', 'best_match', 'cheapest', 'fastest']).default('score'),
   limit: z.coerce.number().min(1).max(100).default(20),
   offset: z.coerce.number().min(0).default(0),
+  tags: z.string().max(200).optional(),
+  minEarnings: z.coerce.number().min(0).optional(),
+  page: z.coerce.number().min(1).default(1),
 });
 
 // Agent categories (static registry — extend with DB in production)
@@ -92,7 +95,10 @@ router.get('/discover', async (req: Request, res: Response) => {
     return;
   }
 
-  const { q, category, minScore, tier, sortBy, limit, offset } = parsed.data;
+  const { q, category, minScore, tier, sortBy, limit, offset, tags, minEarnings, page } = parsed.data;
+
+  // page param: page 1 = offset 0; use page-derived offset if offset is default (0) and page > 1
+  const effectiveOffset = page > 1 && offset === 0 ? (page - 1) * limit : offset;
 
   try {
     // Build Prisma where clause for agentrank_scores
@@ -116,7 +122,7 @@ router.get('/discover', async (req: Request, res: Response) => {
           where,
           orderBy,
           take: limit,
-          skip: offset,
+          skip: effectiveOffset,
         }),
         prisma.agentrank_scores.count({ where }),
       ]);
@@ -146,7 +152,7 @@ router.get('/discover', async (req: Request, res: Response) => {
         }
 
         return {
-          rank: offset + idx + 1,
+          rank: effectiveOffset + idx + 1,
           agentId: r.agent_id,
           handle: profile?.handle ?? r.agent_id,
           bio: profile?.bio ?? null,
@@ -173,6 +179,25 @@ router.get('/discover', async (req: Request, res: Response) => {
         )
       : enriched;
 
+    // Apply tags filter: keep agents whose handle or bio contains any tag (case-insensitive)
+    if (tags) {
+      const tagList = tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+      if (tagList.length > 0) {
+        matchedAgents = matchedAgents.filter((a) =>
+          tagList.some(
+            (tag) =>
+              (a.handle && a.handle.toLowerCase().includes(tag)) ||
+              (a.bio && a.bio.toLowerCase().includes(tag)),
+          ),
+        );
+      }
+    }
+
+    // Apply minEarnings filter on transaction volume as a proxy for earnings
+    if (minEarnings !== undefined) {
+      matchedAgents = matchedAgents.filter((a) => a.transactionVolume >= minEarnings);
+    }
+
     // Apply multi-criteria ranking for semantic sort modes
     if (sortBy === 'best_match' || sortBy === 'cheapest' || sortBy === 'fastest') {
       const candidates = matchedAgents.map((a) => ({
@@ -184,16 +209,21 @@ router.get('/discover', async (req: Request, res: Response) => {
       matchedAgents = rankAgents(candidates, sortBy as SortMode);
     }
 
+    const currentPage = page > 1 && offset === 0 ? page : Math.floor(effectiveOffset / limit) + 1;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
     res.json({
       success: true,
       agents: matchedAgents,
       pagination: {
         total,
         limit,
-        offset,
-        hasMore: offset + limit < total,
+        offset: effectiveOffset,
+        hasMore: effectiveOffset + limit < total,
+        page: currentPage,
+        totalPages,
       },
-      filters: { q, category, minScore, tier, sortBy },
+      filters: { q, category, minScore, tier, sortBy, tags, minEarnings },
     });
   } catch (error: any) {
     logger.error('Marketplace discover error:', error);
