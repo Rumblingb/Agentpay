@@ -13,6 +13,7 @@
  *   // ... route handlers that use req.platformId
  */
 
+import { createHash } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
@@ -23,6 +24,11 @@ export interface PlatformRequest extends Request {
 }
 
 const DEFAULT_PLATFORM_ID = process.env.DEFAULT_PLATFORM_ID ?? 'default';
+
+/** SHA-256 hash of a platform API key (stored in DB, never the raw key). */
+function hashPlatformKey(key: string): string {
+  return createHash('sha256').update(key).digest('hex');
+}
 
 export async function assignPlatformFromKey(
   req: PlatformRequest,
@@ -40,7 +46,7 @@ export async function assignPlatformFromKey(
   try {
     const result = await query(
       `SELECT id, name, is_active FROM platforms WHERE api_key_hash = $1 AND is_active = TRUE LIMIT 1`,
-      [platformKey], // In production, store a hash — for now accept the raw key
+      [hashPlatformKey(platformKey)],
     );
 
     if (result.rows.length === 0) {

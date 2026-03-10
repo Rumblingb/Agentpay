@@ -21,6 +21,18 @@ import { logger } from '../logger.js';
 import { metrics } from './metrics.js';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'change-me-in-production';
+
+// Warn loudly in non-test environments if the secret is the insecure default
+if (
+  process.env.NODE_ENV !== 'test' &&
+  (!process.env.WEBHOOK_SECRET || process.env.WEBHOOK_SECRET === 'change-me-in-production')
+) {
+  // Use console.warn so this surfaces even before the logger is ready
+  console.warn(
+    '[Events] WARNING: WEBHOOK_SECRET is not set or is the insecure default. ' +
+    'Webhook signatures cannot be trusted. Set WEBHOOK_SECRET in production.',
+  );
+}
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 2000; // 2s, 4s, 8s
 

@@ -157,12 +157,12 @@ export async function runAmlCheck(input: AmlCheckInput): Promise<AmlResult> {
     score += 30;
   }
 
-  // 4. Velocity check — > 10 transactions in last 60 minutes
+  // 4. Velocity check — > 10 agent transactions in last 60 minutes
   try {
     const velocityResult = await query(
       `SELECT COUNT(*) AS count
-         FROM kyc_submissions
-        WHERE agent_id = $1
+         FROM agent_transactions
+        WHERE buyer_agent_id = $1 OR seller_agent_id = $1
           AND created_at > NOW() - INTERVAL '60 minutes'`,
       [input.agentId],
     );
