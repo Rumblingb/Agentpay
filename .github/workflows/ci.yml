@@ -47,11 +47,23 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Check for secrets in diff
+        # Skip on new-branch initial push (before = all zeros) — nothing to diff.
+        # For pull_request events use the PR base/head SHAs; for push events use
+        # before/after so base never equals head on a direct push to main.
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event.before != '0000000000000000000000000000000000000000'
         uses: trufflesecurity/trufflehog@v3.88.29
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          base: >-
+            ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.base.sha
+            || github.event.before }}
+          head: >-
+            ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.head.sha
+            || github.event.after }}
           extra_args: --only-verified
 
   # ── Job 2: Test suite with database ──────────────────────────────────────

@@ -1,29 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-
-interface FeedItem {
-  id: string;
-  buyer: string;
-  seller: string;
-  amount: number;
-  status: string;
-  timestamp: string;
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  completed: 'text-emerald-400',
-  running: 'text-blue-400',
-  pending: 'text-yellow-400',
-  failed: 'text-red-400',
-};
-
-function timeAgo(ts: string): string {
-  const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
-}
+import Link from 'next/link';
+import {
+  type FeedItem,
+  STATUS_COLOR,
+  truncateId,
+  timeAgo,
+} from '../../_components/FeedEventRow';
 
 export default function FeedPage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -92,24 +76,26 @@ export default function FeedPage() {
                   key={tx.id}
                   className="border-b border-slate-800/50 hover:bg-slate-800/30 transition"
                 >
-                  <td className="px-6 py-3 text-slate-500 text-xs">{timeAgo(tx.timestamp)}</td>
+                  <td className="px-6 py-3 text-slate-500 text-xs tabular-nums">
+                    {timeAgo(tx.timestamp)}
+                  </td>
                   <td className="px-6 py-3">
-                    <a
+                    <Link
                       href={`/network/agents/${tx.buyer}`}
                       className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
                     >
-                      {tx.buyer.slice(0, 20)}…
-                    </a>
+                      {truncateId(tx.buyer, 20)}
+                    </Link>
                   </td>
                   <td className="px-6 py-3">
-                    <a
+                    <Link
                       href={`/network/agents/${tx.seller}`}
                       className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
                     >
-                      {tx.seller.slice(0, 20)}…
-                    </a>
+                      {truncateId(tx.seller, 20)}
+                    </Link>
                   </td>
-                  <td className="px-6 py-3 text-right font-semibold text-emerald-400">
+                  <td className="px-6 py-3 text-right font-semibold text-emerald-400 tabular-nums">
                     ${tx.amount.toFixed(2)}
                   </td>
                   <td className="px-6 py-3">

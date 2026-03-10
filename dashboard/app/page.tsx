@@ -5,15 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 import { WorldStateBar } from './_components/WorldStateBar';
-
-interface FeedItem {
-  id: string;
-  buyer: string;
-  seller: string;
-  amount: number;
-  status: string;
-  timestamp: string;
-}
+import { FeedEventRow, type FeedItem } from './_components/FeedEventRow';
 
 interface LeaderEntry {
   rank: number;
@@ -25,33 +17,11 @@ interface LeaderEntry {
   rating: number;
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  completed: 'text-emerald-400',
-  running: 'text-blue-400',
-  pending: 'text-yellow-400',
-  failed: 'text-red-400',
-};
-
-const AGENT_ID_TRUNCATE_LEN = 14;
 const FEED_PREVIEW_LIMIT = 6;
 const LEADERBOARD_PREVIEW_LIMIT = 6;
 const FEED_POLL_INTERVAL_MS = 5_000;
 const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
 const NEW_ITEM_ANIMATION_DURATION_MS = 1_000;
-
-function truncate(str: string, len = AGENT_ID_TRUNCATE_LEN): string {
-  return str.length > len ? str.slice(0, len) + '…' : str;
-}
-
-function timeAgo(ts: string): string {
-  const diff = Date.now() - new Date(ts).getTime();
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ago`;
-}
 
 export default function WelcomePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -179,56 +149,33 @@ export default function WelcomePage() {
             </div>
 
             {feedLoading ? (
-              <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
+              /* Skeleton rows — same height as real rows, no layout shift */
+              <ul className="divide-y divide-slate-800/50">
+                {Array.from({ length: FEED_PREVIEW_LIMIT }).map((_, i) => (
+                  <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700 flex-shrink-0" />
+                    <div className="flex-1 h-3 bg-slate-800 rounded" />
+                    <div className="w-14 h-3 bg-slate-800 rounded" />
+                  </li>
+                ))}
+              </ul>
             ) : feed.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 text-sm space-y-2">
-                <p>No activity yet.</p>
+              <div className="px-6 py-10 text-center space-y-3">
+                <p className="text-slate-500 text-sm">No exchange events yet.</p>
+                <p className="text-slate-600 text-xs">
+                  The exchange initializes when the first agent is deployed.
+                </p>
                 <Link
                   href="/network#deploy"
-                  className="inline-block text-xs text-emerald-400 hover:underline"
+                  className="inline-block text-xs text-emerald-400 hover:text-emerald-300 transition"
                 >
-                  Deploy an agent →
+                  Deploy the first agent →
                 </Link>
               </div>
             ) : (
               <ul className="divide-y divide-slate-800/50">
                 {feed.slice(0, FEED_PREVIEW_LIMIT).map((tx) => (
-                  <li
-                    key={tx.id}
-                    className={[
-                      'px-6 py-3 text-sm flex items-center justify-between',
-                      newIds.has(tx.id) ? 'feed-item-new' : '',
-                    ]
-                      .join(' ')
-                      .trim()}
-                  >
-                    <div>
-                      <Link
-                        href={`/network/agents/${tx.buyer}`}
-                        className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
-                      >
-                        {truncate(tx.buyer)}
-                      </Link>
-                      <span className="mx-2 text-slate-600">→</span>
-                      <Link
-                        href={`/network/agents/${tx.seller}`}
-                        className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
-                      >
-                        {truncate(tx.seller)}
-                      </Link>
-                      <span className="ml-2 text-slate-600 text-xs">{timeAgo(tx.timestamp)}</span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                      <span className="text-emerald-400 font-semibold text-xs">
-                        ${tx.amount.toFixed(2)}
-                      </span>
-                      <span
-                        className={`text-xs font-medium ${STATUS_COLOR[tx.status] ?? 'text-slate-400'}`}
-                      >
-                        {tx.status}
-                      </span>
-                    </div>
-                  </li>
+                  <FeedEventRow key={tx.id} tx={tx} isNew={newIds.has(tx.id)} />
                 ))}
               </ul>
             )}
