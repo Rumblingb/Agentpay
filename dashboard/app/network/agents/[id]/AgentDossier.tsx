@@ -486,7 +486,7 @@ export default function AgentDossier({ id }: { id: string }) {
                   {/* Counterpart link */}
                   <div className="flex-1 min-w-0">
                     <Link
-                      href={`/network/agents/${counterpart}`}
+                      href={`/registry/${counterpart}`}
                       className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate block"
                     >
                       {truncateId(counterpart, 22)}

@@ -203,7 +203,7 @@ export default function RegistryPage() {
                 {visible.map((entry, idx) => (
                   <li key={entry.agentId}>
                     <Link
-                      href={`/network/agents/${entry.agentId}`}
+                      href={`/registry/${entry.agentId}`}
                       className="group px-6 py-4 grid grid-cols-[2rem_1fr_auto] sm:grid-cols-[2rem_1fr_8rem_8rem_6rem] gap-4 items-center hover:bg-slate-800/30 transition"
                     >
                       {/* Rank */}

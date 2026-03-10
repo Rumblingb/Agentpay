@@ -29,8 +29,8 @@ import {
   getReleasedEscrows,
   EscrowTransaction,
 } from '../escrow/trust-escrow.js';
-import { adjustScore } from '../services/agentrankService.js';
 import { emitEvent } from '../services/events.js';
+import { recordTrustEvent } from '../services/trustEventService.js';
 import { query } from '../db/index.js';
 import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
@@ -391,17 +391,31 @@ router.post('/approve', authenticateApiKey, async (req: AuthRequest, res: Respon
     const escrow = approveWork(escrowId, callerAgent);
     logger.info('Escrow approved (static route)', { escrowId: escrow.id, callerAgent });
 
-    const REPUTATION_DELTA = 10;
-    await Promise.all([
-      adjustScore(escrow.hiringAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
-      adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+    // Route score adjustments through the canonical trust event pipeline so every
+    // change is recorded in trust_events, emits trust.score_updated exactly once,
+    // and is visible in the dossier timeline.
+    await Promise.allSettled([
+      recordTrustEvent(
+        escrow.hiringAgent,
+        'successful_interaction',
+        `Escrow ${escrow.id} released`,
+        escrow.workingAgent,
+        { escrowId: escrow.id },
+      ),
+      recordTrustEvent(
+        escrow.workingAgent,
+        'service_execution',
+        `Escrow ${escrow.id} released`,
+        escrow.hiringAgent,
+        { escrowId: escrow.id },
+      ),
     ]);
 
     // Persist escrow status + create transactions record
     await updateEscrowTransactionStatus(escrow.id, {
       status: 'released',
-      reputationDeltaHiring: REPUTATION_DELTA,
-      reputationDeltaWorking: REPUTATION_DELTA,
+      reputationDeltaHiring: 5,   // successful_interaction delta from TRUST_EVENT_CATALOG
+      reputationDeltaWorking: 10, // service_execution delta from TRUST_EVENT_CATALOG
     });
 
     // Update merchant total_volume + payment_intents status + transactions record
@@ -466,17 +480,31 @@ router.post('/:id/approve', authenticateApiKey, async (req: AuthRequest, res: Re
     const escrow = approveWork(req.params.id, parsed.data.callerAgent);
     logger.info('Escrow approved', { escrowId: escrow.id, callerAgent: parsed.data.callerAgent });
 
-    const REPUTATION_DELTA = 10;
-    await Promise.all([
-      adjustScore(escrow.hiringAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
-      adjustScore(escrow.workingAgent, REPUTATION_DELTA, 'escrow_release', `Escrow ${escrow.id} released`),
+    // Route score adjustments through the canonical trust event pipeline so every
+    // change is recorded in trust_events, emits trust.score_updated exactly once,
+    // and is visible in the dossier timeline.
+    await Promise.allSettled([
+      recordTrustEvent(
+        escrow.hiringAgent,
+        'successful_interaction',
+        `Escrow ${escrow.id} released`,
+        escrow.workingAgent,
+        { escrowId: escrow.id },
+      ),
+      recordTrustEvent(
+        escrow.workingAgent,
+        'service_execution',
+        `Escrow ${escrow.id} released`,
+        escrow.hiringAgent,
+        { escrowId: escrow.id },
+      ),
     ]);
 
     // Persist escrow status change
     await updateEscrowTransactionStatus(escrow.id, {
       status: 'released',
-      reputationDeltaHiring: REPUTATION_DELTA,
-      reputationDeltaWorking: REPUTATION_DELTA,
+      reputationDeltaHiring: 5,   // successful_interaction delta from TRUST_EVENT_CATALOG
+      reputationDeltaWorking: 10, // service_execution delta from TRUST_EVENT_CATALOG
     });
 
     // Update merchant total_volume + mark payment_intent completed + create transactions record
@@ -515,16 +543,27 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
     const escrow = disputeWork(req.params.id, callerAgent, reason, guiltyParty);
     logger.info('Escrow disputed', { escrowId: escrow.id, callerAgent, reason });
 
-    const DISPUTE_PENALTY = -20;
-    await adjustScore(guiltyParty, DISPUTE_PENALTY, 'escrow_dispute', `Escrow ${escrow.id}: ${reason}`);
+    // Route the guilt determination through the canonical trust event pipeline.
+    // Uses dispute_resolved_guilty (-15) because the caller has already determined
+    // the guilty party at time of filing — no deliberation period required for escrow.
+    // This writes to trust_events and emits trust.score_updated exactly once.
+    await recordTrustEvent(
+      guiltyParty,
+      'dispute_resolved_guilty',
+      `Escrow ${escrow.id}: ${reason}`,
+      callerAgent,
+      { escrowId: escrow.id, reason },
+    ).catch((err: any) =>
+      logger.warn({ err: err?.message, escrowId: escrow.id }, '[Escrow] dispute trust event failed'),
+    );
 
     // Persist dispute status to escrow_transactions (best-effort)
     await updateEscrowTransactionStatus(escrow.id, {
       status: 'disputed',
       disputeReason: reason,
       guiltyParty,
-      reputationDeltaHiring: guiltyParty === escrow.hiringAgent ? DISPUTE_PENALTY : 0,
-      reputationDeltaWorking: guiltyParty === escrow.workingAgent ? DISPUTE_PENALTY : 0,
+      reputationDeltaHiring: guiltyParty === escrow.hiringAgent ? -15 : 0,  // dispute_resolved_guilty delta
+      reputationDeltaWorking: guiltyParty === escrow.workingAgent ? -15 : 0,
     });
 
     // Webhook fan-out — fire-and-forget; never block the dispute response

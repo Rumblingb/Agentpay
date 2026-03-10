@@ -6,6 +6,7 @@ import { ArrowRight, Shield } from 'lucide-react';
 import { PublicHeader } from '../_components/PublicHeader';
 import { WorldStateBar } from '../_components/WorldStateBar';
 import { standingTier } from '../_components/StandingChip';
+import { TrustEventRow, type TrustFeedItem, truncateId } from '../_components/FeedEventRow';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -27,10 +28,7 @@ const PROOF_BAR_SCALE = 5;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function truncateId(id: string): string {
-  if (id.length <= 16) return id;
-  return `${id.slice(0, 8)}…${id.slice(-6)}`;
-}
+// truncateId is imported from FeedEventRow
 
 /** Render a rating as filled/empty dots for quick visual scan. */
 function RatingBar({ rating }: { rating: number }) {
@@ -101,7 +99,7 @@ function PodiumCard({
 
   return (
     <Link
-      href={`/network/agents/${entry.agentId}`}
+      href={`/registry/${entry.agentId}`}
       className={[
         'group relative block bg-slate-900/60 border rounded-2xl p-5 hover:bg-slate-800/40 transition overflow-hidden',
         borderColor,
@@ -170,7 +168,7 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
 
   return (
     <Link
-      href={`/network/agents/${entry.agentId}`}
+      href={`/registry/${entry.agentId}`}
       className="group px-5 py-3.5 grid grid-cols-[2.5rem_1fr_auto] sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 items-center hover:bg-slate-800/30 transition border-b border-slate-800/50 last:border-0"
     >
       {/* Rank */}
@@ -250,6 +248,8 @@ export default function TrustPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lens, setLens] = useState<Lens>('standing');
+  const [trustEvents, setTrustEvents] = useState<TrustFeedItem[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/agents/leaderboard?limit=100')
@@ -260,6 +260,26 @@ export default function TrustPage() {
       .then((d) => setLeaderboard(d.leaderboard ?? []))
       .catch((err: Error) => setError(err.message ?? 'Unknown error'))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/v1/trust/events?limit=10')
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((d) => {
+        const events: TrustFeedItem[] = (d.events ?? []).map((e: any) => ({
+          id: `trust-${e.id}`,
+          kind: 'trust' as const,
+          eventType: e.eventType,
+          agentId: e.agentId,
+          counterpartyId: e.counterpartyId,
+          delta: e.delta,
+          metadata: e.metadata ?? {},
+          timestamp: e.timestamp,
+        }));
+        setTrustEvents(events);
+      })
+      .catch(() => {/* non-fatal */})
+      .finally(() => setEventsLoading(false));
   }, []);
 
   const top3 = leaderboard.slice(0, 3);
@@ -495,6 +515,132 @@ export default function TrustPage() {
                 </div>
               </>
             )}
+          </div>
+        </section>
+
+        {/* ── Recent Trust Events ───────────────────────────────────────────── */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+              Recent Trust Events
+            </p>
+            <Link
+              href="/network"
+              className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+            >
+              Live network <ArrowRight size={11} />
+            </Link>
+          </div>
+
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            {eventsLoading ? (
+              <ul className="divide-y divide-slate-800/50">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-800 flex-shrink-0" />
+                    <div className="flex-1 h-2.5 bg-slate-800/60 rounded" />
+                    <div className="w-10 h-2.5 bg-slate-800/60 rounded" />
+                  </li>
+                ))}
+              </ul>
+            ) : trustEvents.length === 0 ? (
+              <div className="px-6 py-10 text-center space-y-2">
+                <p className="text-slate-600 text-sm">No trust events recorded yet.</p>
+                <p className="text-slate-700 text-xs">
+                  Events appear here as agents verify identity, complete jobs, and resolve disputes.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-800/50">
+                {trustEvents.map((item) => (
+                  <TrustEventRow key={item.id} item={item} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* ── Recent Disputes ───────────────────────────────────────────────── */}
+        <section className="space-y-4">
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+            Recent Disputes
+          </p>
+
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            {eventsLoading ? (
+              <ul className="divide-y divide-slate-800/50">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-800 flex-shrink-0" />
+                    <div className="flex-1 h-2.5 bg-slate-800/60 rounded" />
+                    <div className="w-10 h-2.5 bg-slate-800/60 rounded" />
+                  </li>
+                ))}
+              </ul>
+            ) : (() => {
+              const disputes = trustEvents.filter(
+                (e) => e.eventType === 'dispute.filed' || e.eventType === 'dispute.resolved',
+              );
+              return disputes.length === 0 ? (
+                <div className="px-6 py-10 text-center space-y-2">
+                  <p className="text-slate-600 text-sm">No disputes recorded.</p>
+                  <p className="text-slate-700 text-xs">
+                    Dispute activity appears here when agents file or resolve contested interactions.
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-800/50">
+                  {disputes.map((item) => (
+                    <li key={item.id} className="px-5 py-3 flex items-center gap-3">
+                      <span
+                        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full opacity-80 ${item.eventType === 'dispute.filed' ? 'bg-amber-500' : 'bg-violet-500'}`}
+                        aria-hidden="true"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs text-slate-400 font-mono truncate block">
+                          {item.eventType === 'dispute.filed' ? (
+                            <>
+                              <Link href={`/registry/${item.agentId}`} className="hover:text-emerald-400 transition">
+                                {truncateId(item.agentId, 16)}
+                              </Link>
+                              {' '}filed dispute
+                              {item.counterpartyId && (
+                                <> against{' '}
+                                  <Link href={`/registry/${item.counterpartyId}`} className="hover:text-emerald-400 transition">
+                                    {truncateId(item.counterpartyId, 16)}
+                                  </Link>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              Dispute resolved
+                              {item.counterpartyId && (
+                                <> between{' '}
+                                  <Link href={`/registry/${item.agentId}`} className="hover:text-emerald-400 transition">
+                                    {truncateId(item.agentId, 16)}
+                                  </Link>
+                                  {' '}and{' '}
+                                  <Link href={`/registry/${item.counterpartyId}`} className="hover:text-emerald-400 transition">
+                                    {truncateId(item.counterpartyId, 16)}
+                                  </Link>
+                                </>
+                              )}
+                              {typeof item.metadata?.decision === 'string' && (
+                                <span className="text-slate-600"> · {String(item.metadata.decision).replace(/_/g, ' ')}</span>
+                              )}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <span className="text-slate-700 text-xs font-mono tabular-nums flex-shrink-0">
+                        {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
           </div>
         </section>
 

@@ -197,7 +197,7 @@ export default function MarketPage() {
                 return (
                   <Link
                     key={agent.agentId}
-                    href={`/network/agents/${agent.agentId}`}
+                    href={`/registry/${agent.agentId}`}
                     className="group bg-slate-900/50 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 hover:bg-slate-800/30 transition flex flex-col gap-3"
                   >
                     {/* Capability class */}

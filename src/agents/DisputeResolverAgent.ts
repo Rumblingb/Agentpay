@@ -17,6 +17,7 @@
 import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
 import { emitEvent } from '../services/events.js';
+import { recordTrustEvent } from '../services/trustEventService.js';
 import { logger } from '../logger.js';
 
 interface DisputeRequest {
@@ -151,6 +152,15 @@ class DisputeResolverAgent {
     });
 
     await this.notifyRespondent(disputeCase);
+
+    // Record trust event for the respondent (dispute opened against them)
+    recordTrustEvent(
+      respondent,
+      'dispute_filed',
+      `Dispute ${caseId} filed for transaction ${request.transactionId}`,
+      request.filedBy,
+      { caseId, transactionId: request.transactionId, category: request.category },
+    ).catch((err: any) => logger.warn({ err: err?.message, caseId }, '[DisputeResolver] dispute_filed trust event failed'));
 
     // Webhook fan-out — fire-and-forget; never block the filing response
     emitEvent('dispute.filed', {
@@ -385,22 +395,36 @@ class DisputeResolverAgent {
   private async updateReputationScores(dispute: DisputeCase): Promise<void> {
     if (!dispute.resolution) return;
 
-    const { claimant, respondent, reputationImpact } = {
-      claimant: dispute.claimant,
-      respondent: dispute.respondent,
-      reputationImpact: dispute.resolution.reputationImpact
-    };
+    const { decision } = dispute.resolution;
+    const { claimant, respondent } = dispute;
 
-    await Promise.all([
-      prisma.agent.update({
-        where: { id: claimant },
-        data: { trustScore: { increment: reputationImpact.claimant } }
-      }),
-      prisma.agent.update({
-        where: { id: respondent },
-        data: { trustScore: { increment: reputationImpact.respondent } }
-      })
-    ]);
+    // Route each party through the canonical trust event pipeline so every
+    // score change is persisted in trust_events and propagated via webhooks.
+    // "claimant_favor" → respondent is guilty; "respondent_favor" → claimant is guilty.
+    const trustUpdates: Array<{ agentId: string; category: 'dispute_resolved_guilty' | 'dispute_resolved_innocent'; counterparty: string }> = [];
+
+    if (decision === 'claimant_favor') {
+      trustUpdates.push({ agentId: respondent, category: 'dispute_resolved_guilty', counterparty: claimant });
+      trustUpdates.push({ agentId: claimant, category: 'dispute_resolved_innocent', counterparty: respondent });
+    } else if (decision === 'respondent_favor') {
+      trustUpdates.push({ agentId: claimant, category: 'dispute_resolved_guilty', counterparty: respondent });
+      trustUpdates.push({ agentId: respondent, category: 'dispute_resolved_innocent', counterparty: claimant });
+    }
+    // 'split' and 'no_fault' — no further score changes beyond what was recorded on filing
+
+    await Promise.all(
+      trustUpdates.map(({ agentId, category, counterparty }) =>
+        recordTrustEvent(
+          agentId,
+          category,
+          `Dispute ${dispute.caseId} resolved: ${decision}`,
+          counterparty,
+          { caseId: dispute.caseId, transactionId: dispute.transactionId, decision },
+        ).catch((err: any) =>
+          logger.warn({ err: err?.message, caseId: dispute.caseId, agentId }, '[DisputeResolver] resolution trust event failed'),
+        ),
+      ),
+    );
   }
 
   private async storeDispute(dispute: DisputeCase): Promise<void> {

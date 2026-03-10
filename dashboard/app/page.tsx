@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, ShieldCheck, Star, Scale, Network } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 import { WorldStateBar } from './_components/WorldStateBar';
-import { FeedEventRow, type FeedItem } from './_components/FeedEventRow';
+import { FeedEventRow, TrustEventRow, type FeedItem, type TrustFeedItem } from './_components/FeedEventRow';
 
 // ---------------------------------------------------------------------------
 // Constitutional agents — static institutional constants
@@ -44,13 +44,18 @@ const CONSTITUTIONAL_AGENTS = [
   },
 ];
 
+// A unified activity item is either a transaction feed item or a trust event.
+type ActivityItem =
+  | ({ kind?: undefined } & FeedItem)
+  | TrustFeedItem;
+
 const FEED_PREVIEW_LIMIT = 8;
 const FEED_POLL_INTERVAL_MS = 5_000;
 const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
 const NEW_ITEM_ANIMATION_DURATION_MS = 1_200;
 
 export default function WelcomePage() {
-  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [feed, setFeed] = useState<ActivityItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const knownIds = useRef<Set<string>>(new Set());
@@ -58,20 +63,45 @@ export default function WelcomePage() {
 
   const loadFeed = useCallback(async () => {
     try {
-      const res = await fetch('/api/agents/feed');
-      if (!res.ok) return;
-      const data = await res.json();
-      const incoming: FeedItem[] = data.feed ?? [];
+      const [txRes, trustRes] = await Promise.allSettled([
+        fetch('/api/agents/feed'),
+        fetch('/api/v1/trust/events?limit=20'),
+      ]);
+
+      const txItems: FeedItem[] =
+        txRes.status === 'fulfilled' && txRes.value.ok
+          ? ((await txRes.value.json()).feed ?? [])
+          : [];
+
+      const trustItems: TrustFeedItem[] =
+        trustRes.status === 'fulfilled' && trustRes.value.ok
+          ? ((await trustRes.value.json()).events ?? []).map((e: any) => ({
+              id: `trust-${e.id}`,
+              kind: 'trust' as const,
+              eventType: e.eventType,
+              agentId: e.agentId,
+              counterpartyId: e.counterpartyId,
+              delta: e.delta,
+              metadata: e.metadata ?? {},
+              timestamp: e.timestamp,
+            }))
+          : [];
+
+      // Merge and sort by timestamp descending, newest first
+      const merged: ActivityItem[] = [...txItems, ...trustItems].sort(
+        (a, b) =>
+          new Date(b.timestamp ?? 0).getTime() - new Date(a.timestamp ?? 0).getTime(),
+      );
 
       const freshIds = new Set<string>();
-      for (const tx of incoming) {
-        if (!knownIds.current.has(tx.id)) {
-          freshIds.add(tx.id);
-          knownIds.current.add(tx.id);
+      for (const item of merged) {
+        if (!knownIds.current.has(item.id)) {
+          freshIds.add(item.id);
+          knownIds.current.add(item.id);
         }
       }
 
-      setFeed(incoming);
+      setFeed(merged);
 
       if (freshIds.size > 0) {
         setNewIds(freshIds);
@@ -199,9 +229,13 @@ export default function WelcomePage() {
                 </div>
               ) : (
                 <ul className="divide-y divide-[#141414]">
-                  {feed.slice(0, FEED_PREVIEW_LIMIT).map((tx) => (
-                    <FeedEventRow key={tx.id} tx={tx} isNew={newIds.has(tx.id)} />
-                  ))}
+                  {feed.slice(0, FEED_PREVIEW_LIMIT).map((item) =>
+                    item.kind === 'trust' ? (
+                      <TrustEventRow key={item.id} item={item} isNew={newIds.has(item.id)} />
+                    ) : (
+                      <FeedEventRow key={item.id} tx={item} isNew={newIds.has(item.id)} />
+                    ),
+                  )}
                 </ul>
               )}
             </div>
