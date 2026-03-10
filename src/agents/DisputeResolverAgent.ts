@@ -16,6 +16,8 @@
 
 import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
+import { emitEvent } from '../services/events.js';
+import { logger } from '../logger.js';
 
 interface DisputeRequest {
   transactionId: string;
@@ -150,6 +152,15 @@ class DisputeResolverAgent {
 
     await this.notifyRespondent(disputeCase);
 
+    // Webhook fan-out — fire-and-forget; never block the filing response
+    emitEvent('dispute.filed', {
+      caseId,
+      transactionId: request.transactionId,
+      claimant: request.filedBy,
+      respondent,
+      category: request.category,
+    }).catch((err) => logger.warn({ err: (err as Error).message, caseId }, '[DisputeResolver] dispute.filed webhook delivery failed'));
+
     return disputeCase;
   }
 
@@ -214,6 +225,19 @@ class DisputeResolverAgent {
     await this.updateDispute(dispute);
     await this.updateReputationScores(dispute);
     await this.notifyResolution(dispute);
+
+    // Webhook fan-out — fire-and-forget; never block the resolution response
+    const decision = dispute.resolution?.decision;
+    const guiltyParty =
+      decision === 'claimant_favor' ? dispute.respondent :
+      decision === 'respondent_favor' ? dispute.claimant :
+      null; // 'split' / 'no_fault' — no single guilty party
+    emitEvent('dispute.resolved', {
+      caseId: dispute.caseId,
+      transactionId: dispute.transactionId,
+      decision,
+      ...(guiltyParty ? { guiltyParty } : {}),
+    }).catch((err) => logger.warn({ err: (err as Error).message, caseId: dispute.caseId }, '[DisputeResolver] dispute.resolved webhook delivery failed'));
 
     return dispute;
   }

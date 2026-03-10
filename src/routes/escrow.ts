@@ -30,6 +30,7 @@ import {
   EscrowTransaction,
 } from '../escrow/trust-escrow.js';
 import { adjustScore } from '../services/agentrankService.js';
+import { emitEvent } from '../services/events.js';
 import { query } from '../db/index.js';
 import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
@@ -525,6 +526,14 @@ router.post('/:id/dispute', async (req: Request, res: Response) => {
       reputationDeltaHiring: guiltyParty === escrow.hiringAgent ? DISPUTE_PENALTY : 0,
       reputationDeltaWorking: guiltyParty === escrow.workingAgent ? DISPUTE_PENALTY : 0,
     });
+
+    // Webhook fan-out — fire-and-forget; never block the dispute response
+    emitEvent('dispute.filed', {
+      escrowId: escrow.id,
+      callerAgent,
+      guiltyParty,
+      reason,
+    }).catch((err: Error) => logger.warn({ err: err.message, escrowId: escrow.id }, '[Escrow] dispute.filed webhook delivery failed'));
 
     res.json({ success: true, escrow });
   } catch (error: any) {

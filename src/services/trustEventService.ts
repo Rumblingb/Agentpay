@@ -27,6 +27,7 @@
  */
 
 import { adjustScore } from './agentrankService.js';
+import { emitEvent } from './events.js';
 import { logger } from '../logger.js';
 
 // ---------------------------------------------------------------------------
@@ -120,5 +121,18 @@ export async function recordTrustEvent(
     return null;
   }
 
-  return adjustScore(agentId, meta.delta, category, details ?? meta.description);
+  return adjustScore(agentId, meta.delta, category, details ?? meta.description).then(async (result) => {
+    if (result) {
+      // Fan-out to webhook subscribers — fire-and-forget; never block the trust update
+      emitEvent('trust.score_updated', {
+        agentId,
+        category,
+        delta: meta.delta,
+        score: result.score,
+        grade: result.grade,
+        description: meta.description,
+      }).catch((err) => logger.warn({ err: (err as Error).message, agentId, category }, '[TrustEvent] trust.score_updated webhook delivery failed'));
+    }
+    return result;
+  });
 }
