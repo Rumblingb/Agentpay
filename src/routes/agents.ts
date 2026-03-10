@@ -30,6 +30,12 @@ const HIRE_AMOUNT_MIN  = 0.05;   // $0.05 minimum per transaction
 const VELOCITY_LIMIT   = 5;      // max hires between same pair per window
 const VELOCITY_WINDOW_MS = 60_000; // 60-second rolling window
 
+/** Parse a query-param integer, clamp to [0, max], fall back to defaultVal. */
+function parsePaginationParam(value: string | undefined, defaultVal: number, max: number): number {
+  const parsed = parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), max) : defaultVal;
+}
+
 const hireAgentSchema = z.object({
   buyerAgentId: z.string().min(1),
   sellerAgentId: z.string().min(1),
@@ -403,8 +409,8 @@ router.post('/complete', async (req: Request, res: Response) => {
  */
 router.get('/feed', async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt((req.query.limit as string) ?? '50', 10) || 50, 200);
-    const offset = Math.max(parseInt((req.query.offset as string) ?? '0', 10) || 0, 0);
+    const limit = parsePaginationParam(req.query.limit as string, 50, 200);
+    const offset = parsePaginationParam(req.query.offset as string, 0, Number.MAX_SAFE_INTEGER);
 
     const transactions = await (prisma as any).agentTransaction.findMany({
       orderBy: { createdAt: 'desc' },
@@ -435,8 +441,8 @@ router.get('/feed', async (req: Request, res: Response) => {
  */
 router.get('/leaderboard', async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt((req.query.limit as string) ?? '20', 10) || 20, 100);
-    const offset = Math.max(parseInt((req.query.offset as string) ?? '0', 10) || 0, 0);
+    const limit = parsePaginationParam(req.query.limit as string, 20, 100);
+    const offset = parsePaginationParam(req.query.offset as string, 0, Number.MAX_SAFE_INTEGER);
 
     const [agents, total] = await Promise.all([
       prisma.agent.findMany({
