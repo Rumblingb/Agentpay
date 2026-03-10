@@ -210,7 +210,7 @@ export default function LeaderboardPage() {
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
                         <a
-                          href={`/network/agents/${entry.agentId}`}
+                          href={`/registry/${entry.agentId}`}
                           className="font-medium text-slate-200 hover:text-emerald-400 transition"
                         >
                           {entry.name}

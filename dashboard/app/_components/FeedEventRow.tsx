@@ -184,14 +184,14 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
       {/* Counterparties */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <Link
-          href={`/network/agents/${tx.buyer}`}
+          href={`/registry/${tx.buyer}`}
           className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate"
         >
           {truncateId(tx.buyer)}
         </Link>
         <span className="text-neutral-800 flex-shrink-0 select-none text-xs">↔</span>
         <Link
-          href={`/network/agents/${tx.seller}`}
+          href={`/registry/${tx.seller}`}
           className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate"
         >
           {truncateId(tx.seller)}

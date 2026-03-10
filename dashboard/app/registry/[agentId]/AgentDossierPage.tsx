@@ -5,7 +5,15 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Shield } from 'lucide-react';
 import { PublicHeader } from '../../_components/PublicHeader';
 import { WorldStateBar } from '../../_components/WorldStateBar';
-import { TrustEventRow, type TrustFeedItem, timeAgo, truncateId } from '../../_components/FeedEventRow';
+import {
+  TrustEventRow,
+  type TrustFeedItem,
+  type FeedItem,
+  STATUS_DOT,
+  STATUS_COLOR,
+  timeAgo,
+  truncateId,
+} from '../../_components/FeedEventRow';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +58,7 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [agentRank, setAgentRank] = useState<AgentRankData | null>(null);
   const [trustEvents, setTrustEvents] = useState<TrustFeedItem[]>([]);
+  const [recentJobs, setRecentJobs] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -58,10 +67,11 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
 
     async function load() {
       try {
-        const [agentRes, rankRes, eventsRes] = await Promise.allSettled([
+        const [agentRes, rankRes, eventsRes, feedRes] = await Promise.allSettled([
           fetch(`/api/agents/${encodeURIComponent(agentId)}`),
           fetch(`/api/agentrank/${encodeURIComponent(agentId)}`),
           fetch(`/api/v1/trust/events?agentId=${encodeURIComponent(agentId)}&limit=20`),
+          fetch('/api/agents/feed'),
         ]);
 
         if (agentRes.status === 'fulfilled' && agentRes.value.ok) {
@@ -89,6 +99,14 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
             timestamp: e.timestamp,
           }));
           setTrustEvents(events);
+        }
+
+        if (feedRes.status === 'fulfilled' && feedRes.value.ok) {
+          const data = await feedRes.value.json();
+          const jobs: FeedItem[] = (data.feed ?? []).filter(
+            (tx: FeedItem) => tx.buyer === agentId || tx.seller === agentId,
+          );
+          setRecentJobs(jobs.slice(0, 20));
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Failed to load dossier');
@@ -252,6 +270,76 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
               )}
             </div>
 
+            {/* ── Exchange History (settled jobs) ───────────────────────────── */}
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+                    Exchange
+                  </p>
+                  <h2 className="font-semibold text-sm text-slate-200">Transaction Record</h2>
+                </div>
+                {recentJobs.length > 0 && (
+                  <span className="text-xs text-slate-600 font-mono tabular-nums">
+                    {recentJobs.length} job{recentJobs.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {recentJobs.length === 0 ? (
+                <div className="px-6 py-12 text-center space-y-2">
+                  <p className="text-slate-600 text-sm">No exchange activity yet.</p>
+                  <p className="text-slate-700 text-xs">
+                    Activity appears once this agent has settled jobs on the network.
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-800/60">
+                  {recentJobs.map((job) => {
+                    const isBuyer = job.buyer === agentId;
+                    const counterpart = isBuyer ? job.seller : job.buyer;
+                    const dotCls = STATUS_DOT[job.status] ?? 'bg-slate-600';
+                    const statusCls = STATUS_COLOR[job.status] ?? 'text-slate-400';
+                    return (
+                      <li
+                        key={job.id}
+                        className="px-5 py-4 flex items-center gap-3 hover:bg-slate-800/20 transition"
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 opacity-80 ${dotCls}`} />
+                        <span
+                          className={[
+                            'text-xs font-medium w-14 flex-shrink-0 uppercase tracking-wide',
+                            isBuyer ? 'text-sky-400' : 'text-emerald-400',
+                          ].join(' ')}
+                        >
+                          {isBuyer ? 'Hired' : 'Worked'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <Link
+                            href={`/registry/${counterpart}`}
+                            className="font-mono text-xs text-slate-500 hover:text-emerald-400 transition truncate block"
+                          >
+                            {truncateId(counterpart, 22)}
+                          </Link>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <span className="text-emerald-400 font-mono text-xs tabular-nums">
+                            ${job.amount.toFixed(2)}
+                          </span>
+                          <span className={`text-xs hidden sm:inline ${statusCls} opacity-80`}>
+                            {job.status}
+                          </span>
+                          <span className="text-slate-700 text-xs font-mono tabular-nums hidden sm:inline">
+                            {timeAgo(job.timestamp)}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
             {/* ── Footer navigation ────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-5 text-xs border-t border-slate-800 pt-6">
               <Link
@@ -288,3 +376,4 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
     </div>
   );
 }
+

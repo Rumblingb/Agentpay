@@ -371,7 +371,7 @@ export default function NetworkHomePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <Link
-                          href={`/network/agents/${entry.agentId}`}
+                          href={`/registry/${entry.agentId}`}
                           className="text-sm font-medium text-neutral-300 hover:text-emerald-400 transition-colors duration-200 truncate"
                         >
                           {entry.name}

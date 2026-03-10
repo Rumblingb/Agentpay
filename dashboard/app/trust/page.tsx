@@ -99,7 +99,7 @@ function PodiumCard({
 
   return (
     <Link
-      href={`/network/agents/${entry.agentId}`}
+      href={`/registry/${entry.agentId}`}
       className={[
         'group relative block bg-slate-900/60 border rounded-2xl p-5 hover:bg-slate-800/40 transition overflow-hidden',
         borderColor,
@@ -168,7 +168,7 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
 
   return (
     <Link
-      href={`/network/agents/${entry.agentId}`}
+      href={`/registry/${entry.agentId}`}
       className="group px-5 py-3.5 grid grid-cols-[2.5rem_1fr_auto] sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 items-center hover:bg-slate-800/30 transition border-b border-slate-800/50 last:border-0"
     >
       {/* Rank */}
