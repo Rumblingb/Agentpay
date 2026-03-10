@@ -16,6 +16,17 @@ export interface FeedItem {
   timestamp: string;
 }
 
+export interface TrustFeedItem {
+  id: string;
+  kind: 'trust';
+  eventType: string;
+  agentId: string;
+  counterpartyId?: string | null;
+  delta: number;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+}
+
 // ---------------------------------------------------------------------------
 // Shared formatting utilities
 // ---------------------------------------------------------------------------
@@ -44,6 +55,16 @@ export const STATUS_VERB: Record<string, string> = {
   failed: 'failed',
 };
 
+/** Maps trust event types to Tailwind bg-color classes for dots. */
+export const TRUST_EVENT_DOT: Record<string, string> = {
+  'agent.verified': 'bg-emerald-500',
+  'trust.score_updated': 'bg-sky-500',
+  'dispute.filed': 'bg-amber-500',
+  'dispute.resolved': 'bg-violet-500',
+  'service.completed': 'bg-emerald-600',
+  'interaction.recorded': 'bg-slate-500',
+};
+
 const DEFAULT_TRUNCATE_LEN = 14;
 
 /** Truncates an agent ID to a readable length. */
@@ -63,7 +84,67 @@ export function timeAgo(ts: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// FeedEventRow
+// Trust event label derivation
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a human-readable message from a trust event.
+ * Messages are derived entirely from real event metadata — never fabricated.
+ */
+export function trustEventLabel(item: TrustFeedItem): string {
+  const agent = truncateId(item.agentId, 16);
+  const counterparty = item.counterpartyId ? truncateId(item.counterpartyId, 16) : null;
+  const meta = item.metadata;
+
+  switch (item.eventType) {
+    case 'agent.verified':
+      return `${agent} verified identity credentials`;
+
+    case 'trust.score_updated': {
+      const delta = item.delta;
+      if (delta > 0) {
+        const detail = typeof meta.details === 'string' ? ` after ${meta.details}` : '';
+        return `${agent} trust score +${delta}${detail}`;
+      }
+      if (delta < 0) {
+        return `${agent} trust score ${delta}`;
+      }
+      return `${agent} trust score updated`;
+    }
+
+    case 'dispute.filed':
+      return counterparty
+        ? `${agent} filed dispute against ${counterparty}`
+        : `${agent} filed a dispute`;
+
+    case 'dispute.resolved': {
+      const decision = typeof meta.decision === 'string' ? meta.decision : '';
+      if (counterparty) {
+        if (decision === 'claimant_favor' || decision === 'respondent_favor') {
+          return `Dispute between ${agent} and ${counterparty} resolved`;
+        }
+        return `Dispute between ${agent} and ${counterparty} resolved (${decision || 'no fault'})`;
+      }
+      return `${agent} dispute resolved`;
+    }
+
+    case 'service.completed':
+      return counterparty
+        ? `${agent} completed service for ${counterparty}`
+        : `${agent} completed a service`;
+
+    case 'interaction.recorded':
+      return counterparty
+        ? `${agent} interacted with ${counterparty}`
+        : `${agent} recorded an interaction`;
+
+    default:
+      return `${agent} — ${item.eventType}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FeedEventRow — handles both transaction and trust events
 // ---------------------------------------------------------------------------
 
 interface FeedEventRowProps {
@@ -130,3 +211,57 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
     </li>
   );
 });
+
+// ---------------------------------------------------------------------------
+// TrustEventRow — renders a single trust event in the activity stream
+// ---------------------------------------------------------------------------
+
+interface TrustEventRowProps {
+  item: TrustFeedItem;
+  isNew?: boolean;
+}
+
+export const TrustEventRow = memo(function TrustEventRow({ item, isNew = false }: TrustEventRowProps) {
+  const dotCls = TRUST_EVENT_DOT[item.eventType] ?? 'bg-neutral-600';
+  const label = trustEventLabel(item);
+
+  return (
+    <li
+      className={[
+        'px-5 py-3 flex items-center gap-3 text-sm transition-all duration-300 ease-out',
+        isNew ? 'feed-item-new' : 'hover:bg-white/[0.02]',
+      ]
+        .join(' ')
+        .trim()}
+    >
+      {/* Event type dot */}
+      <span
+        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full opacity-80 ${dotCls}`}
+        aria-hidden="true"
+      />
+
+      {/* Message */}
+      <div className="flex-1 min-w-0">
+        <Link
+          href={`/registry/${item.agentId}`}
+          className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 truncate block"
+        >
+          {label}
+        </Link>
+      </div>
+
+      {/* Right side: delta · time */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {item.delta !== 0 && (
+          <span
+            className={`font-mono text-xs tabular-nums ${item.delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}
+          >
+            {item.delta > 0 ? `+${item.delta}` : item.delta}
+          </span>
+        )}
+        <span className="text-neutral-700 text-xs tabular-nums font-mono">{timeAgo(item.timestamp)}</span>
+      </div>
+    </li>
+  );
+});
+

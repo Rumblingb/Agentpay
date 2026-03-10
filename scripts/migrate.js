@@ -617,6 +617,27 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_ct_from_agent ON coordinated_transactions(from_agent);
     `,
   },
+
+  // ── 031 Trust events spine ────────────────────────────────────────────────
+  {
+    name: '031_trust_events',
+    sql: `
+      -- Canonical trust event store — every event that affects the trust graph
+      -- lands here so it can be queried, paginated, and audited.
+      CREATE TABLE IF NOT EXISTS trust_events (
+        id               TEXT PRIMARY KEY,
+        event_type       TEXT NOT NULL,
+        agent_id         TEXT NOT NULL,
+        counterparty_id  TEXT,
+        delta            INT  NOT NULL DEFAULT 0,
+        metadata         JSONB NOT NULL DEFAULT '{}',
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_te_agent_id   ON trust_events(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_te_event_type ON trust_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_te_created_at ON trust_events(created_at DESC);
+    `,
+  },
 ];
 
 async function migrate() {

@@ -38,6 +38,7 @@ import receiptRouter from './routes/receipt.js';
 import kycRouter from './routes/kyc.js';
 import legalRouter from './routes/legal.js';
 import foundationAgentsRouter from './routes/foundationAgents.js';
+import v1TrustRouter from './routes/v1Trust.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
@@ -354,6 +355,9 @@ app.use('/api/legal', legalRouter);
 
 // Foundation agents — constitutional layer trust infrastructure
 app.use('/api/foundation-agents', foundationAgentsRouter);
+
+// Trust event history — public read-only API
+app.use('/api/v1/trust', v1TrustRouter);
 
 // Prometheus metrics endpoint (restrict to internal networks in production)
 app.get('/metrics', (_req: Request, res: Response) => {
