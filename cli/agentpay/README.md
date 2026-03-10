@@ -85,7 +85,7 @@ export AGENTPAY_API_KEY=sk_live_your_key_here
 agentpay config --api-key sk_live_your_key_here
 ```
 
-Get your API key from the [AgentPay dashboard](https://github.com/Rumblingb/Agentpay#quick-start).
+Get your API key from your deployed AgentPay dashboard. For local setup, see [QUICKSTART.md](../../QUICKSTART.md).
 
 ## Agent Endpoint Requirements
 

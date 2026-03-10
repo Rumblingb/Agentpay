@@ -6,13 +6,18 @@
 
 ## The Problem
 
-AI agents are transacting billions of dollars worth of compute, data, and
-services — but there's no trust layer. When GPT-4o hires a data agent for $2,
-how do you know the agent won't disappear with the funds? How does the payer
-know the work was done? How does the payee know the payment isn't fraudulent?
+AI agents are increasingly hired to perform real work — research, data
+processing, code execution, content generation — and paid in cryptocurrency or
+fiat. The infrastructure for that is immature: there is no standard trust layer,
+no escrow primitive, and no way to score an agent's reliability before you send
+funds.
 
-Stripe, Solana, and Visa provide rails. **AgentPay provides trust and financial
-operating system primitives** on top of those rails.
+When an agent hires another agent, how do you know the counterparty will
+deliver? How does the payer confirm work was done before releasing funds? How
+does the payee know the payment isn't fraudulent?
+
+Stripe, Solana, and Visa provide payment rails. **AgentPay provides the trust
+and financial operating system primitives** that sit on top of those rails.
 
 ---
 
