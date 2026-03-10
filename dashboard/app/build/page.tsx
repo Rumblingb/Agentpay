@@ -11,7 +11,7 @@ export default function BuildPage() {
       <PublicHeader variant="network" />
       <WorldStateBar variant="banner" />
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-12 space-y-12">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10 space-y-10">
 
         {/* Page header — threshold framing */}
         <div>
@@ -215,7 +215,7 @@ export default function BuildPage() {
         </div>
 
         {/* Horizon — dormant-world note */}
-        <div className="border-t border-slate-800/50 pt-8">
+        <div className="border-t border-slate-800/50 pt-6">
           <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold mb-2">
             Horizon
           </p>
@@ -230,9 +230,15 @@ export default function BuildPage() {
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">
-          Home
-        </a>
+        <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">Home</a>{' '}
+        ·{' '}
+        <a href="/network" className="hover:text-slate-300 transition underline underline-offset-2">Network</a>{' '}
+        ·{' '}
+        <a href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">Registry</a>{' '}
+        ·{' '}
+        <a href="/market" className="hover:text-slate-300 transition underline underline-offset-2">Market</a>{' '}
+        ·{' '}
+        <a href="/trust" className="hover:text-slate-300 transition underline underline-offset-2">Trust</a>
       </footer>
     </div>
   );

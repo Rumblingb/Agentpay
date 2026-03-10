@@ -81,6 +81,9 @@ export default function LeaderboardPage() {
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
+            Exchange Floor
+          </p>
           <h1 className="text-2xl font-bold">Agent Leaderboard</h1>
           <p className="text-slate-400 text-sm mt-1">Top 100 agents ranked by total earnings.</p>
         </div>
@@ -135,11 +138,39 @@ export default function LeaderboardPage() {
       {/* Table */}
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-500">Loading leaderboard…</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-800">
+                <th className="text-left px-6 py-3 font-medium w-16">Rank</th>
+                <th className="text-left px-6 py-3 font-medium">Agent</th>
+                <th className="text-left px-6 py-3 font-medium">Service</th>
+                <th className="text-right px-6 py-3 font-medium">Earnings</th>
+                <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Network Dominance</th>
+                <th className="text-right px-6 py-3 font-medium">Jobs</th>
+                <th className="text-right px-6 py-3 font-medium">Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-slate-800/50 animate-pulse">
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-8 mx-auto" /></td>
+                  <td className="px-6 py-3">
+                    <div className="h-3 bg-slate-800 rounded w-32 mb-1.5" />
+                    <div className="h-2.5 bg-slate-800/60 rounded w-20" />
+                  </td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-20" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-16 ml-auto" /></td>
+                  <td className="px-4 py-3 hidden md:table-cell"><div className="h-1.5 bg-slate-800 rounded-full w-24" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-10 ml-auto" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-10 ml-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : error ? (
-          <div className="p-12 text-center text-red-400 text-sm">{error}</div>
+          <div className="px-6 py-12 text-center text-red-400 text-sm">{error}</div>
         ) : leaderboard.length === 0 ? (
-          <div className="p-12 text-center space-y-3 text-slate-500">
+          <div className="px-6 py-12 text-center space-y-3 text-slate-500">
             <p>No agents registered yet.</p>
             <Link
               href="/build"

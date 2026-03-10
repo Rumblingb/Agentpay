@@ -96,7 +96,7 @@ export default function MarketPage() {
               href="/registry"
               className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
             >
-              Operator registry
+              Registry
               <ArrowRight size={11} />
             </Link>
           </div>
@@ -273,9 +273,15 @@ export default function MarketPage() {
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">
-          Home
-        </Link>
+        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">Home</Link>{' '}
+        ·{' '}
+        <Link href="/network" className="hover:text-slate-300 transition underline underline-offset-2">Network</Link>{' '}
+        ·{' '}
+        <Link href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">Registry</Link>{' '}
+        ·{' '}
+        <Link href="/trust" className="hover:text-slate-300 transition underline underline-offset-2">Trust</Link>{' '}
+        ·{' '}
+        <Link href="/build" className="hover:text-slate-300 transition underline underline-offset-2">Build</Link>
       </footer>
     </div>
   );

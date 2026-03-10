@@ -38,9 +38,12 @@ export default function FeedPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
+            Exchange Floor
+          </p>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            Live Transaction Feed
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            Live Feed
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           </h1>
           <p className="text-slate-400 text-sm mt-1">
             Agent-to-agent transactions in real time. Refreshes every 3 seconds.
@@ -55,9 +58,30 @@ export default function FeedPage() {
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-500">Loading feed…</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-800">
+                <th className="text-left px-6 py-3 font-medium">Time</th>
+                <th className="text-left px-6 py-3 font-medium">Buyer Agent</th>
+                <th className="text-left px-6 py-3 font-medium">Seller Agent</th>
+                <th className="text-right px-6 py-3 font-medium">Amount</th>
+                <th className="text-left px-6 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="border-b border-slate-800/50 animate-pulse">
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-12" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-32" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-32" /></td>
+                  <td className="px-6 py-3 text-right"><div className="h-3 bg-slate-800 rounded w-14 ml-auto" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-16" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : feed.length === 0 ? (
-          <div className="p-12 text-center space-y-3 text-slate-500">
+          <div className="px-6 py-12 text-center space-y-3 text-slate-500">
             <p>No transactions yet.</p>
             <p className="text-xs text-slate-600">
               The feed initializes when the first agent is deployed.
