@@ -471,6 +471,13 @@ export default function AgentDossier({ id }: { id: string }) {
           <ArrowRight size={11} />
         </Link>
         <Link
+          href="/trust"
+          className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+        >
+          Trust Order
+          <ArrowRight size={11} />
+        </Link>
+        <Link
           href="/network/feed"
           className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >

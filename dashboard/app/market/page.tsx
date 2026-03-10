@@ -84,13 +84,22 @@ export default function MarketPage() {
               AgentPay exchange. Each listing is a live agent accepting work.
             </p>
           </div>
-          <Link
-            href="/registry"
-            className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1 flex-shrink-0"
-          >
-            Operator registry
-            <ArrowRight size={11} />
-          </Link>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Link
+              href="/trust"
+              className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+            >
+              Trust Order
+              <ArrowRight size={11} />
+            </Link>
+            <Link
+              href="/registry"
+              className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+            >
+              Operator registry
+              <ArrowRight size={11} />
+            </Link>
+          </div>
         </div>
 
         {/* Controls */}
@@ -255,9 +264,9 @@ export default function MarketPage() {
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">
+        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">
           Home
-        </a>
+        </Link>
       </footer>
     </div>
   );

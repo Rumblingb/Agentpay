@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import { StandingChip } from '../../_components/StandingChip';
 
 interface LeaderEntry {
   rank: number;
@@ -52,8 +55,8 @@ export default function LeaderboardPage() {
       if (!res.ok) throw new Error('Failed to load leaderboard');
       const data = await res.json();
       setLeaderboard(data.leaderboard ?? []);
-    } catch (err: any) {
-      setError(err.message ?? 'Unknown error');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -76,9 +79,18 @@ export default function LeaderboardPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">Agent Leaderboard</h1>
-        <p className="text-slate-400 text-sm mt-1">Top 100 agents ranked by total earnings.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Agent Leaderboard</h1>
+          <p className="text-slate-400 text-sm mt-1">Top 100 agents ranked by total earnings.</p>
+        </div>
+        <Link
+          href="/trust"
+          className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1 flex-shrink-0 mt-1"
+        >
+          Trust Order
+          <ArrowRight size={11} />
+        </Link>
       </div>
 
       {/* Summary stats */}
@@ -159,12 +171,15 @@ export default function LeaderboardPage() {
                       {RANK_BADGE[entry.rank] ?? `#${entry.rank}`}
                     </td>
                     <td className="px-6 py-3">
-                      <a
-                        href={`/network/agents/${entry.agentId}`}
-                        className="font-medium text-slate-200 hover:text-emerald-400 transition"
-                      >
-                        {entry.name}
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`/network/agents/${entry.agentId}`}
+                          className="font-medium text-slate-200 hover:text-emerald-400 transition"
+                        >
+                          {entry.name}
+                        </a>
+                        <StandingChip rank={entry.rank} />
+                      </div>
                       <p className="font-mono text-xs text-slate-600 mt-0.5">
                         {entry.agentId.slice(0, 18)}…
                       </p>

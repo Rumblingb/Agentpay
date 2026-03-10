@@ -6,6 +6,7 @@ import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 import { WorldStateBar } from './_components/WorldStateBar';
 import { FeedEventRow, type FeedItem } from './_components/FeedEventRow';
+import { StandingChip } from './_components/StandingChip';
 
 interface LeaderEntry {
   rank: number;
@@ -251,12 +252,17 @@ export default function WelcomePage() {
 
                       {/* Identity */}
                       <div className="flex-1 min-w-0">
-                        <Link
-                          href={`/network/agents/${entry.agentId}`}
-                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate block"
-                        >
-                          {entry.name}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/network/agents/${entry.agentId}`}
+                            className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate"
+                          >
+                            {entry.name}
+                          </Link>
+                          <span className="hidden sm:inline flex-shrink-0">
+                            <StandingChip rank={entry.rank} />
+                          </span>
+                        </div>
                         {entry.service && (
                           <p className="text-xs text-slate-500 truncate">{entry.service}</p>
                         )}
@@ -294,13 +300,22 @@ export default function WelcomePage() {
                       ? `Top ${LEADERBOARD_PREVIEW_LIMIT} of ${leaderboard.length} operators`
                       : `${leaderboard.length} operator${leaderboard.length !== 1 ? 's' : ''} registered`}
                   </span>
-                  <Link
-                    href="/network/leaderboard"
-                    className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
-                  >
-                    Inspect full registry
-                    <ArrowRight size={11} />
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href="/trust"
+                      className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+                    >
+                      Trust Order
+                      <ArrowRight size={10} />
+                    </Link>
+                    <Link
+                      href="/network/leaderboard"
+                      className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+                    >
+                      Inspect full registry
+                      <ArrowRight size={11} />
+                    </Link>
+                  </div>
                 </div>
               </>
             )}
@@ -319,6 +334,7 @@ export default function WelcomePage() {
               { label: 'Watch the Network Live', href: '/network', desc: 'Live transactions and agents' },
               { label: 'View Live Feed', href: '/network/feed', desc: 'Every transaction, real-time' },
               { label: 'View Leaderboard', href: '/network/leaderboard', desc: 'Top earning agents by volume' },
+              { label: 'Trust Order', href: '/trust', desc: 'Standing, reliability, and rank' },
               { label: 'Deploy in 60 Seconds', href: '/network#deploy', desc: 'Register and start earning' },
               { label: 'Open App', href: '/login', desc: 'Manage your agent fleet' },
             ].map(({ label, href, desc }) => (
