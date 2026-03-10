@@ -47,41 +47,64 @@ Pre-production readiness gate for the 4 constitutional layer agents.
 
 ---
 
+## ✅ Hardened in PR #104 Follow-Up
+
+These issues identified in the PR #104 review were fixed in the hardening pass:
+
+- [x] `authenticateApiKey` added to all `POST /api/foundation-agents/*` routes
+  - `GET /api/foundation-agents` manifest intentionally remains public
+- [x] `req.merchant.id` used server-side for all fee billing — caller cannot override
+- [x] `IDENTITY_VERIFIER_PRIVATE_KEY` absence is an explicit startup warning (not silent)
+- [x] Ephemeral key mode is tracked as `keyMode: "ephemeral"` in credential responses
+- [x] Trust level capped at `"attested"` when key is ephemeral OR proof stubs are active
+- [x] Proof stub methods renamed to `_betaStub_verifySignatureProof` / `_betaStub_verifyDeploymentProof`
+- [x] Proof stubs emit per-call `console.warn` with `[IdentityVerifierAgent] BETA:` prefix
+- [x] `proofVerificationMode: "beta_stub"` field present in all credential responses
+- [x] `DisputeResolverAgent.notificationMode = "disabled"` field + in DisputeCase response
+- [x] Dispute notify/resolution stubs emit per-call `console.warn` with case IDs
+- [x] `IntentCoordinatorAgent.executionMode = "simulated"` field + in CoordinatedTransaction response
+- [x] All `executeVia*` methods have `SIMULATED STUB` doc comments + `simulated: true` in step details
+- [x] `executeIntent` emits per-call `console.warn` when `executionMode === "simulated"`
+
+---
+
 ## ⚠️ Required Before Production Traffic
 
 These items must be completed before routing real transactions through any of the 4 agents.
 
 ### Security
-- [ ] Add `authenticateApiKey` middleware to `/api/foundation-agents/*` routes
-  - Currently any unauthenticated caller can invoke all agent actions (including fee-charging ones)
-  - File: `src/routes/foundationAgents.ts` — add `authenticateApiKey` to each route or router-level
 - [ ] Set `IDENTITY_VERIFIER_PRIVATE_KEY` in production environment
-  - Without it, credentials cannot be verified across server restarts
+  - Without it, credentials cannot be verified across server restarts (ephemeral key)
   - Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 - [ ] Rate-limit foundation agent endpoints
   - Reputation queries and intent coordination could be used to scrape the graph at low cost
 
 ### Identity Agent
-- [ ] Implement `verifyDeploymentProof(environment, proof)` — currently always `true`
+- [ ] Implement `_betaStub_verifyDeploymentProof(environment, proof)` — currently always `true`
   - Production: ping the claimed deployment URL and verify response signature
-- [ ] Implement `verifySignatureProof(agentId, signature)` — currently always `true`
+  - Change `proofVerificationMode` to `'live'` once implemented
+- [ ] Implement `_betaStub_verifySignatureProof(agentId, signature)` — currently always `true`
   - Production: verify Ed25519/secp256k1 signature against agent's registered public key
+  - Change `proofVerificationMode` to `'live'` once implemented
+  - Once live, `"verified"` trust level will become issuable
 
 ### Dispute Agent
-- [ ] Implement `notifyRespondent(dispute)` — currently no-op
+- [ ] Implement `notifyRespondent(dispute)` — currently logs warning, no actual delivery
   - Production: send webhook or email to respondent with case ID and 48h deadline
-- [ ] Implement `notifyResolution(dispute)` — currently no-op
+  - Change `notificationMode` to `'live'` once implemented
+- [ ] Implement `notifyResolution(dispute)` — currently logs warning, no actual delivery
   - Production: notify both parties with outcome and reputation delta
-- [ ] Implement `beginResolution(caseId)` — currently no-op
+- [ ] Implement `beginResolution(caseId)` — currently logs warning, no auto-scheduling
   - Production: schedule an async job (cron/queue) to call `resolveDispute` after evidence window
 
 ### Intent Coordinator
-- [ ] Wire Stripe execution in `executeViaStripe()` — currently creates steps but no API call
+- [ ] Wire Stripe execution in `executeViaStripe()` — currently simulated
   - Production: `await stripe.paymentIntents.create({...})`
-- [ ] Wire Solana execution in `executeViaSolana()` — currently generates random signature
+  - Change `executionMode` to `'live'` once all protocols are implemented
+- [ ] Wire Solana execution in `executeViaSolana()` — currently simulated
   - Production: `await connection.sendTransaction({...})`
-- [ ] Wire x402/AP2 execution — protocol stubs
-- [ ] Wire bank/ACH execution — stub
+- [ ] Wire x402/AP2 execution — currently simulated
+- [ ] Wire bank/ACH execution — currently simulated
 
 ### Operational
 - [ ] Run `node scripts/migrate.js` on all environments (staging, production)

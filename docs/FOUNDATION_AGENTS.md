@@ -52,9 +52,17 @@ Returns the manifest of all 4 constitutional agents with their endpoints, action
   ]
 }
 ```
-Returns: `{ success: true, credential: { credentialId, agentId, trustLevel, expiresAt, ... } }`
+Returns: `{ success: true, credential: { credentialId, agentId, trustLevel, expiresAt, keyMode, proofVerificationMode, ... } }`
 
-**Trust levels:** `verified` (ownership + environment + 2+ proofs) | `attested` (ownership + 1 proof) | `self-reported` (no external proofs)
+**Trust levels in beta:**
+- `attested` — maximum achievable in beta (proof verification stubs are active, or key is ephemeral)
+- `self-reported` — no proofs supplied
+
+`verified` trust level is reserved for when `proofVerificationMode = "live"` and `keyMode = "configured"`. It will not be issued while stubs are active.
+
+**Response fields:**
+- `keyMode: "configured" | "ephemeral"` — `"ephemeral"` means the signing key is per-process; credential will be unverifiable after restart
+- `proofVerificationMode: "beta_stub" | "live"` — `"beta_stub"` means no real cryptographic or deployment verification was performed
 
 #### `verify_credential` — check an existing credential
 ```json
@@ -74,10 +82,11 @@ Returns: `{ agentId, verified, credentials, linkedIdentities, trustLevel, firstV
   "action": "link",
   "primaryAgentId": "<uuid>",
   "linkedAgentIds": ["<uuid2>"],
-  "proofs": [],
-  "operatorId": "<operator-id>"
+  "proofs": []
 }
 ```
+`operatorId` and `requestingOperatorId` are **NOT accepted** in this request body — the authenticated merchant (your API key) is used automatically as the billing and ownership operator. Any such field supplied would be ignored.
+
 Returns: `{ success: true, link: { linkId, primaryAgentId, linkedAgentIds, ... } }`
 
 ### Pricing
@@ -89,12 +98,15 @@ Returns: `{ success: true, link: { linkId, primaryAgentId, linkedAgentIds, ... }
 
 ### Environment
 - `IDENTITY_VERIFIER_PRIVATE_KEY` — hex secret for HS256 credential signing.
-  If not set, a random key is generated per process (credentials become unverifiable
-  across restarts). **Set this in production.**
+  **Required in production.** If not set, a random ephemeral key is generated per process.
+  Credentials issued with an ephemeral key are unverifiable after a server restart.
+  Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
-### Current Stubs
-- `verifyDeploymentProof` — always returns `true` (production: ping deployment URL)
-- `verifySignatureProof` — always returns `true` (production: verify crypto signature)
+### Beta Limitations
+- **`_betaStub_verifySignatureProof`** — always returns `true`. Signature proofs do not add cryptographic weight in beta. The method logs a `[IdentityVerifierAgent] BETA` warning to server logs on each call.
+- **`_betaStub_verifyDeploymentProof`** — always returns `true`. Deployment environment claims are not independently verified in beta.
+- Because stubs are active, `proofVerificationMode` is always `"beta_stub"` and trust level is capped at `"attested"`.
+- The `"verified"` trust level will only be issued when both `IDENTITY_VERIFIER_PRIVATE_KEY` is configured **and** real proof verification is implemented.
 
 ---
 
@@ -217,9 +229,13 @@ Clamped to [0, 100].
 ```
 `category` options: `"non_delivery"` | `"quality"` | `"payment"` | `"terms"` | `"other"`
 
-Returns: `{ success: true, disputeCase: { caseId, status, respondent, filedAt, ... } }`
+Returns: `{ success: true, disputeCase: { caseId, status, respondent, notificationMode, filedAt, ... } }`
 
-Both transaction parties receive a 48-hour evidence window.
+**`notificationMode` in response:**
+- `"disabled"` (current beta state) — parties were NOT automatically notified. You must manually inform the respondent of the case ID, claim, and evidence deadline.
+- `"live"` — automatic email/webhook notification was sent (not yet implemented).
+
+⚠️ **Beta warning:** In the current implementation, `notificationMode` is always `"disabled"`. The respondent is never notified automatically. Do not assume the other party has been informed.
 
 #### `submit_evidence` — respondent submits counter-evidence
 ```json
@@ -296,7 +312,6 @@ Sorted by confidence descending.
 ```json
 {
   "action": "create_intent",
-  "fromAgent": "<uuid>",
   "toAgent": "<uuid>",
   "amount": 100,
   "currency": "USD",
@@ -304,7 +319,15 @@ Sorted by confidence descending.
   "metadata": {}
 }
 ```
-Returns a `CoordinatedTransaction` with `intentId`, `status`, `route`, `steps`.
+`fromAgent` is NOT required and is **ignored if supplied** — the authenticated merchant (your API key) is always used as the billing `fromAgent`. Supplying it in the request body has no effect and does not change who is billed.
+
+Returns a `CoordinatedTransaction` with `intentId`, `status`, `route`, `steps`, `executionMode`.
+
+**`executionMode` in response:**
+- `"simulated"` (current beta state) — no real API call was made; no funds moved. Step records and `externalTxId` placeholders are created for integration testing only.
+- `"live"` — real protocol execution occurred (not yet implemented for any protocol).
+
+⚠️ **Beta warning:** `executionMode` is always `"simulated"`. `externalTxId` values in step details are randomly generated placeholders. Do NOT use `status: "completed"` to confirm payment when `executionMode` is `"simulated"`.
 
 #### `get_status` — check a coordinated transaction
 ```json
@@ -329,10 +352,10 @@ Routes are scored and the highest-confidence protocol is chosen:
 | Fast (x402) | $0.50 |
 | Standard (bank) | $0.25 |
 
-### Current Stubs
+### Beta Limitations
 Protocol execution methods (Stripe, Solana, x402, AP2, bank) create step records but
-do not make live API calls. Each has a `// Production:` comment indicating the
-actual client call to add.
+do not make live API calls. `executionMode: "simulated"` is always set on responses.
+Each `executeVia*` method has a `SIMULATED STUB` doc comment and logs a `[IntentCoordinatorAgent] BETA` warning per call.
 
 ---
 
@@ -351,11 +374,33 @@ Migration: `030_foundation_agents` in `scripts/migrate.js`
 
 ---
 
+## Authentication
+
+All `POST /api/foundation-agents/*` action endpoints require a merchant API key.
+
+```
+Authorization: Bearer sk_live_...
+# or
+x-api-key: sk_live_...
+```
+
+The `GET /api/foundation-agents` discovery manifest is public (no auth required).
+
+Without a valid API key, all action endpoints return:
+```json
+{ "code": "AUTH_MISSING", "message": "Provide a token or API key." }
+```
+
+**Billing note:** The authenticated merchant ID is used as the billing operator for all fee-charging actions. You cannot bill fees to another merchant's account by supplying a different `requestingOperatorId` or `fromAgent` in the request body — those fields are overridden server-side.
+
+---
+
 ## Error Responses
 
 All endpoints return `{ error: string }` with an appropriate HTTP status code.
 
 Common errors:
+- `401` — Missing or invalid API key
 - `400` — `"Invalid action"` (unknown action string)
 - `404` — `"Agent not found"`, `"Transaction not found"`, `"Dispute not found"`
 - `403` — `"Only transaction parties can file disputes"`, `"Ownership verification failed"`
@@ -367,14 +412,20 @@ Common errors:
 
 ### Before hiring an unknown agent
 ```typescript
+// All action endpoints require auth
+const headers = {
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${process.env.AGENTPAY_API_KEY}`,
+};
+
 // 1. Check reputation
 const rep = await fetch('/api/foundation-agents/reputation', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers,
   body: JSON.stringify({
     action: 'get_trust_score',
     agentId: targetAgentId,
-    requestingAgentId: myAgentId,
+    // requestingAgentId is NOT needed — your API key determines billing
   }),
 }).then(r => r.json());
 
@@ -385,7 +436,7 @@ if (rep.trustScore < 50) {
 // 2. Verify their identity
 const identity = await fetch('/api/foundation-agents/identity', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers,
   body: JSON.stringify({ action: 'get_identity', agentId: targetAgentId }),
 }).then(r => r.json());
 
@@ -414,20 +465,29 @@ console.log('Case opened:', dispute.disputeCase.caseId);
 
 ---
 
-## Remaining Work
+## Beta Limitations
 
-| Area | Status | Notes |
+The following table describes what is functional, what is beta-safe, and what is still a stub. Do not mistake "functional" for "production-complete".
+
+| Area | Status | Detail |
 |---|---|---|
-| IdentityVerifierAgent ownership proof | Stub | `verifySignatureProof` always returns true |
-| IdentityVerifierAgent deployment proof | Stub | `verifyDeploymentProof` always returns true |
-| DisputeResolverAgent notifications | Stub | `notifyRespondent`/`notifyResolution` are no-ops |
-| DisputeResolverAgent auto-resolve job | Stub | `beginResolution` is a no-op |
-| IntentCoordinator — Stripe execution | Stub | Step recorded, no live API call |
-| IntentCoordinator — Solana execution | Stub | Step recorded, no live API call |
-| IntentCoordinator — x402 execution | Stub | Step recorded |
-| IntentCoordinator — AP2 execution | Stub | Step recorded |
-| Foundation agent authentication | Missing | Routes have no auth middleware |
-| Fee charging | Functional | Creates `agent_fee_transactions` rows |
-| IDENTITY_VERIFIER_PRIVATE_KEY rotation | Not implemented | Credentials signed by one key |
+| Auth on action routes | ✅ Done | `authenticateApiKey` required on all `POST` routes |
+| `GET /api/foundation-agents` manifest | ✅ Public | No auth required |
+| Merchant-enforced billing | ✅ Done | `req.merchant.id` used server-side; caller cannot override billing operator |
+| Fee recording | ✅ Functional | Creates `agent_fee_transactions` rows |
+| Credential signature (HS256) | ✅ Functional | Works when `IDENTITY_VERIFIER_PRIVATE_KEY` is configured |
+| `IDENTITY_VERIFIER_PRIVATE_KEY` | ⚠️ Required for prod | Startup warning logged when missing; ephemeral key used as fallback |
+| Credential `keyMode` + `proofVerificationMode` | ✅ Done | Both fields present in all credential responses |
+| `verified` trust level | ⚠️ Blocked | Capped at `attested` while proof stubs are active |
+| `_betaStub_verifySignatureProof` | ⚠️ Stub | Always returns `true`; logs `[IdentityVerifierAgent] BETA` warning |
+| `_betaStub_verifyDeploymentProof` | ⚠️ Stub | Always returns `true`; logs `[IdentityVerifierAgent] BETA` warning |
+| Dispute `notificationMode` | ✅ Done | Field present; always `"disabled"` in beta |
+| `notifyRespondent` | ⚠️ Stub | No-op; logs `[DisputeResolverAgent] BETA` warning with case ID |
+| `beginResolution` | ⚠️ Stub | No-op; logs warning; disputes stay `"under_review"` until manually resolved |
+| `notifyResolution` | ⚠️ Stub | No-op; logs warning |
+| Intent `executionMode` | ✅ Done | Field present; always `"simulated"` in beta |
+| IntentCoordinator — all protocol execution | ⚠️ Simulated | Steps recorded, no real API calls; `simulated: true` in step details |
+| `IDENTITY_VERIFIER_PRIVATE_KEY` rotation | Not implemented | One key; rotation path not built |
+| Foundation agent fee real debit | Not implemented | Fee rows created; no real token transfer |
 
-See `docs/FOUNDATION_AGENTS_SHIP_CHECKLIST.md` for the pre-production checklist.
+See `docs/FOUNDATION_AGENTS_SHIP_CHECKLIST.md` for the pre-production gate.
