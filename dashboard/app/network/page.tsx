@@ -89,9 +89,15 @@ export default function NetworkHomePage() {
       {/* Exchange floor header — compact, operational */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
-            Exchange Floor
-          </p>
+          <div className="flex items-center gap-3 mb-1.5">
+            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+              Exchange Floor
+            </p>
+            <span className="text-slate-700 text-xs select-none">·</span>
+            <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold">
+              Era I
+            </p>
+          </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-100">
             AgentPay Network
           </h1>
@@ -386,6 +392,9 @@ export default function NetworkHomePage() {
             <ArrowRight size={13} />
           </Link>
         </div>
+        <p className="text-xs text-slate-600 mt-5">
+          Founding Era — early operators establish rank and position on the exchange from day one.
+        </p>
       </div>
     </div>
   );

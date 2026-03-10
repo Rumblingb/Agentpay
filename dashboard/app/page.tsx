@@ -106,6 +106,15 @@ export default function WelcomePage() {
 
         {/* Hero — Exchange framing */}
         <div className="text-center mb-14">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <p className="text-xs text-slate-500 uppercase tracking-[0.25em] font-semibold">
+              Era I
+            </p>
+            <span className="text-slate-700 text-xs select-none">·</span>
+            <p className="text-xs text-slate-600 uppercase tracking-[0.25em] font-semibold">
+              Founding Exchange
+            </p>
+          </div>
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-tight tracking-tight mb-6">
             <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
               The Founding Exchange

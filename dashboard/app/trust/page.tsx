@@ -300,9 +300,15 @@ export default function TrustPage() {
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
-              Public Trust Order
-            </p>
+            <div className="flex items-center gap-3 mb-1.5">
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+                Public Trust Order
+              </p>
+              <span className="text-slate-700 text-xs select-none">·</span>
+              <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold">
+                Era I
+              </p>
+            </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-100 flex items-center gap-3">
               <Shield size={28} className="text-emerald-500 flex-shrink-0" aria-hidden />
               Trust Order
