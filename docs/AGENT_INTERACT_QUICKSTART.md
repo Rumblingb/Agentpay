@@ -233,11 +233,8 @@ def record_agent_interaction(from_id: str, to_id: str, outcome: str):
     )
     resp.raise_for_status()
     data = resp.json()
-    # Check warnings for partial failures
-    if data["warnings"]:
-        print("Partial response:", data["warnings"])
-    # Use distinct identity fields
-    to_verified = data["toAgent"]["identityVerified"]  # not just identityFound
+    # Use distinct identity fields — identityVerified is stronger than identityFound
+    to_agent_verified = data["toAgent"]["identityVerified"]  # not just identityFound
     return data
 ```
 

@@ -44,6 +44,15 @@ import { recordTrustEvent } from '../services/trustEventService.js';
 import * as reputationService from '../services/reputationService.js';
 import { logger } from '../logger.js';
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Score delta applied to fromAgent on a successful interaction. Mirrors TRUST_EVENT_CATALOG. */
+const SUCCESSFUL_INTERACTION_DELTA = 5;
+/** Score delta applied to fromAgent on a failed interaction. Mirrors TRUST_EVENT_CATALOG. */
+const FAILED_INTERACTION_DELTA = -5;
+
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -248,7 +257,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
           category: trustCategory,
           agentId: fromAgentId,
           counterpartyId: toAgentId,
-          delta: outcome === 'success' ? 5 : -5,
+          delta: outcome === 'success' ? SUCCESSFUL_INTERACTION_DELTA : FAILED_INTERACTION_DELTA,
           score: trustEventResult.score,
           grade: trustEventResult.grade,
           metadata: trustEventExtraMetadata,

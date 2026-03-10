@@ -99,7 +99,7 @@ const VALID_BODY = {
 };
 
 /** Returns a mock identity record as returned by identityVerifierAgent.getIdentityRecord() */
-const IDENTITY_RECORD = (agentId: string, verified = true) => ({
+const createMockIdentityRecord = (agentId: string, verified = true) => ({
   agentId,
   verified,
   credentials: [],
@@ -114,8 +114,8 @@ describe('POST /api/v1/agents/interact', () => {
     jest.resetAllMocks();
     // Default: identity lookup succeeds for both agents
     mockGetIdentityRecord
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-from-001'))
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002'));
     // Default: trust event recording succeeds
     mockRecordTrustEvent.mockResolvedValue({ score: 100, grade: 'B' });
   });
@@ -207,8 +207,8 @@ describe('POST /api/v1/agents/interact', () => {
   it('sets identityFound=true and identityVerified=false when agent has no active credential', async () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001', false)) // unverified
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002', false));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-from-001', false)) // unverified
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002', false));
     mockRecordTrustEvent.mockResolvedValue({ score: 50, grade: 'C' });
 
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
@@ -223,7 +223,7 @@ describe('POST /api/v1/agents/interact', () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
       .mockRejectedValueOnce(new Error('Agent not found'))
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002'));
     mockRecordTrustEvent.mockResolvedValue({ score: 50, grade: 'C' });
 
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
@@ -237,7 +237,7 @@ describe('POST /api/v1/agents/interact', () => {
   // interactionType, service, trustCheck, createIntent are all preserved
   // in the event metadata — not collapsed to a binary success/failure.
 
-  it('calls recordTrustEvent with counterpartyId and rich extraMetadata', async () => {
+  it('calls recordTrustEvent with counterpartyId and rich extra metadata', async () => {
     await request(app).post(BASE).set(AUTH).send({
       ...VALID_BODY,
       outcome: 'success',
@@ -273,8 +273,8 @@ describe('POST /api/v1/agents/interact', () => {
   it('calls recordTrustEvent with "failed_interaction" when outcome is failure', async () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-from-001'))
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002'));
     mockRecordTrustEvent.mockResolvedValue({ score: 90, grade: 'B' });
 
     await request(app).post(BASE).set(AUTH).send({ ...VALID_BODY, outcome: 'failure' });
@@ -377,7 +377,7 @@ describe('POST /api/v1/agents/interact', () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
       .mockRejectedValueOnce(new Error('Identity service down'))
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002'));
     mockRecordTrustEvent.mockResolvedValue({ score: 50, grade: 'C' });
 
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
@@ -391,8 +391,8 @@ describe('POST /api/v1/agents/interact', () => {
   it('continues with 200 and adds warning when trust event recording fails', async () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
-      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-from-001'))
+      .mockResolvedValueOnce(createMockIdentityRecord('agent-to-002'));
     mockRecordTrustEvent.mockRejectedValue(new Error('AgentRank DB offline'));
 
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
