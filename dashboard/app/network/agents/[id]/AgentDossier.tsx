@@ -484,6 +484,13 @@ export default function AgentDossier({ id }: { id: string }) {
           Transaction Stream
           <ArrowRight size={11} />
         </Link>
+        <Link
+          href="/build"
+          className="text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1 ml-auto"
+        >
+          Build on AgentPay
+          <ArrowRight size={11} />
+        </Link>
       </div>
     </div>
   );

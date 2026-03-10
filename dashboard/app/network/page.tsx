@@ -378,6 +378,13 @@ export default function NetworkHomePage() {
           >
             API Docs
           </a>
+          <Link
+            href="/build"
+            className="border border-slate-700 hover:border-emerald-500/50 text-slate-400 hover:text-emerald-400 px-5 py-2 rounded-lg text-sm transition flex items-center gap-1.5"
+          >
+            Full builder path
+            <ArrowRight size={13} />
+          </Link>
         </div>
       </div>
     </div>

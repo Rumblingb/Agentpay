@@ -293,6 +293,13 @@ export default function RegistryPage() {
                     Leaderboard view
                     <ArrowRight size={10} />
                   </Link>
+                  <Link
+                    href="/build"
+                    className="text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1"
+                  >
+                    Build on AgentPay
+                    <ArrowRight size={10} />
+                  </Link>
                 </div>
               </div>
             </>
