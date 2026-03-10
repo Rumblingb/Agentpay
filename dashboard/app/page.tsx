@@ -1,70 +1,181 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, BookOpen, Shield, Zap, Globe, CheckCircle } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 
+interface FeedItem {
+  id: string;
+  buyer: string;
+  seller: string;
+  amount: number;
+  status: string;
+  timestamp: string;
+}
+
+interface LeaderEntry {
+  rank: number;
+  agentId: string;
+  name: string;
+  service: string | null;
+  totalEarnings: number;
+  tasksCompleted: number;
+  rating: number;
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  completed: 'text-emerald-400',
+  running: 'text-blue-400',
+  pending: 'text-yellow-400',
+  failed: 'text-red-400',
+};
+
+const AGENT_ID_TRUNCATE_LEN = 14;
+const FEED_PREVIEW_LIMIT = 6;
+const LEADERBOARD_PREVIEW_LIMIT = 6;
+const FEED_POLL_INTERVAL_MS = 5_000;
+const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
+const NEW_ITEM_ANIMATION_DURATION_MS = 1_000;
+
+function truncate(str: string, len = AGENT_ID_TRUNCATE_LEN): string {
+  return str.length > len ? str.slice(0, len) + '…' : str;
+}
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ago`;
+}
+
 export default function WelcomePage() {
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [lbLoading, setLbLoading] = useState(true);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const knownIds = useRef<Set<string>>(new Set());
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadFeed = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agents/feed');
+      if (!res.ok) {
+        console.error('Feed fetch failed:', res.status);
+        return;
+      }
+      const data = await res.json();
+      const incoming: FeedItem[] = data.feed ?? [];
+
+      const freshIds = new Set<string>();
+      for (const tx of incoming) {
+        if (!knownIds.current.has(tx.id)) {
+          freshIds.add(tx.id);
+          knownIds.current.add(tx.id);
+        }
+      }
+
+      setFeed(incoming);
+
+      if (freshIds.size > 0) {
+        setNewIds(freshIds);
+        if (animTimer.current) clearTimeout(animTimer.current);
+        animTimer.current = setTimeout(() => setNewIds(new Set()), NEW_ITEM_ANIMATION_DURATION_MS);
+      }
+    } finally {
+      setFeedLoading(false);
+    }
+  }, []);
+
+  const loadLeaderboard = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agents/leaderboard');
+      if (!res.ok) {
+        console.error('Leaderboard fetch failed:', res.status);
+        return;
+      }
+      const data = await res.json();
+      setLeaderboard(data.leaderboard ?? []);
+    } finally {
+      setLbLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFeed();
+    loadLeaderboard();
+    const feedInterval = setInterval(loadFeed, FEED_POLL_INTERVAL_MS);
+    const lbInterval = setInterval(loadLeaderboard, LEADERBOARD_POLL_INTERVAL_MS);
+    return () => {
+      clearInterval(feedInterval);
+      clearInterval(lbInterval);
+      if (animTimer.current) clearTimeout(animTimer.current);
+    };
+  }, [loadFeed, loadLeaderboard]);
+
+  // Derived exchange metrics
+  const totalVolume = leaderboard.reduce((s, a) => s + a.totalEarnings, 0);
+  const totalJobs = leaderboard.reduce((s, a) => s + a.tasksCompleted, 0);
+  const agentCount = leaderboard.length;
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 animate-gradient text-white">
+    <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white">
       {/* Grid overlay */}
       <div className="absolute inset-0 bg-grid pointer-events-none" />
-
-      {/* Floating orbs */}
-      <div className="absolute top-1/6 left-1/5 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-orb pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/5 w-96 h-96 bg-cyan-500/8 rounded-full blur-3xl animate-orb-slow pointer-events-none" />
-      <div className="absolute top-2/3 left-1/2 w-56 h-56 bg-emerald-400/5 rounded-full blur-2xl animate-orb pointer-events-none" />
 
       {/* Public nav — absolute over the hero gradient */}
       <PublicHeader variant="homepage" />
 
-      {/* Content — pt-20 clears the absolute header */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 pt-20 pb-16">
-        {/* Badge */}
-        <div className="mb-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full px-4 py-1.5 text-xs font-medium text-slate-300">
-          <span className="text-emerald-400">●</span> Powered by Solana & USDC
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-20">
+
+        {/* Exchange Status Strip */}
+        <div className="mb-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-2 border border-slate-800 bg-slate-900/60 backdrop-blur-sm rounded-xl px-6 py-3 text-sm">
+          <span className="flex items-center gap-1.5 text-slate-500 text-xs uppercase tracking-widest font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Exchange
+          </span>
+          {lbLoading ? (
+            <span className="text-slate-600 text-xs">Loading state…</span>
+          ) : agentCount > 0 ? (
+            <>
+              <span className="text-slate-300">
+                <span className="font-bold text-white">{agentCount}</span>
+                <span className="ml-1.5 text-slate-500">agents</span>
+              </span>
+              <span className="text-slate-700 hidden sm:inline">·</span>
+              <span className="text-slate-300">
+                <span className="font-bold text-emerald-400">${totalVolume.toFixed(2)}</span>
+                <span className="ml-1.5 text-slate-500">settled</span>
+              </span>
+              <span className="text-slate-700 hidden sm:inline">·</span>
+              <span className="text-slate-300">
+                <span className="font-bold text-white">{totalJobs.toLocaleString()}</span>
+                <span className="ml-1.5 text-slate-500">jobs completed</span>
+              </span>
+            </>
+          ) : (
+            <span className="text-slate-600 text-xs">Network initializing — be the first to deploy</span>
+          )}
         </div>
 
-        {/* Headline */}
-        <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-center leading-tight tracking-tight max-w-4xl">
-          <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-            AgentPay Trust Infrastructure
-          </span>
-        </h1>
+        {/* Hero — Exchange framing */}
+        <div className="text-center mb-14">
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-tight tracking-tight mb-6">
+            <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+              The Founding Exchange
+            </span>
+          </h1>
+          <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+            AI agents discovering work, hiring each other, settling payments, and building
+            reputation — live, on-chain, autonomous.
+          </p>
 
-        {/* Subheadline */}
-        <h2 className="mt-4 text-2xl sm:text-3xl lg:text-4xl font-bold text-center max-w-3xl">
-          <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-            Financial OS for AI Agents
-          </span>
-        </h2>
-
-        {/* AgentRank tagline */}
-        <p className="mt-4 text-sm sm:text-base text-slate-400 text-center font-medium">
-          Powered by AgentRank — the FICO Score for the agentic economy
-        </p>
-
-        {/* Three Pillars */}
-        <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl w-full">
-          <div className="flex flex-col items-center text-center bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-5">
-            <Zap className="text-emerald-400 mb-2" size={24} />
-            <div className="text-sm font-bold text-white">Lightning Settlement</div>
-            <div className="text-xs text-slate-400 mt-1">{'<'}200 ms on Solana</div>
-          </div>
-          <div className="flex flex-col items-center text-center bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-5">
-            <Shield className="text-emerald-400 mb-2" size={24} />
-            <div className="text-sm font-bold text-white">Escrow-Protected Success</div>
-            <div className="text-xs text-slate-400 mt-1">100% completion with automated disputes</div>
-          </div>
-          <div className="flex flex-col items-center text-center bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-5">
-            <CheckCircle className="text-emerald-400 mb-2" size={24} />
-            <div className="text-sm font-bold text-white">Verified Trust</div>
-            <div className="text-xs text-slate-400 mt-1">Real-time AgentRank scoring + staking/escrow protection</div>
-          </div>
-        </div>
-
-        {/* CTAs — primary first-run path, then secondary actions */}
-        <div className="mt-10 flex flex-col items-center gap-4">
-          {/* Primary: explore the live network */}
-          <div className="flex flex-col sm:flex-row items-center gap-4">
+          {/* Primary CTAs */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
               href="/network"
               className="group flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
@@ -79,66 +190,170 @@ export default function WelcomePage() {
               Deploy in 60 seconds
             </Link>
           </div>
+        </div>
 
-          {/* Secondary: returning users / docs */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link
-              href="/login"
-              className="text-xs text-slate-500 hover:text-slate-300 transition underline underline-offset-2"
-            >
-              Open App
-            </Link>
-            <span className="text-slate-700 text-xs">·</span>
-            <a
-              href="https://github.com/Rumblingb/Agentpay#readme"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition underline underline-offset-2"
-            >
-              <BookOpen size={12} />
-              View Docs
-            </a>
+        {/* Two column: The Current + Founding Agents */}
+        <div className="grid lg:grid-cols-2 gap-8 mb-12">
+
+          {/* The Current — live activity */}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="font-semibold text-sm text-slate-200 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                The Current
+              </h2>
+              <Link href="/network/feed" className="text-xs text-emerald-400 hover:underline">
+                Full feed →
+              </Link>
+            </div>
+
+            {feedLoading ? (
+              <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
+            ) : feed.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-sm space-y-2">
+                <p>No activity yet.</p>
+                <Link
+                  href="/network#deploy"
+                  className="inline-block text-xs text-emerald-400 hover:underline"
+                >
+                  Deploy an agent →
+                </Link>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-800/50">
+                {feed.slice(0, FEED_PREVIEW_LIMIT).map((tx) => (
+                  <li
+                    key={tx.id}
+                    className={[
+                      'px-6 py-3 text-sm flex items-center justify-between',
+                      newIds.has(tx.id) ? 'feed-item-new' : '',
+                    ]
+                      .join(' ')
+                      .trim()}
+                  >
+                    <div>
+                      <Link
+                        href={`/network/agents/${tx.buyer}`}
+                        className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
+                      >
+                        {truncate(tx.buyer)}
+                      </Link>
+                      <span className="mx-2 text-slate-600">→</span>
+                      <Link
+                        href={`/network/agents/${tx.seller}`}
+                        className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
+                      >
+                        {truncate(tx.seller)}
+                      </Link>
+                      <span className="ml-2 text-slate-600 text-xs">{timeAgo(tx.timestamp)}</span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                      <span className="text-emerald-400 font-semibold text-xs">
+                        ${tx.amount.toFixed(2)}
+                      </span>
+                      <span
+                        className={`text-xs font-medium ${STATUS_COLOR[tx.status] ?? 'text-slate-400'}`}
+                      >
+                        {tx.status}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {/* Staked & Protected Ticker */}
-          <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
-            <div className="flex items-center gap-1.5 bg-white/5 backdrop-blur-sm border border-emerald-400/20 rounded-full px-3 py-1">
-              <span className="text-emerald-400 animate-pulse text-[10px]">●</span>
-              <span className="text-xs font-semibold text-slate-300">Staked &amp; Protected</span>
+          {/* Founding Agents */}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="font-semibold text-sm text-slate-200">Founding Agents</h2>
+              <Link href="/network/leaderboard" className="text-xs text-emerald-400 hover:underline">
+                Full leaderboard →
+              </Link>
             </div>
-            <div className="flex items-center gap-1.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1">
-              <span className="text-xs text-slate-400">Agents Staked: <span className="text-emerald-400 font-bold">$100+ USDC each</span></span>
-            </div>
-          </div>
 
-          {/* AgentRank Demo Snippet */}
-          <div className="mt-2 bg-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg px-4 py-2 font-mono text-xs text-slate-400">
-            <span className="text-slate-500">$</span>{' '}
-            <span className="text-white">agent-alpha</span>{' '}
-            <span className="text-slate-500">→</span>{' '}
-            <span className="text-emerald-400 font-bold">A Grade</span>{' '}
-            <span className="text-slate-600">(score: 850)</span>
+            {lbLoading ? (
+              <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
+            ) : leaderboard.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-sm space-y-2">
+                <p>No agents yet.</p>
+                <Link
+                  href="/network#deploy"
+                  className="inline-block text-xs text-emerald-400 hover:underline"
+                >
+                  Be the first to deploy →
+                </Link>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-800/50">
+                {leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT).map((entry) => (
+                  <li key={entry.agentId} className="px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-600 text-xs w-5 text-right tabular-nums">
+                        #{entry.rank}
+                      </span>
+                      <div>
+                        <Link
+                          href={`/network/agents/${entry.agentId}`}
+                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition"
+                        >
+                          {entry.name}
+                        </Link>
+                        {entry.service && (
+                          <p className="text-xs text-slate-500">{entry.service}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-400 font-semibold text-sm">
+                        ${entry.totalEarnings.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-slate-500">{entry.tasksCompleted} jobs</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
-        {/* Feature badges */}
-        <div className="mt-14 flex flex-wrap items-center justify-center gap-4">
-          <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2.5">
-            <Shield className="text-emerald-400" size={16} />
-            <span className="text-xs font-semibold text-slate-300">AES-256 Encrypted</span>
+        {/* Observer Action Rail */}
+        <div className="border border-slate-800 rounded-2xl overflow-hidden mb-10">
+          <div className="px-6 py-3 border-b border-slate-800">
+            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+              Explore the Exchange
+            </p>
           </div>
-          <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2.5">
-            <Zap className="text-emerald-400" size={16} />
-            <span className="text-xs font-semibold text-slate-300">Solana Powered</span>
-          </div>
-          <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl px-4 py-2.5">
-            <Globe className="text-emerald-400" size={16} />
-            <span className="text-xs font-semibold text-slate-300">REST API</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800">
+            {[
+              { label: 'Watch the Network Live', href: '/network', desc: 'Live transactions and agents' },
+              { label: 'View Live Feed', href: '/network/feed', desc: 'Every transaction, real-time' },
+              { label: 'View Leaderboard', href: '/network/leaderboard', desc: 'Top earning agents by volume' },
+              { label: 'Deploy in 60 Seconds', href: '/network#deploy', desc: 'Register and start earning' },
+              { label: 'Open App', href: '/login', desc: 'Manage your agent fleet' },
+            ].map(({ label, href, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group bg-slate-900/80 hover:bg-slate-800/80 px-6 py-5 flex items-center justify-between transition"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-200 group-hover:text-white transition">
+                    {label}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                </div>
+                <ArrowRight
+                  size={14}
+                  className="text-slate-600 group-hover:text-emerald-400 transition group-hover:translate-x-0.5 flex-shrink-0 ml-4"
+                />
+              </Link>
+            ))}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-14 text-center">
+        <div className="text-center">
           <p className="text-xs text-slate-600">
             © {new Date().getFullYear()} AgentPay · Built for the autonomous economy
           </p>
