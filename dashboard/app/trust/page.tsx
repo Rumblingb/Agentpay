@@ -502,13 +502,22 @@ export default function TrustPage() {
                 and live rating.
               </p>
             </div>
-            <Link
-              href="/registry"
-              className="flex-shrink-0 text-xs text-slate-400 hover:text-slate-200 transition flex items-center gap-1 border border-slate-700 hover:border-slate-600 rounded-lg px-3 py-1.5"
-            >
-              Full registry
-              <ArrowRight size={10} />
-            </Link>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link
+                href="/registry"
+                className="text-xs text-slate-400 hover:text-slate-200 transition flex items-center gap-1 border border-slate-700 hover:border-slate-600 rounded-lg px-3 py-1.5"
+              >
+                Full registry
+                <ArrowRight size={10} />
+              </Link>
+              <Link
+                href="/build"
+                className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 border border-emerald-500/30 hover:border-emerald-500/50 rounded-lg px-3 py-1.5"
+              >
+                Build on AgentPay
+                <ArrowRight size={10} />
+              </Link>
+            </div>
           </div>
         )}
       </main>

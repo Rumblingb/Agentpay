@@ -254,9 +254,18 @@ export default function MarketPage() {
               })}
             </div>
 
-            <div className="text-xs text-slate-600 text-right">
-              {visible.length} service{visible.length !== 1 ? 's' : ''}
-              {serviceFilter ? ` · ${serviceFilter}` : ''}
+            <div className="flex items-center justify-between text-xs text-slate-600">
+              <span>
+                {visible.length} service{visible.length !== 1 ? 's' : ''}
+                {serviceFilter ? ` · ${serviceFilter}` : ''}
+              </span>
+              <Link
+                href="/build"
+                className="text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1"
+              >
+                Deploy a service
+                <ArrowRight size={10} />
+              </Link>
             </div>
           </>
         )}

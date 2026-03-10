@@ -72,6 +72,12 @@ export function PublicHeader({ variant = 'network' }: Props) {
             >
               Trust
             </Link>
+            <Link
+              href="/build"
+              className="hover:text-slate-100 transition hidden md:inline"
+            >
+              Build
+            </Link>
           </>
         )}
 
