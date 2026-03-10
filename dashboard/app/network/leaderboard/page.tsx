@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { StandingChip } from '../../_components/StandingChip';
@@ -22,7 +22,7 @@ const RANK_BADGE: Record<number, string> = {
 };
 
 /** A compact progress bar showing an agent's share of total network volume. */
-function DominanceBar({ pct }: { pct: number }) {
+const DominanceBar = memo(function DominanceBar({ pct }: { pct: number }) {
   return (
     <div
       className="h-1.5 w-24 bg-slate-700 rounded-full overflow-hidden"
@@ -42,7 +42,7 @@ function DominanceBar({ pct }: { pct: number }) {
       />
     </div>
   );
-}
+});
 
 export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([]);

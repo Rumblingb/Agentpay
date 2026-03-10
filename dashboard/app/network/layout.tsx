@@ -20,8 +20,11 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <PublicHeader variant="network" />
 
-      {/* Live exchange state — visible on every /network page */}
-      <WorldStateBar variant="banner" />
+      {/* Live exchange state — visible on every /network page.
+          60 s interval: sub-pages that render their own leaderboard data
+          (e.g. /network, /network/leaderboard) already poll at 30 s, so the
+          status bar backs off to avoid redundant competing requests. */}
+      <WorldStateBar variant="banner" pollInterval={60_000} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">

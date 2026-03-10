@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import {
@@ -14,14 +14,22 @@ export default function FeedPage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // Track the id of the most-recent item to skip re-renders when nothing changed
+  const lastTopId = useRef<string | null>(null);
 
   async function load() {
     try {
       const res = await fetch('/api/agents/feed');
       if (res.ok) {
         const data = await res.json();
-        setFeed(data.feed ?? []);
-        setLastUpdated(new Date());
+        const incoming: FeedItem[] = data.feed ?? [];
+        // Only update state when the feed has actually changed (new top item)
+        const topId = incoming[0]?.id ?? null;
+        if (topId !== lastTopId.current) {
+          lastTopId.current = topId;
+          setFeed(incoming);
+          setLastUpdated(new Date());
+        }
       }
     } finally {
       setLoading(false);
