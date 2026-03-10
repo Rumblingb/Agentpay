@@ -12,6 +12,30 @@
  *   - POST /api/protocol/detect
  */
 
+// Mocks must come before imports (Jest hoists jest.mock calls).
+// ap2.ts transitively imports prisma and db/index via auth middleware.
+jest.mock('../src/db/index', () => ({
+  query: jest.fn().mockResolvedValue({ rows: [] }),
+  pool: { on: jest.fn() },
+  closePool: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/lib/prisma', () => {
+  const fn = () => jest.fn().mockResolvedValue({});
+  return {
+    __esModule: true,
+    default: {
+      merchant: { findUnique: fn(), findUniqueOrThrow: fn(), findMany: fn(), create: fn(), update: fn(), delete: fn() },
+      agent: { findUnique: fn(), findMany: fn(), create: fn(), updateMany: fn() },
+      paymentIntent: { create: fn(), findFirst: fn(), findUnique: fn(), findMany: fn(), update: fn(), updateMany: fn(), delete: fn() },
+      agentrank_scores: { findUnique: fn(), findMany: fn(), create: fn(), update: fn(), count: fn() },
+      $transaction: jest.fn().mockImplementation((ops: any) => Array.isArray(ops) ? Promise.all(ops) : ops({})),
+      $connect: jest.fn().mockResolvedValue(undefined),
+      $disconnect: jest.fn().mockResolvedValue(undefined),
+    },
+  };
+});
+
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import request from 'supertest';
 import express from 'express';

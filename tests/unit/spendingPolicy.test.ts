@@ -3,6 +3,14 @@
  * Tests the pure `checkPolicy` function directly (no DB needed).
  */
 
+// Mock db/index before imports — spendingPolicy.ts imports query from db/index
+// but checkPolicy itself is a pure function that never calls query.
+jest.mock('../../src/db/index', () => ({
+  query: jest.fn(),
+  pool: { on: jest.fn() },
+  closePool: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { describe, it, expect } from '@jest/globals';
 import { checkPolicy, type SpendingPolicyConfig } from '../../src/middleware/spendingPolicy';
 

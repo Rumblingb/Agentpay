@@ -1,4 +1,4 @@
-﻿import request from 'supertest';
+import request from 'supertest';
 import app from '../src/server';
 import { closePool } from '../src/db/index';
 import { query } from '../src/db/index';

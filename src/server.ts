@@ -25,6 +25,8 @@ import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
 import marketplaceRouter from './routes/marketplace.js';
 import feedRouter from './routes/feed.js';
+import adminRouter from './routes/admin.js';
+import reconciliationRouter from './routes/reconciliation.js';
 import walletsRouter from './routes/wallets.js';
 import demoRouter from './routes/demo.js';
 import testRouter from './test/routes.js';
@@ -39,6 +41,7 @@ import { logger } from './logger.js';
 import { startSolanaListener } from './services/solana-listener.js';
 import { verifyWebhookSignature } from './middleware/verifyWebhook.js';
 import { startLiquidityCron } from './services/liquidityService.js';
+import { startReconciliationDaemon } from './services/reconciliationDaemon.js';
 
 dotenv.config();
 
@@ -315,6 +318,12 @@ app.use('/api/marketplace', marketplaceRouter);
 // Real-time SSE feed
 app.use('/api/feed', feedRouter);
 
+// Financial reconciliation — DB vs on-chain state verification
+app.use('/api/reconciliation', reconciliationRouter);
+
+// Admin dashboard — protected by x-admin-key header
+app.use('/api/admin', adminRouter);
+
 // Demo engine — one-click agent payment simulation
 app.use('/api/demo', demoRouter);
 
@@ -412,6 +421,9 @@ if (process.env.NODE_ENV !== 'test') {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
     startSolanaListener();
+
+    // Reconciliation — detects payment/escrow anomalies every 15 min
+    startReconciliationDaemon({ intervalMs: 15 * 60 * 1000 });
 
     // Liquidity engine — seeds marketplace with micro jobs every 5 min
     if (process.env.LIQUIDITY_BOT_ENABLED !== 'false') {
