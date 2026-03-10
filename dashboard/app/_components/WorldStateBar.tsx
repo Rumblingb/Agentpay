@@ -28,7 +28,7 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const FLASH_DURATION_MS = 1_100;
 
 /**
- * Polls /api/agents/leaderboard and returns aggregated live exchange stats.
+ * Polls /api/agents/leaderboard and returns aggregated live network stats.
  * All metrics are derived directly from real data — nothing is invented.
  */
 function useExchangeStats(pollInterval = DEFAULT_POLL_INTERVAL_MS) {
@@ -116,12 +116,12 @@ interface WorldStateBarProps {
 }
 
 /**
- * WorldStateBar — live exchange state ribbon.
+ * WorldStateBar — live network state ribbon.
  *
  * Shows real metrics derived from /api/agents/leaderboard:
  *   - Active agent count
- *   - Total settled volume (flashes on increase)
- *   - Completed jobs
+ *   - Total coordinated value (flashes on increase)
+ *   - Completed interactions
  *   - Top-ranked agent name
  *
  * Designed to be reused on /, /network, and /trust surfaces.
@@ -170,7 +170,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
           </span>
           <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">
-            Exchange
+            Network
           </span>
         </span>
 
@@ -187,8 +187,8 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
 
             <Divider />
 
-            {/* Volume */}
-            <StatItem value={`$${volumeFormatted}`} label="settled" flash={flashing} />
+            {/* Coordinated value */}
+            <StatItem value={`$${volumeFormatted}`} label="coordinated" flash={flashing} />
 
             <Divider />
 
