@@ -214,8 +214,8 @@ if (process.env.NODE_ENV !== 'test') {
 // --- STRIPE WEBHOOKS (Must be before express.json) ---
 app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhooksRouter);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Structured JSON request logging (Render-compatible)
 app.use(httpLogger);
