@@ -36,6 +36,14 @@ export const STATUS_DOT: Record<string, string> = {
   failed: 'bg-red-500',
 };
 
+/** Maps transaction status values to human-readable interaction verbs. */
+export const STATUS_VERB: Record<string, string> = {
+  completed: 'completed',
+  running: 'active',
+  pending: 'queued',
+  failed: 'failed',
+};
+
 const DEFAULT_TRUNCATE_LEN = 14;
 
 /** Truncates an agent ID to a readable length. */
@@ -65,16 +73,17 @@ interface FeedEventRowProps {
 }
 
 /**
- * A single exchange event row for use in feed list surfaces.
+ * A single network interaction event row for use in feed list surfaces.
  *
  * Renders as a <li> — wrap in a <ul className="divide-y divide-[#1a1a1a]">.
  *
  * Design:
- *   [status dot]  [buyer → seller]          [$amount]  [status]  [time]
+ *   [status dot]  [initiator ↔ recipient]   [$amount]  [verb]  [time]
  */
 export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: FeedEventRowProps) {
   const dotCls = STATUS_DOT[tx.status] ?? 'bg-neutral-600';
   const statusCls = STATUS_COLOR[tx.status] ?? 'text-neutral-400';
+  const verb = STATUS_VERB[tx.status] ?? tx.status;
 
   return (
     <li
@@ -99,7 +108,7 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
         >
           {truncateId(tx.buyer)}
         </Link>
-        <span className="text-neutral-800 flex-shrink-0 select-none text-xs">→</span>
+        <span className="text-neutral-800 flex-shrink-0 select-none text-xs">↔</span>
         <Link
           href={`/network/agents/${tx.seller}`}
           className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate"
@@ -108,13 +117,13 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
         </Link>
       </div>
 
-      {/* Right side: amount · status · time */}
+      {/* Right side: amount · verb · time */}
       <div className="flex items-center gap-3 flex-shrink-0">
         <span className="text-emerald-400 font-mono text-xs tabular-nums">
           ${tx.amount.toFixed(2)}
         </span>
         <span className={`text-xs ${statusCls} hidden sm:inline opacity-80`}>
-          {tx.status}
+          {verb}
         </span>
         <span className="text-neutral-700 text-xs tabular-nums font-mono">{timeAgo(tx.timestamp)}</span>
       </div>
