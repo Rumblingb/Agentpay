@@ -105,13 +105,20 @@ export interface InteractParams {
   service?: string;
   /** Reported outcome — defaults to "success" */
   outcome?: 'success' | 'failure' | 'pending';
-  /** Transaction amount */
+  /**
+   * Transaction amount.
+   * Required when `createIntent` is true — omitting it with createIntent=true
+   * will result in a 400 Validation Error (hard fail).
+   */
   amount?: number;
   /** Currency code — defaults to "USDC" */
   currency?: string;
-  /** When true, fetch toAgent trust score */
+  /** When true, fetch toAgent trust score from the reputation graph */
   trustCheck?: boolean;
-  /** When true (and amount provided), create a coordination intent */
+  /**
+   * When true, create a coordination intent via IntentCoordinatorAgent.
+   * `amount` must also be provided; missing it is a 400 hard fail.
+   */
   createIntent?: boolean;
   /** Arbitrary caller-supplied metadata */
   metadata?: Record<string, unknown>;
@@ -119,17 +126,31 @@ export interface InteractParams {
 
 export interface InteractAgentInfo {
   agentId: string;
-  verified: boolean;
+  /**
+   * identityFound: a record for this agent exists in the system.
+   * Does NOT imply any cryptographic verification has occurred.
+   */
+  identityFound: boolean;
+  /**
+   * identityVerified: the agent has at least one active, non-expired
+   * verification credential — a stronger trust signal than identityFound.
+   */
+  identityVerified: boolean;
   trustLevel: string;
+  /** Only present when trustCheck was true in the request */
   trustScore?: number | null;
 }
 
 export interface InteractTrustEvent {
   category: string;
   agentId: string;
+  /** Counterparty agent in this interaction */
+  counterpartyId: string;
   delta: number;
   score: number;
   grade: string;
+  /** Rich metadata — includes interactionType, service, outcome, etc. */
+  metadata: Record<string, unknown>;
 }
 
 /** Structured response from agentpay.interact() */
@@ -144,6 +165,10 @@ export interface InteractResult {
     outcome: string;
     amount?: number;
     currency?: string;
+    /** Whether a trust score lookup was performed */
+    trustCheckPerformed: boolean;
+    /** Whether a coordination intent was successfully created */
+    intentCreated: boolean;
     metadata: Record<string, unknown> | null;
   };
   intent: object | null;

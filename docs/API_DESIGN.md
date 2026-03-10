@@ -217,8 +217,8 @@ Response body:
 {
   "success":       true,
   "interactionId": "interact_1741647345_a1b2c3d4e5f6",
-  "fromAgent":     { "agentId": "agent-abc", "verified": true,  "trustLevel": "verified" },
-  "toAgent":       { "agentId": "agent-xyz", "verified": false, "trustLevel": "unverified", "trustScore": 78 },
+  "fromAgent":     { "agentId": "agent-abc", "identityFound": true, "identityVerified": true,  "trustLevel": "verified" },
+  "toAgent":       { "agentId": "agent-xyz", "identityFound": true, "identityVerified": false, "trustLevel": "unverified", "trustScore": 78 },
   "interaction":   { "type": "task", "service": "data-analysis", "outcome": "success", "amount": 5.00, "currency": "USDC", "metadata": { "jobId": "j-001" } },
   "intent":        null,
   "emittedEvents": [{ "category": "successful_interaction", "agentId": "agent-abc", "delta": 5, "score": 305, "grade": "B" }],

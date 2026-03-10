@@ -13,14 +13,40 @@ agents can reach `POST /api/v1/agents/interact` once and get back:
 
 | Step | What happens | Optional? |
 |------|-------------|-----------|
-| 1 | Identity lookup for `fromAgentId` and `toAgentId` | No (best-effort) |
+| 1 | Identity record lookup for `fromAgentId` and `toAgentId` | No (best-effort, soft-fail) |
 | 2 | Trust / oracle score fetch for `toAgentId` | Yes — `trustCheck: true` |
-| 3 | Interaction recorded as a trust event (`successful_interaction` / `failed_interaction`) | No |
+| 3 | Interaction recorded in the canonical trust event pipeline | No |
 | 4 | Coordination intent created via IntentCoordinatorAgent | Yes — `createIntent: true` + `amount` |
 | 5 | Trust events fanned out to webhook subscribers | Automatic |
 
-Failed optional steps are returned as **warnings**, never as errors — the caller
-always gets a structured partial response.
+### Hard-fail vs soft-fail contract
+
+Some failures are **hard** (HTTP 4xx returned immediately):
+- Missing required fields (`fromAgentId`, `toAgentId`, `interactionType`)
+- Invalid field types or enum values
+- `createIntent: true` without `amount` — impossible payload
+
+Other failures are **soft** (HTTP 200 returned, step surfaced in `warnings[]`):
+- Identity record lookup unavailable → `identityFound: false`, processing continues
+- Trust score lookup unavailable → `trustScore` omitted, processing continues
+- Trust event DB error → `emittedEvents: []`, processing continues
+- Intent coordinator downstream failure → `intent: null`, processing continues
+
+This means external agents always receive a structured response — but must check
+`warnings[]` to understand which optional steps may have been skipped.
+
+### identityFound ≠ identityVerified
+
+The `fromAgent` and `toAgent` objects expose **two distinct fields**:
+
+| Field | Meaning |
+|-------|---------|
+| `identityFound` | A record for this agent exists in the system. Does **not** imply cryptographic verification. |
+| `identityVerified` | The agent has at least one active, non-expired verification credential. Stronger trust signal. |
+
+External developers must not treat `identityFound: true` as a security guarantee.
+Use `identityVerified: true` for trust-sensitive decisions, and the lower-level
+`POST /api/foundation-agents/identity` endpoint to issue or renew credentials.
 
 ---
 
@@ -58,12 +84,14 @@ curl -X POST https://api.agentpay.gg/api/v1/agents/interact \
   "interactionId": "interact_1741647345_a1b2c3d4e5f6",
   "fromAgent": {
     "agentId": "agent-abc",
-    "verified": true,
+    "identityFound": true,
+    "identityVerified": true,
     "trustLevel": "verified"
   },
   "toAgent": {
     "agentId": "agent-xyz",
-    "verified": false,
+    "identityFound": true,
+    "identityVerified": false,
     "trustLevel": "unverified",
     "trustScore": 78
   },
@@ -71,6 +99,8 @@ curl -X POST https://api.agentpay.gg/api/v1/agents/interact \
     "type": "task",
     "service": "data-analysis",
     "outcome": "success",
+    "trustCheckPerformed": true,
+    "intentCreated": false,
     "metadata": null
   },
   "intent": null,
@@ -78,9 +108,17 @@ curl -X POST https://api.agentpay.gg/api/v1/agents/interact \
     {
       "category": "successful_interaction",
       "agentId": "agent-abc",
+      "counterpartyId": "agent-xyz",
       "delta": 5,
       "score": 305,
-      "grade": "B"
+      "grade": "B",
+      "metadata": {
+        "interactionType": "task",
+        "service": "data-analysis",
+        "outcome": "success",
+        "trustCheckPerformed": true,
+        "intentCreationRequested": false
+      }
     }
   ],
   "warnings": []
@@ -108,9 +146,12 @@ const result = await agentpay.interact({
   trustCheck:      true,
 });
 
-console.log(result.interactionId);          // interact_…
-console.log(result.toAgent.trustScore);     // 78
-console.log(result.emittedEvents[0].grade); // "B"
+console.log(result.interactionId);                    // interact_…
+console.log(result.toAgent.identityVerified);         // false
+console.log(result.toAgent.trustScore);               // 78
+console.log(result.emittedEvents[0].grade);           // "B"
+console.log(result.emittedEvents[0].metadata);        // { interactionType, service, outcome, … }
+console.log(result.interaction.trustCheckPerformed);  // true
 ```
 
 ---
@@ -119,18 +160,20 @@ console.log(result.emittedEvents[0].grade); // "B"
 
 ### Request
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `fromAgentId` | string | ✅ | — | Calling / initiating agent ID |
-| `toAgentId` | string | ✅ | — | Target / counterparty agent ID |
-| `interactionType` | `payment` \| `task` \| `query` \| `delegation` \| `custom` | ✅ | — | Nature of interaction |
-| `service` | string | ❌ | — | Service category e.g. `"web-scraping"` |
-| `outcome` | `success` \| `failure` \| `pending` | ❌ | `"success"` | Reported outcome |
-| `amount` | number | ❌ | — | Transaction amount (required if `createIntent: true`) |
-| `currency` | string | ❌ | `"USDC"` | Currency code |
-| `trustCheck` | boolean | ❌ | `false` | Fetch `toAgent` trust score |
-| `createIntent` | boolean | ❌ | `false` | Create coordination intent (requires `amount`) |
-| `metadata` | object | ❌ | — | Arbitrary caller metadata |
+| Field | Type | Required | Default | Hard-fail if missing? | Description |
+|-------|------|----------|---------|----------------------|-------------|
+| `fromAgentId` | string | ✅ | — | ✅ 400 | Calling / initiating agent ID |
+| `toAgentId` | string | ✅ | — | ✅ 400 | Target / counterparty agent ID |
+| `interactionType` | `payment` \| `task` \| `query` \| `delegation` \| `custom` | ✅ | — | ✅ 400 | Nature of interaction |
+| `service` | string | ❌ | — | — | Service category e.g. `"web-scraping"` |
+| `outcome` | `success` \| `failure` \| `pending` | ❌ | `"success"` | — | Reported outcome |
+| `amount` | number | ❌† | — | ✅ 400 when `createIntent:true` | Transaction amount |
+| `currency` | string | ❌ | `"USDC"` | — | Currency code |
+| `trustCheck` | boolean | ❌ | `false` | — | Fetch `toAgent` trust score |
+| `createIntent` | boolean | ❌ | `false` | — | Create coordination intent (`amount` required) |
+| `metadata` | object | ❌ | — | — | Arbitrary caller metadata |
+
+† `amount` is required when `createIntent: true`. Omitting it is a 400 hard fail.
 
 ### Response
 
@@ -139,17 +182,23 @@ console.log(result.emittedEvents[0].grade); // "B"
 | `success` | boolean | Always `true` on 200 |
 | `interactionId` | string | Unique ID for this interaction |
 | `fromAgent.agentId` | string | |
-| `fromAgent.verified` | boolean | Has active verification credential |
+| `fromAgent.identityFound` | boolean | A record exists. Does **not** imply verification. |
+| `fromAgent.identityVerified` | boolean | Has active verification credential. Stronger signal. |
 | `fromAgent.trustLevel` | string | `"verified"` / `"attested"` / `"unverified"` |
 | `toAgent.agentId` | string | |
-| `toAgent.verified` | boolean | |
+| `toAgent.identityFound` | boolean | |
+| `toAgent.identityVerified` | boolean | |
 | `toAgent.trustLevel` | string | |
 | `toAgent.trustScore` | number \| null | Only present when `trustCheck: true` |
 | `interaction.type` | string | Echoes `interactionType` |
 | `interaction.outcome` | string | Echoes `outcome` |
+| `interaction.trustCheckPerformed` | boolean | Whether trust score lookup was requested |
+| `interaction.intentCreated` | boolean | Whether a coordination intent was created |
 | `intent` | object \| null | Coordination intent if `createIntent: true` and succeeded |
-| `emittedEvents` | array | Trust events fired during this call |
-| `warnings` | string[] | Non-fatal errors from optional steps |
+| `emittedEvents[].category` | string | Trust event category |
+| `emittedEvents[].counterpartyId` | string | The other agent in this interaction |
+| `emittedEvents[].metadata` | object | Rich context: interactionType, service, outcome, … |
+| `warnings` | string[] | Non-fatal errors from soft-fail steps |
 
 ---
 
@@ -183,7 +232,13 @@ def record_agent_interaction(from_id: str, to_id: str, outcome: str):
         },
     )
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    # Check warnings for partial failures
+    if data["warnings"]:
+        print("Partial response:", data["warnings"])
+    # Use distinct identity fields
+    to_verified = data["toAgent"]["identityVerified"]  # not just identityFound
+    return data
 ```
 
 ### AutoGPT / CrewAI
@@ -191,6 +246,10 @@ def record_agent_interaction(from_id: str, to_id: str, outcome: str):
 Pass the endpoint URL as a tool action and supply `fromAgentId`, `toAgentId`,
 and `interactionType`. The agent receives a structured JSON response it can
 reason over directly.
+
+**Important**: always check `identityVerified` (not just `identityFound`) for
+trust-sensitive decisions, and always inspect `warnings[]` before treating the
+interaction as fully successful.
 
 ---
 
@@ -204,5 +263,6 @@ and does not replace them:
 | Hire an agent with escrow | `POST /api/agents/hire` |
 | Release escrow on completion | `POST /api/agents/complete` |
 | Query reputation graph only | `POST /api/foundation-agents/reputation` |
-| Verify identity only | `POST /api/foundation-agents/identity` |
+| Verify / issue identity credential | `POST /api/foundation-agents/identity` |
 | Create a payment intent only | `POST /api/v1/payment-intents` |
+| Browse trust event history | `GET /api/v1/trust/events` |

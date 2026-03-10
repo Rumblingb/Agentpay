@@ -3,6 +3,13 @@
  *
  * All external services (identity verifier, reputation, trust events,
  * intent coordinator) are mocked so the test suite runs without a DB.
+ *
+ * Test coverage:
+ *  - Hard-fail validation (400) including createIntent without amount
+ *  - identityFound vs identityVerified semantic separation
+ *  - Richer trust event metadata (counterpartyId + extraMetadata)
+ *  - Canonical recordTrustEvent reuse (no side-channel)
+ *  - Soft-fail degradation paths (warnings[], 200 with partial response)
  */
 
 // ─── DB / Prisma mocks (must come before any imports that touch the DB) ───────
@@ -22,6 +29,7 @@ jest.mock('../../src/lib/prisma', () => ({
     paymentIntent: { create: jest.fn() },
     verificationCertificate: { create: jest.fn() },
     coordinatedTransaction: { create: jest.fn(), findUnique: jest.fn() },
+    trustEvent: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
   },
 }));
 
@@ -65,6 +73,7 @@ const mockRecordTrustEvent = jest.fn();
 jest.mock('../../src/services/trustEventService', () => ({
   recordTrustEvent: (...args: any[]) => mockRecordTrustEvent(...args),
   TRUST_EVENT_CATALOG: {},
+  getTrustEvents: jest.fn().mockResolvedValue({ events: [], total: 0 }),
 }));
 
 // ─── Other service stubs (needed by server.ts dependencies) ──────────────────
@@ -89,6 +98,7 @@ const VALID_BODY = {
   outcome: 'success',
 };
 
+/** Returns a mock identity record as returned by identityVerifierAgent.getIdentityRecord() */
 const IDENTITY_RECORD = (agentId: string, verified = true) => ({
   agentId,
   verified,
@@ -106,11 +116,11 @@ describe('POST /api/v1/agents/interact', () => {
     mockGetIdentityRecord
       .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
       .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
-    // Default: trust event succeeds
+    // Default: trust event recording succeeds
     mockRecordTrustEvent.mockResolvedValue({ score: 100, grade: 'B' });
   });
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  // ── Hard-fail validation (reviewer fix #1) ────────────────────────────────
 
   it('returns 400 when fromAgentId is missing', async () => {
     const { fromAgentId: _omit, ...body } = VALID_BODY;
@@ -142,15 +152,23 @@ describe('POST /api/v1/agents/interact', () => {
     expect(res.status).toBe(400);
   });
 
+  it('returns 400 (hard fail) when createIntent is true but amount is missing', async () => {
+    // This is a hard fail — not a warning — because the caller explicitly
+    // requested something that cannot succeed without the missing field.
+    const res = await request(app)
+      .post(BASE)
+      .set(AUTH)
+      .send({ ...VALID_BODY, createIntent: true }); // no amount
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Validation error');
+    expect(res.body.details.some((d: string) => d.includes('amount is required when createIntent is true'))).toBe(true);
+  });
+
   // ── Auth ─────────────────────────────────────────────────────────────────────
 
-  it('returns 401 when no API key is supplied', async () => {
-    // Override the auth mock just for this test via server behaviour
-    // (our mock always passes, so instead confirm auth IS wired up by
-    // checking a key present path works — the 401 test relies on auth.ts)
-    const res = await request(app).post(BASE).send(VALID_BODY); // no auth header
-    // Auth mock always calls next(); so no 401 in test mode — acceptable.
-    // What we verify: the endpoint exists and responds.
+  it('endpoint exists and responds (auth mock always passes in test mode)', async () => {
+    const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
     expect([200, 400, 401]).toContain(res.status);
   });
 
@@ -164,7 +182,6 @@ describe('POST /api/v1/agents/interact', () => {
     expect(typeof res.body.interactionId).toBe('string');
     expect(res.body.interactionId).toMatch(/^interact_/);
     expect(res.body.fromAgent.agentId).toBe('agent-from-001');
-    expect(res.body.fromAgent.verified).toBe(true);
     expect(res.body.toAgent.agentId).toBe('agent-to-002');
     expect(res.body.interaction.type).toBe('task');
     expect(res.body.interaction.outcome).toBe('success');
@@ -173,53 +190,145 @@ describe('POST /api/v1/agents/interact', () => {
     expect(res.body.intent).toBeNull();
   });
 
+  // ── Identity semantics (reviewer fix #3) ─────────────────────────────────
+  // identityFound = record exists; identityVerified = active credential exists.
+  // These are DISTINCT fields — external agents must not conflate them.
+
+  it('sets identityFound and identityVerified when lookup succeeds and agent is verified', async () => {
+    const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.fromAgent.identityFound).toBe(true);
+    expect(res.body.fromAgent.identityVerified).toBe(true);
+    expect(res.body.toAgent.identityFound).toBe(true);
+    expect(res.body.toAgent.identityVerified).toBe(true);
+  });
+
+  it('sets identityFound=true and identityVerified=false when agent has no active credential', async () => {
+    jest.resetAllMocks();
+    mockGetIdentityRecord
+      .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001', false)) // unverified
+      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002', false));
+    mockRecordTrustEvent.mockResolvedValue({ score: 50, grade: 'C' });
+
+    const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.fromAgent.identityFound).toBe(true);
+    expect(res.body.fromAgent.identityVerified).toBe(false);
+    expect(res.body.fromAgent.trustLevel).toBe('unverified');
+  });
+
+  it('sets identityFound=false when identity lookup throws', async () => {
+    jest.resetAllMocks();
+    mockGetIdentityRecord
+      .mockRejectedValueOnce(new Error('Agent not found'))
+      .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+    mockRecordTrustEvent.mockResolvedValue({ score: 50, grade: 'C' });
+
+    const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.fromAgent.identityFound).toBe(false);
+    expect(res.body.fromAgent.identityVerified).toBe(false);
+  });
+
+  // ── Richer trust event metadata (reviewer fix #2) ─────────────────────────
+  // interactionType, service, trustCheck, createIntent are all preserved
+  // in the event metadata — not collapsed to a binary success/failure.
+
+  it('calls recordTrustEvent with counterpartyId and rich extraMetadata', async () => {
+    await request(app).post(BASE).set(AUTH).send({
+      ...VALID_BODY,
+      outcome: 'success',
+      trustCheck: true,
+    });
+
+    expect(mockRecordTrustEvent).toHaveBeenCalledWith(
+      'agent-from-001',
+      'successful_interaction',
+      expect.any(String),
+      'agent-to-002',               // counterpartyId — both sides of event captured
+      expect.objectContaining({
+        interactionType: 'task',    // richer semantics preserved
+        service: 'data-analysis',
+        outcome: 'success',
+        trustCheckPerformed: true,
+        intentCreationRequested: false,
+      }),
+    );
+  });
+
   it('calls recordTrustEvent with "successful_interaction" when outcome is success', async () => {
     await request(app).post(BASE).set(AUTH).send({ ...VALID_BODY, outcome: 'success' });
     expect(mockRecordTrustEvent).toHaveBeenCalledWith(
       'agent-from-001',
       'successful_interaction',
       expect.any(String),
+      'agent-to-002',
+      expect.any(Object),
     );
   });
 
   it('calls recordTrustEvent with "failed_interaction" when outcome is failure', async () => {
+    jest.resetAllMocks();
     mockGetIdentityRecord
       .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
       .mockResolvedValueOnce(IDENTITY_RECORD('agent-to-002'));
+    mockRecordTrustEvent.mockResolvedValue({ score: 90, grade: 'B' });
 
-    await request(app)
-      .post(BASE)
-      .set(AUTH)
-      .send({ ...VALID_BODY, outcome: 'failure' });
+    await request(app).post(BASE).set(AUTH).send({ ...VALID_BODY, outcome: 'failure' });
 
     expect(mockRecordTrustEvent).toHaveBeenCalledWith(
       'agent-from-001',
       'failed_interaction',
       expect.any(String),
+      'agent-to-002',
+      expect.objectContaining({ outcome: 'failure' }),
     );
+  });
+
+  // ── interaction context preserved in response ─────────────────────────────
+
+  it('preserves trustCheckPerformed and intentCreated in interaction field', async () => {
+    const fakeIntent = { intentId: 'i-001', status: 'routing', route: {}, steps: [], executionMode: 'simulated', createdAt: new Date() };
+    mockCreateIntent.mockResolvedValue(fakeIntent);
+
+    const res = await request(app).post(BASE).set(AUTH).send({
+      ...VALID_BODY,
+      trustCheck: true,
+      createIntent: true,
+      amount: 5.0,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.interaction.trustCheckPerformed).toBe(true);
+    expect(res.body.interaction.intentCreated).toBe(true);
   });
 
   // ── trustCheck ───────────────────────────────────────────────────────────
 
   it('includes trustScore in toAgent when trustCheck is true', async () => {
-    mockGetReputation.mockResolvedValue({ trustScore: 82, totalPayments: 10, successRate: 0.9, disputeRate: 0.01, lastPaymentAt: null, createdAt: new Date(), updatedAt: new Date() });
+    mockGetReputation.mockResolvedValue({
+      trustScore: 82,
+      totalPayments: 10,
+      successRate: 0.9,
+      disputeRate: 0.01,
+      lastPaymentAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
-    const res = await request(app)
-      .post(BASE)
-      .set(AUTH)
-      .send({ ...VALID_BODY, trustCheck: true });
+    const res = await request(app).post(BASE).set(AUTH).send({ ...VALID_BODY, trustCheck: true });
 
     expect(res.status).toBe(200);
     expect(res.body.toAgent.trustScore).toBe(82);
   });
 
-  it('adds a warning when trustCheck is true but reputation lookup fails', async () => {
+  it('adds a warning (soft fail) when trustCheck is true but reputation lookup fails', async () => {
     mockGetReputation.mockRejectedValue(new Error('DB timeout'));
 
-    const res = await request(app)
-      .post(BASE)
-      .set(AUTH)
-      .send({ ...VALID_BODY, trustCheck: true });
+    const res = await request(app).post(BASE).set(AUTH).send({ ...VALID_BODY, trustCheck: true });
 
     expect(res.status).toBe(200);
     expect(res.body.warnings.some((w: string) => w.includes('Trust score lookup failed'))).toBe(true);
@@ -249,18 +358,7 @@ describe('POST /api/v1/agents/interact', () => {
     );
   });
 
-  it('adds a warning when createIntent is true but no amount is given', async () => {
-    const res = await request(app)
-      .post(BASE)
-      .set(AUTH)
-      .send({ ...VALID_BODY, createIntent: true }); // no amount
-
-    expect(res.status).toBe(200);
-    expect(res.body.intent).toBeNull();
-    expect(res.body.warnings.some((w: string) => w.includes('createIntent requires an amount'))).toBe(true);
-  });
-
-  it('adds a warning when intent creation throws', async () => {
+  it('adds a warning (soft fail) when intent creation coordinator throws', async () => {
     mockCreateIntent.mockRejectedValue(new Error('Coordinator offline'));
 
     const res = await request(app)
@@ -273,9 +371,9 @@ describe('POST /api/v1/agents/interact', () => {
     expect(res.body.warnings.some((w: string) => w.includes('Intent creation failed'))).toBe(true);
   });
 
-  // ── Resilience / partial degradation ─────────────────────────────────────
+  // ── Soft-fail degradation (reviewer fix #1 boundary) ─────────────────────
 
-  it('continues and adds warning when fromAgent identity lookup fails', async () => {
+  it('continues with 200 and adds warning when fromAgent identity lookup fails', async () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
       .mockRejectedValueOnce(new Error('Identity service down'))
@@ -285,11 +383,12 @@ describe('POST /api/v1/agents/interact', () => {
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
 
     expect(res.status).toBe(200);
-    expect(res.body.fromAgent.verified).toBe(false);
+    expect(res.body.fromAgent.identityFound).toBe(false);
+    expect(res.body.fromAgent.identityVerified).toBe(false);
     expect(res.body.warnings.some((w: string) => w.includes('fromAgent identity lookup unavailable'))).toBe(true);
   });
 
-  it('continues and adds warning when trust event recording fails', async () => {
+  it('continues with 200 and adds warning when trust event recording fails', async () => {
     jest.resetAllMocks();
     mockGetIdentityRecord
       .mockResolvedValueOnce(IDENTITY_RECORD('agent-from-001'))
@@ -305,7 +404,7 @@ describe('POST /api/v1/agents/interact', () => {
 
   // ── Emitted events shape ──────────────────────────────────────────────────
 
-  it('returns emitted events with expected shape', async () => {
+  it('returns emitted events with counterpartyId and metadata', async () => {
     const res = await request(app).post(BASE).set(AUTH).send(VALID_BODY);
 
     expect(res.status).toBe(200);
@@ -313,9 +412,13 @@ describe('POST /api/v1/agents/interact', () => {
       const ev = res.body.emittedEvents[0];
       expect(ev).toHaveProperty('category');
       expect(ev).toHaveProperty('agentId');
+      expect(ev).toHaveProperty('counterpartyId', 'agent-to-002');
       expect(ev).toHaveProperty('delta');
       expect(ev).toHaveProperty('score');
       expect(ev).toHaveProperty('grade');
+      expect(ev).toHaveProperty('metadata');
+      expect(ev.metadata).toHaveProperty('interactionType');
+      expect(ev.metadata).toHaveProperty('outcome');
     }
   });
 });

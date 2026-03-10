@@ -5,18 +5,31 @@
  * (Clawbot, AutoGPT, LangGraph, CrewAI, and custom agents).
  *
  * A single call can:
- *   - identify the caller and counterparty
- *   - optionally verify identity
- *   - optionally fetch trust context
- *   - record the interaction as a trust event
+ *   - look up both agent identities (identityFound / identityVerified are distinct fields)
+ *   - optionally fetch counterparty trust score
+ *   - record the interaction in the canonical trust event pipeline
  *   - optionally create a coordination intent
- *   - emit trust events
- *   - return a structured result with warnings for unavailable steps
+ *   - emit trust events to webhook subscribers
+ *   - return a structured result with warnings for unavailable soft-fail steps
  *
  * Auth: Bearer API key (same as all other protected endpoints).
  *
  * This endpoint orchestrates existing services — it does NOT duplicate
  * business logic that already lives elsewhere.
+ *
+ * ──────────────────────────────────────────────────────────────────────
+ * Hard-fail vs soft-fail contract
+ * ──────────────────────────────────────────────────────────────────────
+ * HARD FAIL (4xx returned immediately):
+ *   • Schema / type validation errors        → 400
+ *   • Missing auth / invalid API key         → 401 (enforced by middleware)
+ *   • createIntent:true without amount       → 400 (impossible payload)
+ *
+ * SOFT FAIL (200 returned, step surfaced in warnings[]):
+ *   • Identity record lookup unavailable     → warning, defaults to identityFound=false
+ *   • Trust score (oracle) unavailable       → warning, trustScore omitted
+ *   • Trust event recording DB error         → warning, emittedEvents=[]
+ *   • Intent coordinator downstream failure  → warning, intent=null
  *
  * @module routes/agentInteract
  */
@@ -37,28 +50,44 @@ const router = Router();
 // Validation schema
 // ---------------------------------------------------------------------------
 
-const interactSchema = z.object({
-  /** ID of the calling / initiating agent */
-  fromAgentId: z.string().min(1).max(256),
-  /** ID of the target / counterparty agent */
-  toAgentId: z.string().min(1).max(256),
-  /** Nature of the interaction */
-  interactionType: z.enum(['payment', 'task', 'query', 'delegation', 'custom']),
-  /** Service category (e.g. "web-scraping", "data-analysis") */
-  service: z.string().max(100).optional(),
-  /** Reported outcome — defaults to "success" */
-  outcome: z.enum(['success', 'failure', 'pending']).optional().default('success'),
-  /** Transaction amount */
-  amount: z.number().positive().optional(),
-  /** Currency code — defaults to "USDC" */
-  currency: z.string().max(10).optional().default('USDC'),
-  /** When true, fetch toAgent trust score from the reputation graph */
-  trustCheck: z.boolean().optional().default(false),
-  /** When true (and amount is provided), create a coordination intent */
-  createIntent: z.boolean().optional().default(false),
-  /** Arbitrary caller-supplied metadata, attached to the intent if created */
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
+const interactSchema = z
+  .object({
+    /** ID of the calling / initiating agent */
+    fromAgentId: z.string().min(1).max(256),
+    /** ID of the target / counterparty agent */
+    toAgentId: z.string().min(1).max(256),
+    /** Nature of the interaction */
+    interactionType: z.enum(['payment', 'task', 'query', 'delegation', 'custom']),
+    /** Service category (e.g. "web-scraping", "data-analysis") */
+    service: z.string().max(100).optional(),
+    /** Reported outcome — defaults to "success" */
+    outcome: z.enum(['success', 'failure', 'pending']).optional().default('success'),
+    /** Transaction amount (required when createIntent is true) */
+    amount: z.number().positive().optional(),
+    /** Currency code — defaults to "USDC" */
+    currency: z.string().max(10).optional().default('USDC'),
+    /** When true, fetch toAgent trust score from the reputation graph */
+    trustCheck: z.boolean().optional().default(false),
+    /**
+     * When true, create a coordination intent via IntentCoordinatorAgent.
+     * Requires `amount` to be present — missing amount is a hard 400 failure,
+     * not a soft warning, because the caller explicitly requested something
+     * that cannot succeed without the missing field.
+     */
+    createIntent: z.boolean().optional().default(false),
+    /** Arbitrary caller-supplied metadata, attached to the intent if created */
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((data, ctx) => {
+    // Hard-fail: createIntent without amount is an impossible payload.
+    if (data.createIntent && data.amount == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amount'],
+        message: 'amount is required when createIntent is true',
+      });
+    }
+  });
 
 export type InteractRequest = z.infer<typeof interactSchema>;
 
@@ -98,16 +127,27 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
   const warnings: string[] = [];
 
   // ------------------------------------------------------------------
-  // Step 1 — Identity lookup (both agents)
+  // Step 1 — Identity record lookup (both agents)
+  //
+  // IMPORTANT: identityFound = "we have a record for this agent"
+  //            identityVerified = "the agent has at least one active,
+  //                               non-expired verification credential"
+  //
+  // These are distinct concepts. External agents must not assume that
+  // identityFound=true implies any cryptographic verification has occurred.
   // ------------------------------------------------------------------
-  let fromAgentVerified = false;
+  let fromAgentIdentityFound = false;
+  let fromAgentIdentityVerified = false;
   let fromAgentTrustLevel = 'unverified';
-  let toAgentVerified = false;
+
+  let toAgentIdentityFound = false;
+  let toAgentIdentityVerified = false;
   let toAgentTrustLevel = 'unverified';
 
   try {
     const identity = await identityVerifierAgent.getIdentityRecord(fromAgentId);
-    fromAgentVerified = identity.verified;
+    fromAgentIdentityFound = true;
+    fromAgentIdentityVerified = identity.verified;
     fromAgentTrustLevel = identity.trustLevel;
   } catch (err: any) {
     warnings.push(`fromAgent identity lookup unavailable: ${err.message}`);
@@ -115,14 +155,15 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
 
   try {
     const identity = await identityVerifierAgent.getIdentityRecord(toAgentId);
-    toAgentVerified = identity.verified;
+    toAgentIdentityFound = true;
+    toAgentIdentityVerified = identity.verified;
     toAgentTrustLevel = identity.trustLevel;
   } catch (err: any) {
     warnings.push(`toAgent identity lookup unavailable: ${err.message}`);
   }
 
   // ------------------------------------------------------------------
-  // Step 2 — Trust / oracle lookup (optional)
+  // Step 2 — Trust / oracle lookup (optional, soft-fail)
   // ------------------------------------------------------------------
   let toAgentTrustScore: number | null = null;
   if (trustCheck) {
@@ -139,42 +180,62 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
   }
 
   // ------------------------------------------------------------------
-  // Step 3 — Record interaction as a trust event
+  // Step 3 — Record interaction in the canonical trust event pipeline
+  //
+  // Uses recordTrustEvent() from trustEventService — the same canonical
+  // service used by all other trust-writing operations in the system.
+  // No side-channel. No parallel taxonomy.
+  //
+  // Richer semantics are preserved via:
+  //   • counterpartyId  — toAgentId, so the event graph captures both sides
+  //   • extraMetadata   — interactionType, service, outcome, trustCheck,
+  //                       createIntent, interactionId are all recorded in the
+  //                       event's metadata field, not collapsed to success/failure
   // ------------------------------------------------------------------
   const trustCategory =
     outcome === 'success' ? 'successful_interaction' : 'failed_interaction';
+
+  const trustEventExtraMetadata: Record<string, unknown> = {
+    interactionId,
+    interactionType,
+    outcome,
+    ...(service ? { service } : {}),
+    trustCheckPerformed: trustCheck,
+    intentCreationRequested: createIntent,
+  };
+
   let trustEventResult: { score: number; grade: string } | null = null;
   try {
     trustEventResult = await recordTrustEvent(
       fromAgentId,
       trustCategory,
       `${interactionType} with ${toAgentId}${service ? ` (${service})` : ''}`,
+      toAgentId,
+      trustEventExtraMetadata,
     );
   } catch (err: any) {
     warnings.push(`Trust event recording failed: ${err.message}`);
   }
 
   // ------------------------------------------------------------------
-  // Step 4 — Intent coordination (optional)
+  // Step 4 — Intent coordination (optional, soft-fail)
+  // Prerequisite validation (createIntent without amount) is already a
+  // hard-fail enforced in the Zod schema above, so we can proceed safely.
   // ------------------------------------------------------------------
   let intent: object | null = null;
-  if (createIntent) {
-    if (amount == null) {
-      warnings.push('createIntent requires an amount; intent not created');
-    } else {
-      try {
-        intent = await intentCoordinatorAgent.createIntent({
-          intentId: interactionId,
-          fromAgent: fromAgentId,
-          toAgent: toAgentId,
-          amount,
-          currency: (currency ?? 'USDC') as 'USD' | 'USDC' | 'SOL',
-          purpose: interactionType,
-          metadata,
-        });
-      } catch (err: any) {
-        warnings.push(`Intent creation failed: ${err.message}`);
-      }
+  if (createIntent && amount != null) {
+    try {
+      intent = await intentCoordinatorAgent.createIntent({
+        intentId: interactionId,
+        fromAgent: fromAgentId,
+        toAgent: toAgentId,
+        amount,
+        currency: (currency ?? 'USDC') as 'USD' | 'USDC' | 'SOL',
+        purpose: interactionType,
+        metadata,
+      });
+    } catch (err: any) {
+      warnings.push(`Intent creation failed: ${err.message}`);
     }
   }
 
@@ -186,9 +247,11 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
         {
           category: trustCategory,
           agentId: fromAgentId,
+          counterpartyId: toAgentId,
           delta: outcome === 'success' ? 5 : -5,
           score: trustEventResult.score,
           grade: trustEventResult.grade,
+          metadata: trustEventExtraMetadata,
         },
       ]
     : [];
@@ -199,6 +262,8 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
     toAgentId,
     interactionType,
     outcome,
+    trustCheck,
+    createIntent,
     merchantId: req.merchant?.id,
   });
 
@@ -207,12 +272,22 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
     interactionId,
     fromAgent: {
       agentId: fromAgentId,
-      verified: fromAgentVerified,
+      /**
+       * identityFound: a record for this agent exists in our system.
+       * This does NOT imply cryptographic verification has occurred.
+       */
+      identityFound: fromAgentIdentityFound,
+      /**
+       * identityVerified: the agent has at least one active, non-expired
+       * verification credential — a stronger trust signal than identityFound.
+       */
+      identityVerified: fromAgentIdentityVerified,
       trustLevel: fromAgentTrustLevel,
     },
     toAgent: {
       agentId: toAgentId,
-      verified: toAgentVerified,
+      identityFound: toAgentIdentityFound,
+      identityVerified: toAgentIdentityVerified,
       trustLevel: toAgentTrustLevel,
       ...(trustCheck ? { trustScore: toAgentTrustScore } : {}),
     },
@@ -221,6 +296,8 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
       service: service ?? null,
       outcome,
       ...(amount != null ? { amount, currency: currency ?? 'USDC' } : {}),
+      trustCheckPerformed: trustCheck,
+      intentCreated: intent !== null,
       metadata: metadata ?? null,
     },
     intent,
