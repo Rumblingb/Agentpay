@@ -30,6 +30,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentpay_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/agentpay_test
       NODE_ENV: test
       AGENTPAY_TEST_MODE: "true"
       WEBHOOK_SECRET: ci-test-secret
@@ -53,6 +54,9 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
       - name: Initialize database schema
         run: node scripts/create-db.js
 
@@ -60,4 +64,14 @@ jobs:
         run: node scripts/migrate.js
 
       - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=text-summary
+        run: npm test -- --coverage --coverageReporters=text-summary --coverageReporters=json-summary
+
+      - name: Report coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const s = require('./coverage/coverage-summary.json').total;
+              console.log('Coverage: statements=' + s.statements.pct + '% branches=' + s.branches.pct + '% lines=' + s.lines.pct + '%');
+            "
+          fi

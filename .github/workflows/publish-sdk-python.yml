@@ -1,0 +1,54 @@
+name: Publish Python SDK to PyPI
+
+on:
+  push:
+    tags:
+      - 'sdk-python-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.2.0)'
+        required: true
+
+jobs:
+  publish-pypi:
+    name: Build & Publish agentpay Python SDK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # for PyPI Trusted Publisher
+
+    defaults:
+      run:
+        working-directory: sdk/python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tools
+        run: pip install hatch build
+
+      - name: Bump version (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sed -i "s/^version = .*/version = \"${{ github.event.inputs.version }}\"/" pyproject.toml
+
+      - name: Install dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist/

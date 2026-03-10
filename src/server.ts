@@ -35,6 +35,8 @@ import { ap2Router } from './protocols/ap2.js';
 import { createPalRouter } from './protocols/index.js';
 import apiDocsRouter from './routes/apiDocs.js';
 import receiptRouter from './routes/receipt.js';
+import kycRouter from './routes/kyc.js';
+import legalRouter from './routes/legal.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
@@ -42,6 +44,8 @@ import { startSolanaListener } from './services/solana-listener.js';
 import { verifyWebhookSignature } from './middleware/verifyWebhook.js';
 import { startLiquidityCron } from './services/liquidityService.js';
 import { startReconciliationDaemon } from './services/reconciliationDaemon.js';
+import { httpLogger } from './middleware/logging.js';
+import { metrics } from './services/metrics.js';
 
 dotenv.config();
 
@@ -213,6 +217,9 @@ app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWeb
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Structured JSON request logging (Render-compatible)
+app.use(httpLogger);
+
 // Apply global rate limit after webhook routes
 app.use(globalLimiter);
 
@@ -337,6 +344,18 @@ app.use('/api/docs', apiDocsRouter);
 
 // Public receipt pages — no auth required
 app.use('/api/receipt', receiptRouter);
+
+// KYC/AML compliance
+app.use('/api/kyc', kycRouter);
+
+// Legal policies
+app.use('/api/legal', legalRouter);
+
+// Prometheus metrics endpoint (restrict to internal networks in production)
+app.get('/metrics', (_req: Request, res: Response) => {
+  res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.send(metrics.toPrometheusText());
+});
 
 // --- 404 HANDLER — catches unmatched routes and returns helpful JSON ---
 app.use((_req: Request, res: Response) => {

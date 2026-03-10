@@ -325,6 +325,171 @@ const migrations = [
         FOR EACH ROW
         EXECUTE FUNCTION auto_create_transaction_on_intent_complete();`,
   },
+  // ── 025 KYC / AML tables ─────────────────────────────────────────────────
+  {
+    name: '025_kyc_aml_tables',
+    sql: `
+      -- KYC submissions (one per agent, upsert-safe)
+      CREATE TABLE IF NOT EXISTS kyc_submissions (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        agent_id     TEXT NOT NULL UNIQUE,
+        owner_email  TEXT NOT NULL,
+        owner_id     TEXT,
+        kyc_provider TEXT DEFAULT 'manual',
+        document_type TEXT,
+        document_ref  TEXT,
+        region_code   CHAR(2),
+        status        TEXT NOT NULL DEFAULT 'pending',
+        metadata      JSONB DEFAULT '{}',
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_kyc_agent ON kyc_submissions(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_kyc_status ON kyc_submissions(status);
+
+      -- KYC supporting documents
+      CREATE TABLE IF NOT EXISTS kyc_documents (
+        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        submission_id UUID REFERENCES kyc_submissions(id) ON DELETE CASCADE,
+        document_type TEXT NOT NULL,
+        storage_ref   TEXT NOT NULL,
+        verified      BOOLEAN DEFAULT FALSE,
+        created_at    TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      -- AML flags (append-only audit log)
+      CREATE TABLE IF NOT EXISTS aml_flags (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        agent_id       TEXT NOT NULL,
+        flags          JSONB NOT NULL DEFAULT '[]',
+        score          INT NOT NULL DEFAULT 0,
+        ip_address     TEXT,
+        wallet_address TEXT,
+        region_code    TEXT,
+        metadata       JSONB DEFAULT '{}',
+        created_at     TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_aml_agent ON aml_flags(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_aml_created ON aml_flags(created_at);
+    `,
+  },
+
+  // ── 026 RBAC roles tables ─────────────────────────────────────────────────
+  {
+    name: '026_rbac_roles',
+    sql: `
+      CREATE TABLE IF NOT EXISTS roles (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name       TEXT NOT NULL UNIQUE,
+        description TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      -- Seed built-in roles (idempotent)
+      INSERT INTO roles (name, description) VALUES
+        ('admin',    'Full system access'),
+        ('platform', 'Platform operator access'),
+        ('merchant', 'Merchant account access'),
+        ('agent',    'Agent access')
+      ON CONFLICT (name) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS user_roles (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        subject_id  TEXT NOT NULL,       -- merchant.id or agent.id
+        subject_type TEXT NOT NULL,      -- 'merchant' | 'agent'
+        role_name   TEXT NOT NULL REFERENCES roles(name),
+        granted_by  TEXT,
+        granted_at  TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(subject_id, role_name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_roles_subject ON user_roles(subject_id);
+    `,
+  },
+
+  // ── 027 Multi-tenant platforms table ─────────────────────────────────────
+  {
+    name: '027_platforms',
+    sql: `
+      -- Ensure escrow_transactions exists before we ALTER it below
+      CREATE TABLE IF NOT EXISTS escrow_transactions (
+        id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        hiring_agent             TEXT NOT NULL,
+        working_agent            TEXT NOT NULL,
+        amount_usdc              NUMERIC(20,6) NOT NULL,
+        status                   TEXT NOT NULL DEFAULT 'funded'
+                                 CHECK (status IN ('funded','completed','released','disputed','cancelled')),
+        work_description         TEXT,
+        deadline                 TIMESTAMPTZ,
+        completed_at             TIMESTAMPTZ,
+        reputation_delta_hiring  INT DEFAULT 0,
+        reputation_delta_working INT DEFAULT 0,
+        dispute_reason           TEXT,
+        guilty_party             TEXT,
+        escrow_account_pubkey    TEXT,
+        transaction_signature    TEXT,
+        created_at               TIMESTAMPTZ DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS platforms (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name         TEXT NOT NULL,
+        api_key_hash TEXT NOT NULL UNIQUE,
+        is_active    BOOLEAN DEFAULT TRUE,
+        metadata     JSONB DEFAULT '{}',
+        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_platforms_key ON platforms(api_key_hash);
+
+      -- Soft add platform_id to core tables (nullable for backward compat)
+      ALTER TABLE agents       ADD COLUMN IF NOT EXISTS platform_id TEXT DEFAULT 'default';
+      ALTER TABLE agent_transactions ADD COLUMN IF NOT EXISTS platform_id TEXT DEFAULT 'default';
+      ALTER TABLE escrow_transactions ADD COLUMN IF NOT EXISTS platform_id TEXT DEFAULT 'default';
+      CREATE INDEX IF NOT EXISTS idx_agents_platform ON agents(platform_id);
+    `,
+  },
+
+  // ── 028 Webhook deliveries table ─────────────────────────────────────────
+  {
+    name: '028_webhook_deliveries',
+    sql: `
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id  TEXT,
+        event_type   TEXT NOT NULL,
+        url          TEXT NOT NULL,
+        payload      TEXT,
+        status_code  INT,
+        response_body TEXT,
+        attempt      INT DEFAULT 1,
+        success      BOOLEAN DEFAULT FALSE,
+        created_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_webhook_del_merchant ON webhook_deliveries(merchant_id);
+      CREATE INDEX IF NOT EXISTS idx_webhook_del_event ON webhook_deliveries(event_type);
+      CREATE INDEX IF NOT EXISTS idx_webhook_del_created ON webhook_deliveries(created_at);
+    `,
+  },
+
+  // ── 029 Incentive / reward events table ──────────────────────────────────
+  {
+    name: '029_reward_events',
+    sql: `
+      CREATE TABLE IF NOT EXISTS reward_events (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        agent_id   TEXT NOT NULL,
+        event_type TEXT NOT NULL,   -- BONUS | BOOST | PENALTY
+        amount     NUMERIC(10,2) NOT NULL DEFAULT 0,
+        reason     TEXT,
+        expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_reward_agent ON reward_events(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_reward_expires ON reward_events(expires_at);
+    `,
+  },
+
   {
     name: '024_agent_embedding_vector',
     sql: `
