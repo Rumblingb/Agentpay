@@ -25,6 +25,7 @@ import kyaRouter from './routes/kya.js';
 import escrowRouter from './routes/escrow.js';
 import marketplaceRouter from './routes/marketplace.js';
 import feedRouter from './routes/feed.js';
+import adminRouter from './routes/admin.js';
 import reconciliationRouter from './routes/reconciliation.js';
 import walletsRouter from './routes/wallets.js';
 import demoRouter from './routes/demo.js';
@@ -318,6 +319,9 @@ app.use('/api/feed', feedRouter);
 
 // Financial reconciliation — DB vs on-chain state verification
 app.use('/api/reconciliation', reconciliationRouter);
+
+// Admin dashboard — protected by x-admin-key header
+app.use('/api/admin', adminRouter);
 
 // Demo engine — one-click agent payment simulation
 app.use('/api/demo', demoRouter);
