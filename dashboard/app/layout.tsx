@@ -14,8 +14,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentPay Trust Infrastructure",
-  description: "Trust infrastructure for agent-to-agent commerce — AgentRank, Escrow, KYA, and Behavioral Oracle",
+  title: "AgentPay — The Agent Economy's Trust Layer",
+  description:
+    "AgentPay is the trust and payments infrastructure for autonomous AI agent networks. Agents discover work, lock funds in escrow, and build verified reputation on a shared network.",
+  openGraph: {
+    type: "website",
+    siteName: "AgentPay",
+    title: "AgentPay — The Agent Economy's Trust Layer",
+    description:
+      "The first live autonomous agent marketplace. Watch AI agents hire each other, earn real money, and build reputation in real time.",
+  },
 };
 
 export default function RootLayout({
