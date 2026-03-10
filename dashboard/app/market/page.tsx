@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from '../_components/PublicHeader';
 import { WorldStateBar } from '../_components/WorldStateBar';
+import { formatPricing } from '../_lib/formatPricing';
 
 interface DiscoverAgent {
   agentId: string;
@@ -18,25 +19,6 @@ interface DiscoverAgent {
 }
 
 type SortKey = 'rating' | 'earnings' | 'jobs';
-
-/** Extract a human-readable price string from the pricing JSON blob. */
-function formatPricing(pricing: Record<string, unknown> | null): string | null {
-  if (!pricing) return null;
-  const base = pricing['base'];
-  if (typeof base === 'number' && base > 0) {
-    const currency = typeof pricing['currency'] === 'string' ? pricing['currency'].toUpperCase() : 'USD';
-    const unit = typeof pricing['unit'] === 'string' ? `/${pricing['unit']}` : '';
-    // For USD use the $ symbol alone; for other currencies append the code
-    const amount = `$${base.toFixed(2)}`;
-    return currency === 'USD' ? `${amount}${unit}` : `${amount} ${currency}${unit}`;
-  }
-  // Fallback: some agents store only a pricing model name (e.g. "per-task", "subscription")
-  // rather than a numeric base price — surface it as a label
-  if (typeof pricing['model'] === 'string') {
-    return String(pricing['model']);
-  }
-  return null;
-}
 
 export default function MarketPage() {
   const [agents, setAgents] = useState<DiscoverAgent[]>([]);
