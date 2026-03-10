@@ -410,6 +410,27 @@ const migrations = [
   {
     name: '027_platforms',
     sql: `
+      -- Ensure escrow_transactions exists before we ALTER it below
+      CREATE TABLE IF NOT EXISTS escrow_transactions (
+        id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        hiring_agent             TEXT NOT NULL,
+        working_agent            TEXT NOT NULL,
+        amount_usdc              NUMERIC(20,6) NOT NULL,
+        status                   TEXT NOT NULL DEFAULT 'funded'
+                                 CHECK (status IN ('funded','completed','released','disputed','cancelled')),
+        work_description         TEXT,
+        deadline                 TIMESTAMPTZ,
+        completed_at             TIMESTAMPTZ,
+        reputation_delta_hiring  INT DEFAULT 0,
+        reputation_delta_working INT DEFAULT 0,
+        dispute_reason           TEXT,
+        guilty_party             TEXT,
+        escrow_account_pubkey    TEXT,
+        transaction_signature    TEXT,
+        created_at               TIMESTAMPTZ DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS platforms (
         id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name         TEXT NOT NULL,
