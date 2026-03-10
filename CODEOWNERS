@@ -1,0 +1,33 @@
+# CODEOWNERS
+# Each line maps a file pattern to one or more owners.
+# Owners are automatically requested for review on pull requests.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all changes require review from a core maintainer
+*                          @Rumblingb
+
+# Security-sensitive paths require explicit approval
+src/middleware/            @Rumblingb
+src/services/riskEngine.ts @Rumblingb
+src/services/audit.ts      @Rumblingb
+src/routes/admin.ts        @Rumblingb
+src/routes/merchants.ts    @Rumblingb
+src/routes/escrow.ts       @Rumblingb
+
+# Data and migrations
+prisma/                    @Rumblingb
+scripts/migrate.js         @Rumblingb
+scripts/create-db.js       @Rumblingb
+
+# CI/CD
+.github/                   @Rumblingb
+
+# Financial and trust logic
+src/services/feeService.ts          @Rumblingb
+src/services/agentrankService.ts    @Rumblingb
+src/services/reputationService.ts   @Rumblingb
+src/escrow/                         @Rumblingb
+
+# SDK and external interfaces
+sdk/                       @Rumblingb
+openapi.yaml               @Rumblingb

@@ -9,4 +9,17 @@ dashboard/node_modules/
 __pycache__/
 *.pyc
 .pytest_cache/
-dist/
+
+# Coverage artifacts — never commit these
+coverage/
+*.lcov
+lcov.info
+
+# Build artifacts
+*.js.map
+*.tsbuildinfo
+
+# Misc local output
+output.txt
+test-output.txt
+*.log
