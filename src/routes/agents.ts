@@ -474,6 +474,7 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
         rating: a.rating,
         totalEarnings: a.totalEarnings,
         tasksCompleted: a.tasksCompleted,
+        isFoundationAgent: a.service === 'constitutional-agent',
       })),
       pagination: {
         limit,
@@ -583,6 +584,7 @@ router.get('/:agentId', async (req: Request, res: Response) => {
         tasksCompleted: (agent as any).tasksCompleted,
         createdAt: agent.createdAt.toISOString(),
         updatedAt: agent.updatedAt.toISOString(),
+        isFoundationAgent: (agent as any).service === 'constitutional-agent',
       },
     });
   } catch (err: any) {

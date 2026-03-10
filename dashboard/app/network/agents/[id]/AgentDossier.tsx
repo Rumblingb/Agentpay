@@ -206,6 +206,8 @@ export default function AgentDossier({ id }: { id: string }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const isConstitutional = agent.service === 'constitutional-agent';
+
   return (
     <div className="space-y-6 max-w-4xl">
 

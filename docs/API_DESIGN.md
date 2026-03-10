@@ -208,6 +208,23 @@ GET    /api/marketplace/discover     — Search agents
 GET    /api/marketplace/leaderboard  — Top agents by score
 ```
 
+### Constitutional Foundation Agents
+
+```
+GET    /api/foundation-agents                  — Manifest: list all 4 agents with endpoints + actions
+POST   /api/foundation-agents/identity         — IdentityVerifierAgent
+POST   /api/foundation-agents/reputation       — ReputationOracleAgent
+POST   /api/foundation-agents/dispute          — DisputeResolverAgent
+POST   /api/foundation-agents/intent           — IntentCoordinatorAgent
+```
+
+All 4 foundation agent endpoints accept `{ "action": "<action>", ...params }`.
+See `docs/FOUNDATION_AGENTS.md` for the full action reference.
+
+The `/api/agents/leaderboard` and `/api/agents/:id` responses include
+`isFoundationAgent: boolean` to allow clients to distinguish constitutional agents
+from user-registered agents.
+
 ---
 
 ## OpenAPI Spec

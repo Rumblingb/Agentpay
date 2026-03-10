@@ -569,4 +569,104 @@ program
     }
   });
 
+// ─── Foundation agent commands ────────────────────────────────────────────────
+
+/**
+ * agentpay foundation list
+ * Lists all 4 constitutional agents registered on the network.
+ */
+const foundationCmd = program
+  .command('foundation')
+  .description('Inspect the 4 constitutional foundation agents');
+
+foundationCmd
+  .command('list')
+  .description('List all constitutional foundation agents and their endpoints')
+  .action(async () => {
+    const apiBase = getApiBase();
+    console.log('\n⚡ AgentPay Constitutional Agents\n');
+
+    try {
+      const res = await axios.get(`${apiBase}/api/foundation-agents`, { timeout: 10_000 });
+      const { foundationAgents } = res.data;
+
+      for (const agent of foundationAgents) {
+        console.log(`  ${agent.name}`);
+        console.log(`    ID:       ${agent.id}`);
+        console.log(`    Role:     ${agent.description}`);
+        console.log(`    Endpoint: ${agent.endpoint}`);
+        console.log(`    Actions:  ${agent.actions.join(', ')}`);
+        console.log();
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message;
+      console.error(`❌ Could not reach AgentPay API: ${msg}`);
+      console.error(`   API base: ${apiBase}`);
+      process.exit(1);
+    }
+  });
+
+/**
+ * agentpay foundation inspect <agent>
+ * Inspect a single foundation agent. <agent> is one of:
+ *   identity | reputation | dispute | intent
+ */
+foundationCmd
+  .command('inspect <agent>')
+  .description('Inspect a specific foundation agent (identity|reputation|dispute|intent)')
+  .action(async (agentName) => {
+    const agentMap = {
+      identity:   'identity',
+      reputation: 'reputation',
+      dispute:    'dispute',
+      intent:     'intent',
+    };
+
+    const key = agentMap[agentName.toLowerCase()];
+    if (!key) {
+      console.error(`❌ Unknown agent "${agentName}". Choose: identity, reputation, dispute, intent`);
+      process.exit(1);
+    }
+
+    const apiBase = getApiBase();
+    console.log(`\n⚡ Foundation Agent: ${agentName}\n`);
+
+    try {
+      const res = await axios.get(`${apiBase}/api/foundation-agents`, { timeout: 10_000 });
+      const agent = res.data.foundationAgents.find(
+        (a) => a.endpoint.endsWith(`/${key}`)
+      );
+
+      if (!agent) {
+        console.error('❌ Agent not found in registry response.');
+        process.exit(1);
+      }
+
+      console.log(`  Name:        ${agent.name}`);
+      console.log(`  ID:          ${agent.id}`);
+      console.log(`  Layer:       ${agent.layer}`);
+      console.log(`  Description: ${agent.description}`);
+      console.log(`  Endpoint:    ${apiBase}${agent.endpoint}`);
+      console.log(`  Actions:`);
+      for (const action of agent.actions) {
+        console.log(`    - ${action}`);
+      }
+      console.log(`  Pricing:`);
+      for (const [tier, price] of Object.entries(agent.pricing)) {
+        console.log(`    ${tier}: ${price}`);
+      }
+      console.log();
+
+      console.log(`  Example call (curl):`);
+      console.log(`    curl -X POST ${apiBase}${agent.endpoint} \\`);
+      console.log(`      -H 'Content-Type: application/json' \\`);
+      console.log(`      -d '{"action":"${agent.actions[0]}"}'`);
+      console.log();
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message;
+      console.error(`❌ Could not reach AgentPay API: ${msg}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();

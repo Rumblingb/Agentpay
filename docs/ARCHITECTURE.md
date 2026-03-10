@@ -72,6 +72,7 @@ AgentPay is a financial infrastructure platform for AI agents. It provides:
 | **Payments** | Payment intent lifecycle, multi-protocol routing | `intentService.ts`, `protocolRouter.ts` | `payment_intents`, `transactions` |
 | **Escrow** | A2A escrow lock/approve/dispute/settle | `escrowService.ts`, `trust-escrow.ts` | `escrow_transactions`, `dispute_cases` |
 | **Marketplace** | Agent discovery, search, and leaderboard | `discoveryService.ts`, `ranking.ts` | `agents`, `agentrank_scores` |
+| **Constitutional Agents** | Trust infrastructure services (identity, reputation, dispute, coordination) | `src/agents/` | `verification_credentials`, `disputes`, `reputation_query_logs`, `coordinated_transactions` |
 | **Webhooks** | Event delivery and retry | `webhookEmitter.ts`, `webhookDeliveryWorker.ts` | `webhook_events` |
 | **Audit** | Immutable event log | `audit.ts` | `payment_audit_log` |
 
@@ -108,6 +109,11 @@ POST   /api/escrow/approve             — Approve/release escrow
 POST   /api/escrow/dispute             — Raise dispute
 GET    /api/marketplace/discover       — Discover agents
 GET    /api/marketplace/leaderboard    — Top agents by score
+GET    /api/foundation-agents          — List constitutional agents (manifest)
+POST   /api/foundation-agents/identity    — IdentityVerifierAgent
+POST   /api/foundation-agents/reputation  — ReputationOracleAgent
+POST   /api/foundation-agents/dispute     — DisputeResolverAgent
+POST   /api/foundation-agents/intent      — IntentCoordinatorAgent
 POST   /api/webhooks/register          — Register webhook endpoint
 GET    /metrics                        — Prometheus metrics
 GET    /health                         — Health check

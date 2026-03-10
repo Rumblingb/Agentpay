@@ -49,6 +49,11 @@ model Agent {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   intents        PaymentIntent[]
+  // Foundation agent fields
+  operatorId     String?   @map("operator_id")
+  trustScore     Float     @default(50.0) @map("trust_score")
+  verificationCredentials VerificationCredential[]
+  identityLinks           IdentityLink[]
 
   @@map("agents")
 }
@@ -263,4 +268,101 @@ model agent_wallets {
   updated_at            DateTime? @default(now()) @db.Timestamptz(6)
 
   @@map("agent_wallets")
+}
+
+// ─── Foundation Agents — Database Models ─────────────────────────────────────
+
+// Agent-to-agent fee ledger: every service charge from the 4 constitutional
+// agents lands here so it can be audited without touching the merchant
+// transactions table.
+model AgentFeeTransaction {
+  id          String   @id @default(cuid())
+  fromAgent   String   @map("from_agent")
+  toAgent     String   @map("to_agent")
+  amount      Float
+  status      String   @default("completed")
+  description String?
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("agent_fee_transactions")
+}
+
+// IdentityVerifierAgent — issued identity credentials
+model VerificationCredential {
+  id         String   @id
+  agentId    String   @map("agent_id")
+  agent      Agent    @relation(fields: [agentId], references: [id])
+  operatorId String   @map("operator_id")
+  environment Json
+  issuedAt   DateTime @map("issued_at")
+  expiresAt  DateTime @map("expires_at")
+  signature  String
+  trustLevel String   @map("trust_level")
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("verification_credentials")
+}
+
+// IdentityVerifierAgent — cross-platform identity links
+model IdentityLink {
+  id                 String   @id
+  primaryAgentId     String   @map("primary_agent_id")
+  primaryAgent       Agent    @relation(fields: [primaryAgentId], references: [id])
+  linkedAgentIds     String[] @map("linked_agent_ids")
+  crossPlatformProof Json     @map("cross_platform_proof")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("identity_links")
+}
+
+// ReputationOracleAgent — query audit log
+model ReputationQueryLog {
+  id                String   @id @default(cuid())
+  requestingAgentId String   @map("requesting_agent_id")
+  queriedAgentId    String   @map("queried_agent_id")
+  depth             String   @default("standard")
+  trustScore        Float    @map("trust_score")
+  riskLevel         String   @map("risk_level")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("reputation_query_logs")
+}
+
+// DisputeResolverAgent — structured dispute cases
+model Dispute {
+  id            String    @id
+  transactionId String    @map("transaction_id")
+  claimant      String
+  respondent    String
+  claim         String
+  category      String
+  evidence      Json      @default("{\"claimant\":[],\"respondent\":[]}")
+  status        String    @default("filed")
+  resolution    Json?
+  filedAt       DateTime  @default(now()) @map("filed_at") @db.Timestamptz(6)
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@map("disputes")
+}
+
+// IntentCoordinatorAgent — multi-protocol routing log
+model CoordinatedTransaction {
+  id           String    @id @default(cuid())
+  intentId     String    @unique @map("intent_id")
+  fromAgent    String    @map("from_agent")
+  toAgent      String    @map("to_agent")
+  amount       Float
+  currency     String
+  purpose      String
+  status       String    @default("pending")
+  route        Json
+  steps        Json      @default("[]")
+  externalTxId String?   @map("external_tx_id")
+  metadata     Json?     @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@map("coordinated_transactions")
 }
