@@ -1,8 +1,23 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────
+   Design tokens — AgentPay financial interface
+   ───────────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Background layers */
+  --background: #020617;
+  --surface: #0b1220;
+  --panel: #111827;
+  --border: #1f2937;
+
+  /* Text */
+  --foreground: #f1f5f9;
+  --muted: #94a3b8;
+
+  /* Accents */
+  --accent-emerald: #34d399;
+  --accent-amber: #fbbf24;
+  --accent-sky: #38bdf8;
 }
 
 @theme inline {
@@ -12,53 +27,26 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans, 'Arial', sans-serif);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Animated gradient background */
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
-
-/* Floating orb pulse */
-@keyframes orb-pulse {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.1); }
-}
-
-.animate-orb {
-  animation: orb-pulse 4s ease-in-out infinite;
-}
-
-.animate-orb-slow {
-  animation: orb-pulse 6s ease-in-out infinite;
-}
-
-/* Grid pattern overlay */
+/* ─────────────────────────────────────────────────────────────
+   Grid pattern overlay — very subtle depth texture
+   ───────────────────────────────────────────────────────────── */
 .bg-grid {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
-/* Horizontal scrolling ticker (used by network feed ticker) */
+/* ─────────────────────────────────────────────────────────────
+   Horizontal scrolling ticker (network feed marquee)
+   ───────────────────────────────────────────────────────────── */
 @keyframes marquee {
   from { transform: translateX(0%); }
   to   { transform: translateX(-50%); }
@@ -69,17 +57,19 @@ body {
   will-change: transform;
 }
 
-/* Slide-in + green flash for newly arrived feed transactions */
+/* ─────────────────────────────────────────────────────────────
+   Feed entry animation — restrained slide + fade, no flash
+   ───────────────────────────────────────────────────────────── */
 @keyframes feed-slide-in {
   0% {
     opacity: 0;
-    transform: translateX(-10px);
-    background-color: rgba(52, 211, 153, 0.18);
+    transform: translateX(-8px);
+    background-color: rgba(52, 211, 153, 0.10);
   }
-  40% {
+  50% {
     opacity: 1;
     transform: translateX(0);
-    background-color: rgba(52, 211, 153, 0.10);
+    background-color: rgba(52, 211, 153, 0.05);
   }
   100% {
     opacity: 1;
@@ -90,4 +80,16 @@ body {
 
 .feed-item-new {
   animation: feed-slide-in 0.75s ease-out forwards;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Volume number flash — brief highlight when value ticks up
+   ───────────────────────────────────────────────────────────── */
+@keyframes value-flash {
+  0%   { color: rgb(52, 211, 153); text-shadow: 0 0 8px rgba(52, 211, 153, 0.5); }
+  100% { color: inherit; text-shadow: none; }
+}
+
+.value-flash {
+  animation: value-flash 0.9s ease-out forwards;
 }

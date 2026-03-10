@@ -24,7 +24,7 @@ export function PublicHeader({ variant = 'network' }: Props) {
         'px-6 py-4 flex items-center justify-between',
         isHomepage
           ? 'absolute top-0 left-0 right-0 z-20 border-b border-white/5'
-          : 'border-b border-slate-800',
+          : 'border-b border-slate-800 bg-[#020617]/80 backdrop-blur-sm',
       ].join(' ')}
     >
       {/* Brand — always links back to / */}
@@ -82,10 +82,10 @@ export function PublicHeader({ variant = 'network' }: Props) {
           Docs
         </a>
 
-        {/* Open App CTA — consistent across all public pages */}
+      {/* Open App CTA — consistent across all public pages */}
         <Link
           href="/login"
-          className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 px-3 py-1.5 rounded-lg transition font-medium"
+          className="border border-emerald-500/20 hover:border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 hover:text-emerald-300 px-3 py-1.5 rounded-lg transition-all duration-200 font-medium text-sm"
         >
           Open App
         </Link>
