@@ -36,10 +36,7 @@ export default function WelcomePage() {
   const loadFeed = useCallback(async () => {
     try {
       const res = await fetch('/api/agents/feed');
-      if (!res.ok) {
-        console.error('Feed fetch failed:', res.status);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       const incoming: FeedItem[] = data.feed ?? [];
 
@@ -66,10 +63,7 @@ export default function WelcomePage() {
   const loadLeaderboard = useCallback(async () => {
     try {
       const res = await fetch('/api/agents/leaderboard');
-      if (!res.ok) {
-        console.error('Leaderboard fetch failed:', res.status);
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       setLeaderboard(data.leaderboard ?? []);
     } finally {

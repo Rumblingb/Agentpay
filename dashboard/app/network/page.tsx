@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { FeedEventRow, type FeedItem, truncateId } from '../_components/FeedEventRow';
@@ -83,6 +83,13 @@ export default function NetworkHomePage() {
     };
   }, [loadFeed, loadLeaderboard]);
 
+  // Marquee items: duplicate feed so the strip loops seamlessly.
+  // Memoized to avoid a new array allocation on every render.
+  const marqueeItems = useMemo(
+    () => [...feed, ...feed].slice(0, 30),
+    [feed],
+  );
+
   return (
     <div className="space-y-10">
 
@@ -136,8 +143,7 @@ export default function NetworkHomePage() {
           </div>
           <div className="overflow-hidden">
             <div className="flex gap-6 px-4 py-2 text-xs whitespace-nowrap animate-marquee">
-              {/* Duplicate the feed so the marquee loops seamlessly */}
-              {[...feed, ...feed].slice(0, 30).map((tx, i) => (
+              {marqueeItems.map((tx, i) => (
                 <span key={`${tx.id}-${i}`} className="text-slate-400">
                   <span className="font-mono text-slate-300">{truncateId(tx.buyer, 12)}</span>
                   <span className="mx-1 text-slate-600">→</span>

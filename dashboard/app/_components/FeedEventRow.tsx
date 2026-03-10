@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import Link from 'next/link';
 
 // ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ interface FeedEventRowProps {
  *   - homepage "The Current" preview
  *   - /network/feed full feed table (utilities only; table layout stays there)
  */
-export function FeedEventRow({ tx, isNew = false }: FeedEventRowProps) {
+export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: FeedEventRowProps) {
   const dotCls = STATUS_DOT[tx.status] ?? 'bg-slate-500';
   const statusCls = STATUS_COLOR[tx.status] ?? 'text-slate-400';
 
@@ -123,4 +124,4 @@ export function FeedEventRow({ tx, isNew = false }: FeedEventRowProps) {
       </div>
     </li>
   );
-}
+});
