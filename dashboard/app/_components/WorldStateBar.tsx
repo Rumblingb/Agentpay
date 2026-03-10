@@ -183,7 +183,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
             <Divider />
 
             {/* Agents */}
-            <StatItem value={String(agentCount)} label="agents" />
+            <StatItem value={String(agentCount)} label="active agents" />
 
             <Divider />
 
@@ -192,7 +192,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
 
             <Divider />
 
-            {/* Interactions */}
+            {/* Jobs */}
             <StatItem value={totalJobs.toLocaleString()} label="interactions" />
 
             {/* Top agent */}
