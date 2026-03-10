@@ -1,4 +1,27 @@
-﻿import request from 'supertest';
+// Mocks must come before imports. These integration tests require a live DB;
+// this mock allows the module to load in CI (where DB is absent) so that
+// the describeIfDb guard can skip tests gracefully instead of crashing.
+jest.mock('../src/db/index', () => ({
+  query: jest.fn().mockResolvedValue({ rows: [] }),
+  pool: { on: jest.fn() },
+  closePool: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/lib/prisma', () => ({
+  __esModule: true,
+  default: {
+    merchant: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    paymentIntent: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
+    transactions: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    agent: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    agentrank_scores: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), count: jest.fn() },
+    $transaction: jest.fn(),
+    $connect: jest.fn(),
+    $disconnect: jest.fn(),
+  },
+}));
+
+import request from 'supertest';
 import app from '../src/server';
 import { closePool } from '../src/db/index';
 import { query } from '../src/db/index';

@@ -2,6 +2,14 @@
  * Unit tests for webhooks.validateWebhookUrl — SSRF protection.
  */
 
+// Mock db/index before any imports to prevent ESM transform issues
+// (src/services/webhooks.ts transitively imports query from db/index)
+jest.mock('../../src/db/index', () => ({
+  query: jest.fn(),
+  pool: { on: jest.fn() },
+  closePool: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { validateWebhookUrl } from '../../src/services/webhooks';
 
 describe('validateWebhookUrl — SSRF protection', () => {
