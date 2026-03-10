@@ -4,7 +4,28 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Link2, Check } from 'lucide-react';
 import { STATUS_COLOR, STATUS_DOT, timeAgo, truncateId } from '../../../_components/FeedEventRow';
+import { FOUNDATION_AGENTS } from '../../../_components/StandingChip';
 import { formatPricing, formatPricingDetail } from '../../../_lib/formatPricing';
+
+// ---------------------------------------------------------------------------
+// Constitutional agent metadata
+// ---------------------------------------------------------------------------
+
+/** Short institutional description for each constitutional agent. */
+const CONSTITUTIONAL_DESCRIPTIONS: Record<string, string> = {
+  IdentityVerifierAgent: 'Verifies agent identity and credentials.',
+  ReputationOracleAgent: 'Provides trust scores for counterparties.',
+  DisputeResolverAgent: 'Resolves disputes and updates reputation.',
+  IntentCoordinatorAgent: 'Routes transaction intents across external rails.',
+};
+
+/** Ordered list of constitutional agents — defines their canonical position in the layer. */
+const CONSTITUTIONAL_AGENT_ORDER = [
+  'IdentityVerifierAgent',
+  'ReputationOracleAgent',
+  'DisputeResolverAgent',
+  'IntentCoordinatorAgent',
+];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -208,7 +229,11 @@ export default function AgentDossier({ id }: { id: string }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isConstitutional = agent.service === 'constitutional-agent';
+  const isConstitutional =
+    agent.service === 'constitutional-agent' ||
+    FOUNDATION_AGENTS.has(agent.displayName);
+
+  const constitutionalDesc = CONSTITUTIONAL_DESCRIPTIONS[agent.displayName];
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -223,19 +248,50 @@ export default function AgentDossier({ id }: { id: string }) {
       </Link>
 
       {/* ── Identity block — operator dossier header ─────────────────────── */}
-      <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden">
+      <div className={[
+        'rounded-xl backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden',
+        isConstitutional
+          ? 'border border-amber-500/20 bg-[#0c0a00]/80'
+          : 'border border-[#1c1c1c] bg-[#0b0b0b]/70',
+      ].join(' ')}>
+
+        {/* Constitutional top bar */}
+        {isConstitutional && (
+          <div className="px-6 py-3 border-b border-amber-500/10 bg-amber-500/[0.03] flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5">
+              <span className="foundation-badge">Constitutional Layer</span>
+              <span className="text-neutral-700 text-xs select-none">·</span>
+              <span className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
+                Foundation Protocol
+              </span>
+            </div>
+            <span className="text-xs text-neutral-700 font-mono hidden sm:inline">
+              {CONSTITUTIONAL_AGENT_ORDER.indexOf(agent.displayName) + 1} of {CONSTITUTIONAL_AGENT_ORDER.length}
+            </span>
+          </div>
+        )}
+
         <div className="px-6 py-6 flex flex-col sm:flex-row sm:items-start justify-between gap-6">
           <div className="flex-1 min-w-0">
-            <p className="section-label mb-3">Public Operator Dossier</p>
+            <p className="section-label mb-3">
+              {isConstitutional ? 'Constitutional Layer · Foundation Protocol' : 'Public Operator Dossier'}
+            </p>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white mb-3 leading-tight">
               {agent.displayName}
             </h1>
+            {isConstitutional && constitutionalDesc && (
+              <p className="text-sm text-neutral-400 mb-3 leading-relaxed max-w-md">
+                {constitutionalDesc}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2.5 mb-3">
-              {agent.service && (
+              {isConstitutional ? (
+                <span className="foundation-badge">Protocol Layer</span>
+              ) : agent.service ? (
                 <span className="text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1 rounded">
                   {agent.service}
                 </span>
-              )}
+              ) : null}
             </div>
             <p className="text-xs text-neutral-700 font-mono">
               {agent.id.slice(0, 28)}…
@@ -336,13 +392,17 @@ export default function AgentDossier({ id }: { id: string }) {
           <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between gap-4">
             <div>
               <p className="section-label mb-0.5">Capability</p>
-              <h2 className="font-medium text-sm text-neutral-200">Offered Service</h2>
+              <h2 className="font-medium text-sm text-neutral-200">
+                {isConstitutional ? 'Protocol Functions' : 'Offered Service'}
+              </h2>
             </div>
-            {agent.service && (
+            {isConstitutional ? (
+              <span className="foundation-badge flex-shrink-0">Protocol Layer</span>
+            ) : agent.service ? (
               <span className="text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/5 px-3 py-1 rounded flex-shrink-0">
                 {agent.service}
               </span>
-            )}
+            ) : null}
           </div>
           <div className="px-5 py-5 space-y-3">
             {pricingSummary && (
