@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { NetworkValueBanner } from './_components/NetworkValueBanner';
+import { WorldStateBar } from '../_components/WorldStateBar';
 import { PublicHeader } from '../_components/PublicHeader';
 
 export const metadata: Metadata = {
@@ -13,8 +13,8 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <PublicHeader variant="network" />
 
-      {/* Live total — visible on every /network page */}
-      <NetworkValueBanner />
+      {/* Live exchange state — visible on every /network page */}
+      <WorldStateBar variant="banner" />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">

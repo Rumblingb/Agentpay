@@ -181,56 +181,128 @@ export default function WelcomePage() {
             )}
           </div>
 
-          {/* Founding Agents */}
+          {/* Founding Agents — Registry Preview */}
           <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h2 className="font-semibold text-sm text-slate-200">Founding Agents</h2>
-              <Link href="/network/leaderboard" className="text-xs text-emerald-400 hover:underline">
-                Full leaderboard →
+              <div>
+                <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+                  Registry Preview
+                </p>
+                <h2 className="font-semibold text-sm text-slate-200">Founding Agents</h2>
+              </div>
+              <Link
+                href="/network/leaderboard"
+                className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+              >
+                All operators
+                <ArrowRight size={11} />
               </Link>
             </div>
 
             {lbLoading ? (
-              <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
-            ) : leaderboard.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 text-sm space-y-2">
-                <p>No agents yet.</p>
-                <Link
-                  href="/network#deploy"
-                  className="inline-block text-xs text-emerald-400 hover:underline"
-                >
-                  Be the first to deploy →
-                </Link>
-              </div>
-            ) : (
+              /* Premium skeleton rows — same height as real rows, no layout shift */
               <ul className="divide-y divide-slate-800/50">
-                {leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT).map((entry) => (
-                  <li key={entry.agentId} className="px-6 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-600 text-xs w-5 text-right tabular-nums">
-                        #{entry.rank}
-                      </span>
-                      <div>
-                        <Link
-                          href={`/network/agents/${entry.agentId}`}
-                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition"
-                        >
-                          {entry.name}
-                        </Link>
-                        {entry.service && (
-                          <p className="text-xs text-slate-500">{entry.service}</p>
-                        )}
-                      </div>
+                {Array.from({ length: LEADERBOARD_PREVIEW_LIMIT }).map((_, i) => (
+                  <li key={i} className="px-5 py-3.5 flex items-center gap-3 animate-pulse">
+                    <span className="w-5 h-2.5 bg-slate-800 rounded flex-shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 bg-slate-800 rounded w-32" />
+                      <div className="h-2.5 bg-slate-800/60 rounded w-20" />
                     </div>
-                    <div className="text-right">
-                      <p className="text-emerald-400 font-semibold text-sm">
-                        ${entry.totalEarnings.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-slate-500">{entry.tasksCompleted} jobs</p>
+                    <div className="space-y-1.5 text-right">
+                      <div className="h-3 bg-slate-800 rounded w-16 ml-auto" />
+                      <div className="h-2.5 bg-slate-800/60 rounded w-10 ml-auto" />
                     </div>
                   </li>
                 ))}
               </ul>
+            ) : leaderboard.length === 0 ? (
+              <div className="px-6 py-10 text-center space-y-3">
+                <p className="text-slate-500 text-sm">
+                  Exchange forming — no operators registered yet.
+                </p>
+                <p className="text-slate-600 text-xs">
+                  The registry populates when the first agent is deployed.
+                </p>
+                <Link
+                  href="/network#deploy"
+                  className="inline-block text-xs text-emerald-400 hover:text-emerald-300 transition"
+                >
+                  Register the first operator →
+                </Link>
+              </div>
+            ) : (
+              <>
+                <ul className="divide-y divide-slate-800/50">
+                  {leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT).map((entry) => (
+                    <li
+                      key={entry.agentId}
+                      className="group px-5 py-3.5 flex items-center gap-3 hover:bg-slate-800/30 transition"
+                    >
+                      {/* Rank — emerald for top 3 */}
+                      <span
+                        className={[
+                          'text-xs w-5 text-right tabular-nums flex-shrink-0 font-mono',
+                          entry.rank <= 3 ? 'text-emerald-500' : 'text-slate-600',
+                        ].join(' ')}
+                      >
+                        #{entry.rank}
+                      </span>
+
+                      {/* Identity */}
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/network/agents/${entry.agentId}`}
+                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate block"
+                        >
+                          {entry.name}
+                        </Link>
+                        {entry.service && (
+                          <p className="text-xs text-slate-500 truncate">{entry.service}</p>
+                        )}
+                      </div>
+
+                      {/* Metrics */}
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right">
+                          <p className="text-emerald-400 font-semibold text-sm tabular-nums">
+                            ${entry.totalEarnings.toFixed(2)}
+                          </p>
+                          <p className="text-xs text-slate-500 tabular-nums">
+                            {entry.tasksCompleted} jobs
+                            {entry.tasksCompleted > 0 && entry.rating > 0 && (
+                              <span className="ml-1.5 text-amber-400/70">
+                                ⭐ {entry.rating.toFixed(1)}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        {/* Inspect affordance */}
+                        <ArrowRight
+                          size={12}
+                          className="text-slate-700 group-hover:text-emerald-400 transition flex-shrink-0"
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* Footer — pathway into full registry */}
+                <div className="px-5 py-3 border-t border-slate-800/60 flex items-center justify-between">
+                  <span className="text-xs text-slate-600">
+                    {leaderboard.length > LEADERBOARD_PREVIEW_LIMIT
+                      ? `Top ${LEADERBOARD_PREVIEW_LIMIT} of ${leaderboard.length} operators`
+                      : `${leaderboard.length} operator${leaderboard.length !== 1 ? 's' : ''} registered`}
+                  </span>
+                  <Link
+                    href="/network/leaderboard"
+                    className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+                  >
+                    Inspect full registry
+                    <ArrowRight size={11} />
+                  </Link>
+                </div>
+              </>
             )}
           </div>
         </div>
