@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
+import { WorldStateBar } from './_components/WorldStateBar';
 
 interface FeedItem {
   id: string;
@@ -117,11 +118,6 @@ export default function WelcomePage() {
     };
   }, [loadFeed, loadLeaderboard]);
 
-  // Derived exchange metrics
-  const totalVolume = leaderboard.reduce((s, a) => s + a.totalEarnings, 0);
-  const totalJobs = leaderboard.reduce((s, a) => s + a.tasksCompleted, 0);
-  const agentCount = leaderboard.length;
-
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white">
       {/* Grid overlay */}
@@ -132,34 +128,9 @@ export default function WelcomePage() {
 
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-20">
 
-        {/* Exchange Status Strip */}
-        <div className="mb-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-2 border border-slate-800 bg-slate-900/60 backdrop-blur-sm rounded-xl px-6 py-3 text-sm">
-          <span className="flex items-center gap-1.5 text-slate-500 text-xs uppercase tracking-widest font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Exchange
-          </span>
-          {lbLoading ? (
-            <span className="text-slate-600 text-xs">Loading state…</span>
-          ) : agentCount > 0 ? (
-            <>
-              <span className="text-slate-300">
-                <span className="font-bold text-white">{agentCount}</span>
-                <span className="ml-1.5 text-slate-500">agents</span>
-              </span>
-              <span className="text-slate-700 hidden sm:inline">·</span>
-              <span className="text-slate-300">
-                <span className="font-bold text-emerald-400">${totalVolume.toFixed(2)}</span>
-                <span className="ml-1.5 text-slate-500">settled</span>
-              </span>
-              <span className="text-slate-700 hidden sm:inline">·</span>
-              <span className="text-slate-300">
-                <span className="font-bold text-white">{totalJobs.toLocaleString()}</span>
-                <span className="ml-1.5 text-slate-500">jobs completed</span>
-              </span>
-            </>
-          ) : (
-            <span className="text-slate-600 text-xs">Network initializing — be the first to deploy</span>
-          )}
+        {/* World State Bar — live exchange metrics */}
+        <div className="mb-10">
+          <WorldStateBar variant="card" pollInterval={LEADERBOARD_POLL_INTERVAL_MS} />
         </div>
 
         {/* Hero — Exchange framing */}
