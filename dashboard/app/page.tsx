@@ -6,29 +6,15 @@ import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 import { WorldStateBar } from './_components/WorldStateBar';
 import { FeedEventRow, type FeedItem } from './_components/FeedEventRow';
-import { StandingChip } from './_components/StandingChip';
-
-interface LeaderEntry {
-  rank: number;
-  agentId: string;
-  name: string;
-  service: string | null;
-  totalEarnings: number;
-  tasksCompleted: number;
-  rating: number;
-}
 
 const FEED_PREVIEW_LIMIT = 8;
-const LEADERBOARD_PREVIEW_LIMIT = 6;
 const FEED_POLL_INTERVAL_MS = 5_000;
 const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
 const NEW_ITEM_ANIMATION_DURATION_MS = 1_200;
 
 export default function WelcomePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
-  const [lbLoading, setLbLoading] = useState(true);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const knownIds = useRef<Set<string>>(new Set());
   const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,28 +46,14 @@ export default function WelcomePage() {
     }
   }, []);
 
-  const loadLeaderboard = useCallback(async () => {
-    try {
-      const res = await fetch('/api/agents/leaderboard');
-      if (!res.ok) return;
-      const data = await res.json();
-      setLeaderboard(data.leaderboard ?? []);
-    } finally {
-      setLbLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadFeed();
-    loadLeaderboard();
     const feedInterval = setInterval(loadFeed, FEED_POLL_INTERVAL_MS);
-    const lbInterval = setInterval(loadLeaderboard, LEADERBOARD_POLL_INTERVAL_MS);
     return () => {
       clearInterval(feedInterval);
-      clearInterval(lbInterval);
       if (animTimer.current) clearTimeout(animTimer.current);
     };
-  }, [loadFeed, loadLeaderboard]);
+  }, [loadFeed]);
 
   return (
     <div className="relative min-h-screen bg-black text-white">
@@ -122,8 +94,9 @@ export default function WelcomePage() {
             escrow value, and settle transactions on a shared network.
           </p>
 
-          {/* WorldStateBar — live system ribbon */}
+          {/* World State — live system metrics */}
           <div className="max-w-2xl mx-auto mb-14">
+            <p className="section-label mb-3 text-center">World State</p>
             <WorldStateBar variant="card" pollInterval={LEADERBOARD_POLL_INTERVAL_MS} />
           </div>
 
@@ -148,7 +121,7 @@ export default function WelcomePage() {
         {/* ── System modules ─────────────────────────────────────────────── */}
         <div className="pb-28 space-y-6">
 
-          {/* Two column: The Current + Founding Agents */}
+          {/* Two column: The Current + The Constitutional Layer */}
           <div className="grid lg:grid-cols-2 gap-5">
 
             {/* The Current — live activity */}
@@ -195,138 +168,72 @@ export default function WelcomePage() {
               )}
             </div>
 
-            {/* Founding Agents — Registry Preview */}
+            {/* The Constitutional Layer */}
             <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
               <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
                 <div>
-                  <p className="section-label mb-0.5">Registry Preview</p>
-                  <h2 className="font-medium text-sm text-neutral-200">Founding Agents</h2>
+                  <p className="section-label mb-0.5">Infrastructure</p>
+                  <h2 className="font-medium text-sm text-neutral-200">The Constitutional Layer</h2>
                 </div>
                 <Link
-                  href="/network/leaderboard"
+                  href="/network"
                   className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
                 >
-                  Leaderboard
+                  Network
                   <ArrowRight size={10} />
                 </Link>
               </div>
 
-              {lbLoading ? (
-                <ul className="divide-y divide-[#161616]">
-                  {Array.from({ length: LEADERBOARD_PREVIEW_LIMIT }).map((_, i) => (
-                    <li key={i} className="px-5 py-4 flex items-center gap-3 animate-pulse">
-                      <span className="w-5 h-2.5 bg-neutral-900 rounded flex-shrink-0" />
-                      <div className="flex-1 space-y-1.5">
-                        <div className="h-2.5 bg-neutral-900 rounded w-32" />
-                        <div className="h-2 bg-neutral-900/60 rounded w-20" />
-                      </div>
-                      <div className="space-y-1.5 text-right">
-                        <div className="h-2.5 bg-neutral-900 rounded w-14 ml-auto" />
-                        <div className="h-2 bg-neutral-900/60 rounded w-10 ml-auto" />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : leaderboard.length === 0 ? (
-                <div className="px-6 py-12 text-center space-y-3">
-                  <p className="text-neutral-600 text-sm">
-                    Exchange forming — no operators registered yet.
-                  </p>
-                  <p className="text-neutral-700 text-xs">
-                    The registry populates when the first agent is deployed.
-                  </p>
-                  <Link
-                    href="/network#deploy"
-                    className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
+              <ul className="divide-y divide-[#141414]">
+                {[
+                  {
+                    name: 'IdentityVerifierAgent',
+                    desc: 'Verifies agent identity and credentials.',
+                    layer: '#1',
+                  },
+                  {
+                    name: 'ReputationOracleAgent',
+                    desc: 'Provides trust scores for counterparties.',
+                    layer: '#2',
+                  },
+                  {
+                    name: 'DisputeResolverAgent',
+                    desc: 'Resolves disputes and updates reputation.',
+                    layer: '#3',
+                  },
+                  {
+                    name: 'IntentCoordinatorAgent',
+                    desc: 'Routes transaction intents across payment rails.',
+                    layer: '#4',
+                  },
+                ].map(({ name, desc, layer }) => (
+                  <li
+                    key={name}
+                    className="group px-5 py-4 flex items-start gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
                   >
-                    Register the first operator →
-                  </Link>
-                </div>
-              ) : (
-                <>
-                  <ul className="divide-y divide-[#141414]">
-                    {leaderboard.slice(0, LEADERBOARD_PREVIEW_LIMIT).map((entry) => (
-                      <li
-                        key={entry.agentId}
-                        className="group px-5 py-4 flex items-center gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
-                      >
-                        {/* Rank */}
-                        <span
-                          className={[
-                            'text-xs w-5 text-right tabular-nums flex-shrink-0 font-mono',
-                            entry.rank <= 3 ? 'text-emerald-500' : 'text-neutral-700',
-                          ].join(' ')}
-                        >
-                          #{entry.rank}
-                        </span>
-
-                        {/* Identity */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Link
-                              href={`/network/agents/${entry.agentId}`}
-                              className="text-sm font-medium text-neutral-300 hover:text-emerald-400 transition-colors duration-200 truncate"
-                            >
-                              {entry.name}
-                            </Link>
-                            <span className="hidden sm:inline flex-shrink-0">
-                              <StandingChip rank={entry.rank} name={entry.name} />
-                            </span>
-                          </div>
-                          {entry.service && (
-                            <p className="text-xs text-neutral-600 truncate mt-0.5">{entry.service}</p>
-                          )}
-                        </div>
-
-                        {/* Metrics */}
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <div className="text-right">
-                            <p className="text-emerald-400 font-mono text-sm tabular-nums">
-                              ${entry.totalEarnings.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-neutral-600 tabular-nums mt-0.5">
-                              {entry.tasksCompleted} jobs
-                              {entry.tasksCompleted > 0 && entry.rating > 0 && (
-                                <span className="ml-1.5 text-amber-400/60">
-                                  {entry.rating.toFixed(1)}
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                          <ArrowRight
-                            size={12}
-                            className="text-neutral-800 group-hover:text-emerald-400 transition-colors duration-200 flex-shrink-0"
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
-                    <span className="text-xs text-neutral-700">
-                      {leaderboard.length > LEADERBOARD_PREVIEW_LIMIT
-                        ? `Top ${LEADERBOARD_PREVIEW_LIMIT} of ${leaderboard.length} operators`
-                        : `${leaderboard.length} operator${leaderboard.length !== 1 ? 's' : ''} registered`}
+                    <span className="text-xs text-emerald-600 font-mono flex-shrink-0 mt-0.5 w-5 text-right">
+                      {layer}
                     </span>
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href="/trust"
-                        className="text-xs text-neutral-600 hover:text-neutral-300 transition-colors duration-200 flex items-center gap-1"
-                      >
-                        Trust Order
-                        <ArrowRight size={10} />
-                      </Link>
-                      <Link
-                        href="/network/leaderboard"
-                        className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
-                      >
-                        Full registry
-                        <ArrowRight size={11} />
-                      </Link>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-neutral-300 font-mono">{name}</p>
+                      <p className="text-xs text-neutral-600 mt-0.5 leading-relaxed">{desc}</p>
                     </div>
-                  </div>
-                </>
-              )}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
+                <span className="text-xs text-neutral-700">
+                  4 constitutional agents · trust graph spine
+                </span>
+                <Link
+                  href="/registry"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                >
+                  Full registry
+                  <ArrowRight size={11} />
+                </Link>
+              </div>
             </div>
           </div>
 

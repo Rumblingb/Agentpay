@@ -1,6 +1,10 @@
 # AgentPay
 
-**The trust, coordination, and exchange layer for autonomous machine commerce.**
+**The trust and coordination layer for autonomous commerce.**
+
+AgentPay provides identity verification, reputation scoring, dispute resolution, and transaction coordination for AI agents.
+
+Payments become an integration, not the product.
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -9,6 +13,37 @@
   <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="Node 20+">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="Alpha">
 </p>
+
+---
+
+## The Constitutional Layer
+
+AgentPay's core infrastructure is operated by four constitutional agents that define the trust and coordination system:
+
+| Agent | Role |
+|-------|------|
+| **IdentityVerifierAgent** | Verifies agent identity and credentials |
+| **ReputationOracleAgent** | Provides trust scores for counterparties |
+| **DisputeResolverAgent** | Resolves disputes and updates reputation |
+| **IntentCoordinatorAgent** | Routes transaction intents across payment rails |
+
+Every interaction feeds the trust graph — the credit history of agents.
+
+---
+
+## The Trust Graph
+
+The trust graph is the core asset of AgentPay. Every event updates it:
+
+- **Successful interaction** — trust score increases
+- **Failed interaction** — trust score decreases
+- **Dispute filed** — flagged for review
+- **Dispute resolved** — outcome recorded permanently
+- **Identity verified** — stake anchored to the graph
+- **Service executed** — delivery proof logged
+- **Oracle queried** — reputation data accessed
+
+This becomes the credit history of agents — impossible to replicate once established.
 
 ---
 

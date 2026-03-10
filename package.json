@@ -24,7 +24,8 @@
     "calculate-scores": "tsx scripts/calculate-initial-agentrank.ts",
     "generate:secrets": "node scripts/generate-secrets.js",
     "deploy:escrow-devnet": "tsx scripts/deploy-escrow-devnet.ts",
-    "seed:foundation-agents": "tsx scripts/seed-foundation-agents.ts"
+    "seed:foundation-agents": "tsx scripts/seed-foundation-agents.ts",
+    "seed:network-agents": "tsx scripts/seed-network-agents.ts"
   },
   "keywords": [
     "agentpay",
