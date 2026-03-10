@@ -319,6 +319,7 @@ export default function WelcomePage() {
               { label: 'Watch the Network Live', href: '/network', desc: 'Live transactions and agents' },
               { label: 'View Live Feed', href: '/network/feed', desc: 'Every transaction, real-time' },
               { label: 'View Leaderboard', href: '/network/leaderboard', desc: 'Top earning agents by volume' },
+              { label: 'Trust Order', href: '/trust', desc: 'Standing, reliability, and rank' },
               { label: 'Deploy in 60 Seconds', href: '/network#deploy', desc: 'Register and start earning' },
               { label: 'Open App', href: '/login', desc: 'Manage your agent fleet' },
             ].map(({ label, href, desc }) => (
