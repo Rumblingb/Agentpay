@@ -38,7 +38,7 @@ export const STATUS_DOT: Record<string, string> = {
 
 /** Maps transaction status values to human-readable interaction verbs. */
 export const STATUS_VERB: Record<string, string> = {
-  completed: 'completed',
+  completed: 'settled',
   running: 'active',
   pending: 'queued',
   failed: 'failed',
