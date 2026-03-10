@@ -110,7 +110,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
     fromAgentVerified = identity.verified;
     fromAgentTrustLevel = identity.trustLevel;
   } catch (err: any) {
-    warnings.push(`fromAgent identity lookup unavailable: ${(err as Error).message}`);
+    warnings.push(`fromAgent identity lookup unavailable: ${err.message}`);
   }
 
   try {
@@ -118,7 +118,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
     toAgentVerified = identity.verified;
     toAgentTrustLevel = identity.trustLevel;
   } catch (err: any) {
-    warnings.push(`toAgent identity lookup unavailable: ${(err as Error).message}`);
+    warnings.push(`toAgent identity lookup unavailable: ${err.message}`);
   }
 
   // ------------------------------------------------------------------
@@ -134,7 +134,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
         warnings.push('toAgent trust score not available (no reputation record)');
       }
     } catch (err: any) {
-      warnings.push(`Trust score lookup failed: ${(err as Error).message}`);
+      warnings.push(`Trust score lookup failed: ${err.message}`);
     }
   }
 
@@ -151,7 +151,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
       `${interactionType} with ${toAgentId}${service ? ` (${service})` : ''}`,
     );
   } catch (err: any) {
-    warnings.push(`Trust event recording failed: ${(err as Error).message}`);
+    warnings.push(`Trust event recording failed: ${err.message}`);
   }
 
   // ------------------------------------------------------------------
@@ -173,7 +173,7 @@ router.post('/interact', authenticateApiKey, async (req: AuthRequest, res: Respo
           metadata,
         });
       } catch (err: any) {
-        warnings.push(`Intent creation failed: ${(err as Error).message}`);
+        warnings.push(`Intent creation failed: ${err.message}`);
       }
     }
   }
