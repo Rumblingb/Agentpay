@@ -10,6 +10,7 @@
  */
 
 import { logger } from '../logger.js';
+import { randomBytes } from 'crypto';
 import {
   createEscrow as trustCreate,
   approveWork as trustRelease,
@@ -123,7 +124,7 @@ export class EscrowService {
       case 'stripe': {
         // Stripe escrow: hold via Stripe PaymentIntent with manual capture.
         // Full Stripe integration deferred — return a pending record.
-        escrowId = `stripe_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        escrowId = `stripe_${Date.now()}_${randomBytes(8).toString('hex')}`;
         onChain = false;
         paymentUrl = undefined;
         logger.info('[EscrowService] Stripe escrow placeholder created', { escrowId });

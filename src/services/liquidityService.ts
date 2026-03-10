@@ -14,6 +14,7 @@
  */
 
 import { logger } from '../logger.js';
+import { randomInt } from 'crypto';
 import escrowService from './escrowService.js';
 import { emitJobCreated, emitEscrowReleased } from '../events/marketplaceEmitter.js';
 import prisma from '../lib/prisma.js';
@@ -89,7 +90,7 @@ async function ensureLiquidityAgents(): Promise<void> {
  * Pick a random element from an array.
  */
 function randomPick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[randomInt(arr.length)];
 }
 
 /**
