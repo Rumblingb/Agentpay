@@ -24,6 +24,7 @@ import {
   type SybilSignals,
 } from '../reputation/agentrank-core.js';
 import { adjustScore, getScoreHistory } from '../services/agentrankService.js';
+import { TRUST_EVENT_CATALOG } from '../services/trustEventService.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';
@@ -148,6 +149,35 @@ async function findViaBotsTable(identifier: string) {
     return null;
   }
 }
+
+/**
+ * GET /agentrank/trust-events
+ *
+ * Public catalog of all trust-relevant event categories and their score deltas.
+ * This endpoint makes the trust graph's input model legible to integrators and
+ * agent operators: every event listed here is a real signal that feeds AgentRank.
+ *
+ * IMPORTANT: Must be defined BEFORE /:agentId to avoid route capture.
+ */
+router.get('/trust-events', (_req: Request, res: Response) => {
+  const events = Object.entries(TRUST_EVENT_CATALOG).map(([category, meta]) => ({
+    category,
+    delta: meta.delta,
+    direction: meta.delta > 0 ? 'positive' : meta.delta < 0 ? 'negative' : 'neutral',
+    description: meta.description,
+  }));
+
+  res.json({
+    trustGraph: {
+      description:
+        'AgentRank is the trust graph at the core of AgentPay. ' +
+        'Every listed event updates the graph honestly, without invented signals.',
+      scoreRange: '0–1000',
+      gradeScale: 'S (≥950) / A (≥800) / B (≥600) / C (≥400) / D (≥200) / F (1–199) / U (0, unranked)',
+      events,
+    },
+  });
+});
 
 /**
  * GET /agentrank/leaderboard
