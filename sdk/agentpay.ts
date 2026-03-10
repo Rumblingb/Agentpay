@@ -90,6 +90,68 @@ export interface WebhookVerificationResult {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Interact — one-call orchestration (POST /api/v1/agents/interact)
+// ---------------------------------------------------------------------------
+
+/** Request shape for agentpay.interact() */
+export interface InteractParams {
+  /** ID of the calling / initiating agent */
+  fromAgentId: string;
+  /** ID of the target / counterparty agent */
+  toAgentId: string;
+  /** Nature of the interaction */
+  interactionType: 'payment' | 'task' | 'query' | 'delegation' | 'custom';
+  /** Optional service category (e.g. "web-scraping") */
+  service?: string;
+  /** Reported outcome — defaults to "success" */
+  outcome?: 'success' | 'failure' | 'pending';
+  /** Transaction amount */
+  amount?: number;
+  /** Currency code — defaults to "USDC" */
+  currency?: string;
+  /** When true, fetch toAgent trust score */
+  trustCheck?: boolean;
+  /** When true (and amount provided), create a coordination intent */
+  createIntent?: boolean;
+  /** Arbitrary caller-supplied metadata */
+  metadata?: Record<string, unknown>;
+}
+
+export interface InteractAgentInfo {
+  agentId: string;
+  verified: boolean;
+  trustLevel: string;
+  trustScore?: number | null;
+}
+
+export interface InteractTrustEvent {
+  category: string;
+  agentId: string;
+  delta: number;
+  score: number;
+  grade: string;
+}
+
+/** Structured response from agentpay.interact() */
+export interface InteractResult {
+  success: boolean;
+  interactionId: string;
+  fromAgent: InteractAgentInfo;
+  toAgent: InteractAgentInfo;
+  interaction: {
+    type: string;
+    service: string | null;
+    outcome: string;
+    amount?: number;
+    currency?: string;
+    metadata: Record<string, unknown> | null;
+  };
+  intent: object | null;
+  emittedEvents: InteractTrustEvent[];
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
 // SDK class
 // ---------------------------------------------------------------------------
 
@@ -117,6 +179,28 @@ export class AgentPaySDK {
   async createAgent(params: CreateAgentParams): Promise<AgentRecord> {
     const res = await this.post<{ success: boolean; agent: AgentRecord }>('/api/agents', params);
     return res.agent;
+  }
+
+  /**
+   * One-call integration path for external agent ecosystems.
+   *
+   * Orchestrates identity verification, trust lookup, interaction recording,
+   * trust event emission, and optional intent coordination in a single request.
+   *
+   * Recommended as the **fastest integration path** for Clawbot, AutoGPT,
+   * LangGraph, CrewAI, and custom agents connecting to AgentPay.
+   *
+   * @example
+   * const result = await agentpay.interact({
+   *   fromAgentId: 'agent-abc',
+   *   toAgentId:   'agent-xyz',
+   *   interactionType: 'task',
+   *   outcome: 'success',
+   *   trustCheck: true,
+   * });
+   */
+  async interact(params: InteractParams): Promise<InteractResult> {
+    return this.post<InteractResult>('/api/v1/agents/interact', params);
   }
 
   /**
