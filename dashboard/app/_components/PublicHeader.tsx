@@ -60,6 +60,12 @@ export function PublicHeader({ variant = 'network' }: Props) {
             >
               Registry
             </Link>
+            <Link
+              href="/market"
+              className="hover:text-slate-100 transition hidden md:inline"
+            >
+              Market
+            </Link>
           </>
         )}
 
