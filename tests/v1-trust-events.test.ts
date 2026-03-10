@@ -178,3 +178,125 @@ describe('GET /api/v1/trust/events', () => {
     expect(res.body.pagination.hasMore).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Schema stability tests
+// ---------------------------------------------------------------------------
+
+import { assertTrustEventRecord } from '../src/services/trustEventService';
+
+describe('TrustEventRecord schema', () => {
+  it('assertTrustEventRecord passes for a fully valid event', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-abc',
+      eventType: 'agent.verified',
+      agentId: 'agent-x',
+      counterpartyId: null,
+      delta: 10,
+      metadata: { category: 'identity_verified' },
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).not.toThrow();
+  });
+
+  it('assertTrustEventRecord passes when counterpartyId is a string', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-def',
+      eventType: 'dispute.filed',
+      agentId: 'agent-a',
+      counterpartyId: 'agent-b',
+      delta: -5,
+      metadata: { category: 'dispute_filed' },
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).not.toThrow();
+  });
+
+  it('assertTrustEventRecord throws when eventType is missing', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      agentId: 'agent-x',
+      counterpartyId: null,
+      delta: 0,
+      metadata: {},
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).toThrow('[TrustEvent] event.eventType is missing or empty');
+  });
+
+  it('assertTrustEventRecord throws when agentId is missing', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      eventType: 'agent.verified',
+      counterpartyId: null,
+      delta: 0,
+      metadata: {},
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).toThrow('[TrustEvent] event.agentId is missing or empty');
+  });
+
+  it('assertTrustEventRecord throws when timestamp is missing', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      eventType: 'agent.verified',
+      agentId: 'agent-x',
+      counterpartyId: null,
+      delta: 0,
+      metadata: {},
+    })).toThrow('[TrustEvent] event.timestamp is missing or empty');
+  });
+
+  it('assertTrustEventRecord throws when metadata is not an object', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      eventType: 'agent.verified',
+      agentId: 'agent-x',
+      counterpartyId: null,
+      delta: 0,
+      metadata: null,
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).toThrow('[TrustEvent] event.metadata must be an object');
+  });
+
+  it('assertTrustEventRecord throws when delta is not a number', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      eventType: 'agent.verified',
+      agentId: 'agent-x',
+      counterpartyId: null,
+      delta: '10', // string instead of number
+      metadata: {},
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).toThrow('[TrustEvent] event.delta must be a number');
+  });
+
+  it('assertTrustEventRecord throws when counterpartyId is an invalid type', () => {
+    expect(() => assertTrustEventRecord({
+      id: 'evt-bad',
+      eventType: 'agent.verified',
+      agentId: 'agent-x',
+      counterpartyId: 123, // should be string or null
+      delta: 0,
+      metadata: {},
+      timestamp: '2025-01-01T00:00:00.000Z',
+    })).toThrow('[TrustEvent] event.counterpartyId must be a string or null');
+  });
+
+  it('GET /api/v1/trust/events: every returned event has all required schema fields', async () => {
+    mockTrustEventFindMany.mockResolvedValueOnce(TRUST_EVENTS);
+    mockTrustEventCount.mockResolvedValueOnce(TRUST_EVENTS.length);
+
+    const res = await request(app).get('/api/v1/trust/events');
+
+    expect(res.status).toBe(200);
+    for (const event of res.body.events) {
+      expect(typeof event.id).toBe('string');
+      expect(typeof event.eventType).toBe('string');
+      expect(typeof event.agentId).toBe('string');
+      // counterpartyId is allowed to be null or a string — never undefined
+      expect(event.counterpartyId === null || typeof event.counterpartyId === 'string').toBe(true);
+      expect(typeof event.delta).toBe('number');
+      expect(typeof event.metadata).toBe('object');
+      expect(event.metadata).not.toBeNull();
+      expect(typeof event.timestamp).toBe('string');
+      expect(new Date(event.timestamp).getTime()).not.toBeNaN();
+    }
+  });
+});

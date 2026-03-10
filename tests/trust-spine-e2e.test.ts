@@ -263,7 +263,7 @@ describe('Trust Spine — full ordered event flow', () => {
 describe('Trust Spine — duplicate event prevention', () => {
   beforeEach(resetTrustState);
 
-  it('IdentityVerifierAgent: recordTrustEvent + separate emitEvent(agent.verified) are distinct calls', () => {
+  it('IdentityVerifierAgent: recordTrustEvent + separate emitEvent(agent.verified) produce exactly one trust_events row', async () => {
     /**
      * IdentityVerifierAgent calls:
      *   1. recordTrustEvent('identity_verified') → persists to trust_events + emits trust.score_updated webhook
@@ -273,7 +273,33 @@ describe('Trust Spine — duplicate event prevention', () => {
      * The trust_events table only gets ONE row (from step 1).
      * Confirmed: emitEvent('agent.verified') does NOT write to trust_events.
      */
-    expect(true).toBe(true); // structural assertion — verified by code audit below
+
+    // Step 1: recordTrustEvent — writes the trust_events row
+    await recordTrustEvent('agent-id-verify', 'identity_verified', 'Trust level: standard');
+
+    // Step 2: emitEvent('agent.verified') — this is what IdentityVerifierAgent also calls.
+    // It's a direct webhook fan-out and does NOT touch trust_events.
+    const { emitEvent: mockEmit } = await import('../src/services/events');
+    await (mockEmit as jest.Mock)('agent.verified', {
+      agentId: 'agent-id-verify',
+      credentialId: 'cred-001',
+      trustLevel: 'standard',
+    });
+
+    // Only ONE trust_events row created — from step 1. The emitEvent call in step 2
+    // goes straight to the webhook layer and never calls prisma.trustEvent.create.
+    expect(mockTrustEventCreate).toHaveBeenCalledTimes(1);
+    const row = createdTrustEvents[0];
+    expect(row.eventType).toBe('agent.verified');
+    expect(row.agentId).toBe('agent-id-verify');
+
+    // The webhook mock was called: once by recordTrustEvent (trust.score_updated) +
+    // once explicitly above (agent.verified) = 2 total webhook calls.
+    const webhookCalls = (mockEmit as jest.Mock).mock.calls;
+    const trustScoreUpdatedCalls = webhookCalls.filter(([type]: any) => type === 'trust.score_updated');
+    const agentVerifiedCalls = webhookCalls.filter(([type]: any) => type === 'agent.verified');
+    expect(trustScoreUpdatedCalls).toHaveLength(1); // exactly once from recordTrustEvent
+    expect(agentVerifiedCalls).toHaveLength(1);     // exactly once from IdentityVerifierAgent direct call
   });
 
   it('recordTrustEvent does not call itself recursively', async () => {

@@ -183,6 +183,64 @@ export async function recordTrustEvent(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Canonical event record shape — the stable public schema for trust events.
+//
+// Every field is REQUIRED (counterpartyId is always present but may be null).
+// Consumers of /api/v1/trust/events MUST receive all of these fields.
+// If this type changes, the API route and all consumers must be updated together.
+// ---------------------------------------------------------------------------
+
+/**
+ * The stable, versioned schema for a trust event as returned by the API.
+ *
+ * Field mapping:
+ *   id              — unique event identifier (cuid)
+ *   eventType       — one of the canonical event type strings (agent.verified,
+ *                     service.completed, interaction.recorded, dispute.filed,
+ *                     dispute.resolved, trust.score_updated)
+ *   agentId         — the agent whose trust record is affected
+ *   counterpartyId  — the other party to the interaction (null for solo events)
+ *   delta           — score change applied (+/−); 0 for neutral observations
+ *   metadata        — structured context object (at minimum: { category, description })
+ *   timestamp       — ISO-8601 UTC string; maps to createdAt in trust_events table
+ */
+export interface TrustEventRecord {
+  id: string;
+  eventType: string;
+  agentId: string;
+  counterpartyId: string | null;
+  delta: number;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+}
+
+/**
+ * Runtime assertion that a raw DB record conforms to TrustEventRecord.
+ * Throws if any required field is missing so schema drift is caught at
+ * service boundaries rather than silently propagating to consumers.
+ */
+export function assertTrustEventRecord(r: unknown): asserts r is TrustEventRecord {
+  if (typeof r !== 'object' || r === null) {
+    throw new TypeError('[TrustEvent] event record is not an object');
+  }
+  const e = r as Record<string, unknown>;
+  if (typeof e.id !== 'string' || e.id.length === 0)
+    throw new TypeError('[TrustEvent] event.id is missing or empty');
+  if (typeof e.eventType !== 'string' || e.eventType.length === 0)
+    throw new TypeError('[TrustEvent] event.eventType is missing or empty');
+  if (typeof e.agentId !== 'string' || e.agentId.length === 0)
+    throw new TypeError('[TrustEvent] event.agentId is missing or empty');
+  if (e.counterpartyId !== null && typeof e.counterpartyId !== 'string')
+    throw new TypeError('[TrustEvent] event.counterpartyId must be a string or null');
+  if (typeof e.delta !== 'number')
+    throw new TypeError('[TrustEvent] event.delta must be a number');
+  if (typeof e.metadata !== 'object' || e.metadata === null)
+    throw new TypeError('[TrustEvent] event.metadata must be an object');
+  if (typeof e.timestamp !== 'string' || e.timestamp.length === 0)
+    throw new TypeError('[TrustEvent] event.timestamp is missing or empty');
+}
+
 /**
  * Query the trust_events table.
  *
@@ -195,15 +253,7 @@ export async function getTrustEvents(opts: {
   limit?: number;
   offset?: number;
 }): Promise<{
-  events: Array<{
-    id: string;
-    eventType: string;
-    agentId: string;
-    counterpartyId: string | null;
-    delta: number;
-    metadata: Record<string, unknown>;
-    timestamp: string;
-  }>;
+  events: TrustEventRecord[];
   total: number;
 }> {
   const limit = Math.min(100, Math.max(1, opts.limit ?? 50));
@@ -225,15 +275,20 @@ export async function getTrustEvents(opts: {
     ]);
 
     return {
-      events: records.map((r) => ({
-        id: r.id,
-        eventType: r.eventType,
-        agentId: r.agentId,
-        counterpartyId: r.counterpartyId,
-        delta: r.delta,
-        metadata: (r.metadata as Record<string, unknown>) ?? {},
-        timestamp: r.createdAt.toISOString(),
-      })),
+      events: records.map((r) => {
+        const event: TrustEventRecord = {
+          id: r.id,
+          eventType: r.eventType,
+          agentId: r.agentId,
+          counterpartyId: r.counterpartyId,
+          delta: r.delta,
+          metadata: (r.metadata as Record<string, unknown>) ?? {},
+          timestamp: r.createdAt.toISOString(),
+        };
+        // Asserts all required fields are present; throws if schema drifts.
+        assertTrustEventRecord(event);
+        return event;
+      }),
       total,
     };
   } catch (err: any) {
