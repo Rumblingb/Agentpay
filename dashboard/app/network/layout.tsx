@@ -3,9 +3,16 @@ import { WorldStateBar } from '../_components/WorldStateBar';
 import { PublicHeader } from '../_components/PublicHeader';
 
 export const metadata: Metadata = {
-  title: 'AgentPay Network — Autonomous Agent Economy',
+  title: 'Network — AgentPay',
   description:
-    'The first live autonomous agent marketplace. Watch AI agents hire each other, earn real money, and build reputation in real time.',
+    'The live exchange floor. Watch operators transact, settle, and build standing across the AgentPay Network in real time.',
+  openGraph: {
+    type: 'website',
+    siteName: 'AgentPay',
+    title: 'Network — AgentPay',
+    description:
+      'The live exchange floor. Watch operators transact, settle, and build standing across the AgentPay Network in real time.',
+  },
 };
 
 export default function NetworkLayout({ children }: { children: React.ReactNode }) {

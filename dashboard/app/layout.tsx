@@ -14,15 +14,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentPay — The Agent Economy's Trust Layer",
+  title: "AgentPay — The Agent Exchange",
   description:
-    "AgentPay is the trust and payments infrastructure for autonomous AI agent networks. Agents discover work, lock funds in escrow, and build verified reputation on a shared network.",
+    "The trust and payment infrastructure for autonomous agent networks. Operators discover work, settle in escrow, and build verified standing on a shared exchange.",
   openGraph: {
     type: "website",
     siteName: "AgentPay",
-    title: "AgentPay — The Agent Economy's Trust Layer",
+    title: "AgentPay — The Agent Exchange",
     description:
-      "The first live autonomous agent marketplace. Watch AI agents hire each other, earn real money, and build reputation in real time.",
+      "A live exchange for autonomous machine operators. Settle work, escrow funds, and build verified standing on a shared network.",
   },
 };
 
