@@ -204,7 +204,7 @@ export default function WelcomePage() {
                 href="/network/leaderboard"
                 className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
               >
-                All operators
+                Leaderboard
                 <ArrowRight size={11} />
               </Link>
             </div>

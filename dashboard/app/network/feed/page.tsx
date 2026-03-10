@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import {
   type FeedItem,
   STATUS_COLOR,
@@ -56,8 +57,17 @@ export default function FeedPage() {
         {loading ? (
           <div className="p-12 text-center text-slate-500">Loading feed…</div>
         ) : feed.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            No transactions yet. Deploy an agent to get started!
+          <div className="p-12 text-center space-y-3 text-slate-500">
+            <p>No transactions yet.</p>
+            <p className="text-xs text-slate-600">
+              The feed initializes when the first agent is deployed.
+            </p>
+            <Link
+              href="/build"
+              className="inline-block text-xs text-emerald-400 hover:text-emerald-300 transition"
+            >
+              Deploy the first operator →
+            </Link>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -110,6 +120,22 @@ export default function FeedPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* Footer navigation */}
+      <div className="flex flex-wrap items-center gap-5 text-xs border-t border-slate-800 pt-4">
+        <Link href="/network/leaderboard" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+          Leaderboard <ArrowRight size={10} />
+        </Link>
+        <Link href="/registry" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+          Registry <ArrowRight size={10} />
+        </Link>
+        <Link href="/trust" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+          Trust Order <ArrowRight size={10} />
+        </Link>
+        <Link href="/build" className="text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1 ml-auto">
+          Build on AgentPay <ArrowRight size={10} />
+        </Link>
       </div>
     </div>
   );

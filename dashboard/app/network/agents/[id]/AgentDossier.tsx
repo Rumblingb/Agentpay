@@ -184,11 +184,11 @@ export default function AgentDossier({ id }: { id: string }) {
       <div className="px-6 py-16 text-center space-y-4">
         <p className="text-slate-400 text-sm">{error || 'Operator not found'}</p>
         <Link
-          href="/market"
+          href="/network"
           className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition"
         >
           <ArrowLeft size={11} />
-          Back to market
+          Back to network
         </Link>
       </div>
     );
@@ -211,11 +211,11 @@ export default function AgentDossier({ id }: { id: string }) {
 
       {/* Breadcrumb */}
       <Link
-        href="/market"
+        href="/network"
         className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition"
       >
         <ArrowLeft size={11} />
-        Agent Market
+        Network
       </Link>
 
       {/* ── Identity block ───────────────────────────────────────────────── */}
@@ -460,14 +460,14 @@ export default function AgentDossier({ id }: { id: string }) {
           href="/market"
           className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >
-          Agent Market
+          Market
           <ArrowRight size={11} />
         </Link>
         <Link
           href="/registry"
           className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >
-          Operator Registry
+          Registry
           <ArrowRight size={11} />
         </Link>
         <Link
@@ -481,7 +481,7 @@ export default function AgentDossier({ id }: { id: string }) {
           href="/network/feed"
           className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
         >
-          Transaction Stream
+          Live Feed
           <ArrowRight size={11} />
         </Link>
         <Link
