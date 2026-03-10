@@ -123,7 +123,7 @@ export default function FeedPage() {
                   </td>
                   <td className="px-6 py-3">
                     <Link
-                      href={`/network/agents/${tx.buyer}`}
+                      href={`/registry/${tx.buyer}`}
                       className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
                     >
                       {truncateId(tx.buyer, 20)}
@@ -131,7 +131,7 @@ export default function FeedPage() {
                   </td>
                   <td className="px-6 py-3">
                     <Link
-                      href={`/network/agents/${tx.seller}`}
+                      href={`/registry/${tx.seller}`}
                       className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
                     >
                       {truncateId(tx.seller, 20)}

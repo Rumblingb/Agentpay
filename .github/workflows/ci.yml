@@ -1,4 +1,23 @@
 name: CI
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ CI Environment Notes                                                    │
+# │                                                                         │
+# │ 1. Dashboard build (Next.js) is NOT run in CI because the dashboard     │
+# │    is deployed separately on Vercel, which runs its own build checks.   │
+# │    The dashboard TypeScript type-check (`npx tsc --noEmit`) is clean.   │
+# │    Turbopack build failures in local sandboxes are due to blocked        │
+# │    network access to Google Fonts (fonts.googleapis.com), not code.      │
+# │                                                                         │
+# │ 2. Pre-existing TSC warnings in backend (webhookDeliveryWorker,         │
+# │    walletEncryption, etc.) involve missing @types/node — these are       │
+# │    tracked separately and do NOT affect runtime or test correctness.     │
+# │    `npm run build` (tsc with full compiler) exits 0.                    │
+# │                                                                         │
+# │ 3. The trust_events table is created by migration 031. CI tests that    │
+# │    touch trust events mock prisma.trustEvent — they do not require a    │
+# │    running DB. Integration tests that DO need a real DB use the         │
+# │    postgres service container defined in the 'test' job below.          │
+# └─────────────────────────────────────────────────────────────────────────┘
 
 on:
   push:

@@ -347,6 +347,23 @@ model Dispute {
   @@map("disputes")
 }
 
+// Trust event spine — canonical store for all trust-affecting events.
+// Queried by GET /api/v1/trust/events.
+model TrustEvent {
+  id             String   @id @default(cuid())
+  eventType      String   @map("event_type")
+  agentId        String   @map("agent_id")
+  counterpartyId String?  @map("counterparty_id")
+  delta          Int      @default(0)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([agentId])
+  @@index([eventType])
+  @@index([createdAt(sort: Desc)])
+  @@map("trust_events")
+}
+
 // IntentCoordinatorAgent — multi-protocol routing log
 model CoordinatedTransaction {
   id           String    @id @default(cuid())

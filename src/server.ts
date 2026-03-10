@@ -38,7 +38,7 @@ import receiptRouter from './routes/receipt.js';
 import kycRouter from './routes/kyc.js';
 import legalRouter from './routes/legal.js';
 import foundationAgentsRouter from './routes/foundationAgents.js';
-import agentInteractRouter from './routes/agentInteract.js';
+import v1TrustRouter from './routes/v1Trust.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
@@ -356,9 +356,8 @@ app.use('/api/legal', legalRouter);
 // Foundation agents — constitutional layer trust infrastructure
 app.use('/api/foundation-agents', foundationAgentsRouter);
 
-// Agent Interact — one-call integration path for external ecosystems
-// (Clawbot, AutoGPT, LangGraph, CrewAI, and custom agents)
-app.use('/api/v1/agents', agentInteractRouter);
+// Trust event history — public read-only API
+app.use('/api/v1/trust', v1TrustRouter);
 
 // Prometheus metrics endpoint (restrict to internal networks in production)
 app.get('/metrics', (_req: Request, res: Response) => {

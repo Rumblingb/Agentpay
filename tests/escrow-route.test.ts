@@ -4,6 +4,7 @@
  *   - Static POST /escrow/approve route
  *   - UUID-based escrow IDs
  *   - Validation error messages for missing fields
+ *   - Score changes routed through recordTrustEvent (not adjustScore directly)
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -16,13 +17,18 @@ jest.mock('../src/db/index', () => ({
   closePool: jest.fn(),
 }));
 
+const mockTrustEventCreate = jest.fn().mockResolvedValue({});
+
 jest.mock('../src/lib/prisma', () => ({
   __esModule: true,
   default: {
     agentrank_scores: {
       findUnique: jest.fn().mockResolvedValue(null),
-      update: jest.fn().mockResolvedValue({}),
-      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({ score: 10, grade: 'F' }),
+      create: jest.fn().mockResolvedValue({ score: 10, grade: 'F' }),
+    },
+    trustEvent: {
+      create: (...args: any[]) => mockTrustEventCreate(...args),
     },
     escrow_transactions: {
       create: jest.fn().mockResolvedValue({}),
@@ -50,6 +56,11 @@ jest.mock('../src/middleware/auth', () => ({
     };
     next();
   }),
+}));
+
+jest.mock('../src/services/events', () => ({
+  __esModule: true,
+  emitEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
 import request from 'supertest';
@@ -180,5 +191,83 @@ describe('POST /api/escrow/:id/approve — dynamic route', () => {
       .send({ callerAgent: 'C' });
     expect(approveRes.status).toBe(200);
     expect(approveRes.body.escrow.status).toBe('released');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trust event routing — escrow operations must use recordTrustEvent
+// not adjustScore, to ensure trust.score_updated is emitted via the
+// canonical pipeline (exactly once per score change, in trust_events).
+// ---------------------------------------------------------------------------
+describe('Escrow trust event routing — canonical pipeline', () => {
+  beforeEach(() => {
+    _resetStore();
+    mockTrustEventCreate.mockClear();
+  });
+
+  it('POST /escrow/approve writes two trust_events rows (service_execution + successful_interaction)', async () => {
+    // Create and complete an escrow first
+    const createRes = await request(app).post('/api/escrow/create').send({
+      hiringAgent: 'hirer-x',
+      workingAgent: 'worker-y',
+      amountUsdc: 50,
+    });
+    const { id } = createRes.body.escrow;
+    await request(app).post(`/api/escrow/${id}/complete`).send({ callerAgent: 'worker-y' });
+
+    mockTrustEventCreate.mockClear();
+
+    // Approve via static route
+    const approveRes = await request(app)
+      .post('/api/escrow/approve')
+      .send({ escrowId: id, callerAgent: 'hirer-x' });
+
+    expect(approveRes.status).toBe(200);
+
+    // Exactly two trust_events rows — one per party
+    expect(mockTrustEventCreate).toHaveBeenCalledTimes(2);
+
+    const calls = mockTrustEventCreate.mock.calls.map((c: any) => c[0].data);
+
+    // Hirer gets successful_interaction; worker gets service_execution
+    const hirer = calls.find((d: any) => d.agentId === 'hirer-x');
+    const worker = calls.find((d: any) => d.agentId === 'worker-y');
+
+    expect(hirer).toBeDefined();
+    expect(hirer.eventType).toBe('interaction.recorded');
+    expect(hirer.delta).toBe(5);
+
+    expect(worker).toBeDefined();
+    expect(worker.eventType).toBe('service.completed');
+    expect(worker.delta).toBe(10);
+  });
+
+  it('POST /escrow/:id/dispute writes exactly one trust_events row for the guilty party', async () => {
+    const createRes = await request(app).post('/api/escrow/create').send({
+      hiringAgent: 'hirer-a',
+      workingAgent: 'worker-b',
+      amountUsdc: 100,
+    });
+    const { id } = createRes.body.escrow;
+    await request(app).post(`/api/escrow/${id}/complete`).send({ callerAgent: 'worker-b' });
+
+    mockTrustEventCreate.mockClear();
+
+    const disputeRes = await request(app).post(`/api/escrow/${id}/dispute`).send({
+      callerAgent: 'hirer-a',
+      reason: 'work not delivered',
+      guiltyParty: 'worker-b',
+    });
+
+    expect(disputeRes.status).toBe(200);
+
+    // Exactly one trust_events row for the guilty party
+    expect(mockTrustEventCreate).toHaveBeenCalledTimes(1);
+
+    const [call] = mockTrustEventCreate.mock.calls;
+    const data = (call as any)[0].data;
+    expect(data.agentId).toBe('worker-b');
+    expect(data.eventType).toBe('dispute.resolved');
+    expect(data.delta).toBe(-15); // dispute_resolved_guilty from catalog
   });
 });
