@@ -18,6 +18,8 @@ import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
 import { sign, verify } from 'jsonwebtoken';
 import { recordTrustEvent } from '../services/trustEventService.js';
+import { emitEvent } from '../services/events.js';
+import { logger } from '../logger.js';
 
 interface VerificationRequest {
   agentId: string;
@@ -169,6 +171,14 @@ class IdentityVerifierAgent {
       'identity_verified',
       `Trust level: ${trustLevel}`,
     );
+
+    // Webhook fan-out — fire-and-forget; never block the credential response
+    emitEvent('agent.verified', {
+      agentId: request.agentId,
+      credentialId: credential.credentialId,
+      trustLevel,
+      environment: request.claimedEnvironment.platform,
+    }).catch((err) => logger.warn({ err: (err as Error).message, agentId: request.agentId }, '[IdentityVerifier] agent.verified webhook delivery failed'));
 
     return credential;
   }
