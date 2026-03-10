@@ -23,3 +23,7 @@ lcov.info
 output.txt
 test-output.txt
 *.log
+
+# IDE configuration
+.idea/
+.vscode/
