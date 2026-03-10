@@ -37,49 +37,40 @@ export function PublicHeader({ variant = 'network' }: Props) {
       </Link>
 
       <nav className="flex items-center gap-5 text-sm text-slate-400">
-        {/* Network sub-nav: shown on homepage as a single "Network" link;
-            on /network pages we show the internal sub-pages instead */}
-        {isHomepage ? (
-          <Link href="/network" className="hover:text-slate-100 transition">
-            Network
+        {/* Shared nav links — shown on both homepage and /network pages */}
+        <Link href="/network" className="hover:text-slate-100 transition">
+          Network
+        </Link>
+        {/* Live Feed sub-link: only on /network/* pages (homepage already links to /network) */}
+        {!isHomepage && (
+          <Link href="/network/feed" className="hover:text-slate-100 transition hidden sm:inline">
+            Live Feed
           </Link>
-        ) : (
-          <>
-            <Link href="/network/feed" className="hover:text-slate-100 transition">
-              Live Feed
-            </Link>
-            <Link
-              href="/network/leaderboard"
-              className="hover:text-slate-100 transition hidden sm:inline"
-            >
-              Leaderboard
-            </Link>
-            <Link
-              href="/registry"
-              className="hover:text-slate-100 transition hidden md:inline"
-            >
-              Registry
-            </Link>
-            <Link
-              href="/market"
-              className="hover:text-slate-100 transition hidden md:inline"
-            >
-              Market
-            </Link>
-            <Link
-              href="/trust"
-              className="hover:text-slate-100 transition hidden md:inline"
-            >
-              Trust
-            </Link>
-            <Link
-              href="/build"
-              className="hover:text-slate-100 transition hidden md:inline"
-            >
-              Build
-            </Link>
-          </>
         )}
+        <Link
+          href="/registry"
+          className="hover:text-slate-100 transition hidden md:inline"
+        >
+          Registry
+        </Link>
+        <Link
+          href="/market"
+          className="hover:text-slate-100 transition hidden md:inline"
+        >
+          Market
+        </Link>
+        <Link
+          href="/trust"
+          className="hover:text-slate-100 transition hidden md:inline"
+        >
+          Trust
+        </Link>
+        <Link
+          href="/build"
+          className="hover:text-slate-100 transition hidden md:inline"
+        >
+          Build
+        </Link>
 
         {/* Docs link — always present */}
         <a

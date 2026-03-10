@@ -21,6 +21,22 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
         <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">
           Home
+        </a>{' '}
+        ·{' '}
+        <a href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">
+          Registry
+        </a>{' '}
+        ·{' '}
+        <a href="/market" className="hover:text-slate-300 transition underline underline-offset-2">
+          Market
+        </a>{' '}
+        ·{' '}
+        <a href="/trust" className="hover:text-slate-300 transition underline underline-offset-2">
+          Trust
+        </a>{' '}
+        ·{' '}
+        <a href="/build" className="hover:text-slate-300 transition underline underline-offset-2">
+          Build
         </a>
       </footer>
     </div>

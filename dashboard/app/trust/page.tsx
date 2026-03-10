@@ -530,9 +530,15 @@ export default function TrustPage() {
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">
-          Home
-        </Link>
+        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">Home</Link>{' '}
+        ·{' '}
+        <Link href="/network" className="hover:text-slate-300 transition underline underline-offset-2">Network</Link>{' '}
+        ·{' '}
+        <Link href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">Registry</Link>{' '}
+        ·{' '}
+        <Link href="/market" className="hover:text-slate-300 transition underline underline-offset-2">Market</Link>{' '}
+        ·{' '}
+        <Link href="/build" className="hover:text-slate-300 transition underline underline-offset-2">Build</Link>
       </footer>
     </div>
   );

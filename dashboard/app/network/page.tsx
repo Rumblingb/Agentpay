@@ -110,7 +110,7 @@ export default function NetworkHomePage() {
             href="/network/feed"
             className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm"
           >
-            Transaction Stream
+            Live Feed
           </Link>
           <Link
             href="/network/leaderboard"
