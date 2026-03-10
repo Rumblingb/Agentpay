@@ -54,6 +54,12 @@ export function PublicHeader({ variant = 'network' }: Props) {
             >
               Leaderboard
             </Link>
+            <Link
+              href="/registry"
+              className="hover:text-slate-100 transition hidden md:inline"
+            >
+              Registry
+            </Link>
           </>
         )}
 
