@@ -36,5 +36,10 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["agentpay"]
 
+[project.urls]
+Repository = "https://github.com/Rumblingb/Agentpay"
+Homepage = "https://agentpay.gg"
+"Bug Tracker" = "https://github.com/Rumblingb/Agentpay/issues"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

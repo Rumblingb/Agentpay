@@ -22,7 +22,7 @@
 
 | # | File | Field | Current value | Issue | Recommended change | Reason |
 |---|------|-------|---------------|-------|--------------------|--------|
-| R1 | `package.json` | `author` | `"Your Name"` | Placeholder — literally the default npm init stub. Never filled in. | `"Rajiv Baskaran <rajivbaskaran@gmail.com>"` | Author is publicly identified in `docs/archive/AGENTPAY_WHITEPAPER.md` and in the GitHub org. |
+| R1 | `package.json` | `author` | `"Your Name"` | Placeholder — literally the default npm init stub. Never filled in. | `"AgentPay"` | Use the organisation name, consistent with all other sub-packages (`agentpay-cli`, `@agentpay/sdk`). Avoids exposing a personal email address in package metadata. |
 | R2 | `package.json` | `description` | `"Universal payment gateway for AI agents"` | Accurate but narrow — omits the trust/identity/escrow/AgentRank dimension which is the core differentiation. Reads like a generic Stripe competitor. | `"Trust and payment infrastructure for AI agent-to-agent commerce — AgentRank scoring, A2A escrow, multi-protocol payments, and agent identity"` | Matches the actual product as described in `docs/PRODUCT_THESIS.md` and `docs/ARCHITECTURE.md`. |
 | R3 | `package.json` | `homepage` | *(missing field entirely)* | No homepage field. npm shows a blank page for the package. | `"https://github.com/Rumblingb/Agentpay#readme"` | Standard npm convention. Until a dedicated product site exists, the GitHub README is the canonical landing page. |
 | R4 | `package.json` | `bugs` | *(missing field entirely)* | No bugs URL. Contributors cannot find the issue tracker from the package. | `{"url": "https://github.com/Rumblingb/Agentpay/issues"}` | Standard npm convention. |
@@ -44,7 +44,7 @@
 | C5 | `cli/agentpay/package.json` | `bugs` | *(missing field)* | Missing. | `{"url": "https://github.com/Rumblingb/Agentpay/issues"}` | Standard npm convention. |
 | C6 | `cli/agentpay/README.md` | Install command | `npm install -g agentpay-cli` | The package name is `agentpay-cli` but the README does not state the npm package name clearly. This is actually consistent — the name is `agentpay-cli` — but `bin` entry is `agentpay`, so the command after install is `agentpay`. No issue with the install command itself. | No change needed for install command; add a note clarifying `agentpay-cli` is the package and `agentpay` is the command. | Clarity. |
 | C7 | `cli/agentpay/README.md` | Dashboard URL | `https://apay-delta.vercel.app` | Hardcoded Vercel preview URL. This is a deploy preview, not a production URL. `docs/AGENT_ONBOARDING_GUIDE.md` uses `https://dashboard.agentpay.gg` as the canonical dashboard URL. | `https://dashboard.agentpay.gg` | Use the canonical domain that appears consistently in other docs. |
-| C8 | `cli/agentpay/index.js` | Default API base | `'https://agentpay-api.onrender.com'` | Onrender deploy URL. `docs/AGENT_ONBOARDING_GUIDE.md` uses `https://api.agentpay.gg`. Two different API base URLs are referenced as defaults across the project. | `'https://api.agentpay.gg'` | Use the canonical API domain. The onrender URL is an internal deployment detail that should not be the public-facing default. |
+| C8 | `cli/agentpay/index.js` | Default API base | `'https://agentpay-api.onrender.com'` | The code already supports override via `process.env.AGENTPAY_API_URL`, but does not recognise `AGENTPAY_API_BASE` (the conventional name used in the review comments). **Do NOT swap the hardcoded default to `api.agentpay.gg`** until DNS is confirmed live — doing so would silently break every CLI install if the domain is not yet configured. | Keep `agentpay-api.onrender.com` as default. Add `AGENTPAY_API_BASE` as the primary override (checked before `AGENTPAY_API_URL` for forward-compatibility): `process.env.AGENTPAY_API_BASE \|\| process.env.AGENTPAY_API_URL \|\| config.apiUrl \|\| 'https://agentpay-api.onrender.com'` | Safe incremental migration: operators can set `AGENTPAY_API_BASE` in their environment to switch domains without a CLI release. |
 
 ---
 
@@ -141,7 +141,7 @@ Two domains appear in the codebase: `agentpay.gg` and `agentpay.io`. One needs t
 
 | # | File | Change |
 |---|------|--------|
-| R1 | `package.json` | Fix `author` from placeholder |
+| R1 | `package.json` | Change `author` from `"Your Name"` to `"AgentPay"` |
 | R2 | `package.json` | Improve `description` |
 | R3 | `package.json` | Add `homepage` field |
 | R4 | `package.json` | Add `bugs` field |
@@ -154,7 +154,7 @@ Two domains appear in the codebase: `agentpay.gg` and `agentpay.io`. One needs t
 | C4 | `cli/agentpay/package.json` | Add `homepage` field |
 | C5 | `cli/agentpay/package.json` | Add `bugs` field |
 | C7 | `cli/agentpay/README.md` | Fix dashboard URL from `apay-delta.vercel.app` to `dashboard.agentpay.gg` |
-| C8 | `cli/agentpay/index.js` | Fix default API base from `agentpay-api.onrender.com` to `api.agentpay.gg` |
+| C8 | `cli/agentpay/index.js` | Keep `agentpay-api.onrender.com` default; add `AGENTPAY_API_BASE` env-var override before `AGENTPAY_API_URL` |
 | J1 | `sdk/js/package.json` | Add `repository` field |
 | J2 | `sdk/js/package.json` | Add `homepage` field |
 | J3 | `sdk/js/package.json` | Add `bugs` field |

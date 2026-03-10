@@ -11,7 +11,7 @@
 | SDK | Package Name | Language | Status |
 |-----|-------------|----------|--------|
 | TypeScript/JavaScript | `@agentpay/sdk` | TypeScript | Alpha |
-| Python | `agentpay` | Python 3.8+ | Alpha |
+| Python | `agentpay` | Python 3.10+ | Alpha |
 | CLI | `agentpay` (npm) | Node.js | Alpha |
 
 ---

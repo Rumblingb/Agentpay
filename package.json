@@ -2,7 +2,7 @@
   "name": "agentpay",
   "version": "0.1.0",
   "type": "module",
-  "description": "Universal payment gateway for AI agents",
+  "description": "Trust and payment infrastructure for AI agent-to-agent commerce — AgentRank scoring, A2A escrow, multi-protocol payments, and agent identity",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -16,7 +16,7 @@
     "db:create": "node scripts/create-db.js",
     "db:migrate": "node scripts/migrate.js",
     "agent": "tsx scripts/test-agent.ts",
-    "clean": "if exist dist rmdir /s /q dist",
+    "clean": "rm -rf dist",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
@@ -26,15 +26,24 @@
     "deploy:escrow-devnet": "tsx scripts/deploy-escrow-devnet.ts"
   },
   "keywords": [
+    "agentpay",
     "payments",
     "ai-agents",
     "x402",
-    "fintech"
+    "escrow",
+    "agentrank",
+    "trust",
+    "fintech",
+    "a2a"
   ],
-  "author": "Your Name",
+  "author": "AgentPay",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Rumblingb/Agentpay"
+    "url": "git+https://github.com/Rumblingb/Agentpay.git"
+  },
+  "homepage": "https://github.com/Rumblingb/Agentpay#readme",
+  "bugs": {
+    "url": "https://github.com/Rumblingb/Agentpay/issues"
   },
   "license": "MIT",
   "dependencies": {

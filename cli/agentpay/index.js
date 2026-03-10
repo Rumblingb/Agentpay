@@ -46,6 +46,7 @@ function saveConfig(config) {
 function getApiBase() {
   const config = loadConfig();
   return (
+    process.env.AGENTPAY_API_BASE ||
     process.env.AGENTPAY_API_URL ||
     config.apiUrl ||
     'https://agentpay-api.onrender.com'

@@ -1,6 +1,8 @@
 {
-  "name": "dashboard",
+  "name": "agentpay-dashboard",
   "version": "0.1.0",
+  "private": true,
+  "description": "AgentPay merchant and agent management dashboard",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

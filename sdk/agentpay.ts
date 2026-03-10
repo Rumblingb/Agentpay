@@ -13,6 +13,18 @@
  *
  * Compatible with Node.js ≥18 (uses globalThis.fetch and node:crypto).
  *
+ * NOTE — package boundary
+ * -----------------------
+ * This file (`sdk/agentpay.ts`) is the **monorepo server-side helper**.
+ * It is used from within the `src/` server code and is NOT published to npm.
+ *
+ * External consumers should install the published npm package instead:
+ *
+ *   npm install @agentpay/sdk
+ *
+ * The published package lives in `sdk/js/` and has its own versioning,
+ * build step, and exports.  The two have different API surfaces.
+ *
  * @module sdk/agentpay
  */
 
