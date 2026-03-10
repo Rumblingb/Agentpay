@@ -31,6 +31,7 @@ const VELOCITY_LIMIT   = 5;      // max hires between same pair per window
 const VELOCITY_WINDOW_MS = 60_000; // 60-second rolling window
 
 /** Parse a query-param integer, clamp to [0, max], fall back to defaultVal. */
+/** Parse and clamp a pagination query param to [0, max], falling back to defaultVal. */
 function parsePaginationParam(value: string | undefined, defaultVal: number, max: number): number {
   const parsed = parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), max) : defaultVal;
@@ -444,27 +445,28 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
     const limit = parsePaginationParam(req.query.limit as string, 20, 100);
     const offset = parsePaginationParam(req.query.offset as string, 0, Number.MAX_SAFE_INTEGER);
 
-    const [agents, total] = await Promise.all([
-      prisma.agent.findMany({
-        where: { service: { not: null } },
-        select: {
-          id: true,
-          displayName: true,
-          service: true,
-          rating: true,
-          totalEarnings: true,
-          tasksCompleted: true,
-        },
-        orderBy: { totalEarnings: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      prisma.agent.count({ where: { service: { not: null } } }),
-    ]);
+    // Fetch one extra to determine hasMore without a separate count query
+    const agents = await prisma.agent.findMany({
+      where: { service: { not: null } },
+      select: {
+        id: true,
+        displayName: true,
+        service: true,
+        rating: true,
+        totalEarnings: true,
+        tasksCompleted: true,
+      },
+      orderBy: { totalEarnings: 'desc' },
+      take: limit + 1,
+      skip: offset,
+    });
+
+    const hasMore = agents.length > limit;
+    const results = hasMore ? agents.slice(0, limit) : agents;
 
     res.json({
       success: true,
-      leaderboard: agents.map((a: any, index: number) => ({
+      leaderboard: results.map((a: any, index: number) => ({
         rank: offset + index + 1,
         agentId: a.id,
         name: a.displayName,
@@ -474,10 +476,9 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
         tasksCompleted: a.tasksCompleted,
       })),
       pagination: {
-        total,
         limit,
         offset,
-        hasMore: offset + agents.length < total,
+        hasMore,
       },
     });
   } catch (err: any) {

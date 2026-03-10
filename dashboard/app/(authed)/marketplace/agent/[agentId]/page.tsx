@@ -39,6 +39,8 @@ const TRUST_INDICATORS = [
   { key: 'paymentReliability', label: 'Payment Reliability', color: 'bg-emerald-500' },
   { key: 'serviceDelivery', label: 'Service Delivery', color: 'bg-blue-500' },
 ] as const;
+
+const GRADE_BADGE: Record<string, string> = {
   S: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/40',
   A: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40',
   B: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
