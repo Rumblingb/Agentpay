@@ -4,6 +4,8 @@ import { authenticateApiKey } from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 import { z } from 'zod';
 import { logger } from '../logger.js';
+import { applyFees } from '../services/feeService.js';
+import { shouldBlock } from '../services/riskEngine.js';
 
 const router = Router();
 
@@ -182,6 +184,18 @@ router.post('/hire', authenticateApiKey, async (req: Request, res: Response) => 
 
   try {
     const { buyerAgentId, sellerAgentId, task, amount, buyerCallbackUrl } = parsed.data;
+
+    // ── Risk check ────────────────────────────────────────────────────────
+    const blocked = await shouldBlock({
+      agentId: buyerAgentId,
+      counterpartyId: sellerAgentId,
+      amountUsd: amount,
+      transactionType: 'hire',
+    });
+    if (blocked) {
+      res.status(403).json({ error: 'Transaction blocked by risk engine', code: 'RISK_BLOCKED' });
+      return;
+    }
 
     // ── Velocity rate-limit ────────────────────────────────────────────────
     // Prevents wash-trading by capping the same buyer→seller pair at
@@ -368,11 +382,14 @@ router.post('/complete', async (req: Request, res: Response) => {
       sellerNetAmount,
     });
 
+    const feeResult = applyFees(tx.amount);
+
     res.json({
       success: true,
       transactionId,
       status: 'completed',
       escrowStatus: 'released',
+      fees: feeResult.breakdown,
     });
   } catch (err: any) {
     logger.error('Agent complete error', { err });
@@ -382,13 +399,17 @@ router.post('/complete', async (req: Request, res: Response) => {
 
 /**
  * GET /api/agents/feed
- * Live transaction feed — returns the last 100 agent-to-agent transactions.
+ * Live transaction feed — returns paginated agent-to-agent transactions.
  */
-router.get('/feed', async (_req: Request, res: Response) => {
+router.get('/feed', async (req: Request, res: Response) => {
   try {
+    const limit = Math.min(parseInt((req.query.limit as string) ?? '50', 10) || 50, 200);
+    const offset = Math.max(parseInt((req.query.offset as string) ?? '0', 10) || 0, 0);
+
     const transactions = await (prisma as any).agentTransaction.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: limit,
+      skip: offset,
     });
 
     res.json({
@@ -410,28 +431,35 @@ router.get('/feed', async (_req: Request, res: Response) => {
 
 /**
  * GET /api/agents/leaderboard
- * Top 100 agents by total earnings.
+ * Top agents by total earnings, with pagination.
  */
-router.get('/leaderboard', async (_req: Request, res: Response) => {
+router.get('/leaderboard', async (req: Request, res: Response) => {
   try {
-    const agents = await prisma.agent.findMany({
-      where: { service: { not: null } },
-      select: {
-        id: true,
-        displayName: true,
-        service: true,
-        rating: true,
-        totalEarnings: true,
-        tasksCompleted: true,
-      },
-      orderBy: { totalEarnings: 'desc' },
-      take: 100,
-    });
+    const limit = Math.min(parseInt((req.query.limit as string) ?? '20', 10) || 20, 100);
+    const offset = Math.max(parseInt((req.query.offset as string) ?? '0', 10) || 0, 0);
+
+    const [agents, total] = await Promise.all([
+      prisma.agent.findMany({
+        where: { service: { not: null } },
+        select: {
+          id: true,
+          displayName: true,
+          service: true,
+          rating: true,
+          totalEarnings: true,
+          tasksCompleted: true,
+        },
+        orderBy: { totalEarnings: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.agent.count({ where: { service: { not: null } } }),
+    ]);
 
     res.json({
       success: true,
       leaderboard: agents.map((a: any, index: number) => ({
-        rank: index + 1,
+        rank: offset + index + 1,
         agentId: a.id,
         name: a.displayName,
         service: a.service,
@@ -439,6 +467,12 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
         totalEarnings: a.totalEarnings,
         tasksCompleted: a.tasksCompleted,
       })),
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + agents.length < total,
+      },
     });
   } catch (err: any) {
     logger.error('Leaderboard error', { err });
