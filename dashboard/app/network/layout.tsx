@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function NetworkLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-[#020617] text-slate-100">
       <PublicHeader variant="network" />
 
       {/* Live exchange state — visible on every /network page.

@@ -82,9 +82,9 @@ function useExchangeStats(pollInterval = DEFAULT_POLL_INTERVAL_MS) {
 
 function Stat({ value, label }: { value: string; label: string }) {
   return (
-    <span className="tabular-nums text-slate-300">
-      <span className="font-bold text-white">{value}</span>
-      <span className="ml-1.5 text-slate-500 text-xs">{label}</span>
+    <span className="tabular-nums">
+      <span className="font-mono font-semibold text-slate-200">{value}</span>
+      <span className="ml-1.5 text-slate-500 text-xs uppercase tracking-wide">{label}</span>
     </span>
   );
 }
@@ -125,7 +125,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
 
   const containerCls = isCard
     ? 'border border-slate-800 bg-slate-900/60 backdrop-blur-sm rounded-xl px-6 py-3'
-    : 'border-b border-emerald-900/40 bg-emerald-950/30 px-4 py-2';
+    : 'border-b border-slate-800 bg-slate-900/40 px-4 py-2.5';
 
   const innerCls = isCard
     ? 'flex flex-wrap items-center justify-center gap-x-8 gap-y-2 text-sm'
@@ -156,7 +156,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
     <div className={containerCls}>
       <div className={innerCls}>
         {/* Live pulse indicator + label */}
-        <span className="flex items-center gap-1.5 text-slate-500 text-xs uppercase tracking-widest font-semibold flex-shrink-0">
+        <span className="flex items-center gap-1.5 text-slate-500 text-xs uppercase tracking-wide font-semibold flex-shrink-0">
           <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
@@ -179,14 +179,14 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
             <span className="tabular-nums">
               <span
                 className={[
-                  'font-bold transition-colors duration-300',
+                  'font-mono font-semibold transition-colors duration-300',
                   flashing ? 'text-emerald-300' : 'text-emerald-400',
                 ].join(' ')}
-                style={flashing ? { textShadow: '0 0 10px rgba(52,211,153,0.55)' } : undefined}
+                style={flashing ? { textShadow: '0 0 8px rgba(52,211,153,0.5)' } : undefined}
               >
                 ${volumeFormatted}
               </span>
-              <span className="ml-1.5 text-slate-500 text-xs">settled</span>
+              <span className="ml-1.5 text-slate-500 text-xs uppercase tracking-wide">settled</span>
             </span>
 
             <Sep />

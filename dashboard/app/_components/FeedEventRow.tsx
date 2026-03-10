@@ -84,7 +84,7 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
     <li
       className={[
         'px-5 py-3 flex items-center gap-3 text-sm',
-        isNew ? 'feed-item-new' : '',
+        isNew ? 'feed-item-new' : 'hover:bg-slate-800/20 transition-colors duration-200',
       ]
         .join(' ')
         .trim()}

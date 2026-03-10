@@ -207,7 +207,7 @@ export default function AgentDossier({ id }: { id: string }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="space-y-6 max-w-4xl">
 
       {/* Breadcrumb */}
       <Link
@@ -219,95 +219,106 @@ export default function AgentDossier({ id }: { id: string }) {
       </Link>
 
       {/* ── Identity block ───────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
-        <div>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
-            Public operator dossier
-          </p>
-          <h1 className="text-2xl font-bold text-slate-100">{agent.displayName}</h1>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            <span className="text-slate-600 text-xs font-mono">
-              {agent.id.slice(0, 24)}…
-            </span>
-          </div>
-          <p className="text-xs text-slate-600 mt-1.5">
-            Active since{' '}
-            {new Date(agent.createdAt).toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </p>
-        </div>
-
-        {/* Right: earnings + actions */}
-        <div className="flex flex-col items-start sm:items-end gap-3 flex-shrink-0">
-          <div className="sm:text-right">
-            <p className="text-3xl font-bold text-emerald-400 tabular-nums">
-              ${agent.totalEarnings.toFixed(2)}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden">
+        <div className="px-6 py-5 flex flex-col sm:flex-row sm:items-start justify-between gap-5">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-2">
+              Public operator dossier
             </p>
-            <p className="text-xs text-slate-500">total settled</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="/login"
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition"
-            >
-              Hire operator
-            </a>
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-3 py-2 rounded-lg text-sm transition flex items-center gap-1.5"
-              title="Copy link to this operator dossier"
-            >
-              {copied ? (
-                <><Check size={13} /> Copied</>
-              ) : (
-                <><Link2 size={13} /> Share</>
+            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-100 mb-2">
+              {agent.displayName}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              {agent.service && (
+                <span className="text-xs font-medium text-emerald-400/90 bg-emerald-500/8 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                  {agent.service}
+                </span>
               )}
-            </button>
+              <span className="text-slate-700 text-xs font-mono">
+                {agent.id.slice(0, 20)}…
+              </span>
+            </div>
+            <p className="text-xs text-slate-600">
+              Active since{' '}
+              {new Date(agent.createdAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </p>
+          </div>
+
+          {/* Right: earnings + actions */}
+          <div className="flex flex-col items-start sm:items-end gap-3 flex-shrink-0">
+            <div className="sm:text-right">
+              <p className="font-mono text-3xl font-semibold text-emerald-400 tabular-nums">
+                ${agent.totalEarnings.toFixed(2)}
+              </p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mt-0.5">total settled</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href="/login"
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition-all duration-200"
+              >
+                Hire operator
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 px-3 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5"
+                title="Copy link to this operator dossier"
+              >
+                {copied ? (
+                  <><Check size={13} /> Copied</>
+                ) : (
+                  <><Link2 size={13} /> Share</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Standing / stats grid ────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* ── Stats grid ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
         {/* AgentRank — live score from /api/agentrank/:id */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-slate-500 mb-1">AgentRank</p>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm px-5 py-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">AgentRank</p>
           {hasRank ? (
             <div className="flex items-baseline gap-1.5">
-              <p className={`text-xl font-bold ${gradeColor(rankGrade)}`}>{rankGrade}</p>
-              <p className="text-xs text-slate-500 tabular-nums">{rankScore}</p>
+              <p className={`font-mono text-xl font-semibold ${gradeColor(rankGrade)}`}>{rankGrade}</p>
+              <p className="text-xs text-slate-500 font-mono tabular-nums">{rankScore}</p>
             </div>
           ) : (
-            <p className="text-xl font-bold text-slate-600">—</p>
+            <p className="font-mono text-xl font-semibold text-slate-600">—</p>
           )}
         </div>
 
         {/* Rating — honest: only shown when the operator has settled jobs */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-slate-500 mb-1">Rating</p>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm px-5 py-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Rating</p>
           {agent.tasksCompleted > 0 ? (
-            <p className="text-xl font-bold text-amber-400">⭐ {agent.rating.toFixed(1)}</p>
+            <p className="font-mono text-xl font-semibold text-amber-400 tabular-nums">
+              {agent.rating.toFixed(1)}
+            </p>
           ) : (
-            <p className="text-xl font-bold text-slate-600">—</p>
+            <p className="font-mono text-xl font-semibold text-slate-600">—</p>
           )}
         </div>
 
         {/* Jobs settled */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-slate-500 mb-1">Jobs Settled</p>
-          <p className="text-xl font-bold text-slate-100">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm px-5 py-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Jobs Completed</p>
+          <p className="font-mono text-xl font-semibold text-slate-100 tabular-nums">
             {agent.tasksCompleted.toLocaleString()}
           </p>
         </div>
 
         {/* Network entry date */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-slate-500 mb-1">On Network Since</p>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm px-5 py-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Active Since</p>
           <p className="text-sm font-semibold text-slate-200">
             {new Date(agent.createdAt).toLocaleDateString('en-US', {
               month: 'short',
@@ -319,33 +330,30 @@ export default function AgentDossier({ id }: { id: string }) {
 
       {/* ── Capability / Service surface ──────────────────────────────── */}
       {hasCapabilitySection && (
-        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+              <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-0.5">
                 Capability
               </p>
-              <h2 className="font-semibold text-sm text-slate-200">Offered Service</h2>
+              <h2 className="font-medium text-sm text-slate-200">Offered Service</h2>
             </div>
-            {/* Capability class pill — matches /market style */}
             {agent.service && (
-              <span className="text-xs font-semibold text-emerald-400/80 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full flex-shrink-0">
+              <span className="text-xs font-medium text-emerald-400/90 bg-emerald-500/8 border border-emerald-500/20 px-3 py-1 rounded-full flex-shrink-0">
                 {agent.service}
               </span>
             )}
           </div>
-          <div className="px-6 py-4 space-y-4">
-            {/* Pricing summary line */}
+          <div className="px-5 py-4 space-y-3">
             {pricingSummary && (
               <div className="flex items-baseline justify-between gap-4">
-                <span className="text-xs text-slate-500">Price</span>
-                <span className="text-sm font-semibold text-slate-200 font-mono">
+                <span className="text-xs text-slate-500 uppercase tracking-wide">Price</span>
+                <span className="text-sm font-semibold text-slate-200 font-mono tabular-nums">
                   {pricingSummary}
                 </span>
               </div>
             )}
 
-            {/* Secondary pricing fields (e.g. minAmount, description, etc.) */}
             {pricingDetail.length > 0 && (
               <dl className="space-y-0 border-t border-slate-800/50 pt-3">
                 {pricingDetail.map(([label, value]) => (
@@ -360,7 +368,6 @@ export default function AgentDossier({ id }: { id: string }) {
               </dl>
             )}
 
-            {/* No pricing available — state it plainly */}
             {!pricingSummary && pricingDetail.length === 0 && agent.service && (
               <p className="text-xs text-slate-600">
                 Pricing not published — contact via the exchange to negotiate terms.
@@ -371,16 +378,16 @@ export default function AgentDossier({ id }: { id: string }) {
       )}
 
       {/* ── Exchange history ─────────────────────────────────────────────── */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-0.5">
               Exchange History
             </p>
-            <h2 className="font-semibold text-sm text-slate-200">Recent Activity</h2>
+            <h2 className="font-medium text-sm text-slate-200">Recent Activity</h2>
           </div>
           {recentJobs.length > 0 && (
-            <span className="text-xs text-slate-600">
+            <span className="text-xs text-slate-600 font-mono tabular-nums">
               {recentJobs.length} event{recentJobs.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -430,13 +437,13 @@ export default function AgentDossier({ id }: { id: string }) {
 
                   {/* Amount + status + time */}
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-emerald-400 font-semibold text-xs tabular-nums">
+                    <span className="text-emerald-400 font-mono font-semibold text-xs tabular-nums">
                       ${job.amount.toFixed(2)}
                     </span>
                     <span className={`text-xs font-medium hidden sm:inline ${statusCls}`}>
                       {job.status}
                     </span>
-                    <span className="text-slate-600 text-xs tabular-nums hidden sm:inline">
+                    <span className="text-slate-600 text-xs font-mono tabular-nums hidden sm:inline">
                       {timeAgo(job.timestamp)}
                     </span>
                   </div>
