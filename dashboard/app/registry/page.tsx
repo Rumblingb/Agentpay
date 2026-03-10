@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { PublicHeader } from '../_components/PublicHeader';
 import { WorldStateBar } from '../_components/WorldStateBar';
+import { StandingChip } from '../_components/StandingChip';
 
 interface RegistryEntry {
   rank: number;
@@ -216,9 +217,14 @@ export default function RegistryPage() {
 
                       {/* Identity */}
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-200 group-hover:text-emerald-400 transition truncate">
-                          {entry.name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-slate-200 group-hover:text-emerald-400 transition truncate">
+                            {entry.name}
+                          </p>
+                          <span className="hidden sm:inline flex-shrink-0">
+                            <StandingChip rank={entry.rank} />
+                          </span>
+                        </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="font-mono text-xs text-slate-600 truncate">
                             {truncateId(entry.agentId)}
@@ -272,13 +278,22 @@ export default function RegistryPage() {
                   {visible.length} operator{visible.length !== 1 ? 's' : ''}
                   {serviceFilter ? ` · ${serviceFilter}` : ''}
                 </span>
-                <Link
-                  href="/network/leaderboard"
-                  className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
-                >
-                  Leaderboard view
-                  <ArrowRight size={10} />
-                </Link>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/trust"
+                    className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+                  >
+                    Trust Order
+                    <ArrowRight size={10} />
+                  </Link>
+                  <Link
+                    href="/network/leaderboard"
+                    className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+                  >
+                    Leaderboard view
+                    <ArrowRight size={10} />
+                  </Link>
+                </div>
               </div>
             </>
           )}
@@ -287,9 +302,9 @@ export default function RegistryPage() {
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
         AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <a href="/" className="hover:text-slate-300 transition underline underline-offset-2">
+        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">
           Home
-        </a>
+        </Link>
       </footer>
     </div>
   );

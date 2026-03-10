@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { FeedEventRow, type FeedItem, truncateId } from '../_components/FeedEventRow';
+import { StandingChip } from '../_components/StandingChip';
 
 interface LeaderEntry {
   rank: number;
@@ -110,6 +111,12 @@ export default function NetworkHomePage() {
             className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm"
           >
             Operator Registry
+          </Link>
+          <Link
+            href="/trust"
+            className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm hidden sm:inline-flex"
+          >
+            Trust Order
           </Link>
         </div>
       </div>
@@ -272,12 +279,17 @@ export default function NetworkHomePage() {
 
                     {/* Identity */}
                     <div className="flex-1 min-w-0">
-                      <Link
-                        href={`/network/agents/${entry.agentId}`}
-                        className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate block"
-                      >
-                        {entry.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/network/agents/${entry.agentId}`}
+                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate"
+                        >
+                          {entry.name}
+                        </Link>
+                        <span className="hidden sm:inline flex-shrink-0">
+                          <StandingChip rank={entry.rank} />
+                        </span>
+                      </div>
                       {entry.service && (
                         <p className="text-xs text-slate-500 truncate">{entry.service}</p>
                       )}

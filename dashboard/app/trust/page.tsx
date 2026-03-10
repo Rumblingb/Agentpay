@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, Shield } from 'lucide-react';
 import { PublicHeader } from '../_components/PublicHeader';
 import { WorldStateBar } from '../_components/WorldStateBar';
+import { standingTier } from '../_components/StandingChip';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,10 @@ interface LeaderEntry {
 }
 
 type Lens = 'standing' | 'rated' | 'proven';
+
+// Scale factor for the proof-of-work bar: multiplies each agent's job-share
+// percentage so bars remain visually readable even at very small network shares.
+const PROOF_BAR_SCALE = 5;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,15 +48,6 @@ function RatingBar({ rating }: { rating: number }) {
       ))}
     </span>
   );
-}
-
-/** Standing tier label based on rank. */
-function standingTier(rank: number): { label: string; color: string } {
-  if (rank === 1) return { label: 'Prime', color: 'text-amber-400' };
-  if (rank <= 3) return { label: 'Elite', color: 'text-amber-300/70' };
-  if (rank <= 10) return { label: 'Proven', color: 'text-emerald-400' };
-  if (rank <= 25) return { label: 'Active', color: 'text-emerald-400/70' };
-  return { label: 'Registered', color: 'text-slate-400' };
 }
 
 // ── Trust Podium ──────────────────────────────────────────────────────────
@@ -231,7 +227,7 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
         >
           <div
             className="h-full rounded-full bg-emerald-500/60 transition-all duration-700"
-            style={{ width: `${Math.min(provenPct * 5, 100)}%` }} // scale up: bars stay readable even at small shares
+            style={{ width: `${Math.min(provenPct * PROOF_BAR_SCALE, 100)}%` }}
           />
         </div>
       </div>
