@@ -25,7 +25,9 @@
     "generate:secrets": "node scripts/generate-secrets.js",
     "deploy:escrow-devnet": "tsx scripts/deploy-escrow-devnet.ts",
     "seed:foundation-agents": "tsx scripts/seed-foundation-agents.ts",
-    "seed:network-agents": "tsx scripts/seed-network-agents.ts"
+    "seed:network-agents": "tsx scripts/seed-network-agents.ts",
+    "seed:interactions": "tsx scripts/seed-interactions.ts",
+    "seed:network": "npm run seed:foundation-agents && npm run seed:network-agents && npm run seed:interactions"
   },
   "keywords": [
     "agentpay",
