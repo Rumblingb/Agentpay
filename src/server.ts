@@ -41,6 +41,7 @@ import { logger } from './logger.js';
 import { startSolanaListener } from './services/solana-listener.js';
 import { verifyWebhookSignature } from './middleware/verifyWebhook.js';
 import { startLiquidityCron } from './services/liquidityService.js';
+import { startReconciliationDaemon } from './services/reconciliationDaemon.js';
 
 dotenv.config();
 
@@ -420,6 +421,9 @@ if (process.env.NODE_ENV !== 'test') {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
     startSolanaListener();
+
+    // Reconciliation — detects payment/escrow anomalies every 15 min
+    startReconciliationDaemon({ intervalMs: 15 * 60 * 1000 });
 
     // Liquidity engine — seeds marketplace with micro jobs every 5 min
     if (process.env.LIQUIDITY_BOT_ENABLED !== 'false') {
