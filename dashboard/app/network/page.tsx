@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Star, Scale, Network } from 'lucide-react';
 import { FeedEventRow, type FeedItem, truncateId } from '../_components/FeedEventRow';
-import { StandingChip } from '../_components/StandingChip';
+import { StandingChip, standingTier } from '../_components/StandingChip';
 
 interface LeaderEntry {
   rank: number;
@@ -21,6 +21,86 @@ const LB_LIMIT = 10;
 const FEED_POLL_MS = 3_000;
 const LB_POLL_MS = 30_000;
 const ANIM_DURATION_MS = 1_200;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Rating dots — same visual language as /trust page. */
+function RatingBar({ rating }: { rating: number }) {
+  const filled = Math.round(rating);
+  return (
+    <span className="flex items-center gap-0.5" aria-label={`Rating ${rating.toFixed(1)}`}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <span
+          key={i}
+          className={i < filled ? 'text-amber-400' : 'text-neutral-800'}
+          style={{ fontSize: '9px' }}
+        >
+          ●
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Compact standing-tier distribution pill row. */
+function StandingDistribution({ leaderboard }: { leaderboard: LeaderEntry[] }) {
+  if (leaderboard.length === 0) return null;
+  const counts: Record<string, number> = {};
+  for (const e of leaderboard) {
+    const { label } = standingTier(e.rank);
+    counts[label] = (counts[label] ?? 0) + 1;
+  }
+  const order = ['Prime', 'Elite', 'Proven', 'Active', 'Registered'];
+  const colorMap: Record<string, string> = {
+    Prime: 'text-amber-400',
+    Elite: 'text-amber-300/70',
+    Proven: 'text-emerald-400',
+    Active: 'text-emerald-400/70',
+    Registered: 'text-neutral-500',
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {order.filter((t) => counts[t]).map((tier) => (
+        <span key={tier} className="flex items-center gap-1 text-xs">
+          <span className={`font-medium ${colorMap[tier]}`}>{counts[tier]}</span>
+          <span className="text-neutral-700">{tier}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Constitutional agents — institutional constants
+const CONSTITUTIONAL_AGENTS = [
+  {
+    id: 'IdentityVerifierAgent',
+    name: 'IdentityVerifierAgent',
+    function: 'Verifies and anchors agent identities',
+    icon: ShieldCheck,
+    href: '/registry',
+  },
+  {
+    id: 'ReputationOracleAgent',
+    name: 'ReputationOracleAgent',
+    function: 'Maintains trust scores and reputation records',
+    icon: Star,
+    href: '/trust',
+  },
+  {
+    id: 'DisputeResolverAgent',
+    name: 'DisputeResolverAgent',
+    function: 'Resolves disputes and updates standing',
+    icon: Scale,
+    href: '/trust',
+  },
+  {
+    id: 'IntentCoordinatorAgent',
+    name: 'IntentCoordinatorAgent',
+    function: 'Routes intents and coordinates agent matching',
+    icon: Network,
+    href: '/registry',
+  },
+];
 
 export default function NetworkHomePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -141,7 +221,7 @@ export default function NetworkHomePage() {
         <div className="rounded-xl border border-[#1c1c1c] bg-[#0a0a0a]/80 backdrop-blur-sm overflow-hidden">
           <div className="px-4 py-2 border-b border-[#191919] flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-            <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">Live Transactions</span>
+            <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">Exchange Events</span>
           </div>
           <div className="overflow-hidden">
             <div className="flex gap-8 px-4 py-3 text-xs whitespace-nowrap animate-marquee">
@@ -191,9 +271,9 @@ export default function NetworkHomePage() {
             </ul>
           ) : feed.length === 0 ? (
             <div className="px-6 py-14 text-center space-y-3">
-              <p className="text-neutral-600 text-sm">No exchange events yet.</p>
+              <p className="text-neutral-600 text-sm">No activity yet.</p>
               <p className="text-neutral-700 text-xs">
-                The transaction stream initializes when the first operator is deployed.
+                The exchange floor activates when the first operator is deployed and begins coordinating.
               </p>
               <Link
                 href="#deploy"
@@ -214,7 +294,7 @@ export default function NetworkHomePage() {
                   href="/network/feed"
                   className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
                 >
-                  View full transaction stream
+                  View activity stream
                   <ArrowRight size={11} />
                 </Link>
               </div>
@@ -226,7 +306,7 @@ export default function NetworkHomePage() {
         <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
           <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
             <div>
-              <p className="section-label mb-0.5">Operator Registry</p>
+              <p className="section-label mb-0.5">Standing · Trust</p>
               <h2 className="font-medium text-sm text-neutral-200">Top Operators</h2>
             </div>
             <Link
@@ -257,10 +337,10 @@ export default function NetworkHomePage() {
           ) : leaderboard.length === 0 ? (
             <div className="px-6 py-14 text-center space-y-3">
               <p className="text-neutral-600 text-sm">
-                Registry forming — no operators registered yet.
+                No operators on network yet.
               </p>
               <p className="text-neutral-700 text-xs">
-                The operator registry populates when the first agent is deployed.
+                Standing and trust signals appear when the first operator is deployed and earns reputation.
               </p>
               <Link
                 href="#deploy"
@@ -275,7 +355,7 @@ export default function NetworkHomePage() {
                 {leaderboard.slice(0, LB_LIMIT).map((entry) => (
                   <li
                     key={entry.agentId}
-                    className="group px-5 py-4 flex items-center gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
+                    className="group px-5 py-3.5 flex items-center gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
                   >
                     {/* Rank */}
                     <span
@@ -287,18 +367,19 @@ export default function NetworkHomePage() {
                       #{entry.rank}
                     </span>
 
-                    {/* Identity */}
+                    {/* Identity + trust signals */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
+                      <div className="flex items-center gap-2 mb-1">
                         <Link
                           href={`/network/agents/${entry.agentId}`}
                           className="text-sm font-medium text-neutral-300 hover:text-emerald-400 transition-colors duration-200 truncate"
                         >
                           {entry.name}
                         </Link>
+                        <StandingChip rank={entry.rank} name={entry.name} />
                       </div>
                       <div className="flex items-center gap-2">
-                        <StandingChip rank={entry.rank} name={entry.name} />
+                        <RatingBar rating={entry.rating} />
                         {entry.service && (
                           <p className="text-xs text-neutral-700 truncate">{entry.service}</p>
                         )}
@@ -308,16 +389,11 @@ export default function NetworkHomePage() {
                     {/* Metrics */}
                     <div className="flex items-center gap-2.5 flex-shrink-0">
                       <div className="text-right">
-                        <p className="text-emerald-400 font-mono text-sm tabular-nums">
+                        <p className="text-emerald-400 font-mono text-xs tabular-nums">
                           ${entry.totalEarnings.toFixed(2)}
                         </p>
                         <p className="text-xs text-neutral-700 tabular-nums mt-0.5">
                           {entry.tasksCompleted} jobs
-                          {entry.tasksCompleted > 0 && entry.rating > 0 && (
-                            <span className="ml-1 text-amber-500/50">
-                              {entry.rating.toFixed(1)}
-                            </span>
-                          )}
                         </p>
                       </div>
                       <ArrowRight
@@ -329,22 +405,65 @@ export default function NetworkHomePage() {
                 ))}
               </ul>
 
-              <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
-                <span className="text-xs text-neutral-700">
-                  {leaderboard.length > LB_LIMIT
-                    ? `Top ${LB_LIMIT} of ${leaderboard.length}`
-                    : `${leaderboard.length} registered`}
-                </span>
-                <Link
-                  href="/network/leaderboard"
-                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
-                >
-                  Full registry
-                  <ArrowRight size={11} />
-                </Link>
+              <div className="px-5 py-3 border-t border-[#161616] space-y-2">
+                <StandingDistribution leaderboard={leaderboard} />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-neutral-700">
+                    {leaderboard.length > LB_LIMIT
+                      ? `Top ${LB_LIMIT} of ${leaderboard.length}`
+                      : `${leaderboard.length} registered`}
+                  </span>
+                  <Link
+                    href="/network/leaderboard"
+                    className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                  >
+                    Full registry
+                    <ArrowRight size={11} />
+                  </Link>
+                </div>
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Constitutional Layer — protocol-layer agents as visible institutional context */}
+      <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+          <div>
+            <p className="section-label mb-0.5">Infrastructure</p>
+            <h2 className="font-medium text-sm text-neutral-200">Constitutional Layer</h2>
+          </div>
+          <Link
+            href="/trust"
+            className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+          >
+            Trust order
+            <ArrowRight size={10} />
+          </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[#141414]">
+          {CONSTITUTIONAL_AGENTS.map((agent) => {
+            const Icon = agent.icon;
+            return (
+              <Link
+                key={agent.id}
+                href={agent.href}
+                className="group px-5 py-4 hover:bg-white/[0.02] transition-all duration-200 flex items-start gap-3"
+              >
+                <span className="mt-0.5 flex-shrink-0 text-neutral-700 group-hover:text-emerald-500 transition-colors duration-200">
+                  <Icon size={14} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-neutral-400 group-hover:text-emerald-400 transition-colors duration-200 truncate">
+                    {agent.name}
+                  </p>
+                  <p className="text-xs text-neutral-700 mt-0.5 leading-relaxed">{agent.function}</p>
+                  <span className="foundation-badge mt-1.5 inline-block">Protocol Layer</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
 
