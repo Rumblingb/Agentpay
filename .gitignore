@@ -27,3 +27,10 @@ test-output.txt
 # IDE configuration
 .idea/
 .vscode/
+dist/
+
+Agentpay/
+Agentpay_backup/
+coverage/
+dist/
+.idea/
