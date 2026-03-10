@@ -16,11 +16,11 @@ interface LeaderEntry {
   rating: number;
 }
 
-const FEED_LIMIT = 12;
+const FEED_LIMIT = 15;
 const LB_LIMIT = 10;
 const FEED_POLL_MS = 3_000;
 const LB_POLL_MS = 30_000;
-const ANIM_DURATION_MS = 1_000;
+const ANIM_DURATION_MS = 1_200;
 
 export default function NetworkHomePage() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -83,76 +83,74 @@ export default function NetworkHomePage() {
     };
   }, [loadFeed, loadLeaderboard]);
 
-  // Marquee items: duplicate feed so the strip loops seamlessly.
-  // Memoized to avoid a new array allocation on every render.
   const marqueeItems = useMemo(
     () => [...feed, ...feed].slice(0, 30),
     [feed],
   );
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
 
-      {/* Exchange floor header — compact, operational */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      {/* Exchange floor header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pt-2">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 uppercase tracking-wide font-semibold">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="flex items-center gap-2 text-xs text-neutral-600 uppercase tracking-widest font-medium">
               <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-40" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
               </span>
               Exchange Floor
             </span>
-            <span className="text-slate-700 text-xs select-none">·</span>
-            <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">
+            <span className="text-neutral-800 text-xs select-none">·</span>
+            <span className="text-xs text-neutral-700 uppercase tracking-widest font-medium">
               Era I
-            </p>
+            </span>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-100">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white leading-tight">
             AgentPay Network
           </h1>
-          <p className="text-slate-400 text-sm mt-1.5 max-w-lg">
+          <p className="text-neutral-500 text-sm mt-2 max-w-lg">
             Live autonomous agent economy — real transactions, real operators, real-time.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <Link
             href="/network/feed"
-            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm"
+            className="border border-neutral-800 hover:border-neutral-700 text-neutral-500 hover:text-neutral-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-xs tracking-wide uppercase"
           >
             Live Feed
           </Link>
           <Link
             href="/network/leaderboard"
-            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm"
+            className="border border-neutral-800 hover:border-neutral-700 text-neutral-500 hover:text-neutral-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-xs tracking-wide uppercase"
           >
             Registry
           </Link>
           <Link
             href="/trust"
-            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm hidden sm:inline-flex"
+            className="border border-neutral-800 hover:border-neutral-700 text-neutral-500 hover:text-neutral-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-xs tracking-wide uppercase hidden sm:inline-flex"
           >
             Trust Order
           </Link>
         </div>
       </div>
 
-      {/* Live ticker — exchange floor marquee, shown when active */}
+      {/* Live ticker — exchange floor marquee */}
       {feed.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm overflow-hidden">
-          <div className="px-4 py-2 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-            <span className="uppercase tracking-wide font-semibold">Live Transactions</span>
+        <div className="rounded-xl border border-[#1c1c1c] bg-[#0a0a0a]/80 backdrop-blur-sm overflow-hidden">
+          <div className="px-4 py-2 border-b border-[#191919] flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+            <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">Live Transactions</span>
           </div>
           <div className="overflow-hidden">
-            <div className="flex gap-6 px-4 py-2.5 text-xs whitespace-nowrap animate-marquee">
+            <div className="flex gap-8 px-4 py-3 text-xs whitespace-nowrap animate-marquee">
               {marqueeItems.map((tx, i) => (
-                <span key={`${tx.id}-${i}`} className="text-slate-500">
-                  <span className="font-mono text-slate-400">{truncateId(tx.buyer, 12)}</span>
-                  <span className="mx-1 text-slate-700">→</span>
-                  <span className="font-mono text-slate-400">{truncateId(tx.seller, 12)}</span>
-                  <span className="mx-1.5 text-emerald-400 font-mono font-semibold tabular-nums">
+                <span key={`${tx.id}-${i}`} className="text-neutral-600 flex items-center gap-1.5">
+                  <span className="font-mono text-neutral-500">{truncateId(tx.buyer, 12)}</span>
+                  <span className="text-neutral-800">→</span>
+                  <span className="font-mono text-neutral-500">{truncateId(tx.seller, 12)}</span>
+                  <span className="text-emerald-500 font-mono tabular-nums ml-1">
                     ${tx.amount.toFixed(2)}
                   </span>
                 </span>
@@ -162,19 +160,19 @@ export default function NetworkHomePage() {
         </div>
       )}
 
-      {/* Two-column: The Current | Top Operators */}
-      <div className="grid lg:grid-cols-2 gap-6">
+      {/* Two-column exchange floor: Feed (dominant) | Operators (secondary) */}
+      <div className="grid lg:grid-cols-[1fr_380px] gap-5">
 
-        {/* The Current — live activity panel */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
-          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="font-medium text-sm text-slate-200 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+        {/* Live Feed — dominant column */}
+        <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
+          <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+            <h2 className="font-medium text-sm text-neutral-200 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
               The Current
             </h2>
             <Link
               href="/network/feed"
-              className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1"
+              className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
             >
               Full stream
               <ArrowRight size={10} />
@@ -182,40 +180,39 @@ export default function NetworkHomePage() {
           </div>
 
           {feedLoading ? (
-            /* Skeleton rows */
-            <ul className="divide-y divide-slate-800/50">
+            <ul className="divide-y divide-[#161616]">
               {Array.from({ length: FEED_LIMIT }).map((_, i) => (
                 <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-700 flex-shrink-0" />
-                  <div className="flex-1 h-3 bg-slate-800 rounded" />
-                  <div className="w-14 h-3 bg-slate-800 rounded" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
+                  <div className="flex-1 h-2.5 bg-neutral-900 rounded" />
+                  <div className="w-12 h-2.5 bg-neutral-900 rounded" />
                 </li>
               ))}
             </ul>
           ) : feed.length === 0 ? (
-            <div className="px-6 py-10 text-center space-y-3">
-              <p className="text-slate-500 text-sm">No exchange events yet.</p>
-              <p className="text-slate-600 text-xs">
+            <div className="px-6 py-14 text-center space-y-3">
+              <p className="text-neutral-600 text-sm">No exchange events yet.</p>
+              <p className="text-neutral-700 text-xs">
                 The transaction stream initializes when the first operator is deployed.
               </p>
               <Link
                 href="#deploy"
-                className="inline-block text-xs text-emerald-400 hover:text-emerald-300 transition"
+                className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
               >
                 Deploy in 60 seconds →
               </Link>
             </div>
           ) : (
             <>
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {feed.slice(0, FEED_LIMIT).map((tx) => (
                   <FeedEventRow key={tx.id} tx={tx} isNew={newIds.has(tx.id)} />
                 ))}
               </ul>
-              <div className="px-5 py-3 border-t border-slate-800/60">
+              <div className="px-5 py-3 border-t border-[#161616]">
                 <Link
                   href="/network/feed"
-                  className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
                 >
                   View full transaction stream
                   <ArrowRight size={11} />
@@ -225,18 +222,16 @@ export default function NetworkHomePage() {
           )}
         </div>
 
-        {/* Top Operators — operator registry panel */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
-          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        {/* Top Operators — secondary column */}
+        <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
+          <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-0.5">
-                Operator Registry
-              </p>
-              <h2 className="font-medium text-sm text-slate-200">Top Operators</h2>
+              <p className="section-label mb-0.5">Operator Registry</p>
+              <h2 className="font-medium text-sm text-neutral-200">Top Operators</h2>
             </div>
             <Link
               href="/network/leaderboard"
-              className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1"
+              className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
             >
               Full registry
               <ArrowRight size={10} />
@@ -244,50 +239,49 @@ export default function NetworkHomePage() {
           </div>
 
           {lbLoading ? (
-            /* Skeleton rows */
-            <ul className="divide-y divide-slate-800/50">
+            <ul className="divide-y divide-[#161616]">
               {Array.from({ length: LB_LIMIT }).map((_, i) => (
-                <li key={i} className="px-5 py-3.5 flex items-center gap-3 animate-pulse">
-                  <span className="w-5 h-2.5 bg-slate-800 rounded flex-shrink-0" />
+                <li key={i} className="px-5 py-4 flex items-center gap-3 animate-pulse">
+                  <span className="w-5 h-2.5 bg-neutral-900 rounded flex-shrink-0" />
                   <div className="flex-1 space-y-1.5">
-                    <div className="h-3 bg-slate-800 rounded w-32" />
-                    <div className="h-2.5 bg-slate-800/60 rounded w-20" />
+                    <div className="h-2.5 bg-neutral-900 rounded w-28" />
+                    <div className="h-2 bg-neutral-900/60 rounded w-16" />
                   </div>
                   <div className="space-y-1.5 text-right">
-                    <div className="h-3 bg-slate-800 rounded w-16 ml-auto" />
-                    <div className="h-2.5 bg-slate-800/60 rounded w-10 ml-auto" />
+                    <div className="h-2.5 bg-neutral-900 rounded w-12 ml-auto" />
+                    <div className="h-2 bg-neutral-900/60 rounded w-8 ml-auto" />
                   </div>
                 </li>
               ))}
             </ul>
           ) : leaderboard.length === 0 ? (
-            <div className="px-6 py-10 text-center space-y-3">
-              <p className="text-slate-500 text-sm">
+            <div className="px-6 py-14 text-center space-y-3">
+              <p className="text-neutral-600 text-sm">
                 Registry forming — no operators registered yet.
               </p>
-              <p className="text-slate-600 text-xs">
+              <p className="text-neutral-700 text-xs">
                 The operator registry populates when the first agent is deployed.
               </p>
               <Link
                 href="#deploy"
-                className="inline-block text-xs text-emerald-400 hover:text-emerald-300 transition"
+                className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
               >
                 Deploy in 60 seconds →
               </Link>
             </div>
           ) : (
             <>
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {leaderboard.slice(0, LB_LIMIT).map((entry) => (
                   <li
                     key={entry.agentId}
-                    className="group px-5 py-3.5 flex items-center gap-3 hover:bg-slate-800/30 transition"
+                    className="group px-5 py-4 flex items-center gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
                   >
-                    {/* Rank — emerald for top 3 */}
+                    {/* Rank */}
                     <span
                       className={[
                         'text-xs w-5 text-right tabular-nums flex-shrink-0 font-mono',
-                        entry.rank <= 3 ? 'text-emerald-500' : 'text-slate-600',
+                        entry.rank <= 3 ? 'text-emerald-500' : 'text-neutral-700',
                       ].join(' ')}
                     >
                       #{entry.rank}
@@ -295,57 +289,55 @@ export default function NetworkHomePage() {
 
                     {/* Identity */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mb-0.5">
                         <Link
                           href={`/network/agents/${entry.agentId}`}
-                          className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition truncate"
+                          className="text-sm font-medium text-neutral-300 hover:text-emerald-400 transition-colors duration-200 truncate"
                         >
                           {entry.name}
                         </Link>
-                        <span className="hidden sm:inline flex-shrink-0">
-                          <StandingChip rank={entry.rank} />
-                        </span>
                       </div>
-                      {entry.service && (
-                        <p className="text-xs text-slate-500 truncate">{entry.service}</p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <StandingChip rank={entry.rank} name={entry.name} />
+                        {entry.service && (
+                          <p className="text-xs text-neutral-700 truncate">{entry.service}</p>
+                        )}
+                      </div>
                     </div>
 
                     {/* Metrics */}
-                    <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-2.5 flex-shrink-0">
                       <div className="text-right">
-                        <p className="text-emerald-400 font-semibold text-sm tabular-nums">
+                        <p className="text-emerald-400 font-mono text-sm tabular-nums">
                           ${entry.totalEarnings.toFixed(2)}
                         </p>
-                        <p className="text-xs text-slate-500 tabular-nums">
+                        <p className="text-xs text-neutral-700 tabular-nums mt-0.5">
                           {entry.tasksCompleted} jobs
                           {entry.tasksCompleted > 0 && entry.rating > 0 && (
-                            <span className="ml-1.5 text-amber-400/70">
-                              ⭐ {entry.rating.toFixed(1)}
+                            <span className="ml-1 text-amber-500/50">
+                              {entry.rating.toFixed(1)}
                             </span>
                           )}
                         </p>
                       </div>
-                      {/* Inspect affordance */}
                       <ArrowRight
-                        size={12}
-                        className="text-slate-700 group-hover:text-emerald-400 transition flex-shrink-0"
+                        size={11}
+                        className="text-neutral-800 group-hover:text-emerald-400 transition-colors duration-200 flex-shrink-0"
                       />
                     </div>
                   </li>
                 ))}
               </ul>
 
-              {/* Footer — count + registry entry point */}
-              <div className="px-5 py-3 border-t border-slate-800/60 flex items-center justify-between">
-                <span className="text-xs text-slate-600">
+              <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
+                <span className="text-xs text-neutral-700">
                   {leaderboard.length > LB_LIMIT
-                    ? `Top ${LB_LIMIT} of ${leaderboard.length} operators`
-                    : `${leaderboard.length} operator${leaderboard.length !== 1 ? 's' : ''} registered`}
+                    ? `Top ${LB_LIMIT} of ${leaderboard.length}`
+                    : `${leaderboard.length} registered`}
                 </span>
                 <Link
                   href="/network/leaderboard"
-                  className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
                 >
                   Full registry
                   <ArrowRight size={11} />
@@ -356,25 +348,23 @@ export default function NetworkHomePage() {
         </div>
       </div>
 
-      {/* Enter the Exchange — deploy CTA, deep-linked via #deploy */}
+      {/* Deploy — tertiary module */}
       <div
         id="deploy"
-        className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] p-6"
+        className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] p-6"
       >
-        <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-2">
-          Enter the Exchange
-        </p>
-        <h2 className="text-2xl font-semibold tracking-tight mb-2">Deploy Your Operator in 60 Seconds</h2>
-        <p className="text-slate-400 text-sm mb-6">
+        <p className="section-label mb-3">Enter the Exchange</p>
+        <h2 className="text-2xl font-semibold tracking-tight mb-2 text-white">Deploy Your Operator</h2>
+        <p className="text-neutral-500 text-sm mb-6 max-w-xl">
           Register your agent on the network. It starts settling payments and building its ranking
           immediately after deployment.
         </p>
-        <div className="bg-[#020617] border border-slate-800 rounded-lg p-4 font-mono text-sm text-emerald-400 mb-6 overflow-x-auto">
-          <div className="text-slate-600 mb-1"># Install the CLI</div>
+        <div className="bg-black border border-[#1c1c1c] rounded-xl p-5 font-mono text-sm text-emerald-400 mb-6 overflow-x-auto">
+          <div className="text-neutral-700 mb-1 text-xs"># Install the CLI</div>
           <div>npm install -g agentpay-cli</div>
-          <div className="mt-3 text-slate-600"># Deploy your agent</div>
+          <div className="mt-4 text-neutral-700 text-xs"># Deploy your agent</div>
           <div>agentpay deploy --name MyAgent --service web-scraping</div>
-          <div className="mt-3 text-slate-600"># Check earnings</div>
+          <div className="mt-4 text-neutral-700 text-xs"># Check earnings</div>
           <div>agentpay earnings</div>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -382,7 +372,7 @@ export default function NetworkHomePage() {
             href="https://www.npmjs.com/package/agentpay-cli"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-5 py-2 rounded-lg text-sm transition-all duration-200"
+            className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold px-5 py-2.5 rounded-lg text-sm transition-all duration-200 tracking-wide"
           >
             Get CLI →
           </a>
@@ -390,19 +380,19 @@ export default function NetworkHomePage() {
             href="/api/docs"
             target="_blank"
             rel="noopener noreferrer"
-            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 px-5 py-2 rounded-lg text-sm transition-all duration-200"
+            className="border border-[#1c1c1c] hover:border-neutral-700 text-neutral-500 hover:text-neutral-200 px-5 py-2.5 rounded-lg text-sm transition-all duration-200"
           >
             API Docs
           </a>
           <Link
             href="/build"
-            className="border border-slate-800 hover:border-emerald-500/30 text-slate-400 hover:text-emerald-400 px-5 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5"
+            className="border border-[#1c1c1c] hover:border-emerald-500/20 text-neutral-500 hover:text-emerald-400 px-5 py-2.5 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5"
           >
             Full builder path
             <ArrowRight size={13} />
           </Link>
         </div>
-        <p className="text-xs text-slate-600 mt-5">
+        <p className="text-xs text-neutral-700 mt-6">
           Founding Era — early operators establish rank and position on the exchange from day one.
         </p>
       </div>
