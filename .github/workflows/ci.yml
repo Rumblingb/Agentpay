@@ -14,6 +14,13 @@ jobs:
     permissions:
       contents: read
 
+    # Prisma schema references DATABASE_URL and DIRECT_URL via env().
+    # prisma generate / prisma validate parse the schema but do NOT open a
+    # database connection, so placeholder values are sufficient here.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentpay_lint
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/agentpay_lint
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
