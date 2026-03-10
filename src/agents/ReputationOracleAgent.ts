@@ -73,6 +73,16 @@ class ReputationOracleAgent {
 
     await this.chargeQuery(query.requestingAgentId, this.QUERY_PRICE[depth]);
 
+    return this.fetchReputation(query);
+  }
+
+  /**
+   * Internal: fetch reputation without charging a fee.
+   * Used by compareAgents to avoid double-billing.
+   */
+  private async fetchReputation(query: ReputationQuery): Promise<ReputationScore> {
+    const depth = query.depth || 'standard';
+
     const agent = await prisma.agent.findUnique({
       where: { id: query.agentId },
       include: {
@@ -153,11 +163,13 @@ class ReputationOracleAgent {
     agentId2: string,
     requestingAgentId: string
   ): Promise<ComparativeAnalysis> {
+    // Single charge for the comparison (covers both sub-lookups)
     await this.chargeQuery(requestingAgentId, this.QUERY_PRICE.standard * 2);
 
+    // Use fetchReputation (no fee) to avoid triple-charging
     const [agent1, agent2] = await Promise.all([
-      this.getReputation({ agentId: agentId1, requestingAgentId, depth: 'standard' }),
-      this.getReputation({ agentId: agentId2, requestingAgentId, depth: 'standard' })
+      this.fetchReputation({ agentId: agentId1, requestingAgentId, depth: 'standard' }),
+      this.fetchReputation({ agentId: agentId2, requestingAgentId, depth: 'standard' })
     ]);
 
     const comparison = this.generateComparison(agent1, agent2);
