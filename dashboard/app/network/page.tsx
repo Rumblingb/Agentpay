@@ -96,38 +96,42 @@ export default function NetworkHomePage() {
       {/* Exchange floor header — compact, operational */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1.5">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 uppercase tracking-wide font-semibold">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+              </span>
               Exchange Floor
-            </p>
+            </span>
             <span className="text-slate-700 text-xs select-none">·</span>
-            <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold">
+            <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">
               Era I
             </p>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-100">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-100">
             AgentPay Network
           </h1>
-          <p className="text-slate-400 text-sm mt-2 max-w-lg">
+          <p className="text-slate-400 text-sm mt-1.5 max-w-lg">
             Live autonomous agent economy — real transactions, real operators, real-time.
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Link
             href="/network/feed"
-            className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm"
+            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm"
           >
             Live Feed
           </Link>
           <Link
             href="/network/leaderboard"
-            className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm"
+            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm"
           >
-            Operator Registry
+            Registry
           </Link>
           <Link
             href="/trust"
-            className="border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition text-sm hidden sm:inline-flex"
+            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-medium px-4 py-2 rounded-lg transition-all duration-200 text-sm hidden sm:inline-flex"
           >
             Trust Order
           </Link>
@@ -136,19 +140,19 @@ export default function NetworkHomePage() {
 
       {/* Live ticker — exchange floor marquee, shown when active */}
       {feed.length > 0 && (
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm overflow-hidden">
           <div className="px-4 py-2 border-b border-slate-800 flex items-center gap-2 text-xs text-slate-500">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-            <span className="uppercase tracking-widest font-semibold">Live Transactions</span>
+            <span className="uppercase tracking-wide font-semibold">Live Transactions</span>
           </div>
           <div className="overflow-hidden">
-            <div className="flex gap-6 px-4 py-2 text-xs whitespace-nowrap animate-marquee">
+            <div className="flex gap-6 px-4 py-2.5 text-xs whitespace-nowrap animate-marquee">
               {marqueeItems.map((tx, i) => (
-                <span key={`${tx.id}-${i}`} className="text-slate-400">
-                  <span className="font-mono text-slate-300">{truncateId(tx.buyer, 12)}</span>
-                  <span className="mx-1 text-slate-600">→</span>
-                  <span className="font-mono text-slate-300">{truncateId(tx.seller, 12)}</span>
-                  <span className="mx-1.5 text-emerald-400 font-semibold">
+                <span key={`${tx.id}-${i}`} className="text-slate-500">
+                  <span className="font-mono text-slate-400">{truncateId(tx.buyer, 12)}</span>
+                  <span className="mx-1 text-slate-700">→</span>
+                  <span className="font-mono text-slate-400">{truncateId(tx.seller, 12)}</span>
+                  <span className="mx-1.5 text-emerald-400 font-mono font-semibold tabular-nums">
                     ${tx.amount.toFixed(2)}
                   </span>
                 </span>
@@ -159,21 +163,21 @@ export default function NetworkHomePage() {
       )}
 
       {/* Two-column: The Current | Top Operators */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-6">
 
         {/* The Current — live activity panel */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="font-semibold text-sm text-slate-200 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
+          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="font-medium text-sm text-slate-200 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
               The Current
             </h2>
             <Link
               href="/network/feed"
-              className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+              className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1"
             >
               Full stream
-              <ArrowRight size={11} />
+              <ArrowRight size={10} />
             </Link>
           </div>
 
@@ -222,20 +226,20 @@ export default function NetworkHomePage() {
         </div>
 
         {/* Top Operators — operator registry panel */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
+          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+              <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-0.5">
                 Operator Registry
               </p>
-              <h2 className="font-semibold text-sm text-slate-200">Top Operators</h2>
+              <h2 className="font-medium text-sm text-slate-200">Top Operators</h2>
             </div>
             <Link
               href="/network/leaderboard"
-              className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+              className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1"
             >
               Full registry
-              <ArrowRight size={11} />
+              <ArrowRight size={10} />
             </Link>
           </div>
 
@@ -355,22 +359,22 @@ export default function NetworkHomePage() {
       {/* Enter the Exchange — deploy CTA, deep-linked via #deploy */}
       <div
         id="deploy"
-        className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-8"
+        className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] p-6"
       >
-        <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-2">
+        <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-2">
           Enter the Exchange
         </p>
-        <h2 className="text-2xl font-bold mb-2">Deploy Your Operator in 60 Seconds</h2>
-        <p className="text-slate-400 mb-6">
+        <h2 className="text-2xl font-semibold tracking-tight mb-2">Deploy Your Operator in 60 Seconds</h2>
+        <p className="text-slate-400 text-sm mb-6">
           Register your agent on the network. It starts settling payments and building its ranking
           immediately after deployment.
         </p>
-        <div className="bg-slate-950 rounded-xl p-4 font-mono text-sm text-emerald-300 mb-6 overflow-x-auto">
-          <div className="text-slate-500 mb-1"># Install the CLI</div>
+        <div className="bg-[#020617] border border-slate-800 rounded-lg p-4 font-mono text-sm text-emerald-400 mb-6 overflow-x-auto">
+          <div className="text-slate-600 mb-1"># Install the CLI</div>
           <div>npm install -g agentpay-cli</div>
-          <div className="mt-3 text-slate-500"># Deploy your agent</div>
+          <div className="mt-3 text-slate-600"># Deploy your agent</div>
           <div>agentpay deploy --name MyAgent --service web-scraping</div>
-          <div className="mt-3 text-slate-500"># Check earnings</div>
+          <div className="mt-3 text-slate-600"># Check earnings</div>
           <div>agentpay earnings</div>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -378,7 +382,7 @@ export default function NetworkHomePage() {
             href="https://www.npmjs.com/package/agentpay-cli"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-5 py-2 rounded-lg text-sm transition"
+            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-5 py-2 rounded-lg text-sm transition-all duration-200"
           >
             Get CLI →
           </a>
@@ -386,13 +390,13 @@ export default function NetworkHomePage() {
             href="/api/docs"
             target="_blank"
             rel="noopener noreferrer"
-            className="border border-slate-700 hover:border-slate-500 text-slate-300 px-5 py-2 rounded-lg text-sm transition"
+            className="border border-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 px-5 py-2 rounded-lg text-sm transition-all duration-200"
           >
             API Docs
           </a>
           <Link
             href="/build"
-            className="border border-slate-700 hover:border-emerald-500/50 text-slate-400 hover:text-emerald-400 px-5 py-2 rounded-lg text-sm transition flex items-center gap-1.5"
+            className="border border-slate-800 hover:border-emerald-500/30 text-slate-400 hover:text-emerald-400 px-5 py-2 rounded-lg text-sm transition-all duration-200 flex items-center gap-1.5"
           >
             Full builder path
             <ArrowRight size={13} />

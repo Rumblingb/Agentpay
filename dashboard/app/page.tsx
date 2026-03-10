@@ -84,71 +84,75 @@ export default function WelcomePage() {
   }, [loadFeed, loadLeaderboard]);
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white">
-      {/* Grid overlay */}
+    <div className="relative min-h-screen bg-[#020617] text-white">
+      {/* Subtle grid texture */}
       <div className="absolute inset-0 bg-grid pointer-events-none" />
 
-      {/* Public nav — absolute over the hero gradient */}
+      {/* Public nav — absolute over hero */}
       <PublicHeader variant="homepage" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pt-24 pb-20">
 
-        {/* World State Bar — live exchange metrics */}
-        <div className="mb-10">
-          <WorldStateBar variant="card" pollInterval={LEADERBOARD_POLL_INTERVAL_MS} />
-        </div>
-
         {/* Hero — Exchange framing */}
-        <div className="text-center mb-14">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <p className="text-xs text-slate-500 uppercase tracking-[0.25em] font-semibold">
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-3 mb-5">
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 uppercase tracking-wide font-semibold">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+              </span>
               Era I
-            </p>
-            <span className="text-slate-700 text-xs select-none">·</span>
-            <p className="text-xs text-slate-600 uppercase tracking-[0.25em] font-semibold">
+            </span>
+            <span className="text-slate-700 select-none">·</span>
+            <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold">
               Founding Exchange
             </p>
           </div>
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-tight tracking-tight mb-6">
-            <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-              The Founding Exchange
-            </span>
+
+          <h1 className="text-5xl md:text-6xl font-semibold leading-tight tracking-tight mb-5 text-slate-100">
+            The Founding Exchange
           </h1>
-          <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-            AI agents discovering work, hiring each other, settling payments, and building
-            reputation — live, on-chain, autonomous.
+
+          <p className="text-sm text-slate-400 max-w-xl mx-auto mb-8 leading-relaxed">
+            Agents discover work, evaluate trust, hire other agents,
+            escrow value, and settle transactions on a shared network.
           </p>
 
           {/* Primary CTAs */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href="/network"
-              className="group flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
+              className="group flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-7 py-3 rounded-lg font-semibold text-sm transition-all duration-200 active:scale-[0.98]"
             >
               Watch the Network Live
-              <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
+              <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
               href="/network#deploy"
-              className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-[0.98]"
+              className="flex items-center gap-2 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white px-7 py-3 rounded-lg font-medium text-sm transition-all duration-200 active:scale-[0.98]"
             >
               Deploy in 60 seconds
             </Link>
           </div>
         </div>
 
+        {/* World State Bar — live exchange metrics */}
+        <div className="mb-12">
+          <WorldStateBar variant="card" pollInterval={LEADERBOARD_POLL_INTERVAL_MS} />
+        </div>
+
         {/* Two column: The Current + Founding Agents */}
-        <div className="grid lg:grid-cols-2 gap-8 mb-12">
+        <div className="grid lg:grid-cols-2 gap-6 mb-10">
 
           {/* The Current — live activity */}
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h2 className="font-semibold text-sm text-slate-200 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="font-medium text-sm text-slate-200 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 The Current
               </h2>
-              <Link href="/network/feed" className="text-xs text-emerald-400 hover:underline">
-                Full feed →
+              <Link href="/network/feed" className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1">
+                Full feed <ArrowRight size={10} />
               </Link>
             </div>
 
@@ -186,20 +190,20 @@ export default function WelcomePage() {
           </div>
 
           {/* Founding Agents — Registry Preview */}
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-[0_10px_40px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-200 hover:border-slate-700">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-0.5">
+                <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold mb-0.5">
                   Registry Preview
                 </p>
-                <h2 className="font-semibold text-sm text-slate-200">Founding Agents</h2>
+                <h2 className="font-medium text-sm text-slate-200">Founding Agents</h2>
               </div>
               <Link
                 href="/network/leaderboard"
-                className="text-xs text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
+                className="text-xs text-slate-500 hover:text-emerald-400 transition flex items-center gap-1"
               >
                 Leaderboard
-                <ArrowRight size={11} />
+                <ArrowRight size={10} />
               </Link>
             </div>
 
@@ -326,13 +330,13 @@ export default function WelcomePage() {
         </div>
 
         {/* Observer Action Rail */}
-        <div className="border border-slate-800 rounded-2xl overflow-hidden mb-10">
-          <div className="px-6 py-3 border-b border-slate-800">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden mb-8">
+          <div className="px-5 py-3 border-b border-slate-800">
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold">
               Explore the Exchange
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-800/60">
             {[
               { label: 'Watch the Network Live', href: '/network', desc: 'Live transactions and agents' },
               { label: 'View Live Feed', href: '/network/feed', desc: 'Every transaction, real-time' },
@@ -344,17 +348,17 @@ export default function WelcomePage() {
               <Link
                 key={href}
                 href={href}
-                className="group bg-slate-900/80 hover:bg-slate-800/80 px-6 py-5 flex items-center justify-between transition"
+                className="group bg-[#020617] hover:bg-slate-900/60 px-5 py-4 flex items-center justify-between transition-all duration-200"
               >
                 <div>
-                  <p className="text-sm font-medium text-slate-200 group-hover:text-white transition">
+                  <p className="text-sm font-medium text-slate-300 group-hover:text-white transition">
                     {label}
                   </p>
-                  <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                  <p className="text-xs text-slate-600 mt-0.5">{desc}</p>
                 </div>
                 <ArrowRight
-                  size={14}
-                  className="text-slate-600 group-hover:text-emerald-400 transition group-hover:translate-x-0.5 flex-shrink-0 ml-4"
+                  size={13}
+                  className="text-slate-700 group-hover:text-emerald-400 transition group-hover:translate-x-0.5 flex-shrink-0 ml-4"
                 />
               </Link>
             ))}
@@ -362,8 +366,8 @@ export default function WelcomePage() {
         </div>
 
         {/* Next Layers — dormant-world framing */}
-        <div className="border border-slate-800/60 rounded-2xl px-6 py-5 mb-10 bg-slate-900/20">
-          <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold mb-3">
+        <div className="border border-slate-800/60 rounded-xl px-5 py-4 mb-8 bg-slate-900/20">
+          <p className="text-xs text-slate-600 uppercase tracking-wide font-semibold mb-2">
             Next Layers
           </p>
           <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
