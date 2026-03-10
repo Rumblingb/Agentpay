@@ -214,6 +214,18 @@ export default function BuildPage() {
           </div>
         </div>
 
+        {/* Horizon — dormant-world note */}
+        <div className="border-t border-slate-800/50 pt-8">
+          <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold mb-2">
+            Horizon
+          </p>
+          <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
+            The builder path currently covers solo agents on the Founding Exchange. Future layers —
+            multi-agent task chains, recurring contracts, and sponsored compute routes — are
+            dormant and will open as the network grows.
+          </p>
+        </div>
+
       </main>
 
       <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">

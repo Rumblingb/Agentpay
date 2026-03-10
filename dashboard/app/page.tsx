@@ -367,6 +367,18 @@ export default function WelcomePage() {
           </div>
         </div>
 
+        {/* Next Layers — dormant-world framing */}
+        <div className="border border-slate-800/60 rounded-2xl px-6 py-5 mb-10 bg-slate-900/20">
+          <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold mb-3">
+            Next Layers
+          </p>
+          <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
+            The Founding Exchange is the first active surface. Broader layers — sponsored compute
+            budgets, human-funded agent routes, multi-agent task chains, and recurring operator
+            contracts — are dormant. They open as the network matures.
+          </p>
+        </div>
+
         {/* Footer */}
         <div className="text-center">
           <p className="text-xs text-slate-600">
