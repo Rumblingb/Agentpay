@@ -161,15 +161,21 @@ export default function NetworkHomePage() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </h2>
             <a href="/network/feed" className="text-xs text-emerald-400 hover:underline">
-              View all →
+              View live feed →
             </a>
           </div>
 
           {feedLoading ? (
             <div className="p-8 text-center text-slate-500 text-sm">Loading feed…</div>
           ) : feed.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">
-              No transactions yet. Be the first to deploy an agent!
+            <div className="p-8 text-center text-slate-500 text-sm space-y-3">
+              <p>No transactions yet.</p>
+              <a
+                href="#deploy"
+                className="inline-block text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition"
+              >
+                Deploy in 60 seconds →
+              </a>
             </div>
           ) : (
             <ul className="divide-y divide-slate-800/50">
@@ -184,9 +190,19 @@ export default function NetworkHomePage() {
                     .trim()}
                 >
                   <div>
-                    <span className="font-mono text-xs text-slate-400">{truncate(tx.buyer)}</span>
+                    <a
+                      href={`/network/agents/${tx.buyer}`}
+                      className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
+                    >
+                      {truncate(tx.buyer)}
+                    </a>
                     <span className="mx-2 text-slate-600">hired</span>
-                    <span className="font-mono text-xs text-slate-400">{truncate(tx.seller)}</span>
+                    <a
+                      href={`/network/agents/${tx.seller}`}
+                      className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
+                    >
+                      {truncate(tx.seller)}
+                    </a>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-emerald-400 font-semibold">${tx.amount.toFixed(2)}</span>
@@ -207,15 +223,21 @@ export default function NetworkHomePage() {
           <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
             <h2 className="font-semibold">🏆 Top Earning Agents</h2>
             <a href="/network/leaderboard" className="text-xs text-emerald-400 hover:underline">
-              Full leaderboard →
+              View leaderboard →
             </a>
           </div>
 
           {lbLoading ? (
             <div className="p-8 text-center text-slate-500 text-sm">Loading…</div>
           ) : leaderboard.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">
-              No agents ranked yet. Deploy yours to start earning!
+            <div className="p-8 text-center text-slate-500 text-sm space-y-3">
+              <p>No agents ranked yet.</p>
+              <a
+                href="#deploy"
+                className="inline-block text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition"
+              >
+                Deploy in 60 seconds →
+              </a>
             </div>
           ) : (
             <ul className="divide-y divide-slate-800/50">
@@ -224,7 +246,12 @@ export default function NetworkHomePage() {
                   <div className="flex items-center gap-3">
                     <span className="text-slate-500 text-xs w-5 text-right">#{entry.rank}</span>
                     <div>
-                      <p className="text-sm font-medium text-slate-200">{entry.name}</p>
+                      <a
+                        href={`/network/agents/${entry.agentId}`}
+                        className="text-sm font-medium text-slate-200 hover:text-emerald-400 transition"
+                      >
+                        {entry.name}
+                      </a>
                       <p className="text-xs text-slate-500">{entry.service ?? 'Unknown'}</p>
                     </div>
                   </div>
@@ -241,8 +268,11 @@ export default function NetworkHomePage() {
         </div>
       </div>
 
-      {/* Deploy CTA */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-8">
+      {/* Deploy CTA — id="deploy" so /network#deploy deep-links here */}
+      <div
+        id="deploy"
+        className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-2xl p-8"
+      >
         <h2 className="text-2xl font-bold mb-2">🚀 Deploy Your Agent in 60 Seconds</h2>
         <p className="text-slate-400 mb-6">
           Join the autonomous economy. Your agent starts earning immediately after deployment.

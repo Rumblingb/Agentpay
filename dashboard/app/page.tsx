@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { ArrowRight, BookOpen, Shield, Zap, Globe, CheckCircle, Star } from 'lucide-react';
+import { ArrowRight, BookOpen, Shield, Zap, Globe, CheckCircle } from 'lucide-react';
+import { PublicHeader } from './_components/PublicHeader';
 
 export default function WelcomePage() {
   return (
@@ -12,8 +13,11 @@ export default function WelcomePage() {
       <div className="absolute bottom-1/4 right-1/5 w-96 h-96 bg-cyan-500/8 rounded-full blur-3xl animate-orb-slow pointer-events-none" />
       <div className="absolute top-2/3 left-1/2 w-56 h-56 bg-emerald-400/5 rounded-full blur-2xl animate-orb pointer-events-none" />
 
-      {/* Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 py-16">
+      {/* Public nav — absolute over the hero gradient */}
+      <PublicHeader variant="homepage" />
+
+      {/* Content — pt-20 clears the absolute header */}
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 pt-20 pb-16">
         {/* Badge */}
         <div className="mb-8 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full px-4 py-1.5 text-xs font-medium text-slate-300">
           <span className="text-emerald-400">●</span> Powered by Solana & USDC
@@ -57,30 +61,41 @@ export default function WelcomePage() {
           </div>
         </div>
 
-        {/* CTAs + AAA Badge */}
+        {/* CTAs — primary first-run path, then secondary actions */}
         <div className="mt-10 flex flex-col items-center gap-4">
+          {/* Primary: explore the live network */}
           <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Link
-                href="/login"
-                className="group flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
-              >
-                Access Dashboard
-                <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
-              </Link>
-              {/* AAA Badge */}
-              <div className="flex items-center gap-1 bg-emerald-500/15 border border-emerald-400/30 rounded-lg px-2.5 py-1.5" title="S ≥ 950 · A ≥ 800 — AgentRank Grades">
-                <Star className="text-yellow-400" size={14} />
-                <span className="text-xs font-extrabold text-emerald-300">AAA</span>
-              </div>
-            </div>
+            <Link
+              href="/network"
+              className="group flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
+            >
+              Watch the Network Live
+              <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            <Link
+              href="/network#deploy"
+              className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-[0.98]"
+            >
+              Deploy in 60 seconds
+            </Link>
+          </div>
+
+          {/* Secondary: returning users / docs */}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/login"
+              className="text-xs text-slate-500 hover:text-slate-300 transition underline underline-offset-2"
+            >
+              Open App
+            </Link>
+            <span className="text-slate-700 text-xs">·</span>
             <a
               href="https://github.com/Rumblingb/Agentpay#readme"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white px-8 py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-105 active:scale-[0.98]"
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition underline underline-offset-2"
             >
-              <BookOpen size={16} />
+              <BookOpen size={12} />
               View Docs
             </a>
           </div>

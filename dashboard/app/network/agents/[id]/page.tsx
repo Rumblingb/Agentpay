@@ -26,12 +26,23 @@ interface FeedItem {
   timestamp: string;
 }
 
+/** Slot shown while AgentRank data is not yet fetched (Phase 2 will fill this). */
+function AgentRankSlot() {
+  return (
+    <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
+      <p className="text-xs text-slate-500 mb-1">AgentRank</p>
+      <p className="text-xl font-bold text-slate-500">—</p>
+    </div>
+  );
+}
+
 export default function AgentProfilePage() {
   const { id } = useParams<{ id: string }>();
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [recentJobs, setRecentJobs] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -66,6 +77,18 @@ export default function AgentProfilePage() {
     load();
   }, [id]);
 
+  function handleCopyLink() {
+    navigator.clipboard.writeText(window.location.href).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Clipboard write failed (insecure context or permission denied) — no-op
+      },
+    );
+  }
+
   if (loading) {
     return <div className="p-12 text-center text-slate-500">Loading agent profile…</div>;
   }
@@ -81,7 +104,7 @@ export default function AgentProfilePage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{agent.displayName}</h1>
           <div className="flex items-center gap-3 mt-1">
@@ -93,14 +116,41 @@ export default function AgentProfilePage() {
             <span className="text-slate-500 text-sm font-mono">{agent.id.slice(0, 20)}…</span>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-3xl font-bold text-emerald-400">${agent.totalEarnings.toFixed(2)}</p>
-          <p className="text-slate-500 text-sm">total earned</p>
+
+        {/* Right-side actions */}
+        <div className="flex flex-col items-start sm:items-end gap-3">
+          <div className="text-right">
+            <p className="text-3xl font-bold text-emerald-400">${agent.totalEarnings.toFixed(2)}</p>
+            <p className="text-slate-500 text-sm">total earned</p>
+          </div>
+          {/* Action buttons — Hire and Share */}
+          <div className="flex items-center gap-2">
+            <a
+              href="/login"
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition"
+            >
+              Hire this agent
+            </a>
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 px-3 py-2 rounded-lg text-sm transition flex items-center gap-1.5"
+              title="Copy link to this agent profile"
+            >
+              {copied ? (
+                <>✓ Copied</>
+              ) : (
+                <>🔗 Share</>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Stats grid */}
+      {/* Stats grid — AgentRank slot is first; Risk Score removed (internal metric) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {/* AgentRank slot — Phase 2+ will populate this with live score + grade */}
+        <AgentRankSlot />
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
           <p className="text-xs text-slate-500 mb-1">Rating</p>
           <p className="text-xl font-bold text-yellow-400">⭐ {agent.rating.toFixed(1)}</p>
@@ -108,10 +158,6 @@ export default function AgentProfilePage() {
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
           <p className="text-xs text-slate-500 mb-1">Jobs Completed</p>
           <p className="text-xl font-bold text-slate-100">{agent.tasksCompleted.toLocaleString()}</p>
-        </div>
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-slate-500 mb-1">Risk Score</p>
-          <p className="text-xl font-bold text-slate-100">{agent.riskScore}</p>
         </div>
         <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3">
           <p className="text-xs text-slate-500 mb-1">Active Since</p>
@@ -164,8 +210,13 @@ export default function AgentProfilePage() {
                         {isBuyer ? 'Hired' : 'Worker'}
                       </span>
                     </td>
-                    <td className="px-6 py-3 font-mono text-xs text-slate-400">
-                      {counterpart.slice(0, 20)}…
+                    <td className="px-6 py-3">
+                      <a
+                        href={`/network/agents/${counterpart}`}
+                        className="font-mono text-xs text-slate-400 hover:text-emerald-400 transition"
+                      >
+                        {counterpart.slice(0, 20)}…
+                      </a>
                     </td>
                     <td className="px-6 py-3 text-right font-semibold text-emerald-400">
                       ${job.amount.toFixed(2)}
