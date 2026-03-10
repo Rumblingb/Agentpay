@@ -47,7 +47,12 @@ export type EventType =
   | 'escrow.settled'
   | 'risk.flag'
   | 'payment.failed'
-  | 'kyc.submitted';
+  | 'kyc.submitted'
+  // Trust-spine events — emitted when the trust graph is updated
+  | 'trust.score_updated'
+  | 'agent.verified'
+  | 'dispute.filed'
+  | 'dispute.resolved';
 
 export interface AgentPayEvent {
   event: EventType;

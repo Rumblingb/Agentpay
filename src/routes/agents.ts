@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { logger } from '../logger.js';
 import { applyFees } from '../services/feeService.js';
 import { shouldBlock } from '../services/riskEngine.js';
+import { recordTrustEvent } from '../services/trustEventService.js';
 
 const router = Router();
 
@@ -381,6 +382,30 @@ router.post('/complete', async (req: Request, res: Response) => {
         totalEarnings: { increment: sellerNetAmount },
         tasksCompleted: { increment: 1 },
       },
+    });
+
+    // Trust graph update — service_execution feeds AgentRank for both parties.
+    // Use allSettled so a DB hiccup never blocks the core payment response.
+    const trustResults = await Promise.allSettled([
+      recordTrustEvent(
+        tx.sellerAgentId,
+        'service_execution',
+        `Transaction ${transactionId} completed`,
+      ),
+      recordTrustEvent(
+        tx.buyerAgentId,
+        'successful_interaction',
+        `Transaction ${transactionId} completed`,
+      ),
+    ]);
+    trustResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        logger.warn('Trust event recording failed (non-fatal)', {
+          transactionId,
+          index: i,
+          error: r.reason?.message,
+        });
+      }
     });
 
     logger.info('Agent transaction completed', {

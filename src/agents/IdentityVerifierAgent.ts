@@ -17,6 +17,7 @@
 import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
 import { sign, verify } from 'jsonwebtoken';
+import { recordTrustEvent } from '../services/trustEventService.js';
 
 interface VerificationRequest {
   agentId: string;
@@ -161,6 +162,13 @@ class IdentityVerifierAgent {
     );
 
     await this.storeIdentityRecord(credential);
+
+    // Trust graph update — identity_verified feeds AgentRank
+    await recordTrustEvent(
+      request.agentId,
+      'identity_verified',
+      `Trust level: ${trustLevel}`,
+    );
 
     return credential;
   }
