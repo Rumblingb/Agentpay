@@ -74,7 +74,7 @@
 
 | # | File | Field | Current value | Issue | Recommended change | Reason |
 |---|------|-------|---------------|-------|--------------------|--------|
-| D1 | `dashboard/package.json` | `name` | `"dashboard"` | Generic placeholder name. Not meaningful as a package identifier. | `"agentpay-dashboard"` | Descriptive, consistent with naming convention of other packages (`agentpay-cli`, `@agentpay/sdk`). |
+| D1 | `dashboard/package.json` | `name` | `"dashboard"` | Generic placeholder name. Not meaningful as a package identifier. | `"dashboard"` (kept — no verifiable benefit to renaming; `private: true` prevents accidental publish; tooling may reference the old name) | Add `description` and `"private": true` instead. |
 | D2 | `dashboard/package.json` | `description` | *(missing field entirely)* | No description. | `"AgentPay merchant and agent management dashboard"` | Matches what the dashboard actually does (based on `docs/dashboard.md`). |
 | D3 | `dashboard/package.json` | `private` | *(missing field)* | Dashboard is not and should not be published to npm. Without `"private": true`, it could accidentally be published. | `"private": true` | Standard practice for non-publishable app packages in a monorepo. |
 | D4 | `dashboard/README.md` | Content | Full `create-next-app` boilerplate README | The dashboard README is the default Next.js starter README. It has zero project-specific content — it mentions "Next.js project bootstrapped with create-next-app" and Geist font, with no mention of AgentPay. | Replace with a minimal AgentPay-specific description, local setup steps, and a pointer to `docs/dashboard.md`. | A reviewer looking at the dashboard directory should understand what it is without reading generic Next.js docs. |
@@ -163,7 +163,7 @@ Two domains appear in the codebase: `agentpay.gg` and `agentpay.io`. One needs t
 | P1 | `sdk/python/pyproject.toml` | Add `[project.urls]` section |
 | P2 | `sdk/python/README.md` | Fix homepage link from `agentpay.io` to `agentpay.gg` |
 | P3 | `docs/SDK_STRATEGY.md` | Fix Python version claim from `3.8+` to `3.10+` |
-| D1 | `dashboard/package.json` | Rename from `"dashboard"` to `"agentpay-dashboard"` |
+| D1 | `dashboard/package.json` | Keep name `"dashboard"`; add `description` and `"private": true` |
 | D2 | `dashboard/package.json` | Add `description` field |
 | D3 | `dashboard/package.json` | Add `"private": true` |
 | D4 | `dashboard/README.md` | Replace Next.js boilerplate with AgentPay-specific content |

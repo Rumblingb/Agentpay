@@ -5,7 +5,7 @@
  * with just 3 lines of business logic.
  *
  * Usage:
- *   AGENTPAY_API_KEY=sk_live_xxx AGENTPAY_BASE_URL=https://api.agentpay.io \
+ *   AGENTPAY_API_KEY=sk_live_xxx AGENTPAY_BASE_URL=https://api.agentpay.gg \
  *     npx ts-node src/example.ts
  */
 

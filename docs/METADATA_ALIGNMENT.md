@@ -67,7 +67,7 @@ Added `[project.urls]` section: `Repository`, `Homepage`, `Bug Tracker`. These w
 
 | Field | Before | After |
 |-------|--------|-------|
-| `name` | `"dashboard"` (generic placeholder) | `"agentpay-dashboard"` |
+| `name` | `"dashboard"` | `"dashboard"` *(kept — rename reverted per review: no verified upside, `private: true` already prevents accidental publish)* |
 | `description` | *(missing)* | `"AgentPay merchant and agent management dashboard"` |
 | `private` | *(missing)* | `true` (prevents accidental npm publish) |
 
@@ -88,6 +88,26 @@ All `https://api.agentpay.io` examples updated to `https://api.agentpay.gg`.
 ### `docs/sdk/python.md`
 
 All `https://api.agentpay.io` examples updated to `https://api.agentpay.gg`.
+
+### `sdk/js/src/types.ts`
+
+JSDoc comment example for `baseUrl`: `https://api.agentpay.io` → `https://api.agentpay.gg`.
+
+### `sdk/js/src/example.ts`
+
+Comment reference updated: `api.agentpay.io` → `api.agentpay.gg`.
+
+### `sdk/js/src/__tests__/sdk.test.ts`
+
+Test fixture `config.baseUrl` and all expected URL strings updated from `api.agentpay.io` → `api.agentpay.gg`. Tests use a mocked `global.fetch` — domain change has no effect on test behaviour.
+
+### `sdk/python/agentpay/client.py`
+
+Docstring example: `api.agentpay.io` → `api.agentpay.gg`.
+
+### `sdk/python/tests/test_client.py`
+
+`BASE_URL` constant updated: `api.agentpay.io` → `api.agentpay.gg`. Tests use `respx` for HTTP mocking — domain change has no effect on test behaviour.
 
 ---
 

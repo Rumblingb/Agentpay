@@ -16,7 +16,7 @@ from agentpay import (
 )
 
 
-BASE_URL = "https://api.agentpay.io"
+BASE_URL = "https://api.agentpay.gg"
 API_KEY = "test-api-key"
 
 

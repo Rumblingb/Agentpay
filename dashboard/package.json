@@ -1,5 +1,5 @@
 {
-  "name": "agentpay-dashboard",
+  "name": "dashboard",
   "version": "0.1.0",
   "private": true,
   "description": "AgentPay merchant and agent management dashboard",
