@@ -14,7 +14,7 @@ pip install agentpay
 from agentpay import AgentPay, Certificate
 
 client = AgentPay(
-    base_url="https://api.agentpay.io",
+    base_url="https://api.agentpay.gg",
     api_key="your-api-key",
 )
 
@@ -38,7 +38,7 @@ client.close()
 ### Context manager
 
 ```python
-with AgentPay(base_url="https://api.agentpay.io", api_key="...") as client:
+with AgentPay(base_url="https://api.agentpay.gg", api_key="...") as client:
     intent = client.create_intent(100)
 ```
 
@@ -50,7 +50,7 @@ Constructs a synchronous SDK client.
 
 | Parameter  | Type    | Description                           |
 |------------|---------|---------------------------------------|
-| `base_url` | `str`   | Base URL, e.g. `https://api.agentpay.io` |
+| `base_url` | `str`   | Base URL, e.g. `https://api.agentpay.gg` |
 | `api_key`  | `str`   | API key for authentication            |
 | `timeout`  | `float` | Request timeout in seconds (default 10) |
 

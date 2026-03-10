@@ -1,6 +1,6 @@
 {
   "name": "agentpay-cli",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "AgentPay Network CLI — deploy, manage, and earn with autonomous agents",
   "bin": {
     "agentpay": "./index.js"
@@ -17,7 +17,7 @@
     "inquirer": "^9.2.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "keywords": [
     "agentpay",
@@ -28,6 +28,14 @@
   ],
   "author": "AgentPay",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rumblingb/Agentpay.git"
+  },
+  "homepage": "https://github.com/Rumblingb/Agentpay/tree/main/cli/agentpay#readme",
+  "bugs": {
+    "url": "https://github.com/Rumblingb/Agentpay/issues"
+  },
   "publishConfig": {
     "access": "public"
   }

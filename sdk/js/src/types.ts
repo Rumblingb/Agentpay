@@ -45,7 +45,7 @@ export interface ValidateCertificateResponse {
 
 /** Configuration options for the AgentPay SDK client */
 export interface AgentPayConfig {
-  /** Base URL of the AgentPay API (e.g. https://api.agentpay.io) */
+  /** Base URL of the AgentPay API (e.g. https://api.agentpay.gg) */
   baseUrl: string;
   /** API key for authentication */
   apiKey: string;

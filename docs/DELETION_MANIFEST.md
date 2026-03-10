@@ -204,6 +204,64 @@ coverage/
 
 ---
 
+## Phase 5: Cleanup Completion — Root Artifact Audit (2026-03-10)
+
+This phase completed the cleanup planned but not fully executed in earlier phases. Each item in the audit list was reviewed and acted upon.
+
+### Deleted — Stale or Misleading
+
+#### `PRODUCTION_READINESS_REPORT.md`
+**Was:** Self-authored "production ready" checklist dated February 25, 2026. Claimed all 21 tests pass and the system is production-ready.  
+**Why removed:** Stale (test count was 21 at the time, now 216+), self-congratulatory, and actively misleading to any external reviewer. The honest assessment lives in `docs/ENTERPRISE_READINESS.md`.
+
+#### `ROADMAP.md` (root)
+**Was:** 12-month roadmap document at the repository root.  
+**Why removed:** Exact duplicate topic superseded by `docs/ROADMAP.md`, which is the authoritative, honest version. Having two roadmap files at different paths creates confusion about which is canonical.
+
+### Deleted — IDE / Tooling Artifacts
+
+#### `.idea/` (entire directory, 6 files)
+**Was:** JetBrains IDE configuration directory (`.gitignore`, `agentpay.iml`, `inspectionProfiles/profiles_settings.xml`, `misc.xml`, `modules.xml`, `vcs.xml`).  
+**Why removed:** IDE configuration should never be committed to a shared repository. It contains machine-specific and developer-specific settings. Added `.idea/` and `.vscode/` to root `.gitignore` to prevent re-commitment.
+
+### Deleted — Empty Legacy Structure
+
+#### `agentpay-mvp/` (directory tree)
+**Was:** A legacy directory structure with one file: `agentpay-mvp/src/security/payment-verification.ts`.  
+**Why removed:** The single file was completely empty (0 bytes). The directory was a remnant of a prior project organization that no longer applies.
+
+#### `Agentpay/` (empty directory)
+**Was:** An empty directory at the repository root (capital-A `Agentpay/`, distinct from the repository name).  
+**Why removed:** Entirely empty. No purpose.
+
+### Archived — Historically Useful but Not Canonical
+
+#### `AGENTPAY_WHITEPAPER.md` → `docs/archive/AGENTPAY_WHITEPAPER.md`
+**Was:** Full fundraising whitepaper (1,020 lines) including market analysis, product thesis, traction claims, and investment ask ($200K–$300K pre-seed).  
+**Why archived (not deleted):** Contains unique historical context about the product vision and fundraising narrative. Not a code or operational document; not canonical reference material. Moved to `docs/archive/` for historical record.
+
+#### `ONE_PAGER.md` → `docs/archive/ONE_PAGER.md`
+**Was:** Investor one-pager summarizing the product thesis, core primitives, competitive landscape, and team.  
+**Why archived (not deleted):** Useful historical record of the sales narrative at this stage of the company. Not canonical engineering documentation. Moved to `docs/archive/` for historical record.
+
+### Not Found — Planned but Already Absent
+
+| Item from Audit List | Status |
+|---------------------|--------|
+| `AGENTPAY_WHITEPAPER--.md` | Not present in repository — likely already removed in an earlier cleanup pass |
+| `PRODUCTION_SETUP.md` | Not present in repository — already removed or never committed |
+| `QUICKSTART.md` | Not present in repository — already removed or never committed |
+
+### `.gitignore` Updates
+
+Added two entries to prevent future re-commitment of IDE configuration:
+```
+.idea/
+.vscode/
+```
+
+---
+
 ## Summary Counts
 
 | Category | Files Removed |
@@ -212,7 +270,9 @@ coverage/
 | Sprint/status docs | 13 |
 | One-off scripts | 6 |
 | Build/output artifacts | 2 |
-| **Total** | **84** |
+| Root cleanup — deleted | 9 (.idea/ 6 files + agentpay-mvp/ 1 file + Agentpay/ empty dir + PRODUCTION_READINESS_REPORT.md + ROADMAP.md) |
+| Root cleanup — archived | 2 (AGENTPAY_WHITEPAPER.md, ONE_PAGER.md) |
+| **Total** | **95** |
 
 ---
 

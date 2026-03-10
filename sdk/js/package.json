@@ -29,6 +29,15 @@
   ],
   "author": "AgentPay",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rumblingb/Agentpay.git",
+    "directory": "sdk/js"
+  },
+  "homepage": "https://github.com/Rumblingb/Agentpay/tree/main/sdk/js#readme",
+  "bugs": {
+    "url": "https://github.com/Rumblingb/Agentpay/issues"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.11",
     "@types/node": "^20.10.6",

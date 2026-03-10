@@ -21,7 +21,7 @@ import {
 } from '@agentpay/sdk';
 
 const config = {
-  baseUrl: 'https://api.agentpay.io',
+  baseUrl: 'https://api.agentpay.gg',
   apiKey: process.env.AGENTPAY_API_KEY!,
 };
 
@@ -47,7 +47,7 @@ All functions accept an `AgentPayConfig` object as their first argument.
 
 ```ts
 interface AgentPayConfig {
-  baseUrl: string;   // e.g. "https://api.agentpay.io"
+  baseUrl: string;   // e.g. "https://api.agentpay.gg"
   apiKey: string;
   timeoutMs?: number; // default 10 000
 }

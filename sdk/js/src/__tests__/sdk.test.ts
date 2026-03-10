@@ -14,7 +14,7 @@ import type { AgentPayConfig, IntentStatusResponse } from '../index.js';
 // ---- helpers ----------------------------------------------------------------
 
 const config: AgentPayConfig = {
-  baseUrl: 'https://api.agentpay.io',
+  baseUrl: 'https://api.agentpay.gg',
   apiKey: 'test-api-key',
 };
 
@@ -49,7 +49,7 @@ describe('createIntent', () => {
     const result = await createIntent(config, 500, { orderId: 'ord_1' });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.agentpay.io/api/intents',
+      'https://api.agentpay.gg/api/intents',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ amount: 500, metadata: { orderId: 'ord_1' } }),
@@ -81,7 +81,7 @@ describe('getIntentStatus', () => {
     const result = await getIntentStatus(config, 'intent_abc');
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.agentpay.io/api/intents/intent_abc/status',
+      'https://api.agentpay.gg/api/intents/intent_abc/status',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(result).toEqual(mockStatus);
@@ -176,7 +176,7 @@ describe('validateCertificate', () => {
     const result = await validateCertificate(config, cert);
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.agentpay.io/api/certificates/validate',
+      'https://api.agentpay.gg/api/certificates/validate',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify(cert),

@@ -28,7 +28,7 @@ class AgentPay:
     Parameters
     ----------
     base_url:
-        Base URL of the AgentPay API, e.g. ``https://api.agentpay.io``.
+        Base URL of the AgentPay API, e.g. ``https://api.agentpay.gg``.
     api_key:
         API key for authentication.
     timeout:

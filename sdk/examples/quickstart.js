@@ -8,7 +8,7 @@
  *   4. Listen for tips
  *
  * Prerequisites:
- *   npm install agentpay-sdk
+ *   npm install @agentpay/sdk
  *
  * Run:
  *   AGENTPAY_API_KEY=sk_test_... node quickstart.js
