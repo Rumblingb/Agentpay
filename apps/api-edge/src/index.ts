@@ -24,6 +24,7 @@ import { certificatesRouter } from './routes/certificates';
 import { receiptRouter } from './routes/receipt';
 import { webhooksRouter } from './routes/webhooks';
 import { stripeWebhooksRouter } from './routes/stripeWebhooks';
+import { stubsRouter } from './routes/stubs';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -79,7 +80,7 @@ app.use('*', globalPauseMiddleware);
 app.route('/', healthRouter);
 
 // Merchant / account routes — /api/merchants/*
-app.route('/', merchantsRouter);
+app.route('/api/merchants', merchantsRouter);
 
 // Payment intent routes — /api/intents/*
 app.route('/api/intents', intentsRouter);
@@ -101,6 +102,9 @@ app.route('/api/webhooks', webhooksRouter);
 
 // Stripe webhook — /webhooks/stripe (raw body, no JSON parsing before signature check)
 app.route('/webhooks/stripe', stripeWebhooksRouter);
+
+// Stubs for non-migrated endpoints (returns 501 instead of 404)
+app.route('/', stubsRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));
