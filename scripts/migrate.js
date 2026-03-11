@@ -638,6 +638,134 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_te_created_at ON trust_events(created_at DESC);
     `,
   },
+
+  // ── 032 Settlement Identity Layer ─────────────────────────────────────────
+  // Phase 2: protocol-native settlement matching objects.
+  // All changes are additive — no existing tables or columns are modified
+  // except for a single nullable column added to payment_intents.
+  {
+    name: '032_settlement_schema',
+    sql: `
+      -- 1. Extend payment_intents with a first-class external reference column.
+      --    Replaces the metadata->>'tx_hash' side-channel used by the Solana
+      --    listener and the scattered stripe_payment_reference in transactions.
+      ALTER TABLE payment_intents
+        ADD COLUMN IF NOT EXISTS external_ref TEXT;
+      CREATE INDEX IF NOT EXISTS idx_pi_external_ref
+        ON payment_intents(external_ref)
+        WHERE external_ref IS NOT NULL;
+
+      -- Optional best-effort backfill from existing metadata for Solana intents.
+      -- Safe: new column is nullable; UPDATE only touches rows that already have
+      -- the value stored in metadata, so nothing is lost if this fails.
+      UPDATE payment_intents
+        SET external_ref = metadata->>'tx_hash'
+      WHERE external_ref IS NULL
+        AND metadata->>'tx_hash' IS NOT NULL;
+
+      -- 2. settlement_identities — one record per (intent, protocol) pair.
+      --    Links a payment intent to the external proof of settlement for a
+      --    specific protocol rail (Solana, Stripe, AP2, x402, ACP, agent).
+      CREATE TABLE IF NOT EXISTS settlement_identities (
+        id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        intent_id    UUID        NOT NULL REFERENCES payment_intents(id) ON DELETE CASCADE,
+        protocol     TEXT        NOT NULL,
+        external_ref TEXT,
+        status       TEXT        NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending','confirmed','failed','expired')),
+        settled_at   TIMESTAMPTZ,
+        metadata     JSONB       DEFAULT '{}',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_si_intent_id    ON settlement_identities(intent_id);
+      CREATE INDEX IF NOT EXISTS idx_si_external_ref ON settlement_identities(external_ref)
+        WHERE external_ref IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_si_protocol     ON settlement_identities(protocol);
+      CREATE INDEX IF NOT EXISTS idx_si_status       ON settlement_identities(status);
+
+      -- 3. matching_policies — per-protocol config for how settlement evidence
+      --    is matched to intents. Seeded below with defaults for all supported
+      --    protocols. Operators can UPDATE rows without code deploys.
+      CREATE TABLE IF NOT EXISTS matching_policies (
+        id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        protocol           TEXT        NOT NULL,
+        match_strategy     TEXT        NOT NULL,
+        require_memo_match BOOLEAN     NOT NULL DEFAULT FALSE,
+        confirmation_depth INT         NOT NULL DEFAULT 2,
+        ttl_seconds        INT         NOT NULL DEFAULT 1800,
+        is_active          BOOLEAN     NOT NULL DEFAULT TRUE,
+        config             JSONB       DEFAULT '{}',
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mp_protocol  ON matching_policies(protocol);
+      CREATE INDEX IF NOT EXISTS idx_mp_is_active ON matching_policies(is_active);
+
+      -- Seed default policies for every supported protocol (idempotent).
+      INSERT INTO matching_policies
+        (protocol, match_strategy, require_memo_match, confirmation_depth, ttl_seconds, config)
+      VALUES
+        -- Solana: match by recipient address; memo check is off by default
+        -- (enabled when require_memo_match = true in a future phase).
+        ('solana',  'by_recipient',   false, 2,    1800, '{"token":"USDC","network":"mainnet-beta"}'),
+        -- Stripe: match by the Stripe session/payment-intent ID stored in external_ref.
+        ('stripe',  'by_external_ref', false, 0,   3600, '{"currency":"usd"}'),
+        -- AP2: internal protocol — match by verificationToken (stored as external_ref).
+        ('ap2',     'by_external_ref', false, 0,   300,  '{"ttl_override":300}'),
+        -- x402: HTTP paywall gate — no on-chain settlement; policy-only match.
+        ('x402',    'by_external_ref', false, 0,   300,  '{"paywall":true}'),
+        -- ACP: Agent Communication Protocol — match by external_ref.
+        ('acp',     'by_external_ref', false, 0,   1800, '{}'),
+        -- agent: agent-to-agent network jobs — match by external_ref (escrow ID).
+        ('agent',   'by_external_ref', false, 0,   7200, '{}')
+      ON CONFLICT DO NOTHING;
+
+      -- 4. settlement_events — append-only log for every lifecycle step.
+      --    Mirrors trust_events for the settlement domain.
+      CREATE TABLE IF NOT EXISTS settlement_events (
+        id                     TEXT        PRIMARY KEY,
+        settlement_identity_id UUID        REFERENCES settlement_identities(id) ON DELETE SET NULL,
+        intent_id              UUID,
+        event_type             TEXT        NOT NULL,
+        protocol               TEXT        NOT NULL,
+        external_ref           TEXT,
+        payload                JSONB       NOT NULL DEFAULT '{}',
+        created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_se_settlement_id ON settlement_events(settlement_identity_id)
+        WHERE settlement_identity_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_se_intent_id     ON settlement_events(intent_id)
+        WHERE intent_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_se_event_type    ON settlement_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_se_created_at    ON settlement_events(created_at DESC);
+
+      -- 5. intent_resolutions — one record per intent; written once when the
+      --    resolution engine finalises the outcome.
+      CREATE TABLE IF NOT EXISTS intent_resolutions (
+        id                     UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        intent_id              UUID        NOT NULL UNIQUE REFERENCES payment_intents(id) ON DELETE CASCADE,
+        -- RESTRICT prevents deleting a SettlementIdentity that is already named
+        -- as the winning proof in a resolution — preserving the audit trail.
+        -- UNIQUE ensures at most one IntentResolution references each SettlementIdentity.
+        settlement_identity_id UUID        UNIQUE REFERENCES settlement_identities(id) ON DELETE RESTRICT,
+        protocol               TEXT        NOT NULL,
+        resolved_by            TEXT        NOT NULL,
+        resolution_status      TEXT        NOT NULL
+                                           CHECK (resolution_status IN ('confirmed','failed','disputed','expired')),
+        external_ref           TEXT,
+        confirmation_depth     INT,
+        payer_ref              TEXT,
+        resolved_at            TIMESTAMPTZ NOT NULL,
+        metadata               JSONB       DEFAULT '{}',
+        created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ir_intent_id         ON intent_resolutions(intent_id);
+      CREATE INDEX IF NOT EXISTS idx_ir_external_ref      ON intent_resolutions(external_ref)
+        WHERE external_ref IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_ir_resolution_status ON intent_resolutions(resolution_status);
+    `,
+  },
 ];
 
 async function migrate() {
