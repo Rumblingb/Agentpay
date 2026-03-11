@@ -28,30 +28,30 @@ const CONSTITUTIONAL_AGENTS = [
   {
     id: 'IdentityVerifierAgent',
     name: 'IdentityVerifierAgent',
-    function: 'Verifies and anchors agent identities on the network',
+    function: 'Verifies identity',
     icon: ShieldCheck,
     href: '/registry',
   },
   {
     id: 'ReputationOracleAgent',
     name: 'ReputationOracleAgent',
-    function: 'Maintains trust scores and behavioral reputation records',
+    function: 'Provides trust scores',
     icon: Star,
     href: '/trust',
   },
   {
     id: 'DisputeResolverAgent',
     name: 'DisputeResolverAgent',
-    function: 'Adjudicates contested interactions and resolves conflicts',
+    function: 'Resolves disputes',
     icon: Scale,
-    href: '/network',
+    href: '/registry',
   },
   {
     id: 'IntentCoordinatorAgent',
     name: 'IntentCoordinatorAgent',
-    function: 'Routes economic intent between agents across the network',
+    function: 'Coordinates intents across rails',
     icon: Network,
-    href: '/network',
+    href: '/registry',
   },
 ];
 
@@ -337,14 +337,27 @@ export default function WelcomePage() {
                   Full feed <ArrowRight size={10} />
                 </Link>
               </div>
-            ) : (
-              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {exchangeItems.map((item) => (
-                  <ExchangeTile key={item.id} item={item} isNew={newIds.has(item.id)} />
-                ))}
-              </div>
-            )}
-          </div>
+              {feedLoading ? (
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {Array.from({ length: EXCHANGE_FIELD_LIMIT }).map((_, i) => (
+                    <div key={i} className="p-4 rounded-lg border border-[#1c1c1c] bg-[#080808] flex flex-col gap-2.5 animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
+                        <div className="h-2 bg-neutral-900 rounded w-16" />
+                      </div>
+                      <div className="h-2.5 bg-neutral-900 rounded w-full" />
+                      <div className="h-2 bg-neutral-900 rounded w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {exchangeItems.map((item) => (
+                    <ExchangeTile key={item.id} item={item} isNew={newIds.has(item.id)} />
+                  ))}
+                </div>
+              )}
+            </div>
 
           {/* ── SECTION 3: The Current ───────────────────────────────────── */}
           {/* Full-width chronological event stream — system activity, not social feed */}
@@ -402,48 +415,49 @@ export default function WelcomePage() {
           <div className="grid lg:grid-cols-2 gap-5">
 
             {/* SECTION 4: The Constitutional Layer */}
-            <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
-              <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
-                <div>
-                  <p className="section-label mb-0.5">Infrastructure</p>
-                  <h2 className="font-medium text-sm text-neutral-200">The Constitutional Layer</h2>
+            <div className="rounded-xl border border-amber-500/20 bg-[#0c0a00]/80 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-amber-500/30">
+              <div className="px-5 py-3 border-b border-amber-500/10 bg-amber-500/[0.03] flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="foundation-badge">Constitutional Layer</span>
+                  <span className="text-neutral-700 text-xs select-none">·</span>
+                  <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">Foundation Protocol</p>
                 </div>
                 <Link
-                  href="/network"
-                  className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                  href="/registry"
+                  className="text-xs text-neutral-600 hover:text-amber-400/70 transition-colors duration-200 flex items-center gap-1"
                 >
-                  Network
+                  Registry
                   <ArrowRight size={10} />
                 </Link>
               </div>
 
-              <ul className="divide-y divide-[#141414]">
+              <ul className="divide-y divide-[#1a1600]">
                 {CONSTITUTIONAL_AGENTS.map(({ name, function: fn, icon: Icon, href }, i) => (
                   <li
                     key={name}
-                    className="group px-5 py-4 flex items-start gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
+                    className="group px-5 py-4 flex items-start gap-3 hover:bg-amber-500/[0.02] transition-all duration-300 ease-out"
                   >
-                    <span className="text-xs text-emerald-600 font-mono flex-shrink-0 mt-0.5 w-5 text-right">
+                    <span className="text-xs text-amber-600/50 font-mono flex-shrink-0 mt-0.5 w-5 text-right">
                       #{i + 1}
                     </span>
                     <div className="flex-1 min-w-0">
                       <Link href={href} className="block group/link">
-                        <p className="text-sm font-medium text-neutral-300 font-mono group-hover/link:text-emerald-400 transition-colors duration-200">{name}</p>
+                        <p className="text-sm font-medium text-neutral-300 font-mono group-hover/link:text-amber-400/80 transition-colors duration-200">{name}</p>
                         <p className="text-xs text-neutral-600 mt-0.5 leading-relaxed">{fn}</p>
                       </Link>
                     </div>
-                    <Icon size={14} className="text-neutral-800 group-hover:text-emerald-700 flex-shrink-0 mt-0.5 transition-colors duration-200" />
+                    <Icon size={14} className="text-neutral-800 group-hover:text-amber-700/60 flex-shrink-0 mt-0.5 transition-colors duration-200" />
                   </li>
                 ))}
               </ul>
 
-              <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
+              <div className="px-5 py-3 border-t border-[#1a1600] flex items-center justify-between">
                 <span className="text-xs text-neutral-700">
-                  4 constitutional agents · trust graph spine
+                  4 agents · identity · reputation · dispute · coordination
                 </span>
                 <Link
                   href="/registry"
-                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                  className="text-xs text-amber-500/60 hover:text-amber-400/80 transition-colors duration-200 flex items-center gap-1"
                 >
                   Full registry
                   <ArrowRight size={11} />

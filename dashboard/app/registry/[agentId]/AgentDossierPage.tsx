@@ -12,6 +12,25 @@ import {
   timeAgo,
   truncateId,
 } from '../../_components/FeedEventRow';
+import { FOUNDATION_AGENTS } from '../../_components/StandingChip';
+
+// ---------------------------------------------------------------------------
+// Constitutional agent metadata
+// ---------------------------------------------------------------------------
+
+const CONSTITUTIONAL_DESCRIPTIONS: Record<string, string> = {
+  IdentityVerifierAgent: 'Verifies identity',
+  ReputationOracleAgent: 'Provides trust scores',
+  DisputeResolverAgent: 'Resolves disputes',
+  IntentCoordinatorAgent: 'Coordinates intents across rails',
+};
+
+const CONSTITUTIONAL_AGENT_ORDER = [
+  'IdentityVerifierAgent',
+  'ReputationOracleAgent',
+  'DisputeResolverAgent',
+  'IntentCoordinatorAgent',
+];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,41 +169,88 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
           </div>
         ) : (
           <>
-            {/* ── Identity block — counterparty file ──────────────────────── */}
-            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
-              {/* Header band */}
-              <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield size={13} className="text-emerald-500 flex-shrink-0" aria-hidden />
-                  <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
-                    Operator File
-                  </p>
-                </div>
-                <span className="text-xs text-neutral-700 font-mono">
-                  since {new Date(agent.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}
-                </span>
-              </div>
-
-              <div className="px-6 py-5 flex flex-col sm:flex-row sm:items-start justify-between gap-5">
-                <div className="flex-1 min-w-0">
-                  <h1 className="text-xl font-semibold tracking-tight text-neutral-100 mb-2">
-                    {agent.displayName}
-                  </h1>
-                  {agent.service && (
-                    <span className="inline-block text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1 rounded mb-4">
-                      {agent.service}
-                    </span>
+            {/* ── Identity block ───────────────────────────────────────────── */}
+            {(() => {
+              const isConstitutional = FOUNDATION_AGENTS.has(agent.displayName);
+              const constitutionalDesc = CONSTITUTIONAL_DESCRIPTIONS[agent.displayName];
+              const layerPosition = CONSTITUTIONAL_AGENT_ORDER.indexOf(agent.displayName);
+              return (
+                <div className={[
+                  'rounded-xl overflow-hidden',
+                  isConstitutional
+                    ? 'border border-amber-500/20 bg-[#0c0a00]/80'
+                    : 'bg-[#0b0b0b]/70 border border-[#1c1c1c]',
+                ].join(' ')}>
+                  {/* Header band */}
+                  {isConstitutional ? (
+                    <div className="px-5 py-3 border-b border-amber-500/10 bg-amber-500/[0.03] flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="foundation-badge">Constitutional Layer</span>
+                        <span className="text-neutral-700 text-xs select-none">·</span>
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
+                          Foundation Protocol
+                        </p>
+                      </div>
+                      <span className="text-xs text-neutral-700 font-mono hidden sm:inline">
+                        {layerPosition + 1} of {CONSTITUTIONAL_AGENT_ORDER.length}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="px-5 py-3 border-b border-[#1a1a1a] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield size={13} className="text-emerald-500 flex-shrink-0" aria-hidden />
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
+                          Operator File
+                        </p>
+                      </div>
+                      <span className="text-xs text-neutral-700 font-mono">
+                        since {new Date(agent.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
                   )}
-                  <p className="text-xs text-neutral-700 font-mono select-all">{agent.id}</p>
+
+                  <div className="px-6 py-5 flex flex-col sm:flex-row sm:items-start justify-between gap-5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-2">
+                        {isConstitutional ? 'Constitutional Layer · Foundation Protocol' : 'Public Operator Dossier'}
+                      </p>
+                      <h1 className="text-xl font-semibold tracking-tight text-neutral-100 mb-2">
+                        {agent.displayName}
+                      </h1>
+                      {isConstitutional && constitutionalDesc && (
+                        <p className="text-sm text-neutral-400 mb-3 leading-relaxed max-w-md">
+                          {constitutionalDesc}
+                        </p>
+                      )}
+                      {isConstitutional ? (
+                        <span className="foundation-badge inline-block mb-3">Protocol Layer</span>
+                      ) : agent.service ? (
+                        <span className="inline-block text-xs font-medium text-emerald-400 border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1 rounded mb-4">
+                          {agent.service}
+                        </span>
+                      ) : null}
+                      <p className="text-xs text-neutral-700 font-mono select-all">{agent.id}</p>
+                      {isConstitutional && (
+                        <p className="text-xs text-neutral-700 mt-1.5">
+                          Active since{' '}
+                          {new Date(agent.createdAt).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-start sm:items-end gap-1 flex-shrink-0">
+                      <p className="section-label">Value Coordinated</p>
+                      <p className="font-mono text-2xl font-semibold text-emerald-400 tabular-nums">
+                        ${agent.totalEarnings.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex flex-col items-start sm:items-end gap-1 flex-shrink-0">
-                  <p className="section-label">Value Coordinated</p>
-                  <p className="font-mono text-2xl font-semibold text-emerald-400 tabular-nums">
-                    ${agent.totalEarnings.toFixed(2)}
-                  </p>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* ── Stats ───────────────────────────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

@@ -2,8 +2,35 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
-import { StandingChip } from '../_components/StandingChip';
+import { ArrowRight, ShieldCheck, Star, Scale, Network } from 'lucide-react';
+import { StandingChip, FOUNDATION_AGENTS } from '../_components/StandingChip';
+
+// ---------------------------------------------------------------------------
+// Constitutional Layer — pinned above the regular registry
+// ---------------------------------------------------------------------------
+
+const CONSTITUTIONAL_LAYER = [
+  {
+    name: 'IdentityVerifierAgent',
+    function: 'Verifies identity',
+    icon: ShieldCheck,
+  },
+  {
+    name: 'ReputationOracleAgent',
+    function: 'Provides trust scores',
+    icon: Star,
+  },
+  {
+    name: 'DisputeResolverAgent',
+    function: 'Resolves disputes',
+    icon: Scale,
+  },
+  {
+    name: 'IntentCoordinatorAgent',
+    function: 'Coordinates intents across rails',
+    icon: Network,
+  },
+];
 
 interface RegistryEntry {
   rank: number;
@@ -52,9 +79,11 @@ export default function RegistryPage() {
   }, [entries]);
 
   const visible = useMemo(() => {
-    let list = serviceFilter
+    // Exclude constitutional agents from the regular sorted list
+    let list = (serviceFilter
       ? entries.filter((e) => e.service === serviceFilter)
-      : entries;
+      : entries
+    ).filter((e) => !FOUNDATION_AGENTS.has(e.name));
 
     if (sortBy === 'earnings') {
       list = [...list].sort((a, b) => b.totalEarnings - a.totalEarnings);
@@ -66,6 +95,12 @@ export default function RegistryPage() {
 
     return list;
   }, [entries, sortBy, serviceFilter]);
+
+  // Find live registry entries for constitutional agents (to get their IDs for linking)
+  const constitutionalEntries = useMemo(
+    () => entries.filter((e) => FOUNDATION_AGENTS.has(e.name)),
+    [entries],
+  );
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-8">
@@ -92,6 +127,44 @@ export default function RegistryPage() {
             Exchange floor
             <ArrowRight size={11} />
           </Link>
+        </div>
+
+        {/* Constitutional Layer — pinned above the regular list */}
+        <div className="rounded-xl border border-amber-500/20 bg-[#0c0a00]/80 overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-500/10 bg-amber-500/[0.03] flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="foundation-badge">Constitutional Layer</span>
+              <span className="text-neutral-700 text-xs select-none">·</span>
+              <span className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">Foundation Protocol</span>
+            </div>
+            <span className="text-xs text-neutral-700 font-mono">4 agents</span>
+          </div>
+          <ul className="divide-y divide-[#1a1600]">
+            {CONSTITUTIONAL_LAYER.map(({ name, function: fn, icon: Icon }, i) => {
+              const live = constitutionalEntries.find((e) => e.name === name);
+              const href = live ? `/registry/${live.agentId}` : '#';
+              return (
+                <li key={name} className="group">
+                  <Link
+                    href={href}
+                    className="px-5 py-4 flex items-center gap-3 hover:bg-amber-500/[0.02] transition-all duration-200"
+                  >
+                    <span className="text-xs text-amber-600/50 font-mono flex-shrink-0 w-5 text-right">
+                      #{i + 1}
+                    </span>
+                    <Icon size={13} className="text-neutral-700 group-hover:text-amber-700/60 flex-shrink-0 transition-colors duration-200" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-neutral-300 font-mono group-hover:text-amber-400/80 transition-colors duration-200 truncate">
+                        {name}
+                      </p>
+                      <p className="text-xs text-neutral-600 mt-0.5">{fn}</p>
+                    </div>
+                    <ArrowRight size={11} className="text-neutral-800 group-hover:text-amber-600/50 flex-shrink-0 transition-colors duration-200" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
         {/* Controls */}
@@ -141,6 +214,12 @@ export default function RegistryPage() {
 
         {/* Registry table */}
         <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
+          {/* Section label for the regular operator list */}
+          {!loading && !error && visible.length > 0 && (
+            <div className="px-5 py-2.5 border-b border-[#1c1c1c]">
+              <p className="text-xs text-neutral-600 uppercase tracking-widest font-semibold">Registered Operators</p>
+            </div>
+          )}
 
           {loading ? (
             <ul className="divide-y divide-[#141414]">
