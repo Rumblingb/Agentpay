@@ -19,6 +19,9 @@ import { healthRouter } from './routes/health';
 import { merchantsRouter } from './routes/merchants';
 import { intentsRouter } from './routes/intents';
 import { v1IntentsRouter } from './routes/v1Intents';
+import { verifyRouter } from './routes/verify';
+import { certificatesRouter } from './routes/certificates';
+import { receiptRouter } from './routes/receipt';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -81,6 +84,15 @@ app.route('/api/intents', intentsRouter);
 
 // Agent-facing payment intents — /api/v1/payment-intents/*
 app.route('/api/v1/payment-intents', v1IntentsRouter);
+
+// Verify routes — /api/verify/:txHash
+app.route('/api/verify', verifyRouter);
+
+// Certificate routes — /api/certificates/*
+app.route('/api/certificates', certificatesRouter);
+
+// Receipt routes — /api/receipt/:intentId
+app.route('/api/receipt', receiptRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));
