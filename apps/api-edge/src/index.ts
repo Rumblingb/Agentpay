@@ -16,6 +16,7 @@ import { requestIdMiddleware } from './middleware/requestId';
 import { securityHeadersMiddleware } from './middleware/securityHeaders';
 import { globalPauseMiddleware } from './middleware/globalPause';
 import { healthRouter } from './routes/health';
+import { merchantsRouter } from './routes/merchants';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -69,6 +70,9 @@ app.use('*', globalPauseMiddleware);
 
 // Health checks — mounted first; exempt from env validation above.
 app.route('/', healthRouter);
+
+// Merchant / account routes — /api/merchants/*
+app.route('/', merchantsRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));
