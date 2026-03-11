@@ -1,22 +1,22 @@
 /**
- * AgentPay API — Cloudflare Workers entrypoint (Phase 2 scaffold)
+ * AgentPay API — Cloudflare Workers entrypoint
  *
- * This is the Hono application that will replace the Render/Express backend
+ * This is the Hono application that replaces the Render/Express backend
  * for all public HTTP routes.
  *
- * Current state (Phase 2):
- *   - App compiles and starts.
- *   - No routes yet — all requests return Hono's default 404.
- *   - Routes, middleware, and DB access are added in subsequent phases.
+ * Phase state:
+ *   Phase 2 — scaffold (compiled, no routes)
+ *   Phase 3 — env validation middleware wired in
  *
  * Architecture:
- *   Hono<{ Bindings: Env }> types the second argument of every handler as
- *   `c.env`, giving full TypeScript coverage over Workers bindings (secrets,
- *   vars, Hyperdrive) without any process.env usage.
+ *   Hono<{ Bindings: Env }> types c.env as the Workers Bindings object so
+ *   every handler has full TypeScript coverage over secrets and vars without
+ *   any process.env usage.
  */
 
 import { Hono } from 'hono';
 import type { Env } from './types';
+import { validateEnv, EnvValidationError } from './config/env';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -25,8 +25,46 @@ import type { Env } from './types';
 const app = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
+// Global middleware — env validation
+//
+// Workers have no persistent startup hook, so we validate required secrets
+// on the first middleware of every incoming request.  EnvValidationError is
+// caught below and returned as a production-safe 500 that never leaks secret
+// names or values to the caller.
+// ---------------------------------------------------------------------------
+
+app.use('*', async (c, next) => {
+  validateEnv(c.env);
+  await next();
+});
+
+// ---------------------------------------------------------------------------
+// Global error handler
+//
+// Catches any unhandled error from route handlers or middleware.
+// EnvValidationError → 500 with a generic message (never exposes secrets).
+// All other errors → 500 with a generic message.
+// ---------------------------------------------------------------------------
+
+app.onError((err, c) => {
+  if (err instanceof EnvValidationError) {
+    // Log to Cloudflare Workers tail logs (server-side only, not sent to client)
+    console.error('[startup] env validation failed:', err.message);
+    return c.json(
+      { error: 'CONFIGURATION_ERROR', message: 'Server configuration error.' },
+      500,
+    );
+  }
+
+  console.error('[error]', err.message);
+  return c.json(
+    { error: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' },
+    500,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Export — required by the Workers runtime.
-// The `fetch` export is the single entry point for all incoming HTTP requests.
 // ---------------------------------------------------------------------------
 
 export default app;
