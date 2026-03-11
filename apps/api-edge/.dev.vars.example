@@ -1,0 +1,38 @@
+# AgentPay Workers — local development secrets
+# ============================================================
+# Copy this file to .dev.vars (never commit .dev.vars).
+# Wrangler reads .dev.vars automatically during `wrangler dev`.
+#
+# In production, set these via `wrangler secret put <NAME>`
+# or in the Cloudflare Workers dashboard → Settings → Variables.
+#
+# Minimum secret length for WEBHOOK_SECRET, AGENTPAY_SIGNING_SECRET,
+# and VERIFICATION_SECRET is 32 characters.  Generate with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# ============================================================
+
+# ── Database ──────────────────────────────────────────────────────────────
+# PostgreSQL connection string for Supabase (pooled mode).
+# In production this is also used as the Hyperdrive source URL.
+# Format: postgres://user:password@host:5432/dbname?sslmode=require
+DATABASE_URL=
+
+# ── Required secrets ──────────────────────────────────────────────────────
+# HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars).
+WEBHOOK_SECRET=
+
+# HMAC secret for AP2 payment receipt signatures (≥32 chars).
+AGENTPAY_SIGNING_SECRET=
+
+# HMAC secret for verification certificate signatures (≥32 chars).
+VERIFICATION_SECRET=
+
+# Bearer token protecting admin API endpoints (x-admin-key header).
+ADMIN_SECRET_KEY=
+
+# ── Stripe (optional) ─────────────────────────────────────────────────────
+# Leave blank to disable Stripe routes.
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_SUCCESS_URL=
+STRIPE_CANCEL_URL=

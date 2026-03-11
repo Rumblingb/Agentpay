@@ -1,0 +1,63 @@
+# Cloudflare Workers configuration for AgentPay public API
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "agentpay-api"
+main = "src/index.ts"
+
+# Use a recent compatibility date so modern Web APIs (crypto, URL, Headers …)
+# are available without needing compatibility flags.
+compatibility_date = "2024-09-23"
+
+# Workers Bundler (esbuild) handles TypeScript directly.
+# wrangler.toml does not need a separate build step.
+
+# ---------------------------------------------------------------------------
+# Non-sensitive runtime variables
+# Set actual values in the Cloudflare dashboard or via `wrangler deploy --var`
+# ---------------------------------------------------------------------------
+[vars]
+# Comma-separated list of allowed CORS origins.
+# e.g. "https://apay-delta.vercel.app,https://dashboard.agentpay.gg"
+CORS_ORIGIN = "http://localhost:3000"
+
+# Public base URL of this Workers deployment.
+# e.g. "https://agentpay-api.workers.dev" or your custom domain.
+API_BASE_URL = "http://localhost:8787"
+
+# Merchant-facing dashboard URL (used in Stripe redirect URLs).
+FRONTEND_URL = "http://localhost:3000"
+
+# ---------------------------------------------------------------------------
+# Secrets — NEVER put real values here.
+# Set with: wrangler secret put <SECRET_NAME>
+# Or for local dev: add to .dev.vars (see .dev.vars.example)
+#
+# Required secrets:
+#   DATABASE_URL
+#   WEBHOOK_SECRET
+#   AGENTPAY_SIGNING_SECRET
+#   VERIFICATION_SECRET
+#   ADMIN_SECRET_KEY
+#   STRIPE_SECRET_KEY          (optional — only if Stripe is enabled)
+#   STRIPE_WEBHOOK_SECRET      (optional — only if Stripe is enabled)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Hyperdrive — Cloudflare's connection pooler for Supabase Postgres.
+# Uncomment and fill in binding + Hyperdrive ID once you create a Hyperdrive
+# config in the Cloudflare dashboard:
+#   https://developers.cloudflare.com/hyperdrive/get-started/
+#
+# After creating Hyperdrive, replace <HYPERDRIVE_CONFIG_ID> with the real ID
+# and set DATABASE_URL in the Cloudflare dashboard (not here — it's a secret).
+# ---------------------------------------------------------------------------
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<HYPERDRIVE_CONFIG_ID>"
+
+# ---------------------------------------------------------------------------
+# Local development server settings
+# ---------------------------------------------------------------------------
+[dev]
+port = 8787
+local_protocol = "http"

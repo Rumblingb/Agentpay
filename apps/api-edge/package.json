@@ -1,0 +1,20 @@
+{
+  "name": "@agentpay/api-edge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentPay public API — Cloudflare Workers runtime (Hono)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260310.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^4.72.0"
+  }
+}
