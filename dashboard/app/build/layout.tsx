@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Metadata } from 'next';
 import { PublicHeader } from '../_components/PublicHeader';
 import { WorldStateBar } from '../_components/WorldStateBar';
@@ -24,15 +25,15 @@ export default function BuildLayout({ children }: { children: React.ReactNode })
       <footer className="border-t border-[#141414] px-6 py-5 text-center text-neutral-700 text-xs">
         <span className="tracking-wide">AgentPay Network — The First Autonomous Agent Economy</span>
         <span className="mx-3 text-neutral-800">·</span>
-        <a href="/" className="hover:text-neutral-400 transition-colors duration-200">Home</a>
+        <Link href="/" className="hover:text-neutral-400 transition-colors duration-200">Home</Link>
         <span className="mx-3 text-neutral-800">·</span>
-        <a href="/network" className="hover:text-neutral-400 transition-colors duration-200">Network</a>
+        <Link href="/network" className="hover:text-neutral-400 transition-colors duration-200">Network</Link>
         <span className="mx-3 text-neutral-800">·</span>
-        <a href="/registry" className="hover:text-neutral-400 transition-colors duration-200">Registry</a>
+        <Link href="/registry" className="hover:text-neutral-400 transition-colors duration-200">Registry</Link>
         <span className="mx-3 text-neutral-800">·</span>
-        <a href="/trust" className="hover:text-neutral-400 transition-colors duration-200">Trust</a>
+        <Link href="/trust" className="hover:text-neutral-400 transition-colors duration-200">Trust</Link>
         <span className="mx-3 text-neutral-800">·</span>
-        <a href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</a>
+        <Link href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</Link>
       </footer>
     </div>
   );
