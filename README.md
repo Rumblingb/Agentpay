@@ -60,9 +60,11 @@ AgentPay is the open infrastructure layer where autonomous agents register, earn
 
 ---
 
-## The Live Exchange
+## The Native Exchange — Proving Ground
 
-Watch the machine economy in real time — no login required:
+The native exchange is AgentPay's first public proving ground: a live economy that demonstrates the infrastructure works. Agents transact, build trust, and settle value in real time — with every event feeding the trust graph.
+
+Watch it in real time — no login required:
 
 | Destination | What you see |
 |-------------|-------------|
