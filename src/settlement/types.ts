@@ -354,7 +354,7 @@ export const FEE_SOURCE_POLICIES: readonly FeeSourcePolicy[] = [
 
 /**
  * SettlementIdentity domain record.
- * Mirrors the settlement_identities DB table (Phase 2 schema).
+ * Mirrors the settlement_identities DB table (Phase 2 + 035 schema).
  * All date fields are ISO-8601 strings at the service boundary.
  */
 export interface SettlementIdentityRecord {
@@ -365,6 +365,10 @@ export interface SettlementIdentityRecord {
   status: SettlementIdentityStatus;
   settledAt: string | null;     // ISO-8601 or null
   metadata: Record<string, unknown>;
+  /** Phase 035: true when this is the canonical identity for the intent. */
+  isPrimary: boolean;
+  /** Phase 035: ordering hint; higher value = preferred identity. Default 0. */
+  priority: number;
   createdAt: string;            // ISO-8601
   updatedAt: string;            // ISO-8601
 }
@@ -378,13 +382,17 @@ export interface CreateSettlementIdentityParams {
   /** Optional proof reference — may be provided at creation or submitted later. */
   externalRef?: string;
   metadata?: Record<string, unknown>;
+  /** Phase 035: mark this identity as the primary one. Defaults to false. */
+  isPrimary?: boolean;
+  /** Phase 035: ordering priority. Defaults to 0. */
+  priority?: number;
 }
 
 // ---------------------------------------------------------------------------
 
 /**
  * MatchingPolicy domain record.
- * Mirrors the matching_policies DB table (Phase 2 schema).
+ * Mirrors the matching_policies DB table (Phase 2 + 035 schema).
  */
 export interface MatchingPolicyRecord {
   id: string;
@@ -394,6 +402,12 @@ export interface MatchingPolicyRecord {
   confirmationDepth: number;
   ttlSeconds: number;
   isActive: boolean;
+  /** Phase 035: first-class fee source; overrides config->>'feeSourcePolicy'. */
+  allowedFeeSource: string | null;
+  /** Phase 035: amount tolerance in basis points (e.g. 50 = 0.50%). */
+  toleranceBps: number | null;
+  /** Phase 035: policy schema version. Default 1. */
+  version: number;
   config: Record<string, unknown>;
   createdAt: string;   // ISO-8601
   updatedAt: string;   // ISO-8601
@@ -403,7 +417,7 @@ export interface MatchingPolicyRecord {
 
 /**
  * SettlementEvent domain record.
- * Mirrors the settlement_events DB table (Phase 2 schema).
+ * Mirrors the settlement_events DB table (Phase 2 + 035 schema).
  */
 export interface SettlementEventRecord {
   id: string;
@@ -413,6 +427,14 @@ export interface SettlementEventRecord {
   protocol: SettlementProtocol;
   externalRef: string | null;
   payload: Record<string, unknown>;
+  /** Phase 035: where the proof originated ('onchain' | 'webhook' | 'api' | …). */
+  proofSource: string | null;
+  /** Phase 035: raw cryptographic signature from the chain or provider. */
+  rawProofSignature: string | null;
+  /** Phase 035: structured reasoning / mismatch detail (complements payload). */
+  details: Record<string, unknown> | null;
+  /** Phase 035: when the event was actually observed (vs. createdAt = DB insertion time). */
+  observedAt: string | null;   // ISO-8601 or null
   createdAt: string;   // ISO-8601
 }
 
@@ -427,18 +449,30 @@ export interface EmitSettlementEventParams {
   intentId?: string;
   externalRef?: string;
   payload?: Record<string, unknown>;
+  /** Phase 035: where the proof originated. */
+  proofSource?: string;
+  /** Phase 035: raw cryptographic signature from the chain or provider. */
+  rawProofSignature?: string;
+  /** Phase 035: structured reasoning / mismatch detail. */
+  details?: Record<string, unknown>;
+  /** Phase 035: when the event was actually observed. Defaults to now if omitted. */
+  observedAt?: Date;
 }
 
 // ---------------------------------------------------------------------------
 
 /**
  * IntentResolution domain record.
- * Mirrors the intent_resolutions DB table (Phase 2+6 schema).
+ * Mirrors the intent_resolutions DB table (Phase 2 + 6 + 035 schema).
  *
  * Phase 6 adds three engine-specific fields:
  *   decisionCode    — fine-grained ResolutionDecision from the engine
  *   reasonCode      — machine-readable reason for that decision
  *   confidenceScore — engine confidence, 0.000–1.000
+ *
+ * Phase 035 adds:
+ *   confidencePct   — 0-100 integer confidence score (preferred going forward)
+ *   details         — structured reasoning / mismatch detail
  */
 export interface IntentResolutionRecord {
   id: string;
@@ -451,8 +485,12 @@ export interface IntentResolutionRecord {
   decisionCode: ResolutionDecision | null;
   /** Phase 6: machine-readable reason for the decision. */
   reasonCode: ReasonCode | null;
-  /** Phase 6: engine confidence score, 0.0 – 1.0. */
+  /** Phase 6: engine confidence score, 0.0 – 1.0. Kept for backward compat. */
   confidenceScore: number | null;
+  /** Phase 035: 0-100 integer confidence score (preferred representation). */
+  confidencePct: number | null;
+  /** Phase 035: structured reasoning / mismatch detail from the engine. */
+  details: Record<string, unknown> | null;
   externalRef: string | null;
   confirmationDepth: number | null;
   payerRef: string | null;
@@ -481,6 +519,10 @@ export interface ResolveIntentParams {
   reasonCode?: ReasonCode;
   /** Phase 6: engine confidence score (0.0 – 1.0). */
   confidenceScore?: number;
+  /** Phase 035: 0-100 integer confidence score. */
+  confidencePct?: number;
+  /** Phase 035: structured reasoning / mismatch detail. */
+  details?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 

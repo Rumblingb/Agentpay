@@ -47,6 +47,8 @@ function toRecord(row: {
   decisionCode?: string | null;
   reasonCode?: string | null;
   confidenceScore?: unknown;
+  confidencePct?: number | null;
+  details?: unknown;
   externalRef: string | null;
   confirmationDepth: number | null;
   payerRef: string | null;
@@ -64,6 +66,8 @@ function toRecord(row: {
     decisionCode: (row.decisionCode as ResolutionDecision | null | undefined) ?? null,
     reasonCode: (row.reasonCode as ReasonCode | null | undefined) ?? null,
     confidenceScore: row.confidenceScore != null ? Number(row.confidenceScore) : null,
+    confidencePct: row.confidencePct ?? null,
+    details: (row.details as Record<string, unknown> | null) ?? null,
     externalRef: row.externalRef,
     confirmationDepth: row.confirmationDepth,
     payerRef: row.payerRef,
@@ -104,6 +108,8 @@ export async function resolveIntent(
     decisionCode,
     reasonCode,
     confidenceScore,
+    confidencePct,
+    details,
     metadata,
   } = params;
 
@@ -123,6 +129,9 @@ export async function resolveIntent(
         ...(decisionCode !== undefined ? { decisionCode } : {}),
         ...(reasonCode !== undefined ? { reasonCode } : {}),
         ...(confidenceScore !== undefined ? { confidenceScore } : {}),
+        // Phase 035 fields
+        ...(confidencePct !== undefined ? { confidencePct } : {}),
+        ...(details !== undefined ? { details: details as object } : {}),
         resolvedAt: new Date(),
         metadata: (metadata ?? {}) as object,
       },

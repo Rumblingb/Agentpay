@@ -115,6 +115,10 @@ model PaymentIntent {
   // Replaces the metadata->>'tx_hash' side-channel used by the Solana listener.
   // Populated when an agent submits a transaction hash via POST /:intentId/verify.
   externalRef       String?   @map("external_ref")
+  // Business-level fee model override.
+  // Overrides global platform fee defaults when set (e.g. zero-fee for trial merchants).
+  // Kept at intent level, not inside MatchingPolicy, so fee logic stays per-intent.
+  feeConfiguration  Json?     @map("fee_configuration")
   metadata          Json?
   createdAt         DateTime? @default(now()) @map("created_at")
   updatedAt         DateTime? @updatedAt @map("updated_at")
@@ -414,6 +418,11 @@ model SettlementIdentity {
   status      String    @default("pending")
   settledAt   DateTime? @map("settled_at") @db.Timestamptz(6)
   metadata    Json?     @default("{}")
+  // true when this is the canonical identity for the intent (e.g. after a retry,
+  // only the successful identity is marked primary).
+  isPrimary   Boolean   @default(false) @map("is_primary")
+  // Ordering hint — higher value = preferred identity when multiple exist.
+  priority    Int       @default(0)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -445,6 +454,14 @@ model MatchingPolicy {
   // Seconds from intent creation until it auto-expires.
   ttlSeconds        Int      @default(1800) @map("ttl_seconds")
   isActive          Boolean  @default(true) @map("is_active")
+  // First-class fee source: 'payer' | 'merchant' | 'split' | 'waived'.
+  // Promoted from config JSONB for clarity; overrides config->>'feeSourcePolicy'.
+  allowedFeeSource  String?  @map("allowed_fee_source")
+  // Amount tolerance in basis points (e.g. 50 = 0.50%).
+  // Replaces/supplements config->>'feeTolerance' with a typed first-class column.
+  toleranceBps      Int?     @map("tolerance_bps")
+  // Policy schema version — bump when breaking changes are made to config structure.
+  version           Int      @default(1)
   // Extra protocol-specific knobs (e.g. Stripe currency codes, AP2 TTL overrides).
   config            Json?    @default("{}")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -471,7 +488,17 @@ model SettlementEvent {
   eventType            String    @map("event_type")
   protocol             String
   externalRef          String?   @map("external_ref")
+  // Raw proof payload as received from the chain or provider.
   payload              Json      @default("{}")
+  // Where the proof originated: 'onchain' | 'webhook' | 'api' | 'listener' | …
+  proofSource          String?   @map("proof_source")
+  // Raw cryptographic signature from the chain or provider (base58 / hex).
+  // Preserved for future x402/AP2 signed-receipt verification.
+  rawProofSignature    String?   @map("raw_proof_signature")
+  // Structured reasoning / mismatch detail (complements payload).
+  details              Json?
+  // When the event was actually observed (distinct from createdAt which is DB insertion time).
+  observedAt           DateTime? @map("observed_at") @db.Timestamptz(6)
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id])
@@ -480,6 +507,10 @@ model SettlementEvent {
   @@index([intentId])
   @@index([eventType])
   @@index([createdAt(sort: Desc)])
+  // Compound index: identity events ordered by observation time.
+  @@index([settlementIdentityId, observedAt(sort: Desc)])
+  // Compound index: protocol-scoped proof lookups.
+  @@index([protocol, externalRef])
   @@map("settlement_events")
 }
 
@@ -505,8 +536,14 @@ model IntentResolution {
   decisionCode         String?   @map("decision_code")
   // Phase 6: machine-readable reason for the decision
   reasonCode           String?   @map("reason_code")
-  // Phase 6: engine confidence score (0.000 – 1.000)
+  // Phase 6: engine confidence score (0.000 – 1.000) — kept for backward compat
   confidenceScore      Decimal?  @map("confidence_score") @db.Decimal(4, 3)
+  // Phase 035: 0-100 integer confidence score (preferred representation going forward).
+  // DB CHECK constraint enforces 0 ≤ value ≤ 100 (see migration 035).
+  confidencePct        Int?      @map("confidence_pct")
+  // Phase 035: structured reasoning / mismatch detail from the resolution engine
+  // (e.g. amount delta, memo comparison, recipient check output).
+  details              Json?
   externalRef          String?   @map("external_ref")
   confirmationDepth    Int?      @map("confirmation_depth")
   // Payer address (Solana wallet) or Stripe customer ID — protocol-specific.
@@ -524,5 +561,7 @@ model IntentResolution {
   @@index([externalRef])
   @@index([resolutionStatus])
   @@index([decisionCode])
+  // Composite index: intent-scoped decision lookup (Phase 035).
+  @@index([intentId, decisionCode])
   @@map("intent_resolutions")
 }

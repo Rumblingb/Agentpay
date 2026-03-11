@@ -44,6 +44,8 @@ function makeIdentityRecord(overrides: Partial<SettlementIdentityRecord> = {}): 
     status: 'pending',
     settledAt: null,
     metadata: {},
+    isPrimary: false,
+    priority: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -58,6 +60,11 @@ function makeResolutionRecord(overrides: Partial<IntentResolutionRecord> = {}): 
     protocol: 'solana',
     resolvedBy: 'solana_listener',
     resolutionStatus: 'confirmed',
+    decisionCode: null,
+    reasonCode: null,
+    confidenceScore: null,
+    confidencePct: null,
+    details: null,
     externalRef: null,
     confirmationDepth: 3,
     payerRef: null,
@@ -333,5 +340,71 @@ describe('assertIntentResolutionRecord()', () => {
     expect(() =>
       assertIntentResolutionRecord(makeResolutionRecord({ resolvedBy: 'cron' as any }))
     ).toThrow(TypeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 035 refinement fields
+// ---------------------------------------------------------------------------
+
+describe('SettlementIdentityRecord — Phase 035 fields', () => {
+  it('isPrimary defaults to false', () => {
+    const record = makeIdentityRecord();
+    expect(record.isPrimary).toBe(false);
+  });
+
+  it('priority defaults to 0', () => {
+    const record = makeIdentityRecord();
+    expect(record.priority).toBe(0);
+  });
+
+  it('isPrimary=true passes assertSettlementIdentityRecord', () => {
+    expect(() =>
+      assertSettlementIdentityRecord(makeIdentityRecord({ isPrimary: true, priority: 10 }))
+    ).not.toThrow();
+  });
+
+  it('custom priority passes assertSettlementIdentityRecord', () => {
+    expect(() =>
+      assertSettlementIdentityRecord(makeIdentityRecord({ priority: 99 }))
+    ).not.toThrow();
+  });
+});
+
+describe('IntentResolutionRecord — Phase 035 fields', () => {
+  it('confidencePct defaults to null', () => {
+    const record = makeResolutionRecord();
+    expect(record.confidencePct).toBeNull();
+  });
+
+  it('details defaults to null', () => {
+    const record = makeResolutionRecord();
+    expect(record.details).toBeNull();
+  });
+
+  it('confidencePct 0-100 passes assertIntentResolutionRecord', () => {
+    expect(() =>
+      assertIntentResolutionRecord(makeResolutionRecord({ confidencePct: 87 }))
+    ).not.toThrow();
+  });
+
+  it('details object passes assertIntentResolutionRecord', () => {
+    expect(() =>
+      assertIntentResolutionRecord(
+        makeResolutionRecord({ details: { amountDelta: -0.5, reason: 'underpaid' } })
+      )
+    ).not.toThrow();
+  });
+
+  it('confidencePct=100 passes assertIntentResolutionRecord', () => {
+    expect(() =>
+      assertIntentResolutionRecord(makeResolutionRecord({ confidencePct: 100 }))
+    ).not.toThrow();
+  });
+
+  it('confidencePct=0 passes assertIntentResolutionRecord', () => {
+    expect(() =>
+      assertIntentResolutionRecord(makeResolutionRecord({ confidencePct: 0 }))
+    ).not.toThrow();
   });
 });

@@ -214,8 +214,13 @@ async function processTransaction(tx: PendingTx): Promise<void> {
  *         record with a fine-grained decision + reason code.
  *      c. The engine's updateIntentStatus() call overwrites the intent status
  *         consistently (confirmed → `completed`; failed → `failed`).
- *      d. Existing Prisma $transaction still runs and creates the transactions
- *         row for full backward compatibility / rollback safety.
+ *      d. Legacy prisma.$transaction still runs for backward compatibility —
+ *         see TODO in the legacy path block below.
+ *
+ * NOTE (double-truth): both the resolution engine and the legacy path write
+ * intent state. The resolution engine is the authoritative source; the legacy
+ * path is kept for beta stability. Remove the legacy branch once the engine
+ * is confirmed stable in production.
  *
  * Resolution engine failures are non-fatal — logged at warn level.
  * The legacy path (prisma.$transaction) always runs regardless.
@@ -315,7 +320,14 @@ async function processIntent(intent: PendingIntent): Promise<void> {
     });
   }
 
-  // ── Legacy path (unchanged) ───────────────────────────────────────────────
+  // ── Legacy path ───────────────────────────────────────────────────────────
+  // TODO: Remove this legacy prisma.$transaction branch once the resolution
+  // engine is confirmed stable in production. The engine's updateIntentStatus()
+  // call already writes the canonical intent state; this block exists only for
+  // backward compatibility and to create the transactions row that older code
+  // may still read. Tracked as double-truth risk: resolution engine is the
+  // authoritative source of truth; legacy path is acceptable for beta only.
+  //
   // Strip the tx_hash sentinel from cleanMeta so a re-check doesn't double-process.
   // We update status to 'completed' and write a clean metadata snapshot that
   // preserves the submitted hash for audit purposes.

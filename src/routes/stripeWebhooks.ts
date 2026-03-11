@@ -191,10 +191,12 @@ router.post('/', async (req: Request, res: Response) => {
        * CASE 2: Payment Intent Succeeded
        *
        * Phase 10: emit a settlement event via ingestStripeProof().
-       * We do not attempt the resolution engine here because the
-       * payment_intent.succeeded path only has the Stripe PI ID — the
-       * payment_intent row lookup is deferred to avoid an extra round-trip
-       * on a code path that already updates the `intents` table directly.
+       *
+       * NOTE: The resolution engine is intentionally NOT called here.
+       * `checkout.session.completed` is the only event that can reliably
+       * link a Stripe session to a payment_intent row in our DB, so resolution
+       * runs exclusively there. This event only updates the `intents` table
+       * directly and records the settlement event for audit trail purposes.
        *
        * Stripe event → settlement_event mapping:
        *   event_type  = 'webhook_received'

@@ -804,6 +804,87 @@ const migrations = [
         WHERE decision_code IS NOT NULL;
     `,
   },
+
+  // ── 035 Settlement Schema Refinements ─────────────────────────────────────
+  // Applies all problem-statement refinements to the initial settlement layer.
+  // All changes are additive (ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS).
+  // No existing columns are modified; all new columns have safe defaults or are nullable.
+  //
+  // Summary:
+  //   settlement_identities  — is_primary, priority
+  //   payment_intents        — fee_configuration
+  //   matching_policies      — allowed_fee_source, tolerance_bps, version
+  //   settlement_events      — proof_source, raw_proof_signature, details, observed_at
+  //                            + indexes on (settlement_identity_id, observed_at) and (protocol, external_ref)
+  //   intent_resolutions     — confidence_pct, details
+  //                            + composite index on (intent_id, decision_code)
+  {
+    name: '035_settlement_refinements',
+    sql: `
+      -- 1. settlement_identities: identity priority and primary flag
+      --    is_primary — true for the canonical identity when multiple identities
+      --                 exist for the same intent (e.g. retry after failure).
+      --    priority   — ordering hint; higher value = preferred identity.
+      ALTER TABLE settlement_identities
+        ADD COLUMN IF NOT EXISTS is_primary BOOLEAN  NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS priority   INT      NOT NULL DEFAULT 0;
+
+      -- 2. payment_intents: business-level fee model flexibility
+      --    fee_configuration — JSONB blob; overrides global fee defaults when set.
+      --    Kept separate from matching_policies so fee logic stays at the intent
+      --    level, not the protocol level.
+      ALTER TABLE payment_intents
+        ADD COLUMN IF NOT EXISTS fee_configuration JSONB;
+
+      -- 3. matching_policies: first-class fee and tolerance columns
+      --    allowed_fee_source — overrides config->>'feeSourcePolicy' for clarity.
+      --    tolerance_bps      — amount tolerance in basis points (100 bps = 1%).
+      --    version            — policy schema version; bump when breaking changes
+      --                         are made to the config structure.
+      ALTER TABLE matching_policies
+        ADD COLUMN IF NOT EXISTS allowed_fee_source TEXT,
+        ADD COLUMN IF NOT EXISTS tolerance_bps      INT,
+        ADD COLUMN IF NOT EXISTS version            INT NOT NULL DEFAULT 1;
+
+      -- 4. settlement_events: proof provenance + richer detail store
+      --    proof_source       — where the proof came from: 'onchain' | 'webhook' | 'api' | …
+      --    raw_proof_signature — raw base58/hex signature from the chain or provider.
+      --    details            — JSONB for structured reasoning / mismatch detail
+      --                         (complements the existing payload column).
+      --    observed_at        — when the event was actually observed (distinct from
+      --                         created_at which is the DB insertion timestamp).
+      ALTER TABLE settlement_events
+        ADD COLUMN IF NOT EXISTS proof_source        TEXT,
+        ADD COLUMN IF NOT EXISTS raw_proof_signature TEXT,
+        ADD COLUMN IF NOT EXISTS details             JSONB,
+        ADD COLUMN IF NOT EXISTS observed_at         TIMESTAMPTZ;
+
+      -- Compound index for querying events by identity ordered by observation time.
+      CREATE INDEX IF NOT EXISTS idx_se_identity_observed
+        ON settlement_events(settlement_identity_id, observed_at DESC)
+        WHERE settlement_identity_id IS NOT NULL;
+
+      -- Compound index for protocol-scoped proof lookups.
+      CREATE INDEX IF NOT EXISTS idx_se_protocol_external_ref
+        ON settlement_events(protocol, external_ref)
+        WHERE external_ref IS NOT NULL;
+
+      -- 5. intent_resolutions: 0-100 confidence score + structured detail
+      --    confidence_pct — integer 0-100 score (preferred going forward; the
+      --                     existing confidence_score NUMERIC(4,3) is kept for
+      --                     backward compatibility with pre-035 rows).
+      --    details        — JSONB for reasoning / mismatch detail surfaced by
+      --                     the resolution engine (e.g. amount delta, memo diff).
+      ALTER TABLE intent_resolutions
+        ADD COLUMN IF NOT EXISTS confidence_pct INT CHECK (confidence_pct IS NULL OR (confidence_pct >= 0 AND confidence_pct <= 100)),
+        ADD COLUMN IF NOT EXISTS details        JSONB;
+
+      -- Composite index: fast lookup of all resolutions for an intent by decision.
+      CREATE INDEX IF NOT EXISTS idx_ir_intent_decision
+        ON intent_resolutions(intent_id, decision_code)
+        WHERE decision_code IS NOT NULL;
+    `,
+  },
 ];
 
 async function migrate() {
