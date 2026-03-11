@@ -46,10 +46,10 @@ export default function FeedPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5">
+          <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-1.5">
             Exchange Floor
           </p>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
             Live Feed
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           </h1>
@@ -58,18 +58,18 @@ export default function FeedPage() {
           </p>
         </div>
         {lastUpdated && (
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-neutral-500">
             Updated {lastUpdated.toLocaleTimeString()}
           </span>
         )}
       </div>
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+      <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
         {loading ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-slate-500 border-b border-slate-800">
-                <th className="text-left px-6 py-3 font-medium">Time</th>
+              <tr className="text-neutral-500 border-b border-[#1c1c1c]">
+                <th className="text-left px-6 py-3 font-medium text-neutral-600 text-xs uppercase tracking-widest">Time</th>
                 <th className="text-left px-6 py-3 font-medium">Buyer Agent</th>
                 <th className="text-left px-6 py-3 font-medium">Seller Agent</th>
                 <th className="text-right px-6 py-3 font-medium">Amount</th>
@@ -78,20 +78,20 @@ export default function FeedPage() {
             </thead>
             <tbody>
               {Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} className="border-b border-slate-800/50 animate-pulse">
-                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-12" /></td>
-                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-32" /></td>
-                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-32" /></td>
-                  <td className="px-6 py-3 text-right"><div className="h-3 bg-slate-800 rounded w-14 ml-auto" /></td>
-                  <td className="px-6 py-3"><div className="h-3 bg-slate-800 rounded w-16" /></td>
+                <tr key={i} className="border-b border-[#1a1a1a] animate-pulse">
+                  <td className="px-6 py-3"><div className="h-3 bg-neutral-800 rounded w-12" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-neutral-800 rounded w-32" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-neutral-800 rounded w-32" /></td>
+                  <td className="px-6 py-3 text-right"><div className="h-3 bg-neutral-800 rounded w-14 ml-auto" /></td>
+                  <td className="px-6 py-3"><div className="h-3 bg-neutral-800 rounded w-16" /></td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : feed.length === 0 ? (
-          <div className="px-6 py-12 text-center space-y-3 text-slate-500">
+          <div className="px-6 py-12 text-center space-y-3 text-neutral-500">
             <p>No transactions yet.</p>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-neutral-600">
               The feed initializes when the first agent is deployed.
             </p>
             <Link
@@ -104,7 +104,7 @@ export default function FeedPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-slate-500 border-b border-slate-800">
+              <tr className="text-neutral-500 border-b border-[#1c1c1c]">
                 <th className="text-left px-6 py-3 font-medium">Time</th>
                 <th className="text-left px-6 py-3 font-medium">Buyer Agent</th>
                 <th className="text-left px-6 py-3 font-medium">Seller Agent</th>
@@ -116,15 +116,15 @@ export default function FeedPage() {
               {feed.map((tx) => (
                 <tr
                   key={tx.id}
-                  className="border-b border-slate-800/50 hover:bg-slate-800/30 transition"
+                  className="border-b border-[#1a1a1a] hover:bg-white/[0.02] transition"
                 >
-                  <td className="px-6 py-3 text-slate-500 text-xs tabular-nums">
+                  <td className="px-6 py-3 text-neutral-500 text-xs tabular-nums">
                     {timeAgo(tx.timestamp)}
                   </td>
                   <td className="px-6 py-3">
                     <Link
                       href={`/registry/${tx.buyer}`}
-                      className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
+                      className="font-mono text-xs text-neutral-300 hover:text-emerald-400 transition"
                     >
                       {truncateId(tx.buyer, 20)}
                     </Link>
@@ -132,7 +132,7 @@ export default function FeedPage() {
                   <td className="px-6 py-3">
                     <Link
                       href={`/registry/${tx.seller}`}
-                      className="font-mono text-xs text-slate-300 hover:text-emerald-400 transition"
+                      className="font-mono text-xs text-neutral-300 hover:text-emerald-400 transition"
                     >
                       {truncateId(tx.seller, 20)}
                     </Link>
@@ -155,14 +155,14 @@ export default function FeedPage() {
       </div>
 
       {/* Footer navigation */}
-      <div className="flex flex-wrap items-center gap-5 text-xs border-t border-slate-800 pt-4">
-        <Link href="/network/leaderboard" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-5 text-xs border-t border-[#1c1c1c] pt-4">
+        <Link href="/network/leaderboard" className="text-neutral-500 hover:text-neutral-300 transition flex items-center gap-1">
           Leaderboard <ArrowRight size={10} />
         </Link>
-        <Link href="/registry" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+        <Link href="/registry" className="text-neutral-500 hover:text-neutral-300 transition flex items-center gap-1">
           Registry <ArrowRight size={10} />
         </Link>
-        <Link href="/trust" className="text-slate-500 hover:text-slate-300 transition flex items-center gap-1">
+        <Link href="/trust" className="text-neutral-500 hover:text-neutral-300 transition flex items-center gap-1">
           Trust Order <ArrowRight size={10} />
         </Link>
         <Link href="/build" className="text-emerald-500 hover:text-emerald-400 transition flex items-center gap-1 ml-auto">
