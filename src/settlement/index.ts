@@ -23,6 +23,8 @@ export type {
   SettlementIdentityStatus,
   SettlementEventType,
   ResolutionStatus,
+  ResolutionDecision,
+  ReasonCode,
   ResolvedBy,
   ProofType,
   IdentityMode,
@@ -46,6 +48,8 @@ export {
   SETTLEMENT_IDENTITY_STATUSES,
   SETTLEMENT_EVENT_TYPES,
   RESOLUTION_STATUSES,
+  RESOLUTION_DECISIONS,
+  REASON_CODES,
   RESOLVED_BY_VALUES,
   PROOF_TYPES,
   IDENTITY_MODES,
@@ -97,3 +101,19 @@ export {
   ingestSolanaProof,
   ingestStripeProof,
 } from './settlementEventIngestion.js';
+
+// ── Intent Resolution Engine (Phase 6) ────────────────────────────────────
+export type {
+  RunEngineParams,
+  EvaluationResult,
+  EngineRunResult,
+} from './intentResolutionEngine.js';
+export {
+  evaluateProof,
+  runResolutionEngine,
+  toResolutionStatus,
+  toIntentStatus,
+  toConfidenceScore,
+  FEE_TOLERANCE_USDC,
+  PARTIAL_TOLERANCE_PCT,
+} from './intentResolutionEngine.js';
