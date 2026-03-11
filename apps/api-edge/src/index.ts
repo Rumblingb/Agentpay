@@ -17,6 +17,7 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { validateEnv, EnvValidationError } from './config/env';
+import { healthRouter } from './routes/health';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -37,6 +38,14 @@ app.use('*', async (c, next) => {
   validateEnv(c.env);
   await next();
 });
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+// Health checks — GET /health, GET /api/health, GET /api
+// Mounted first so liveness probes are never blocked by auth middleware.
+app.route('/', healthRouter);
 
 // ---------------------------------------------------------------------------
 // Global error handler
