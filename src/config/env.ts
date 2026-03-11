@@ -9,6 +9,15 @@
  * Usage: import { env } from './config/env.js';
  */
 
+import dotenv from 'dotenv';
+
+// Load .env (and .env.test for test runs) before parseEnv() reads process.env.
+// This is required because env.ts is a static ESM import — the Node.js module
+// loader evaluates it before the dotenv.config() call in server.ts body runs.
+// dotenv.config() is idempotent: it skips vars already present in process.env,
+// so calling it here and again in server.ts is safe.
+dotenv.config();
+
 // ---------------------------------------------------------------------------
 // Schema types
 // ---------------------------------------------------------------------------
