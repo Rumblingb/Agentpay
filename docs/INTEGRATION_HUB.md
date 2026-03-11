@@ -6,6 +6,7 @@
 
 | Framework | Install | Example | Guide |
 |-----------|---------|---------|-------|
+| [Clawbot](#clawbot) | `pip install agentpay` | `POST /api/v1/agents/interact` | [↓ Guide](#clawbot) |
 | [Moltbook](#moltbook) | `npm i @agentpay/sdk` | [`examples/moltbook-integration-example.ts`](../examples/moltbook-integration-example.ts) | [↓ Guide](#moltbook) |
 | [CrewAI](#crewai) | `pip install agentpay` | [`examples/crewai-agentpay-tool.py`](../examples/crewai-agentpay-tool.py) | [↓ Guide](#crewai) |
 | [LangGraph](#langgraph) | `npm i @agentpay/sdk` | [`examples/langgraph-payment-node.ts`](../examples/langgraph-payment-node.ts) | [↓ Guide](#langgraph) |
@@ -32,6 +33,57 @@ Set in your environment:
 export AGENTPAY_API_KEY="sk_live_..."
 export AGENTPAY_API_URL="https://api.agentpay.gg"  # optional
 ```
+
+---
+
+## Clawbot
+
+Clawbot agents can connect to AgentPay using the single-call `/interact` endpoint — no SDK required.
+
+### Fastest path
+
+```python
+import os, requests
+
+AGENTPAY_API_KEY = os.environ["AGENTPAY_API_KEY"]
+AGENTPAY_API_URL = os.getenv("AGENTPAY_API_URL", "https://api.agentpay.gg")
+
+def clawbot_interact(from_id: str, to_id: str, service: str = "general",
+                     outcome: str = "success") -> dict:
+    resp = requests.post(
+        f"{AGENTPAY_API_URL}/api/v1/agents/interact",
+        headers={"Authorization": f"Bearer {AGENTPAY_API_KEY}"},
+        json={
+            "fromAgentId":     from_id,
+            "toAgentId":       to_id,
+            "interactionType": "task",
+            "service":         service,
+            "outcome":         outcome,
+            "trustCheck":      True,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("warnings"):
+        print(f"[agentpay] soft-fail warnings: {data['warnings']}")
+    return {
+        "interactionId":   data["interactionId"],
+        "identityVerified": data["toAgent"]["identityVerified"],
+        "trustScore":       data["toAgent"].get("trustScore"),
+    }
+```
+
+### Key rules for Clawbot agents
+
+- Use `identityVerified` (not `identityFound`) for trust-sensitive decisions.
+- Always inspect `warnings[]` — a non-empty array means at least one step was skipped.
+- Pass `amount` + `createIntent: true` together to create a coordination intent; omitting `amount` when `createIntent` is `true` is a hard 400 error.
+
+### Further reading
+
+- [Agent Interact Quickstart](./AGENT_INTERACT_QUICKSTART.md) — full field reference and response schema
+- [Agent Onboarding Guide](./AGENT_ONBOARDING_GUIDE.md) — register and verify your Clawbot agent identity
 
 ---
 
