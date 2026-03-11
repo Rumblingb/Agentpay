@@ -82,3 +82,18 @@ export {
   isResolved,
   listRecentResolutions,
 } from './intentResolutionService.js';
+
+// ── Settlement Event Ingestion Service (Phase 5) ───────────────────────────
+export type {
+  ObservedStatus,
+  NormalizedProof,
+  SolanaObservation,
+  StripeObservation,
+  IngestProofOpts,
+} from './settlementEventIngestion.js';
+export {
+  normalizeSolanaObservation,
+  normalizeStripeObservation,
+  ingestSolanaProof,
+  ingestStripeProof,
+} from './settlementEventIngestion.js';
