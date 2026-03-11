@@ -18,6 +18,10 @@ interface ExchangeStats {
   totalJobs: number;
   /** Display name of the #1 ranked agent, or null if no agents exist yet. */
   topAgentName: string | null;
+  /** Total trust events recorded — derived from trust event store. null = not yet loaded. */
+  totalTrustEvents: number | null;
+  /** Total disputes that have been resolved — derived from trust event store. null = not yet loaded. */
+  totalDisputesResolved: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +61,27 @@ function useExchangeStats(pollInterval = DEFAULT_POLL_INTERVAL_MS) {
       }
       prevVolume.current = totalVolume;
 
-      setStats({ agentCount, totalVolume, totalJobs, topAgentName });
+      // Fetch trust-native metrics — lightweight calls (limit=1) to read totals
+      let totalTrustEvents: number | null = null;
+      let totalDisputesResolved: number | null = null;
+      try {
+        const [trustRes, disputeRes] = await Promise.allSettled([
+          fetch('/api/v1/trust/events?limit=1'),
+          fetch('/api/v1/trust/events?eventType=dispute.resolved&limit=1'),
+        ]);
+        if (trustRes.status === 'fulfilled' && trustRes.value.ok) {
+          const td = await trustRes.value.json();
+          totalTrustEvents = td.pagination?.total ?? null;
+        }
+        if (disputeRes.status === 'fulfilled' && disputeRes.value.ok) {
+          const dd = await disputeRes.value.json();
+          totalDisputesResolved = dd.pagination?.total ?? null;
+        }
+      } catch {
+        // Trust metrics are non-critical — degrade gracefully
+      }
+
+      setStats({ agentCount, totalVolume, totalJobs, topAgentName, totalTrustEvents, totalDisputesResolved });
     } catch {
       // Non-critical polling error — silently ignore
     }
@@ -118,11 +142,16 @@ interface WorldStateBarProps {
 /**
  * WorldStateBar — live network state ribbon.
  *
- * Shows real metrics derived from /api/agents/leaderboard:
+ * Shows real metrics derived from /api/agents/leaderboard and /api/v1/trust/events:
  *   - Active agent count
- *   - Total coordinated value (flashes on increase)
+ *   - Total trust events recorded
+ *   - Disputes resolved
  *   - Completed interactions
+ *   - Total coordinated value (flashes on increase, shown if > 0)
  *   - Top-ranked agent name
+ *
+ * Trust-native metrics are shown first; financial metrics are shown as
+ * the native economy layer. Metrics not derivable from current data are omitted.
  *
  * Designed to be reused on /, /network, and /trust surfaces.
  */
@@ -153,7 +182,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
     );
   }
 
-  const { agentCount, totalVolume, totalJobs, topAgentName } = stats;
+  const { agentCount, totalVolume, totalJobs, topAgentName, totalTrustEvents, totalDisputesResolved } = stats;
 
   const volumeFormatted = totalVolume.toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -170,7 +199,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
           </span>
           <span className="text-xs uppercase tracking-widest font-medium text-neutral-600">
-            Network
+            Live
           </span>
         </span>
 
@@ -182,18 +211,37 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
           <>
             <Divider />
 
-            {/* Agents */}
+            {/* Active Agents — trust-native identity metric */}
             <StatItem value={String(agentCount)} label="active agents" />
 
+            {/* Trust Events — total trust events recorded (shown once at least one exists) */}
+            {totalTrustEvents !== null && totalTrustEvents > 0 && (
+              <>
+                <Divider />
+                <StatItem value={totalTrustEvents.toLocaleString()} label="trust events" />
+              </>
+            )}
+
+            {/* Disputes Resolved — trust health indicator (shown once at least one exists) */}
+            {totalDisputesResolved !== null && totalDisputesResolved > 0 && (
+              <>
+                <Divider />
+                <StatItem value={totalDisputesResolved.toLocaleString()} label="disputes resolved" />
+              </>
+            )}
+
             <Divider />
 
-            {/* Coordinated value */}
-            <StatItem value={`$${volumeFormatted}`} label="coordinated" flash={flashing} />
-
-            <Divider />
-
-            {/* Jobs */}
+            {/* Interactions — current network activity */}
             <StatItem value={totalJobs.toLocaleString()} label="interactions" />
+
+            {/* Value Coordinated — native economy layer (flashes on increase) */}
+            {totalVolume > 0 && (
+              <>
+                <Divider />
+                <StatItem value={`$${volumeFormatted}`} label="coordinated" flash={flashing} />
+              </>
+            )}
 
             {/* Top agent */}
             {topAgentName && (

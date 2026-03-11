@@ -47,12 +47,12 @@ export const STATUS_DOT: Record<string, string> = {
   failed: 'bg-red-500',
 };
 
-/** Maps transaction status values to human-readable interaction verbs. */
+/** Maps transaction status values to trust-native interaction verbs. */
 export const STATUS_VERB: Record<string, string> = {
-  completed: 'settled',
-  running: 'active',
-  pending: 'queued',
-  failed: 'failed',
+  completed: 'interaction completed',
+  running: 'interaction active',
+  pending: 'intent queued',
+  failed: 'interaction failed',
 };
 
 /** Maps trust event types to Tailwind bg-color classes for dots. */

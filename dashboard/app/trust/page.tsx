@@ -3,8 +3,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Shield } from 'lucide-react';
-import { PublicHeader } from '../_components/PublicHeader';
-import { WorldStateBar } from '../_components/WorldStateBar';
 import { standingTier } from '../_components/StandingChip';
 import { TrustEventRow, type TrustFeedItem, truncateId } from '../_components/FeedEventRow';
 
@@ -38,7 +36,7 @@ function RatingBar({ rating }: { rating: number }) {
       {Array.from({ length: 5 }).map((_, i) => (
         <span
           key={i}
-          className={i < filled ? 'text-amber-400' : 'text-slate-700'}
+          className={i < filled ? 'text-amber-400' : 'text-neutral-700'}
           style={{ fontSize: '10px' }}
         >
           ●
@@ -89,7 +87,7 @@ function PodiumCard({
   primary?: boolean;
 }) {
   const borderColor =
-    accent === 'amber' ? 'border-amber-500/40' : 'border-slate-700/60';
+    accent === 'amber' ? 'border-amber-500/40' : 'border-neutral-700/40';
   const glowClass =
     accent === 'amber'
       ? 'from-amber-500/6 to-transparent'
@@ -101,7 +99,7 @@ function PodiumCard({
     <Link
       href={`/registry/${entry.agentId}`}
       className={[
-        'group relative block bg-slate-900/60 border rounded-2xl p-5 hover:bg-slate-800/40 transition overflow-hidden',
+        'group relative block bg-[#0b0b0b]/70 border rounded-xl p-5 hover:bg-white/[0.03] transition overflow-hidden',
         borderColor,
         primary ? 'ring-1 ring-amber-500/20' : '',
       ].join(' ')}
@@ -124,25 +122,25 @@ function PodiumCard({
           <p
             className={[
               'font-semibold text-sm truncate group-hover:text-emerald-400 transition',
-              primary ? 'text-slate-100' : 'text-slate-200',
+              primary ? 'text-neutral-100' : 'text-neutral-200',
             ].join(' ')}
           >
             {entry.name}
           </p>
           {entry.service && (
-            <p className="text-xs text-slate-500 mt-0.5 truncate">{entry.service}</p>
+            <p className="text-xs text-neutral-500 mt-0.5 truncate">{entry.service}</p>
           )}
         </div>
 
         {/* Signals */}
-        <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+        <div className="pt-2 border-t border-[#1a1a1a] space-y-1.5">
           <div className="flex items-center justify-between">
             <RatingBar rating={entry.rating} />
-            <span className="text-xs text-slate-400 tabular-nums">
+            <span className="text-xs text-neutral-400 tabular-nums">
               {entry.rating.toFixed(1)}
             </span>
           </div>
-          <div className="flex items-center justify-between text-xs text-slate-500">
+          <div className="flex items-center justify-between text-xs text-neutral-500">
             <span>{entry.tasksCompleted.toLocaleString()} jobs</span>
             <span className="text-emerald-400/80 font-medium">
               ${entry.totalEarnings.toFixed(2)}
@@ -151,7 +149,7 @@ function PodiumCard({
         </div>
 
         {/* CTA */}
-        <div className="flex items-center gap-1 text-xs text-slate-600 group-hover:text-emerald-400 transition">
+        <div className="flex items-center gap-1 text-xs text-neutral-600 group-hover:text-emerald-400 transition">
           Inspect operator
           <ArrowRight size={10} />
         </div>
@@ -169,13 +167,13 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
   return (
     <Link
       href={`/registry/${entry.agentId}`}
-      className="group px-5 py-3.5 grid grid-cols-[2.5rem_1fr_auto] sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 items-center hover:bg-slate-800/30 transition border-b border-slate-800/50 last:border-0"
+      className="group px-5 py-3.5 grid grid-cols-[2.5rem_1fr_auto] sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 items-center hover:bg-white/[0.02] transition border-b border-[#1a1a1a] last:border-0"
     >
       {/* Rank */}
       <span
         className={[
           'text-xs font-mono tabular-nums text-right',
-          entry.rank <= 3 ? 'text-amber-400' : entry.rank <= 10 ? 'text-emerald-500' : 'text-slate-600',
+          entry.rank <= 3 ? 'text-amber-400' : entry.rank <= 10 ? 'text-emerald-500' : 'text-neutral-600',
         ].join(' ')}
       >
         #{entry.rank}
@@ -184,7 +182,7 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
       {/* Identity */}
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-slate-200 group-hover:text-emerald-400 transition truncate">
+          <p className="text-sm font-medium text-neutral-200 group-hover:text-emerald-400 transition truncate">
             {entry.name}
           </p>
           <span className={`text-xs hidden sm:inline ${tier.color} flex-shrink-0`}>
@@ -192,17 +190,17 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="font-mono text-xs text-slate-600 truncate">
+          <span className="font-mono text-xs text-neutral-600 truncate">
             {truncateId(entry.agentId)}
           </span>
           {entry.service && (
-            <span className="text-xs text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded truncate hidden md:inline">
+            <span className="text-xs text-neutral-500 bg-neutral-900/40 px-1.5 py-0.5 rounded truncate hidden md:inline">
               {entry.service}
             </span>
           )}
         </div>
         {/* Mobile metrics */}
-        <div className="sm:hidden flex items-center gap-3 mt-1 text-xs text-slate-500">
+        <div className="sm:hidden flex items-center gap-3 mt-1 text-xs text-neutral-500">
           <span className="text-amber-400/80">{entry.rating.toFixed(1)} ★</span>
           <span>{entry.tasksCompleted} jobs</span>
         </div>
@@ -210,13 +208,13 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
 
       {/* Rating */}
       <div className="hidden sm:flex flex-col items-end gap-1">
-        <span className="text-sm text-slate-200 tabular-nums">{entry.rating.toFixed(1)}</span>
+        <span className="text-sm text-neutral-200 tabular-nums">{entry.rating.toFixed(1)}</span>
         <RatingBar rating={entry.rating} />
       </div>
 
       {/* Jobs + proof bar */}
       <div className="hidden sm:flex flex-col items-end gap-1.5">
-        <span className="text-sm text-slate-300 tabular-nums">
+        <span className="text-sm text-neutral-300 tabular-nums">
           {entry.tasksCompleted.toLocaleString()}
         </span>
         <div
@@ -234,7 +232,7 @@ function TrustRow({ entry, totalJobs }: { entry: LeaderEntry; totalJobs: number 
       <div className="hidden sm:flex justify-end">
         <ArrowRight
           size={12}
-          className="text-slate-700 group-hover:text-emerald-400 transition flex-shrink-0"
+          className="text-neutral-700 group-hover:text-emerald-400 transition flex-shrink-0"
         />
       </div>
     </Link>
@@ -311,29 +309,25 @@ export default function TrustPage() {
   }, [leaderboard, lens]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <PublicHeader variant="network" />
-      <WorldStateBar variant="banner" />
-
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-10">
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-10">
 
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-1.5">
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+              <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
                 Public Trust Order
               </p>
-              <span className="text-slate-700 text-xs select-none">·</span>
-              <p className="text-xs text-slate-600 uppercase tracking-widest font-semibold">
+              <span className="text-neutral-700 text-xs select-none">·</span>
+              <p className="text-xs text-neutral-600 uppercase tracking-widest font-semibold">
                 Era I
               </p>
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-100 flex items-center gap-3">
-              <Shield size={28} className="text-emerald-500 flex-shrink-0" aria-hidden />
+            <h1 className="text-2xl font-semibold tracking-tight text-neutral-100 flex items-center gap-3">
+              <Shield size={22} className="text-emerald-500 flex-shrink-0" aria-hidden />
               Trust Order
             </h1>
-            <p className="text-slate-400 text-sm mt-2 max-w-xl">
+            <p className="text-neutral-400 text-sm mt-2 max-w-xl">
               The standing of autonomous operators on the AgentPay exchange — made
               legible. Rank, reliability, and proof of work, drawn from live
               settlement data.
@@ -341,7 +335,7 @@ export default function TrustPage() {
           </div>
           <Link
             href="/network/leaderboard"
-            className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1 flex-shrink-0"
+            className="text-xs text-neutral-500 hover:text-neutral-200 transition flex items-center gap-1 flex-shrink-0"
           >
             Earnings leaderboard
             <ArrowRight size={11} />
@@ -349,30 +343,30 @@ export default function TrustPage() {
         </div>
 
         {/* ── Signal legend ───────────────────────────────────────────────── */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl px-6 py-5 grid sm:grid-cols-3 gap-5">
+        <div className="bg-[#080808]/60 border border-[#1c1c1c] rounded-xl px-6 py-5 grid sm:grid-cols-3 gap-5">
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-1">
               Standing
             </p>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-neutral-400 text-xs leading-relaxed">
               Exchange rank derived from total earnings — a proxy for how much
               economic weight each operator has demonstrated on the network.
             </p>
           </div>
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-1">
               Rating
             </p>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-neutral-400 text-xs leading-relaxed">
               Counterparty rating after job settlement. Reflects consistency of
               delivery. Agents start at 5.0; ratings drift with actual outcomes.
             </p>
           </div>
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-1">
               Proof of Work
             </p>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-neutral-400 text-xs leading-relaxed">
               Total completed jobs. High job counts with maintained ratings signal
               an operator that performs consistently at volume.
             </p>
@@ -382,20 +376,20 @@ export default function TrustPage() {
         {/* ── Summary stats ───────────────────────────────────────────────── */}
         {!loading && leaderboard.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3.5">
-              <p className="text-xs text-slate-500 mb-1">Operators Ranked</p>
-              <p className="text-xl font-bold text-slate-100">{leaderboard.length}</p>
+            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+              <p className="text-xs text-neutral-500 mb-1">Operators Ranked</p>
+              <p className="text-xl font-bold text-neutral-100">{leaderboard.length}</p>
             </div>
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3.5">
-              <p className="text-xs text-slate-500 mb-1">Proven (Jobs {'>'} 0)</p>
+            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+              <p className="text-xs text-neutral-500 mb-1">Proven (Jobs {'>'} 0)</p>
               <p className="text-xl font-bold text-emerald-400">{proven.length}</p>
             </div>
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3.5">
-              <p className="text-xs text-slate-500 mb-1">Network Jobs</p>
-              <p className="text-xl font-bold text-slate-100">{totalJobs.toLocaleString()}</p>
+            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+              <p className="text-xs text-neutral-500 mb-1">Network Jobs</p>
+              <p className="text-xl font-bold text-neutral-100">{totalJobs.toLocaleString()}</p>
             </div>
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3.5">
-              <p className="text-xs text-slate-500 mb-1">Avg Rating</p>
+            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+              <p className="text-xs text-neutral-500 mb-1">Avg Rating</p>
               <p className="text-xl font-bold text-amber-400">
                 {avgRating > 0 ? avgRating.toFixed(2) : '—'}
               </p>
@@ -406,7 +400,7 @@ export default function TrustPage() {
         {/* ── Trust Podium ─────────────────────────────────────────────────── */}
         {!loading && !error && top3.length > 0 && (
           <section>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-4">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-4">
               Top Standing
             </p>
             <TrustPodium top3={top3} />
@@ -417,7 +411,7 @@ export default function TrustPage() {
         <section className="space-y-4">
           {/* Lens selector */}
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
               Full Order
             </p>
             <div className="flex items-center gap-1.5">
@@ -435,7 +429,7 @@ export default function TrustPage() {
                     'text-xs px-3 py-1.5 rounded-lg border transition',
                     lens === key
                       ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
-                      : 'border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600',
+                      : 'border-[#1c1c1c] text-neutral-500 hover:text-neutral-200 hover:border-[#333]',
                   ].join(' ')}
                 >
                   {label}
@@ -444,20 +438,20 @@ export default function TrustPage() {
             </div>
           </div>
 
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+          <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
             {loading ? (
               /* Skeleton — feels like "order initializing", not "broken" */
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <li key={i} className="px-5 py-3.5 flex items-center gap-4 animate-pulse">
-                    <span className="w-6 h-3 bg-slate-800 rounded flex-shrink-0" />
+                    <span className="w-6 h-3 bg-neutral-800 rounded flex-shrink-0" />
                     <div className="flex-1 space-y-1.5">
-                      <div className="h-3.5 bg-slate-800 rounded w-36" />
-                      <div className="h-2.5 bg-slate-800/60 rounded w-24" />
+                      <div className="h-3.5 bg-neutral-800 rounded w-36" />
+                      <div className="h-2.5 bg-neutral-900/40 rounded w-24" />
                     </div>
                     <div className="hidden sm:block space-y-1.5">
-                      <div className="h-3 bg-slate-800 rounded w-16" />
-                      <div className="h-2 bg-slate-800/50 rounded w-12" />
+                      <div className="h-3 bg-neutral-800 rounded w-16" />
+                      <div className="h-2 bg-white/[0.03] rounded w-12" />
                     </div>
                   </li>
                 ))}
@@ -465,16 +459,16 @@ export default function TrustPage() {
             ) : error ? (
               <div className="px-6 py-16 text-center space-y-2">
                 <p className="text-red-400 text-sm">{error}</p>
-                <p className="text-slate-600 text-xs">
+                <p className="text-neutral-600 text-xs">
                   Trust order temporarily unavailable — try again shortly.
                 </p>
               </div>
             ) : leaderboard.length === 0 ? (
               <div className="px-6 py-16 text-center space-y-3">
-                <p className="text-slate-500 text-sm">
+                <p className="text-neutral-500 text-sm">
                   Trust order forming — no operators registered yet.
                 </p>
-                <p className="text-slate-600 text-xs">
+                <p className="text-neutral-600 text-xs">
                   The order populates as agents transact and build standing on the exchange.
                 </p>
                 <Link
@@ -487,7 +481,7 @@ export default function TrustPage() {
             ) : (
               <>
                 {/* Column headings */}
-                <div className="px-5 py-2.5 border-b border-slate-800 hidden sm:grid sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 text-xs text-slate-500 uppercase tracking-widest font-semibold">
+                <div className="px-5 py-2.5 border-b border-[#1c1c1c] hidden sm:grid sm:grid-cols-[2.5rem_1fr_6rem_7rem_6rem] gap-4 text-xs text-neutral-500 uppercase tracking-widest font-semibold">
                   <span>#</span>
                   <span>Operator</span>
                   <span className="text-right">Rating</span>
@@ -500,7 +494,7 @@ export default function TrustPage() {
                 ))}
 
                 {/* Table footer */}
-                <div className="px-5 py-3 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-600">
+                <div className="px-5 py-3 border-t border-[#1a1a1a] flex items-center justify-between text-xs text-neutral-600">
                   <span>
                     {ordered.length} operator{ordered.length !== 1 ? 's' : ''} ·{' '}
                     {lens === 'standing'
@@ -509,7 +503,7 @@ export default function TrustPage() {
                         ? 'ordered by rating'
                         : 'ordered by jobs completed'}
                   </span>
-                  <span className="text-slate-700">
+                  <span className="text-neutral-700">
                     Network volume: ${totalEarnings.toFixed(2)}
                   </span>
                 </div>
@@ -521,37 +515,37 @@ export default function TrustPage() {
         {/* ── Recent Trust Events ───────────────────────────────────────────── */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
               Recent Trust Events
             </p>
             <Link
               href="/network"
-              className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+              className="text-xs text-neutral-500 hover:text-neutral-200 transition flex items-center gap-1"
             >
               Live network <ArrowRight size={11} />
             </Link>
           </div>
 
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+          <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
             {eventsLoading ? (
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-800 flex-shrink-0" />
-                    <div className="flex-1 h-2.5 bg-slate-800/60 rounded" />
-                    <div className="w-10 h-2.5 bg-slate-800/60 rounded" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
+                    <div className="flex-1 h-2.5 bg-neutral-900/40 rounded" />
+                    <div className="w-10 h-2.5 bg-neutral-900/40 rounded" />
                   </li>
                 ))}
               </ul>
             ) : trustEvents.length === 0 ? (
               <div className="px-6 py-10 text-center space-y-2">
-                <p className="text-slate-600 text-sm">No trust events recorded yet.</p>
-                <p className="text-slate-700 text-xs">
+                <p className="text-neutral-600 text-sm">No trust events recorded yet.</p>
+                <p className="text-neutral-700 text-xs">
                   Events appear here as agents verify identity, complete jobs, and resolve disputes.
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {trustEvents.map((item) => (
                   <TrustEventRow key={item.id} item={item} />
                 ))}
@@ -562,18 +556,18 @@ export default function TrustPage() {
 
         {/* ── Recent Disputes ───────────────────────────────────────────────── */}
         <section className="space-y-4">
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+          <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
             Recent Disputes
           </p>
 
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+          <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
             {eventsLoading ? (
-              <ul className="divide-y divide-slate-800/50">
+              <ul className="divide-y divide-[#141414]">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-800 flex-shrink-0" />
-                    <div className="flex-1 h-2.5 bg-slate-800/60 rounded" />
-                    <div className="w-10 h-2.5 bg-slate-800/60 rounded" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
+                    <div className="flex-1 h-2.5 bg-neutral-900/40 rounded" />
+                    <div className="w-10 h-2.5 bg-neutral-900/40 rounded" />
                   </li>
                 ))}
               </ul>
@@ -583,13 +577,13 @@ export default function TrustPage() {
               );
               return disputes.length === 0 ? (
                 <div className="px-6 py-10 text-center space-y-2">
-                  <p className="text-slate-600 text-sm">No disputes recorded.</p>
-                  <p className="text-slate-700 text-xs">
+                  <p className="text-neutral-600 text-sm">No disputes recorded.</p>
+                  <p className="text-neutral-700 text-xs">
                     Dispute activity appears here when agents file or resolve contested interactions.
                   </p>
                 </div>
               ) : (
-                <ul className="divide-y divide-slate-800/50">
+                <ul className="divide-y divide-[#141414]">
                   {disputes.map((item) => (
                     <li key={item.id} className="px-5 py-3 flex items-center gap-3">
                       <span
@@ -597,7 +591,7 @@ export default function TrustPage() {
                         aria-hidden="true"
                       />
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs text-slate-400 font-mono truncate block">
+                        <span className="text-xs text-neutral-400 font-mono truncate block">
                           {item.eventType === 'dispute.filed' ? (
                             <>
                               <Link href={`/registry/${item.agentId}`} className="hover:text-emerald-400 transition">
@@ -627,13 +621,13 @@ export default function TrustPage() {
                                 </>
                               )}
                               {typeof item.metadata?.decision === 'string' && (
-                                <span className="text-slate-600"> · {String(item.metadata.decision).replace(/_/g, ' ')}</span>
+                                <span className="text-neutral-600"> · {String(item.metadata.decision).replace(/_/g, ' ')}</span>
                               )}
                             </>
                           )}
                         </span>
                       </div>
-                      <span className="text-slate-700 text-xs font-mono tabular-nums flex-shrink-0">
+                      <span className="text-neutral-700 text-xs font-mono tabular-nums flex-shrink-0">
                         {new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
                     </li>
@@ -646,10 +640,10 @@ export default function TrustPage() {
 
         {/* ── Dossier prompt ────────────────────────────────────────────────── */}
         {!loading && !error && leaderboard.length > 0 && (
-          <div className="bg-slate-900/30 border border-slate-800 rounded-2xl px-6 py-5 flex items-center justify-between gap-4">
+          <div className="bg-[#080808]/40 border border-[#1c1c1c] rounded-xl px-6 py-5 flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-slate-300">Inspect any operator</p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-sm font-medium text-neutral-300">Inspect any operator</p>
+              <p className="text-xs text-neutral-500 mt-0.5">
                 Each entry links to a full public dossier: service details, job history,
                 and live rating.
               </p>
@@ -657,7 +651,7 @@ export default function TrustPage() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <Link
                 href="/registry"
-                className="text-xs text-slate-400 hover:text-slate-200 transition flex items-center gap-1 border border-slate-700 hover:border-slate-600 rounded-lg px-3 py-1.5"
+                className="text-xs text-neutral-400 hover:text-neutral-100 transition flex items-center gap-1 border border-[#1c1c1c] hover:border-[#333] rounded-lg px-3 py-1.5"
               >
                 Full registry
                 <ArrowRight size={10} />
@@ -673,19 +667,5 @@ export default function TrustPage() {
           </div>
         )}
       </main>
-
-      <footer className="border-t border-slate-800 px-6 py-4 text-center text-slate-500 text-sm">
-        AgentPay Network — The First Autonomous Agent Economy ·{' '}
-        <Link href="/" className="hover:text-slate-300 transition underline underline-offset-2">Home</Link>{' '}
-        ·{' '}
-        <Link href="/network" className="hover:text-slate-300 transition underline underline-offset-2">Network</Link>{' '}
-        ·{' '}
-        <Link href="/registry" className="hover:text-slate-300 transition underline underline-offset-2">Registry</Link>{' '}
-        ·{' '}
-        <Link href="/market" className="hover:text-slate-300 transition underline underline-offset-2">Market</Link>{' '}
-        ·{' '}
-        <Link href="/build" className="hover:text-slate-300 transition underline underline-offset-2">Build</Link>
-      </footer>
-    </div>
   );
 }

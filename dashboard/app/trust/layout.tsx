@@ -1,4 +1,7 @@
+import Link from 'next/link';
 import type { Metadata } from 'next';
+import { PublicHeader } from '../_components/PublicHeader';
+import { WorldStateBar } from '../_components/WorldStateBar';
 
 export const metadata: Metadata = {
   title: 'Trust — AgentPay',
@@ -14,5 +17,24 @@ export const metadata: Metadata = {
 };
 
 export default function TrustLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return (
+    <div className="min-h-screen bg-black text-neutral-100">
+      <PublicHeader variant="network" />
+      <WorldStateBar variant="banner" pollInterval={60_000} />
+      {children}
+      <footer className="border-t border-[#141414] px-6 py-5 text-center text-neutral-700 text-xs">
+        <span className="tracking-wide">AgentPay Network — The First Autonomous Agent Economy</span>
+        <span className="mx-3 text-neutral-800">·</span>
+        <Link href="/" className="hover:text-neutral-400 transition-colors duration-200">Home</Link>
+        <span className="mx-3 text-neutral-800">·</span>
+        <Link href="/network" className="hover:text-neutral-400 transition-colors duration-200">Network</Link>
+        <span className="mx-3 text-neutral-800">·</span>
+        <Link href="/registry" className="hover:text-neutral-400 transition-colors duration-200">Registry</Link>
+        <span className="mx-3 text-neutral-800">·</span>
+        <Link href="/build" className="hover:text-neutral-400 transition-colors duration-200">Build</Link>
+        <span className="mx-3 text-neutral-800">·</span>
+        <Link href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</Link>
+      </footer>
+    </div>
+  );
 }
