@@ -26,21 +26,25 @@ services:
         value: https://api.mainnet-beta.solana.com
       - key: CONFIRMATION_DEPTH
         value: "10"
-      # Shared HMAC-SHA256 secret for outgoing webhook signatures. ***REQUIRED***
+      # Shared HMAC-SHA256 secret for outgoing webhook signatures. [REQUIRED]
       - key: WEBHOOK_SECRET
         sync: false
-      # HMAC signing secret for AP2 payment receipts. ***REQUIRED***
+      # HMAC signing secret for AP2 payment receipts. [REQUIRED]
       - key: AGENTPAY_SIGNING_SECRET
         sync: false
-      # HMAC signing secret for verification certificates. ***REQUIRED***
+      # HMAC signing secret for verification certificates. [REQUIRED]
       - key: VERIFICATION_SECRET
+        sync: false
+      # Bearer token for admin API endpoints. [REQUIRED]
+      - key: ADMIN_SECRET_KEY
         sync: false
       # Stripe live secret key (set only if Stripe integration is enabled).
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: CORS_ORIGIN
         sync: false          # e.g. https://agentpay.vercel.app
+      # Public base URL of this service — used by protocol handlers and Stripe callbacks.
+      - key: API_BASE_URL
+        sync: false          # e.g. https://agentpay.onrender.com
       - key: RATE_LIMIT_MAX_REQUESTS
         value: "100"
-      - key: RATE_LIMIT_WINDOW_MS
-        value: "900000"

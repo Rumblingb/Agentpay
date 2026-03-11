@@ -2,13 +2,14 @@ import { Router, Request, Response } from 'express';
 import { authenticateApiKey } from '../middleware/auth.js';
 import * as stripeService from '../services/stripeService.js';
 import { logger } from '../logger.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
 router.post('/connect', authenticateApiKey, async (req: Request, res: Response) => {
   try {
     const merchant = (req as any).merchant!;
-    const baseUrl = process.env.APP_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+    const baseUrl = env.API_BASE_URL;
 
     const defaultReturn = `${baseUrl}/api/stripe/onboard/return`;
     const defaultRefresh = `${baseUrl}/api/stripe/onboard/refresh`;
@@ -75,7 +76,7 @@ router.get('/account', authenticateApiKey, async (req: Request, res: Response) =
 router.get('/onboard/return', async (req: Request, res: Response) => {
   try {
     // Use URL parsing for safe redirect — only allow http(s) schemes
-    const rawUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const rawUrl = env.FRONTEND_URL;
     let dashboardUrl: string;
     try {
       const parsed = new URL(rawUrl);

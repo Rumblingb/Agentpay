@@ -12,6 +12,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../logger.js';
+import { env } from '../config/env.js';
 
 export interface X402Config {
   /** Amount required (in USD cents, e.g. 100 = $1.00) */
@@ -60,7 +61,7 @@ export function x402Paywall(config: X402Config) {
     minAgentRank = 0,
     acceptSolana = true,
     acceptStripe = true,
-    agentpayBaseUrl = process.env.AGENTPAY_API_URL || 'https://api.agentpay.gg',
+    agentpayBaseUrl = env.API_BASE_URL,
   } = config;
 
   return async function x402Middleware(req: Request, res: Response, next: NextFunction) {
@@ -147,7 +148,7 @@ export async function verifyX402Payment(
   requiredAmountUsd: number,
   agentpayBaseUrl?: string
 ): Promise<{ valid: boolean; reason?: string }> {
-  const baseUrl = agentpayBaseUrl || process.env.AGENTPAY_API_URL || 'https://api.agentpay.gg';
+  const baseUrl = agentpayBaseUrl || env.API_BASE_URL;
   try {
     const response = await fetch(`${baseUrl}/api/verify/${paymentId}`);
     if (!response.ok) {

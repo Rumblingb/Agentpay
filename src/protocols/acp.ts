@@ -15,6 +15,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { logger } from '../logger.js';
 import { v4 as uuidv4 } from 'uuid';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -77,7 +78,7 @@ router.post('/pay', async (req: Request, res: Response) => {
   const { messageId, senderId, recipientId, amountUsd, purpose, preferredMethod, metadata } =
     parsed.data;
 
-  const agentpayBaseUrl = process.env.AGENTPAY_API_URL || 'https://api.agentpay.gg';
+  const agentpayBaseUrl = env.API_BASE_URL;
   const paymentToken = uuidv4();
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min TTL
 
