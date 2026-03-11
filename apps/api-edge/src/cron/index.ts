@@ -6,8 +6,8 @@
  * handler.
  *
  * Cron schedule (defined in wrangler.toml [[triggers.crons]]):
- *   "* /5 * * * *"  — liquidity monitor (every 5 minutes, matches liquidityService.ts)
- *   "* /15 * * * *" — reconciliation  (every 15 minutes, matches reconciliationDaemon.ts)
+ *   every 5 min  — liquidity monitor (matches liquidityService.ts CRON_INTERVAL_MS)
+ *   every 15 min — reconciliation   (matches reconciliationDaemon.ts DEFAULT_INTERVAL_MS)
  *
  * Note: The Solana listener (30-second poll) is NOT migrated here because
  * Cloudflare Cron Triggers have a minimum interval of 1 minute.  The Solana

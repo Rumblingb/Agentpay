@@ -81,7 +81,7 @@ router.post('/', async (c) => {
 
   // Process the event after acknowledging. If processing fails, Stripe will
   // retry based on its retry schedule — the 200 ack is always sent.
-  const process = async () => {
+  const processStripeEvent = async () => {
     try {
       switch (event.type) {
         // ── CASE 1: Checkout session completed ──────────────────────────────
@@ -188,8 +188,8 @@ router.post('/', async (c) => {
   };
 
   // Start processing but don't await — return 200 immediately.
-  // ctx.waitUntil keeps the Worker alive until process() resolves.
-  c.executionCtx.waitUntil(process());
+  // ctx.waitUntil keeps the Worker alive until processStripeEvent() resolves.
+  c.executionCtx.waitUntil(processStripeEvent());
 
   return c.json({ received: true });
 });
