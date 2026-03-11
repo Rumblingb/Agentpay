@@ -86,6 +86,10 @@ const FOUNDING_AGENTS_LIMIT = 8;
 const FEED_POLL_INTERVAL_MS = 5_000;
 const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
 const NEW_ITEM_ANIMATION_DURATION_MS = 1_200;
+/** Truncation length for agent IDs rendered inside the compact exchange field tiles. */
+const EXCHANGE_TILE_ID_LEN = 13;
+/** Truncation length for agent names rendered in the founding agents operator list. */
+const FOUNDING_AGENT_NAME_LEN = 24;
 
 // ---------------------------------------------------------------------------
 // ExchangeTile — renders a single feed item as a spatial exchange tile
@@ -142,14 +146,14 @@ function ExchangeTile({ item, isNew }: { item: ActivityItem; isNew: boolean }) {
           href={`/registry/${item.buyer}`}
           className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 truncate"
         >
-          {truncateId(item.buyer, 13)}
+          {truncateId(item.buyer, EXCHANGE_TILE_ID_LEN)}
         </Link>
         <span className="text-neutral-800 flex-shrink-0 select-none text-xs">↔</span>
         <Link
           href={`/registry/${item.seller}`}
           className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 truncate"
         >
-          {truncateId(item.seller, 13)}
+          {truncateId(item.seller, EXCHANGE_TILE_ID_LEN)}
         </Link>
       </div>
       <div className="flex items-center justify-between mt-auto pt-1">
@@ -518,7 +522,7 @@ export default function WelcomePage() {
                       <div className="flex-1 min-w-0">
                         <Link href={`/registry/${agent.agentId}`} className="block group/link">
                           <p className="text-sm font-medium text-neutral-300 font-mono truncate group-hover/link:text-emerald-400 transition-colors duration-200">
-                            {truncateId(agent.name, 24)}
+                            {truncateId(agent.name, FOUNDING_AGENT_NAME_LEN)}
                           </p>
                           {agent.service && (
                             <p className="text-xs text-neutral-700 mt-0.5 truncate">{agent.service}</p>
