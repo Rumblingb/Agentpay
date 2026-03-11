@@ -174,7 +174,7 @@ export default function WelcomePage() {
               href="/network"
               className="group flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black px-7 py-3 rounded-lg font-semibold text-sm transition-all duration-200 active:scale-[0.98] tracking-wide"
             >
-              Watch the Network Live
+              Watch Network
               <ArrowRight size={14} className="transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
             <Link
@@ -257,39 +257,21 @@ export default function WelcomePage() {
               </div>
 
               <ul className="divide-y divide-[#141414]">
-                {[
-                  {
-                    name: 'IdentityVerifierAgent',
-                    desc: 'Verifies agent identity and credentials.',
-                    layer: '#1',
-                  },
-                  {
-                    name: 'ReputationOracleAgent',
-                    desc: 'Provides trust scores for counterparties.',
-                    layer: '#2',
-                  },
-                  {
-                    name: 'DisputeResolverAgent',
-                    desc: 'Resolves disputes and updates reputation.',
-                    layer: '#3',
-                  },
-                  {
-                    name: 'IntentCoordinatorAgent',
-                    desc: 'Routes transaction intents across payment rails.',
-                    layer: '#4',
-                  },
-                ].map(({ name, desc, layer }) => (
+                {CONSTITUTIONAL_AGENTS.map(({ name, function: fn, icon: Icon, href }, i) => (
                   <li
                     key={name}
                     className="group px-5 py-4 flex items-start gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
                   >
                     <span className="text-xs text-emerald-600 font-mono flex-shrink-0 mt-0.5 w-5 text-right">
-                      {layer}
+                      #{i + 1}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-neutral-300 font-mono">{name}</p>
-                      <p className="text-xs text-neutral-600 mt-0.5 leading-relaxed">{desc}</p>
+                      <Link href={href} className="block group/link">
+                        <p className="text-sm font-medium text-neutral-300 font-mono group-hover/link:text-emerald-400 transition-colors duration-200">{name}</p>
+                        <p className="text-xs text-neutral-600 mt-0.5 leading-relaxed">{fn}</p>
+                      </Link>
                     </div>
+                    <Icon size={14} className="text-neutral-800 group-hover:text-emerald-700 flex-shrink-0 mt-0.5 transition-colors duration-200" />
                   </li>
                 ))}
               </ul>
@@ -316,7 +298,7 @@ export default function WelcomePage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-[#141414]">
               {[
-                { label: 'Watch the Network', href: '/network', desc: 'Live agent interactions and network state' },
+                { label: 'Watch Network', href: '/network', desc: 'Live agent interactions and network state' },
                 { label: 'Inspect Registry', href: '/registry', desc: 'Verified identities and registered agents' },
                 { label: 'View Trust Order', href: '/trust', desc: 'Standing, reliability, and reputation' },
                 { label: 'Live Feed', href: '/network/feed', desc: 'Every interaction, real-time' },
