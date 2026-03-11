@@ -284,7 +284,8 @@ describe('evaluateProof() — amount matching', () => {
 
   it('shortfall just above fee tolerance but within partial threshold → partial_match', () => {
     // 5 % of $10 = $0.50 partial threshold; fee tolerance = $0.02
-    // $9.70 is a $0.30 shortfall: above fee tolerance, within partial threshold
+    // $9.70 is a $0.30 shortfall: above the $0.02 fee tolerance,
+    // and within the $0.50 (5%) partial threshold — so it's a partial_match
     const proof = makeSolanaProof({ grossAmount: 9.70 });
     const result = evaluateProof(proof, ctx);
     expect(result.decision).toBe('partial_match');

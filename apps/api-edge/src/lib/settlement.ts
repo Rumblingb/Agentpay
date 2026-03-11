@@ -94,6 +94,70 @@ export const RESOLUTION_STATUSES: readonly ResolutionStatus[] = [
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Fine-grained engine decision (Phase 6).
+ * Mirrors src/settlement/types.ts ResolutionDecision.
+ */
+export type ResolutionDecision =
+  | 'matched'
+  | 'matched_with_external_fee'
+  | 'partial_match'
+  | 'underpaid'
+  | 'overpaid'
+  | 'unmatched'
+  | 'rejected';
+
+export const RESOLUTION_DECISIONS: readonly ResolutionDecision[] = [
+  'matched',
+  'matched_with_external_fee',
+  'partial_match',
+  'underpaid',
+  'overpaid',
+  'unmatched',
+  'rejected',
+] as const;
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Machine-readable reason codes for resolution decisions (Phase 6).
+ * Mirrors src/settlement/types.ts ReasonCode.
+ */
+export type ReasonCode =
+  | 'memo_missing'
+  | 'memo_mismatch'
+  | 'amount_mismatch'
+  | 'external_fee_detected'
+  | 'recipient_mismatch'
+  | 'no_matching_policy'
+  | 'no_settlement_identity'
+  | 'no_intent_candidate'
+  | 'identity_confirmed'
+  | 'exact_amount'
+  | 'overpay_accepted'
+  | 'proof_unconfirmed'
+  | 'external_ref_mismatch'
+  | 'protocol_not_supported';
+
+export const REASON_CODES: readonly ReasonCode[] = [
+  'memo_missing',
+  'memo_mismatch',
+  'amount_mismatch',
+  'external_fee_detected',
+  'recipient_mismatch',
+  'no_matching_policy',
+  'no_settlement_identity',
+  'no_intent_candidate',
+  'identity_confirmed',
+  'exact_amount',
+  'overpay_accepted',
+  'proof_unconfirmed',
+  'external_ref_mismatch',
+  'protocol_not_supported',
+] as const;
+
+// ---------------------------------------------------------------------------
+
 export type ResolvedBy = 'solana_listener' | 'stripe_webhook' | 'ap2_confirm' | 'manual';
 
 export const RESOLVED_BY_VALUES: readonly ResolvedBy[] = [
@@ -235,6 +299,12 @@ export interface IntentResolutionRecord {
   protocol: SettlementProtocol;
   resolvedBy: ResolvedBy;
   resolutionStatus: ResolutionStatus;
+  /** Phase 6: fine-grained engine decision. Null for pre-Phase-6 records. */
+  decisionCode: ResolutionDecision | null;
+  /** Phase 6: machine-readable reason for the decision. */
+  reasonCode: ReasonCode | null;
+  /** Phase 6: engine confidence score, 0.0–1.0. */
+  confidenceScore: number | null;
   externalRef: string | null;
   confirmationDepth: number | null;
   payerRef: string | null;
@@ -291,4 +361,11 @@ export function assertIntentResolutionRecord(
     throw new TypeError(`[Settlement] IntentResolutionRecord.resolutionStatus "${String(e.resolutionStatus)}" is invalid`);
   if (!(RESOLVED_BY_VALUES as readonly unknown[]).includes(e.resolvedBy))
     throw new TypeError(`[Settlement] IntentResolutionRecord.resolvedBy "${String(e.resolvedBy)}" is invalid`);
+  // Phase 6 fields: optional — null for records written before Phase 6
+  if (e.decisionCode !== null && e.decisionCode !== undefined &&
+      !(RESOLUTION_DECISIONS as readonly unknown[]).includes(e.decisionCode))
+    throw new TypeError(`[Settlement] IntentResolutionRecord.decisionCode "${String(e.decisionCode)}" is invalid`);
+  if (e.reasonCode !== null && e.reasonCode !== undefined &&
+      !(REASON_CODES as readonly unknown[]).includes(e.reasonCode))
+    throw new TypeError(`[Settlement] IntentResolutionRecord.reasonCode "${String(e.reasonCode)}" is invalid`);
 }
