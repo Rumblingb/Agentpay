@@ -554,7 +554,7 @@ router.post('/rotate-key', authenticateApiKey, async (c) => {
 
   const sql = createDb(c.env);
   try {
-    const result = await sql`
+    const result = await sql<Array<{ id: string }>>`
       UPDATE merchants
       SET api_key_hash = ${newHash},
           api_key_salt = ${newSalt},
@@ -562,9 +562,12 @@ router.post('/rotate-key', authenticateApiKey, async (c) => {
           updated_at   = NOW()
       WHERE id = ${merchant.id}
         AND is_active = true
+      RETURNING id
     `;
 
-    if (!result.count) {
+    // result.length is reliable because RETURNING ensures the array is non-empty
+    // only when at least one row was updated.
+    if (!result.length) {
       return c.json({ error: 'Merchant not found or inactive' }, 500);
     }
 

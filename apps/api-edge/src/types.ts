@@ -17,9 +17,17 @@
 export interface Env {
   // ── Database ─────────────────────────────────────────────────────────────
   /**
-   * PostgreSQL connection string (Supabase pooled endpoint).
-   * In production this is the Hyperdrive connection string once Hyperdrive
-   * is configured; for the initial pass it is the direct Supabase URL.
+   * PostgreSQL Direct connection string (Supabase port 5432, NOT the pooled
+   * PgBouncer URL on port 6543).
+   *
+   * Use the Direct URL here because:
+   *   - Without Hyperdrive: Workers connect directly to Supabase; using the
+   *     pooled URL wastes a PgBouncer slot per Worker invocation.
+   *   - With Hyperdrive: This secret is not used at runtime — Hyperdrive
+   *     provides its own connection string.  When creating the Hyperdrive
+   *     config in the Cloudflare dashboard, also supply the Direct URL
+   *     (port 5432) as the Hyperdrive source URL to avoid double-pooling.
+   *
    * Always a secret — never put this value in wrangler.toml.
    */
   DATABASE_URL: string;
@@ -67,6 +75,22 @@ export interface Env {
   API_BASE_URL: string;
   /** Merchant-facing dashboard URL (post-payment redirects). */
   FRONTEND_URL: string;
+
+  // ── Runtime environment ───────────────────────────────────────────────────
+  /**
+   * Runtime environment name.
+   * Set to "production" in the Cloudflare Workers dashboard [vars].
+   * Defaults to "development" in wrangler.toml for local dev.
+   * Used to enforce production safety invariants (e.g. block test-mode bypass).
+   */
+  NODE_ENV?: string;
+
+  /**
+   * When "true", activates the test-key bypass in auth middleware.
+   * MUST be absent or "false" in production — enforced by validateEnv().
+   * Mirrors the Node.js backend's AGENTPAY_TEST_MODE check in src/config/env.ts.
+   */
+  AGENTPAY_TEST_MODE?: string;
 }
 
 // ---------------------------------------------------------------------------

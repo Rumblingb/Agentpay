@@ -51,10 +51,10 @@ export async function runReconciliation(env: Env): Promise<void> {
       RETURNING id
     `;
 
-    if (staleResult.count > 0) {
-      anomaliesFound += staleResult.count;
+    if (staleResult.length > 0) {
+      anomaliesFound += staleResult.length;
       console.warn('[cron/reconciliation] STALE_PENDING anomalies found', {
-        count: staleResult.count,
+        count: staleResult.length,
         anomalyType: 'STALE_PENDING',
         severity: 'medium',
         runId,

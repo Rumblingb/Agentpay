@@ -85,7 +85,38 @@ jobs:
             || github.event.after }}
           extra_args: --only-verified
 
-  # ── Job 2: Test suite with database ──────────────────────────────────────
+  # ── Job 3: Workers API type-check and audit ──────────────────────────────
+  workers-typecheck:
+    name: Workers API (apps/api-edge) — type-check & audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: apps/api-edge
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/api-edge/package-lock.json
+
+      - name: Install Workers API dependencies
+        run: npm ci
+
+      - name: Type-check Workers API
+        run: npm run typecheck
+
+      - name: Audit Workers API dependencies (fail on high/critical)
+        run: npm audit --audit-level=high
+
+  # ── Job 4: Test suite with database ──────────────────────────────────────
   test:
     name: Node 20 / Postgres 15
     runs-on: ubuntu-latest

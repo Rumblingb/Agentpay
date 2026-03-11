@@ -12,9 +12,18 @@
 # ============================================================
 
 # ── Database ──────────────────────────────────────────────────────────────
-# PostgreSQL connection string for Supabase (pooled mode).
-# In production this is also used as the Hyperdrive source URL.
-# Format: postgres://user:password@host:5432/dbname?sslmode=require
+# PostgreSQL Direct connection string (Supabase port 5432, NOT the pooled
+# PgBouncer URL on port 6543).
+#
+# Use the Direct URL because:
+#   - Without Hyperdrive: Workers connect directly to Supabase; the pooled URL
+#     wastes a PgBouncer slot per Worker invocation.
+#   - With Hyperdrive: This value is not used at runtime (Hyperdrive provides
+#     its own connection string).  When creating the Hyperdrive config in the
+#     Cloudflare dashboard, also supply the Direct URL as the source URL —
+#     Hyperdrive does its own pooling and double-pooling causes errors.
+#
+# Format (Direct URL): postgres://user:password@db.XXX.supabase.co:5432/postgres
 DATABASE_URL=
 
 # ── Required secrets ──────────────────────────────────────────────────────

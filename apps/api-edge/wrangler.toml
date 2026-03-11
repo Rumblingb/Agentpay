@@ -29,6 +29,12 @@ API_BASE_URL = "http://localhost:8787"
 # Merchant-facing dashboard URL (used in Stripe redirect URLs).
 FRONTEND_URL = "http://localhost:3000"
 
+# Runtime environment — MUST be overridden to "production" in the Cloudflare
+# Workers dashboard (Settings → Variables) before going live.
+# This value is used by validateEnv() to enforce production safety invariants
+# (e.g. AGENTPAY_TEST_MODE cannot be "true" in production).
+NODE_ENV = "development"
+
 # ---------------------------------------------------------------------------
 # Secrets — NEVER put real values here.
 # Set with: wrangler secret put <SECRET_NAME>
@@ -46,12 +52,20 @@ FRONTEND_URL = "http://localhost:3000"
 
 # ---------------------------------------------------------------------------
 # Hyperdrive — Cloudflare's connection pooler for Supabase Postgres.
-# Uncomment and fill in binding + Hyperdrive ID once you create a Hyperdrive
-# config in the Cloudflare dashboard:
-#   https://developers.cloudflare.com/hyperdrive/get-started/
+# Docs: https://developers.cloudflare.com/hyperdrive/get-started/
 #
-# After creating Hyperdrive, replace <HYPERDRIVE_CONFIG_ID> with the real ID
-# and set DATABASE_URL in the Cloudflare dashboard (not here — it's a secret).
+# IMPORTANT — use the Supabase DIRECT URL (port 5432) as the Hyperdrive
+# source URL, NOT the pooled/PgBouncer URL (port 6543).  Hyperdrive does
+# its own connection pooling; routing it through PgBouncer creates
+# double-pooling that causes connection errors and latency spikes.
+#
+# To enable:
+#   1. Create a Hyperdrive config in the Cloudflare dashboard using the
+#      Supabase Direct URL (e.g. postgres://user:pass@db.XXX.supabase.co:5432/postgres)
+#   2. Replace <HYPERDRIVE_CONFIG_ID> below with the generated config ID.
+#   3. Uncomment the [[hyperdrive]] block.
+#   4. After enabling Hyperdrive, DATABASE_URL is no longer used at runtime
+#      (the HYPERDRIVE binding provides the connection string).
 # ---------------------------------------------------------------------------
 # [[hyperdrive]]
 # binding = "HYPERDRIVE"

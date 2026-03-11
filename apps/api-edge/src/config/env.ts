@@ -91,6 +91,18 @@ export function validateEnv(env: Env): void {
       );
     }
   }
+
+  // Production safety invariant — mirrors src/config/env.ts line ~166.
+  // If NODE_ENV is "production" (set in Cloudflare dashboard [vars]), reject any
+  // deployment that still has AGENTPAY_TEST_MODE=true.  This preserves the
+  // fail-closed behavior of the original Express backend, preventing an
+  // accidental beta cutover with the test-key bypass open.
+  if (env.NODE_ENV === 'production' && env.AGENTPAY_TEST_MODE === 'true') {
+    throw new EnvValidationError(
+      '[FATAL] AGENTPAY_TEST_MODE=true is not allowed in production. ' +
+        'Remove AGENTPAY_TEST_MODE from the Workers dashboard variables or set it to false.',
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

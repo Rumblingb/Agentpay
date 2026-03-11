@@ -189,7 +189,13 @@ router.post('/', async (c) => {
 
   // Start processing but don't await — return 200 immediately.
   // ctx.waitUntil keeps the Worker alive until processStripeEvent() resolves.
-  c.executionCtx.waitUntil(processStripeEvent());
+  // The outer .catch handles any unexpected throw that escapes the inner
+  // try-catch inside processStripeEvent (e.g. a synchronous error at setup).
+  c.executionCtx.waitUntil(
+    processStripeEvent().catch((err: unknown) => {
+      console.error('[stripe-webhook] unhandled error in processStripeEvent:', err instanceof Error ? err.message : String(err));
+    }),
+  );
 
   return c.json({ received: true });
 });

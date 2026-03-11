@@ -85,9 +85,10 @@ export async function authenticateApiKey(
     }
 
     // 4. Test-mode bypass — matches src/middleware/auth.ts TEST_KEYS list.
-    //    AGENTPAY_TEST_MODE is a Workers [vars] binding (string "true"/"false").
-    const testMode =
-      (c.env as unknown as Record<string, string>)['AGENTPAY_TEST_MODE'] === 'true';
+    //    AGENTPAY_TEST_MODE is a Workers [vars] binding (optional string "true"/"false").
+    //    validateEnv() rejects "true" in NODE_ENV=production so this branch is
+    //    unreachable in production deployments.
+    const testMode = c.env.AGENTPAY_TEST_MODE === 'true';
     const TEST_KEYS = ['sk_test_sim', 'sk_test_sim_12345'];
     if (testMode && TEST_KEYS.includes(apiKey)) {
       console.info('[auth] test-mode bypass');
