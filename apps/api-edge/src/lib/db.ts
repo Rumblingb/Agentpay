@@ -43,19 +43,25 @@ export type Sql = ReturnType<typeof postgres>;
  * Prefer HYPERDRIVE.connectionString when the binding is available (production).
  * Falls back to DATABASE_URL for local `wrangler dev` and CI.
  */
-export function createDb(env: Env): Sql {
-  // HYPERDRIVE binding is optional — present only in production once configured.
-  const connectionString =
-    (env as unknown as Record<string, { connectionString?: string }>)['HYPERDRIVE']
-      ?.connectionString ?? env.DATABASE_URL;
 
-  return postgres(connectionString, {
-    max: 1,
-    idle_timeout: 20,   // seconds — close idle connections quickly in Workers
-    connect_timeout: 10, // seconds
-    // Supabase requires SSL; 'require' skips certificate verification so that
-    // both direct-URL and Hyperdrive-proxied connections work without extra
-    // certificate configuration.
-    ssl: 'require',
-  });
+
+export function createDb(env: Env): Sql {
+  const hyperdrive = (env as unknown as Record<string, { connectionString?: string }>)["HYPERDRIVE"]?.connectionString;
+
+  const connectionString = hyperdrive ?? env.DATABASE_URL;
+  const usingHyperdrive = Boolean(hyperdrive);
+
+  return postgres(connectionString, usingHyperdrive
+    ? {
+        max: 5,
+        fetch_types: false,
+        prepare: true,
+        connect_timeout: 10,
+      }
+    : {
+        max: 1,
+        idle_timeout: 20,
+        connect_timeout: 10,
+        ssl: "require",
+      });
 }

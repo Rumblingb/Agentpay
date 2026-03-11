@@ -25,6 +25,7 @@ import { receiptRouter } from './routes/receipt';
 import { webhooksRouter } from './routes/webhooks';
 import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 import { stubsRouter } from './routes/stubs';
+
 import { scheduledHandler } from './cron';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,9 @@ app.use('*', globalPauseMiddleware);
 
 // Health checks — mounted first; exempt from env validation above.
 app.route('/', healthRouter);
+
+// Temporary DB diagnostic route — /api/_debug/db
+
 
 // Merchant / account routes — /api/merchants/*
 app.route('/api/merchants', merchantsRouter);

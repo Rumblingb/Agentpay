@@ -1,97 +1,24 @@
-# Cloudflare Workers configuration for AgentPay public API
-# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
-
 name = "agentpay-api"
 main = "src/index.ts"
-
-# Use a recent compatibility date so modern Web APIs (crypto, URL, Headers …)
-# are available without needing compatibility flags.
 compatibility_date = "2024-09-23"
-
-# nodejs_compat: enables Node.js-compatible built-ins (net, tls, crypto …)
-# Required by the `postgres` npm package so it can open TCP sockets to Supabase
-# (or to a Hyperdrive connection pooler in production).
 compatibility_flags = ["nodejs_compat"]
 
-# ---------------------------------------------------------------------------
-# Non-sensitive runtime variables
-# Set actual values in the Cloudflare dashboard or via `wrangler deploy --var`
-# ---------------------------------------------------------------------------
 [vars]
-# Comma-separated list of allowed CORS origins.
-# e.g. "https://apay-delta.vercel.app,https://dashboard.agentpay.gg"
-CORS_ORIGIN = "http://localhost:3000"
+CORS_ORIGIN = "apay-delta.vercel.app"
+API_BASE_URL = "https://agentpay-api.apaybeta.workers.dev"
+FRONTEND_URL = "apay-delta.vercel.app"
+NODE_ENV = "production"
 
-# Public base URL of this Workers deployment.
-# e.g. "https://agentpay-api.workers.dev" or your custom domain.
-API_BASE_URL = "http://localhost:8787"
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "be606bac9fde4493b21fff2e085eb82c"
 
-# Merchant-facing dashboard URL (used in Stripe redirect URLs).
-FRONTEND_URL = "http://localhost:3000"
-
-# Runtime environment — MUST be overridden to "production" in the Cloudflare
-# Workers dashboard (Settings → Variables) before going live.
-# This value is used by validateEnv() to enforce production safety invariants
-# (e.g. AGENTPAY_TEST_MODE cannot be "true" in production).
-NODE_ENV = "development"
-
-# ---------------------------------------------------------------------------
-# Secrets — NEVER put real values here.
-# Set with: wrangler secret put <SECRET_NAME>
-# Or for local dev: add to .dev.vars (see .dev.vars.example)
-#
-# Required secrets:
-#   DATABASE_URL
-#   WEBHOOK_SECRET
-#   AGENTPAY_SIGNING_SECRET
-#   VERIFICATION_SECRET
-#   ADMIN_SECRET_KEY
-#   STRIPE_SECRET_KEY          (optional — only if Stripe is enabled)
-#   STRIPE_WEBHOOK_SECRET      (optional — only if Stripe is enabled)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Hyperdrive — Cloudflare's connection pooler for Supabase Postgres.
-# Docs: https://developers.cloudflare.com/hyperdrive/get-started/
-#
-# IMPORTANT — use the Supabase DIRECT URL (port 5432) as the Hyperdrive
-# source URL, NOT the pooled/PgBouncer URL (port 6543).  Hyperdrive does
-# its own connection pooling; routing it through PgBouncer creates
-# double-pooling that causes connection errors and latency spikes.
-#
-# To enable:
-#   1. Create a Hyperdrive config in the Cloudflare dashboard using the
-#      Supabase Direct URL (e.g. postgres://user:pass@db.XXX.supabase.co:5432/postgres)
-#   2. Replace <HYPERDRIVE_CONFIG_ID> below with the generated config ID.
-#   3. Uncomment the [[hyperdrive]] block.
-#   4. After enabling Hyperdrive, DATABASE_URL is no longer used at runtime
-#      (the HYPERDRIVE binding provides the connection string).
-# ---------------------------------------------------------------------------
-# [[hyperdrive]]
-# binding = "HYPERDRIVE"
-# id = "<HYPERDRIVE_CONFIG_ID>"
-
-# ---------------------------------------------------------------------------
-# Local development server settings
-# ---------------------------------------------------------------------------
 [dev]
 port = 8787
 local_protocol = "http"
 
-# ---------------------------------------------------------------------------
-# Cron Triggers — background jobs migrated from Render daemons.
-# These replace the setInterval-based daemons in src/services/*.
-#
-# Triggers the `scheduled` export in src/index.ts.
-# Use `wrangler dev --test-scheduled` to test cron triggers locally:
-#   curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
-#
-# Minimum interval: 1 minute (Cloudflare limitation).
-# The Solana listener (30-second poll) is NOT migrated here — it remains
-# on Render until a Durable Object alarm implementation is ready.
-# ---------------------------------------------------------------------------
 [triggers]
 crons = [
-  "*/5 * * * *",   # Liquidity cron (every 5 min — mirrors liquidityService.ts)
-  "*/15 * * * *",  # Reconciliation (every 15 min — mirrors reconciliationDaemon.ts)
+  "*/5 * * * *",
+  "*/15 * * * *",
 ]

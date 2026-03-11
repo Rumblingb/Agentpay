@@ -30,10 +30,21 @@ router.get('/:txHash', async (c) => {
   const { txHash } = c.req.param();
 
   if (!txHash || !TX_HASH_PATTERN.test(txHash)) {
-    return c.json({ error: 'Invalid or missing txHash format' }, 400);
+    return c.json(
+      {
+        verified: false,
+        intentId: null,
+        agentId: null,
+        merchantId: null,
+        settlementTimestamp: null,
+        error: 'Invalid or missing txHash format',
+      },
+      400,
+    );
   }
 
   const sql = createDb(c.env);
+
   try {
     const rows = await sql<
       Array<{
@@ -41,13 +52,14 @@ router.get('/:txHash', async (c) => {
         merchantId: string;
         agentId: string | null;
         status: string;
-        createdAt: Date;
+        createdAt: Date | string | null;
       }>
     >`
       SELECT id, merchant_id AS "merchantId", agent_id AS "agentId",
              status, created_at AS "createdAt"
       FROM transactions
       WHERE transaction_hash = ${txHash}
+      LIMIT 1
     `;
 
     const row = rows[0] ?? null;
@@ -62,14 +74,30 @@ router.get('/:txHash', async (c) => {
         row?.createdAt != null ? new Date(row.createdAt).toISOString() : null,
     };
 
-    // Sign the payload with WEBHOOK_SECRET (matches Express verify.ts behaviour).
-    // The legacy AGENTPAY_HMAC_SECRET fallback is intentionally removed here.
     const signature = await hmacSign(JSON.stringify(payload), c.env.WEBHOOK_SECRET);
 
     return c.json({ ...payload, signature });
   } catch (err: unknown) {
     console.error('[verify] error:', err instanceof Error ? err.message : err);
-    return c.json({ error: 'Failed to verify transaction' }, 500);
+
+    const payload = {
+      verified: false,
+      intentId: null,
+      agentId: null,
+      merchantId: null,
+      settlementTimestamp: null,
+    };
+
+    try {
+      const signature = await hmacSign(JSON.stringify(payload), c.env.WEBHOOK_SECRET);
+      return c.json({ ...payload, signature, error: 'verification_failed' });
+    } catch (signErr) {
+      console.error(
+        '[verify] signing fallback error:',
+        signErr instanceof Error ? signErr.message : signErr,
+      );
+      return c.json({ ...payload, error: 'verification_failed' });
+    }
   } finally {
     sql.end().catch(() => {});
   }
