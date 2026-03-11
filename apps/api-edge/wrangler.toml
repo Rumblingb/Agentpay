@@ -63,3 +63,21 @@ FRONTEND_URL = "http://localhost:3000"
 [dev]
 port = 8787
 local_protocol = "http"
+
+# ---------------------------------------------------------------------------
+# Cron Triggers — background jobs migrated from Render daemons.
+# These replace the setInterval-based daemons in src/services/*.
+#
+# Triggers the `scheduled` export in src/index.ts.
+# Use `wrangler dev --test-scheduled` to test cron triggers locally:
+#   curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
+#
+# Minimum interval: 1 minute (Cloudflare limitation).
+# The Solana listener (30-second poll) is NOT migrated here — it remains
+# on Render until a Durable Object alarm implementation is ready.
+# ---------------------------------------------------------------------------
+[triggers]
+crons = [
+  "*/5 * * * *",   # Liquidity cron (every 5 min — mirrors liquidityService.ts)
+  "*/15 * * * *",  # Reconciliation (every 15 min — mirrors reconciliationDaemon.ts)
+]

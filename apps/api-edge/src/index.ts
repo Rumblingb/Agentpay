@@ -25,6 +25,7 @@ import { receiptRouter } from './routes/receipt';
 import { webhooksRouter } from './routes/webhooks';
 import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 import { stubsRouter } from './routes/stubs';
+import { scheduledHandler } from './cron';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -131,6 +132,11 @@ app.onError((err, c) => {
 
 // ---------------------------------------------------------------------------
 // Export — required by the Workers runtime.
+// The module export format enables both the HTTP fetch handler (Hono app)
+// and the Cron Trigger scheduled handler to be exported from the same file.
 // ---------------------------------------------------------------------------
 
-export default app;
+export default {
+  fetch: app.fetch.bind(app),
+  scheduled: scheduledHandler,
+};
