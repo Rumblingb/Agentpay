@@ -257,8 +257,8 @@ describe('GET /api/verify/:txHash', () => {
     const savedSecret = process.env.WEBHOOK_SECRET;
     delete process.env.WEBHOOK_SECRET;
     delete process.env.AGENTPAY_HMAC_SECRET;
-    // No DB mock needed: secret check happens before any DB queries and exits early.
-    // Providing a mock defensively to guard against future reordering.
+    // The secret check happens before any DB queries, so no DB calls are made.
+    // mockQuery is set as a catch-all to prevent any unexpected DB interaction.
     mockQuery.mockResolvedValue({ rows: [] });
 
     const res = await request(app).get(`/api/verify/${VALID_SOLANA_HASH}`);

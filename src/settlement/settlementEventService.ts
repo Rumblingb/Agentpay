@@ -39,6 +39,10 @@ function toRecord(row: {
   protocol: string;
   externalRef: string | null;
   payload: unknown;
+  proofSource?: string | null;
+  rawProofSignature?: string | null;
+  details?: unknown;
+  observedAt?: Date | null;
   createdAt: Date;
 }): SettlementEventRecord {
   return {
@@ -49,6 +53,10 @@ function toRecord(row: {
     protocol: row.protocol as SettlementProtocol,
     externalRef: row.externalRef,
     payload: (row.payload as Record<string, unknown>) ?? {},
+    proofSource: row.proofSource ?? null,
+    rawProofSignature: row.rawProofSignature ?? null,
+    details: (row.details as Record<string, unknown> | null) ?? null,
+    observedAt: row.observedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -87,6 +95,10 @@ export function emitSettlementEvent(params: EmitSettlementEventParams): string {
     intentId,
     externalRef,
     payload,
+    proofSource,
+    rawProofSignature,
+    details,
+    observedAt,
   } = params;
 
   // Fire-and-forget — never block the caller
@@ -100,6 +112,10 @@ export function emitSettlementEvent(params: EmitSettlementEventParams): string {
         intentId: intentId ?? null,
         externalRef: externalRef ?? null,
         payload: (payload ?? {}) as object,
+        proofSource: proofSource ?? null,
+        rawProofSignature: rawProofSignature ?? null,
+        details: details ? (details as object) : undefined,
+        observedAt: observedAt ?? null,
       },
     })
     .then(() => {

@@ -45,6 +45,8 @@ function toRecord(row: {
   status: string;
   settledAt: Date | null;
   metadata: unknown;
+  isPrimary: boolean;
+  priority: number;
   createdAt: Date;
   updatedAt: Date;
 }): SettlementIdentityRecord {
@@ -56,6 +58,8 @@ function toRecord(row: {
     status: row.status as SettlementIdentityStatus,
     settledAt: row.settledAt?.toISOString() ?? null,
     metadata: (row.metadata as Record<string, unknown>) ?? {},
+    isPrimary: row.isPrimary,
+    priority: row.priority,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -78,7 +82,7 @@ function toRecord(row: {
 export async function createSettlementIdentity(
   params: CreateSettlementIdentityParams,
 ): Promise<SettlementIdentityRecord> {
-  const { intentId, protocol, externalRef, metadata } = params;
+  const { intentId, protocol, externalRef, metadata, isPrimary, priority } = params;
 
   const row = await prisma.settlementIdentity.create({
     data: {
@@ -87,6 +91,8 @@ export async function createSettlementIdentity(
       externalRef: externalRef ?? null,
       status: 'pending',
       metadata: (metadata ?? {}) as object,
+      isPrimary: isPrimary ?? false,
+      priority: priority ?? 0,
     },
   });
 
@@ -95,6 +101,8 @@ export async function createSettlementIdentity(
     intentId,
     protocol,
     externalRef: externalRef ?? null,
+    isPrimary: row.isPrimary,
+    priority: row.priority,
   });
 
   return toRecord(row);
