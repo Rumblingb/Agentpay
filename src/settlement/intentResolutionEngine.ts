@@ -700,7 +700,7 @@ async function loadMatchingPolicy(
   return {
     id: row.id,
     protocol: row.protocol as SettlementProtocol,
-    matchStrategy: row.matchStrategy,
+    matchStrategy: row.matchStrategy as MatchStrategy,
     requireMemoMatch: row.requireMemoMatch,
     confirmationDepth: row.confirmationDepth,
     ttlSeconds: row.ttlSeconds,
