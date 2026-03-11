@@ -26,6 +26,11 @@ import { Hono, type Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
+import { toSettlementProtocol } from '../lib/settlement';
+import {
+  insertSettlementIdentity,
+  resolveMatchingPolicy,
+} from '../lib/settlementDb';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -232,6 +237,36 @@ router.post('/', authenticateApiKey, async (c) => {
 
     const solanaPayUri = `solana:${walletAddress}?amount=${amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(verificationToken)}`;
 
+    // ── Phase 4: settlement identity + matching policy ─────────────────────
+    // Both calls are best-effort: errors are caught internally and return
+    // null / hard-coded defaults. A settlement failure must not fail intent
+    // creation — the response just omits the `settlement` field.
+    const settlementProtocol = toSettlementProtocol(protocol as string | undefined) ?? 'solana';
+    const [settlementIdentity, matchingPolicy] = await Promise.all([
+      insertSettlementIdentity(sql, {
+        intentId,
+        protocol: settlementProtocol,
+        policySnapshot: { verificationToken, protocol: settlementProtocol },
+      }),
+      resolveMatchingPolicy(sql, settlementProtocol),
+    ]);
+
+    const settlement = settlementIdentity
+      ? {
+          settlementIdentityId: settlementIdentity.id,
+          protocol: matchingPolicy.protocol,
+          matchStrategy: matchingPolicy.matchStrategy,
+          requireMemoMatch: matchingPolicy.requireMemoMatch,
+          confirmationDepth: matchingPolicy.confirmationDepth,
+          ttlSeconds: matchingPolicy.ttlSeconds,
+          identityMode: matchingPolicy.identityMode,
+          amountMode: matchingPolicy.amountMode,
+          allowedProofSource: matchingPolicy.allowedProofSource,
+          feeSourcePolicy: matchingPolicy.feeSourcePolicy,
+          status: 'pending' as const,
+        }
+      : undefined;
+
     console.info('[intents] created', { intentId, merchantId: merchant.id });
 
     return c.json(
@@ -245,6 +280,7 @@ router.post('/', authenticateApiKey, async (c) => {
           memo: verificationToken,
           solanaPayUri,
         },
+        ...(settlement !== undefined ? { settlement } : {}),
       },
       201,
     );

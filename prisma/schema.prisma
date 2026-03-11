@@ -111,12 +111,18 @@ model PaymentIntent {
   protocol          String?
   verificationToken String    @unique @map("verification_token")
   expiresAt         DateTime  @map("expires_at")
+  // First-class protocol-specific external reference.
+  // Replaces the metadata->>'tx_hash' side-channel used by the Solana listener.
+  // Populated when an agent submits a transaction hash via POST /:intentId/verify.
+  externalRef       String?   @map("external_ref")
   metadata          Json?
   createdAt         DateTime? @default(now()) @map("created_at")
   updatedAt         DateTime? @updatedAt @map("updated_at")
 
-  merchant Merchant @relation(fields: [merchantId], references: [id])
-  agent    Agent?   @relation(fields: [agentId], references: [id])
+  merchant             Merchant              @relation(fields: [merchantId], references: [id])
+  agent                Agent?                @relation(fields: [agentId], references: [id])
+  settlementIdentities SettlementIdentity[]
+  resolution           IntentResolution?
 
   @@map("payment_intents")
 }
@@ -382,4 +388,133 @@ model CoordinatedTransaction {
   completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
 
   @@map("coordinated_transactions")
+}
+
+// ─── Phase 2: Settlement Identity Layer ──────────────────────────────────────
+//
+// These four models implement protocol-native settlement matching without
+// touching existing payment or intent tables. All changes are additive.
+//
+// Relationship summary:
+//   PaymentIntent ──< SettlementIdentity ──< SettlementEvent
+//   PaymentIntent ──  IntentResolution   ──> SettlementIdentity
+//   MatchingPolicy is a standalone config table (no FK to other models)
+
+// One record per (intent, protocol) pair. Links a payment intent to the
+// external proof of settlement for a specific protocol rail.
+// Replaces the scattered metadata->>'tx_hash' / stripe_payment_reference
+// side-channels with a first-class, indexed, protocol-aware record.
+model SettlementIdentity {
+  id          String    @id @default(uuid()) @db.Uuid
+  intentId    String    @map("intent_id") @db.Uuid
+  protocol    String
+  // Protocol-specific external reference: Solana txHash, Stripe sessionId,
+  // AP2 verificationToken, etc. Nullable until the payer submits proof.
+  externalRef String?   @map("external_ref")
+  status      String    @default("pending")
+  settledAt   DateTime? @map("settled_at") @db.Timestamptz(6)
+  metadata    Json?     @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  intent     PaymentIntent     @relation(fields: [intentId], references: [id])
+  events     SettlementEvent[]
+  resolution IntentResolution?
+
+  @@index([intentId])
+  @@index([externalRef])
+  @@index([protocol])
+  @@index([status])
+  @@map("settlement_identities")
+}
+
+// Per-protocol configuration for how settlement evidence is matched to intents.
+// Seeded at migration time with defaults for every supported protocol.
+// Operators can update rows to tune matching behaviour without code deploys.
+model MatchingPolicy {
+  id                String   @id @default(uuid()) @db.Uuid
+  // One active policy per protocol (enforced at application layer, not DB unique,
+  // to allow A/B policy testing via is_active flag).
+  protocol          String
+  // How to identify the payer's proof: by_recipient | by_memo | by_external_ref
+  matchStrategy     String   @map("match_strategy")
+  // If true, the Solana Pay memo must equal payment_intents.verification_token.
+  requireMemoMatch  Boolean  @default(false) @map("require_memo_match")
+  // Minimum on-chain confirmations required before marking a Solana payment confirmed.
+  confirmationDepth Int      @default(2) @map("confirmation_depth")
+  // Seconds from intent creation until it auto-expires.
+  ttlSeconds        Int      @default(1800) @map("ttl_seconds")
+  isActive          Boolean  @default(true) @map("is_active")
+  // Extra protocol-specific knobs (e.g. Stripe currency codes, AP2 TTL overrides).
+  config            Json?    @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([protocol])
+  @@index([isActive])
+  @@map("matching_policies")
+}
+
+// Append-only event log for every state change in the settlement lifecycle.
+// Mirrors the role of trust_events for the settlement domain — immutable, indexed,
+// and decoupled from the intent/transaction tables.
+model SettlementEvent {
+  id                   String    @id @default(cuid())
+  // FK to settlement_identities; nullable because events can be emitted before
+  // a SettlementIdentity record exists (e.g. premature hash submission).
+  settlementIdentityId String?   @map("settlement_identity_id") @db.Uuid
+  // Denormalised intent reference for fast per-intent event queries.
+  intentId             String?   @map("intent_id") @db.Uuid
+  // Discriminates the lifecycle step:
+  // hash_submitted | on_chain_confirmed | webhook_received
+  // | resolution_failed | expired | policy_mismatch
+  eventType            String    @map("event_type")
+  protocol             String
+  externalRef          String?   @map("external_ref")
+  payload              Json      @default("{}")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id])
+
+  @@index([settlementIdentityId])
+  @@index([intentId])
+  @@index([eventType])
+  @@index([createdAt(sort: Desc)])
+  @@map("settlement_events")
+}
+
+// One record per intent. Written exactly once when the resolution engine
+// finalises the outcome (confirmed / failed / disputed / expired).
+// Provides a single, queryable source of truth for "was this intent paid?"
+// without requiring a join across payment_intents + transactions.
+model IntentResolution {
+  id                   String    @id @default(uuid()) @db.Uuid
+  intentId             String    @unique @map("intent_id") @db.Uuid
+  // FK to the SettlementIdentity that provided the winning proof.
+  // Null for resolutions that close without on-chain evidence (e.g. expired).
+  // @unique ensures at most one IntentResolution per SettlementIdentity.
+  settlementIdentityId String?   @unique @map("settlement_identity_id") @db.Uuid
+  protocol             String
+  // Which subsystem wrote this record:
+  // solana_listener | stripe_webhook | ap2_confirm | manual
+  resolvedBy           String    @map("resolved_by")
+  // confirmed | failed | disputed | expired
+  resolutionStatus     String    @map("resolution_status")
+  externalRef          String?   @map("external_ref")
+  confirmationDepth    Int?      @map("confirmation_depth")
+  // Payer address (Solana wallet) or Stripe customer ID — protocol-specific.
+  payerRef             String?   @map("payer_ref")
+  resolvedAt           DateTime  @map("resolved_at") @db.Timestamptz(6)
+  metadata             Json?     @default("{}")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  intent             PaymentIntent       @relation(fields: [intentId], references: [id])
+  // onDelete: Restrict — a SettlementIdentity named as the winning proof cannot
+  // be deleted while this resolution record exists, preserving the audit trail.
+  settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id], onDelete: Restrict)
+
+  @@index([intentId])
+  @@index([externalRef])
+  @@index([resolutionStatus])
+  @@map("intent_resolutions")
 }
