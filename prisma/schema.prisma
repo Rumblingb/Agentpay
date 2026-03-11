@@ -500,6 +500,13 @@ model IntentResolution {
   resolvedBy           String    @map("resolved_by")
   // confirmed | failed | disputed | expired
   resolutionStatus     String    @map("resolution_status")
+  // Phase 6: fine-grained decision from the resolution engine
+  // matched | matched_with_external_fee | partial_match | underpaid | overpaid | unmatched | rejected
+  decisionCode         String?   @map("decision_code")
+  // Phase 6: machine-readable reason for the decision
+  reasonCode           String?   @map("reason_code")
+  // Phase 6: engine confidence score (0.000 – 1.000)
+  confidenceScore      Decimal?  @map("confidence_score") @db.Decimal(4, 3)
   externalRef          String?   @map("external_ref")
   confirmationDepth    Int?      @map("confirmation_depth")
   // Payer address (Solana wallet) or Stripe customer ID — protocol-specific.
@@ -516,5 +523,6 @@ model IntentResolution {
   @@index([intentId])
   @@index([externalRef])
   @@index([resolutionStatus])
+  @@index([decisionCode])
   @@map("intent_resolutions")
 }

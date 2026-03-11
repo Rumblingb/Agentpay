@@ -784,6 +784,26 @@ const migrations = [
         AND is_active = true;
     `,
   },
+
+  // ── 034 Phase 6: Resolution engine columns on intent_resolutions ───────────
+  // Adds three nullable columns that the Phase 6 intent resolution engine writes:
+  //   decision_code    — fine-grained outcome (matched, underpaid, overpaid, …)
+  //   reason_code      — machine-readable reason (recipient_mismatch, memo_missing, …)
+  //   confidence_score — engine confidence 0.000–1.000
+  // All columns are nullable for backwards compatibility with pre-Phase-6 rows.
+  {
+    name: '034_phase6_resolution_engine_columns',
+    sql: `
+      ALTER TABLE intent_resolutions
+        ADD COLUMN IF NOT EXISTS decision_code     TEXT,
+        ADD COLUMN IF NOT EXISTS reason_code       TEXT,
+        ADD COLUMN IF NOT EXISTS confidence_score  NUMERIC(4,3);
+
+      CREATE INDEX IF NOT EXISTS idx_ir_decision_code
+        ON intent_resolutions(decision_code)
+        WHERE decision_code IS NOT NULL;
+    `,
+  },
 ];
 
 async function migrate() {

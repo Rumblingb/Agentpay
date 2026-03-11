@@ -144,6 +144,98 @@ export const RESOLUTION_STATUSES: readonly ResolutionStatus[] = [
 // ---------------------------------------------------------------------------
 
 /**
+ * Fine-grained engine decision (Phase 6 Resolution Engine).
+ *
+ * These are richer than ResolutionStatus and are stored in
+ * intent_resolutions.decision_code.  Each maps to exactly one ResolutionStatus
+ * (see toResolutionStatus() in intentResolutionEngine.ts).
+ *
+ * matched                  — all checks passed; identity + exact amount + memo
+ * matched_with_external_fee — amount short by ≤ fee tolerance (e.g. exchange fee)
+ * partial_match            — identity ok, amount short beyond fee tolerance but < 5%
+ * underpaid                — amount significantly below expected
+ * overpaid                 — amount exceeds expected (policy typically accepts this)
+ * unmatched                — identity check failed; proof is for a different intent
+ * rejected                 — policy explicitly rejects (memo required but absent, etc.)
+ */
+export type ResolutionDecision =
+  | 'matched'
+  | 'matched_with_external_fee'
+  | 'partial_match'
+  | 'underpaid'
+  | 'overpaid'
+  | 'unmatched'
+  | 'rejected';
+
+export const RESOLUTION_DECISIONS: readonly ResolutionDecision[] = [
+  'matched',
+  'matched_with_external_fee',
+  'partial_match',
+  'underpaid',
+  'overpaid',
+  'unmatched',
+  'rejected',
+] as const;
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Machine-readable reason codes for resolution decisions (Phase 6).
+ *
+ * Negative reasons (identity, amount, meta failures):
+ *   memo_missing           — memo field absent from proof (requireMemoMatch=true)
+ *   memo_mismatch          — memo present but does not match verificationToken
+ *   amount_mismatch        — observed amount differs from expected beyond tolerance
+ *   external_fee_detected  — amount short by ≤ fee tolerance (exchange fee deducted)
+ *   recipient_mismatch     — Solana recipient did not match merchant wallet
+ *   no_matching_policy     — no active matching policy found for this protocol
+ *   no_settlement_identity — no settlement identity exists for this intent+protocol
+ *   no_intent_candidate    — no payment intent found in DB matching this proof
+ *   external_ref_mismatch  — externalRef did not match settlement identity
+ *   proof_unconfirmed      — observedStatus is not 'confirmed'
+ *   protocol_not_supported — protocol not yet handled by the engine
+ *
+ * Positive reasons (all-clear codes):
+ *   identity_confirmed     — identity check passed
+ *   exact_amount           — amount exactly matched intent
+ *   overpay_accepted       — overpayment accepted per policy
+ */
+export type ReasonCode =
+  | 'memo_missing'
+  | 'memo_mismatch'
+  | 'amount_mismatch'
+  | 'external_fee_detected'
+  | 'recipient_mismatch'
+  | 'no_matching_policy'
+  | 'no_settlement_identity'
+  | 'no_intent_candidate'
+  | 'identity_confirmed'
+  | 'exact_amount'
+  | 'overpay_accepted'
+  | 'proof_unconfirmed'
+  | 'external_ref_mismatch'
+  | 'protocol_not_supported';
+
+export const REASON_CODES: readonly ReasonCode[] = [
+  'memo_missing',
+  'memo_mismatch',
+  'amount_mismatch',
+  'external_fee_detected',
+  'recipient_mismatch',
+  'no_matching_policy',
+  'no_settlement_identity',
+  'no_intent_candidate',
+  'identity_confirmed',
+  'exact_amount',
+  'overpay_accepted',
+  'proof_unconfirmed',
+  'external_ref_mismatch',
+  'protocol_not_supported',
+] as const;
+
+// ---------------------------------------------------------------------------
+
+/**
  * Which subsystem wrote an IntentResolution record.
  *
  * solana_listener  — background polling loop confirmed on-chain
@@ -341,7 +433,12 @@ export interface EmitSettlementEventParams {
 
 /**
  * IntentResolution domain record.
- * Mirrors the intent_resolutions DB table (Phase 2 schema).
+ * Mirrors the intent_resolutions DB table (Phase 2+6 schema).
+ *
+ * Phase 6 adds three engine-specific fields:
+ *   decisionCode    — fine-grained ResolutionDecision from the engine
+ *   reasonCode      — machine-readable reason for that decision
+ *   confidenceScore — engine confidence, 0.000–1.000
  */
 export interface IntentResolutionRecord {
   id: string;
@@ -350,6 +447,12 @@ export interface IntentResolutionRecord {
   protocol: SettlementProtocol;
   resolvedBy: ResolvedBy;
   resolutionStatus: ResolutionStatus;
+  /** Phase 6: fine-grained engine decision. Null for records written before Phase 6. */
+  decisionCode: ResolutionDecision | null;
+  /** Phase 6: machine-readable reason for the decision. */
+  reasonCode: ReasonCode | null;
+  /** Phase 6: engine confidence score, 0.0 – 1.0. */
+  confidenceScore: number | null;
   externalRef: string | null;
   confirmationDepth: number | null;
   payerRef: string | null;
@@ -372,6 +475,12 @@ export interface ResolveIntentParams {
   confirmationDepth?: number;
   /** Protocol-specific payer reference: Solana wallet or Stripe customer ID. */
   payerRef?: string;
+  /** Phase 6: fine-grained engine decision. */
+  decisionCode?: ResolutionDecision;
+  /** Phase 6: machine-readable reason for the decision. */
+  reasonCode?: ReasonCode;
+  /** Phase 6: engine confidence score (0.0 – 1.0). */
+  confidenceScore?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -421,4 +530,11 @@ export function assertIntentResolutionRecord(
     throw new TypeError(`[Settlement] IntentResolutionRecord.resolutionStatus "${String(e.resolutionStatus)}" is invalid`);
   if (!(RESOLVED_BY_VALUES as readonly unknown[]).includes(e.resolvedBy))
     throw new TypeError(`[Settlement] IntentResolutionRecord.resolvedBy "${String(e.resolvedBy)}" is invalid`);
+  // Phase 6 fields are optional (null for records written before Phase 6)
+  if (e.decisionCode !== null && e.decisionCode !== undefined &&
+      !(RESOLUTION_DECISIONS as readonly unknown[]).includes(e.decisionCode))
+    throw new TypeError(`[Settlement] IntentResolutionRecord.decisionCode "${String(e.decisionCode)}" is invalid`);
+  if (e.reasonCode !== null && e.reasonCode !== undefined &&
+      !(REASON_CODES as readonly unknown[]).includes(e.reasonCode))
+    throw new TypeError(`[Settlement] IntentResolutionRecord.reasonCode "${String(e.reasonCode)}" is invalid`);
 }

@@ -26,6 +26,8 @@ import type {
   IntentResolutionRecord,
   ResolveIntentParams,
   ResolutionStatus,
+  ResolutionDecision,
+  ReasonCode,
   ResolvedBy,
   SettlementProtocol,
 } from './types.js';
@@ -42,6 +44,9 @@ function toRecord(row: {
   protocol: string;
   resolvedBy: string;
   resolutionStatus: string;
+  decisionCode?: string | null;
+  reasonCode?: string | null;
+  confidenceScore?: unknown;
   externalRef: string | null;
   confirmationDepth: number | null;
   payerRef: string | null;
@@ -56,6 +61,9 @@ function toRecord(row: {
     protocol: row.protocol as SettlementProtocol,
     resolvedBy: row.resolvedBy as ResolvedBy,
     resolutionStatus: row.resolutionStatus as ResolutionStatus,
+    decisionCode: (row.decisionCode as ResolutionDecision | null | undefined) ?? null,
+    reasonCode: (row.reasonCode as ReasonCode | null | undefined) ?? null,
+    confidenceScore: row.confidenceScore != null ? Number(row.confidenceScore) : null,
     externalRef: row.externalRef,
     confirmationDepth: row.confirmationDepth,
     payerRef: row.payerRef,
@@ -93,6 +101,9 @@ export async function resolveIntent(
     externalRef,
     confirmationDepth,
     payerRef,
+    decisionCode,
+    reasonCode,
+    confidenceScore,
     metadata,
   } = params;
 
@@ -108,6 +119,10 @@ export async function resolveIntent(
         externalRef: externalRef ?? null,
         confirmationDepth: confirmationDepth ?? null,
         payerRef: payerRef ?? null,
+        // Phase 6 engine fields (nullable for backwards compatibility)
+        ...(decisionCode !== undefined ? { decisionCode } : {}),
+        ...(reasonCode !== undefined ? { reasonCode } : {}),
+        ...(confidenceScore !== undefined ? { confidenceScore } : {}),
         resolvedAt: new Date(),
         metadata: (metadata ?? {}) as object,
       },
