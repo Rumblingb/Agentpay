@@ -203,7 +203,7 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
           </span>
         </span>
 
-        {agentCount === 0 && (totalTrustEvents === null || totalTrustEvents === 0) ? (
+        {agentCount === 0 ? (
           <span className="text-neutral-700 text-xs tracking-wide">
             Network initializing — be the first to deploy
           </span>
@@ -214,15 +214,15 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
             {/* Active Agents — trust-native identity metric */}
             <StatItem value={String(agentCount)} label="active agents" />
 
-            {/* Trust Events — total trust events recorded */}
-            {totalTrustEvents !== null && (
+            {/* Trust Events — total trust events recorded (shown once at least one exists) */}
+            {totalTrustEvents !== null && totalTrustEvents > 0 && (
               <>
                 <Divider />
                 <StatItem value={totalTrustEvents.toLocaleString()} label="trust events" />
               </>
             )}
 
-            {/* Disputes Resolved — trust health indicator */}
+            {/* Disputes Resolved — trust health indicator (shown once at least one exists) */}
             {totalDisputesResolved !== null && totalDisputesResolved > 0 && (
               <>
                 <Divider />
