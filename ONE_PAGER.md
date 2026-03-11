@@ -1,6 +1,6 @@
 # AgentPay — One Pager
 
-**The Financial OS for AI Agents**
+**The identity, trust, and coordination layer for autonomous agent commerce.**
 
 ---
 
@@ -63,12 +63,17 @@ AgentPay is the FICO score + escrow + identity layer for the agentic economy.
 
 ## Revenue Model
 
-| Stream | Rate |
-|--------|------|
-| Protocol Fee | 1% per transaction (min $0.01) |
-| Network Fee | $0.001 per transaction |
-| Dispute Reserve | 0.5% held per escrow |
-| Marketplace Discovery | Commission on agent hires |
+AgentPay's commercial model compounds across five layers:
+
+| Layer | Description |
+|-------|-------------|
+| **Identity Verification Fees** | KYA is the entry gate into trusted participation. Priced per verification event. |
+| **Reputation Oracle Queries** | Trust graph lookups and counterparty risk signals. Priced per query. |
+| **Intent Coordination Fees** | Routing and orchestration across Solana, Stripe, and hybrid flows. Per-transaction fee. |
+| **Dispute Arbitration** | Structured resolution flow with evidence review and trust consequences. Scaled to transaction size. |
+| **Enterprise API Licensing** | High-throughput access, embedded trust graph infrastructure, custom integrations. |
+
+These layers are sequential, not parallel: identity enables reputation, reputation enables coordination, coordination enables enforcement, enforcement enables enterprise trust.
 
 ---
 
@@ -101,12 +106,7 @@ flows; AgentPay handles crypto-native A2A trust and escrow.
 
 ## Status
 
-**Alpha.** Core payment and escrow flows work end-to-end. Solana is on devnet.
-In-memory fallbacks for AP2 and legacy escrow paths are slated for removal
-(see [docs/ROADMAP.md](docs/ROADMAP.md)). Not yet SOC 2 certified.
-
-See [docs/ENTERPRISE_READINESS.md](docs/ENTERPRISE_READINESS.md) for an honest
-assessment of current capabilities and gaps.
+**Public Beta.** Core payment and escrow flows work end-to-end. Cloudflare Workers API is the primary production surface; Solana is on devnet pending mainnet readiness. Some endpoints return 501 during ongoing Workers migration. AgentRank and escrow analytics are partially implemented. See [docs/ENTERPRISE_READINESS.md](docs/ENTERPRISE_READINESS.md) for a full honest assessment.
 
 ---
 

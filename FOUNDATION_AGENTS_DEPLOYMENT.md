@@ -1,9 +1,10 @@
 # Foundation Agents — Deployment Guide
 
-> **Status:** Accurate as of 2026-03-10. This file replaces the original aspirational guide.
+> **Status:** Accurate as of 2026-03-11. This guide covers deploying the four constitutional agents in your AgentPay instance.
 
-The 4 constitutional agents are already implemented in `src/agents/`. This guide explains
-how to get them running end-to-end in your AgentPay instance.
+The 4 constitutional agents are implemented in `src/agents/` and exposed via the legacy Node.js backend at `/api/foundation-agents/*`. They operate the core trust infrastructure — identity verification, reputation oracle queries, dispute resolution, and intent coordination.
+
+**Note:** The foundation agents run on the legacy Node.js backend. The Cloudflare Workers migration for these routes is tracked in `apps/api-edge/RENDER_RETIREMENT.md`.
 
 ---
 
