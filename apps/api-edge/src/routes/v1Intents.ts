@@ -21,6 +21,10 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
+import {
+  insertSettlementIdentity,
+  resolveMatchingPolicy,
+} from '../lib/settlementDb';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -150,6 +154,36 @@ router.post('/', async (c) => {
       };
     }
 
+    // ── Phase 4: settlement identity + matching policy ─────────────────────
+    // Agent-facing intents use Solana protocol (direct, non-custodial flow).
+    // Both calls are best-effort: errors are caught internally and return
+    // null / hard-coded defaults. A settlement failure must not fail intent
+    // creation — the response just omits the `settlement` field.
+    const [settlementIdentity, matchingPolicy] = await Promise.all([
+      insertSettlementIdentity(sql, {
+        intentId,
+        protocol: 'solana',
+        policySnapshot: { verificationToken, protocol: 'solana', agentId },
+      }),
+      resolveMatchingPolicy(sql, 'solana'),
+    ]);
+
+    const settlement = settlementIdentity
+      ? {
+          settlementIdentityId: settlementIdentity.id,
+          protocol: matchingPolicy.protocol,
+          matchStrategy: matchingPolicy.matchStrategy,
+          requireMemoMatch: matchingPolicy.requireMemoMatch,
+          confirmationDepth: matchingPolicy.confirmationDepth,
+          ttlSeconds: matchingPolicy.ttlSeconds,
+          identityMode: matchingPolicy.identityMode,
+          amountMode: matchingPolicy.amountMode,
+          allowedProofSource: matchingPolicy.allowedProofSource,
+          feeSourcePolicy: matchingPolicy.feeSourcePolicy,
+          status: 'pending' as const,
+        }
+      : undefined;
+
     console.info('[v1-intents] agent intent created', { intentId, merchantId, agentId });
 
     return c.json(
@@ -159,6 +193,7 @@ router.post('/', async (c) => {
         verificationToken,
         expiresAt: expiresAt.toISOString(),
         instructions,
+        ...(settlement !== undefined ? { settlement } : {}),
       },
       201,
     );

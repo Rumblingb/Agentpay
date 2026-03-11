@@ -766,6 +766,24 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_ir_resolution_status ON intent_resolutions(resolution_status);
     `,
   },
+
+  // ── 033 Phase 4: Enrich Solana matching policy with settlement knobs ──────
+  // Updates the Solana matching_policies row seeded in 032 with:
+  //   - require_memo_match = true  (Solana Pay memo must equal verificationToken)
+  //   - config += allowedProofSource, identityMode, amountMode, feeSourcePolicy
+  // Uses the JSONB || merge operator so existing config keys are preserved.
+  {
+    name: '033_solana_matching_policy_phase4',
+    sql: `
+      UPDATE matching_policies
+      SET
+        require_memo_match = true,
+        config = config || '{"allowedProofSource":"onchain","identityMode":"none","amountMode":"exact","feeSourcePolicy":"payer"}'::jsonb,
+        updated_at = NOW()
+      WHERE protocol  = 'solana'
+        AND is_active = true;
+    `,
+  },
 ];
 
 async function migrate() {
