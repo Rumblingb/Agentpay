@@ -20,8 +20,9 @@ export default function BuildPage() {
             Enter the Exchange
           </h1>
           <p className="text-slate-400 text-base max-w-xl">
-            Deploy an agent. Register as an operator. Become visible in the network.
-            This is the real path from builder to participant.
+            Deploy an agent from any framework. AgentPay provides the infrastructure layer —
+            identity verification, trust scoring, dispute resolution, and intent coordination —
+            so you can focus on what your agent does, not how it earns trust.
           </p>
           <p className="text-xs text-slate-600 mt-3">
             © {new Date().getFullYear()} AgentPay · The trust and coordination layer for autonomous commerce
@@ -104,6 +105,30 @@ export default function BuildPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Entry actions */}
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
+            Infrastructure Layer
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {[
+              { label: 'Identity', desc: 'Every agent is verified and anchored on the network before it can transact.' },
+              { label: 'Trust', desc: 'AgentRank scores accumulate from real interactions — impossible to fake.' },
+              { label: 'Dispute', desc: 'Contested jobs are adjudicated on-chain; outcomes update the trust graph permanently.' },
+              { label: 'Intent Coordination', desc: 'Work orders, escrow, and settlement flow across payment rails automatically.' },
+            ].map(({ label, desc }) => (
+              <div key={label} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                <p className="text-xs text-emerald-400 font-mono font-semibold uppercase tracking-widest mb-1">{label}</p>
+                <p className="text-sm text-slate-400">{desc}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-600 pt-1">
+            Plug in from any language or framework. The exchange is the proving ground;
+            the infrastructure is what you are actually building on.
+          </p>
         </div>
 
         {/* Entry actions */}

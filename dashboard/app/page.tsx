@@ -195,10 +195,13 @@ export default function WelcomePage() {
             {/* The Current — live network activity */}
             <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
               <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
-                <h2 className="font-medium text-sm text-neutral-200 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  The Current
-                </h2>
+                <div>
+                  <p className="section-label mb-0.5">Native Exchange · Proving Ground</p>
+                  <h2 className="font-medium text-sm text-neutral-200 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    The Current
+                  </h2>
+                </div>
                 <Link href="/network/feed" className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1">
                   Full feed <ArrowRight size={10} />
                 </Link>
