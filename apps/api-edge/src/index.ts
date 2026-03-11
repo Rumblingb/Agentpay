@@ -1,22 +1,20 @@
 /**
  * AgentPay API — Cloudflare Workers entrypoint
  *
- * This is the Hono application that replaces the Render/Express backend
- * for all public HTTP routes.
- *
- * Phase state:
- *   Phase 2 — scaffold (compiled, no routes)
- *   Phase 3 — env validation middleware wired in
- *
- * Architecture:
- *   Hono<{ Bindings: Env }> types c.env as the Workers Bindings object so
- *   every handler has full TypeScript coverage over secrets and vars without
- *   any process.env usage.
+ * Phases complete:
+ *   2 — scaffold
+ *   3 — env validation middleware
+ *   4 — health routes
+ *   5 — CORS, request ID, security headers, global pause
  */
 
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { validateEnv, EnvValidationError } from './config/env';
+import { corsMiddleware } from './middleware/cors';
+import { requestIdMiddleware } from './middleware/requestId';
+import { securityHeadersMiddleware } from './middleware/securityHeaders';
+import { globalPauseMiddleware } from './middleware/globalPause';
 import { healthRouter } from './routes/health';
 
 // ---------------------------------------------------------------------------
@@ -26,38 +24,61 @@ import { healthRouter } from './routes/health';
 const app = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
-// Global middleware — env validation
-//
-// Workers have no persistent startup hook, so we validate required secrets
-// on the first middleware of every incoming request.  EnvValidationError is
-// caught below and returned as a production-safe 500 that never leaks secret
-// names or values to the caller.
+// 1. Security headers — set on every response before any route logic runs.
+// ---------------------------------------------------------------------------
+
+app.use('*', securityHeadersMiddleware);
+
+// ---------------------------------------------------------------------------
+// 2. CORS — must run early so preflight OPTIONS requests are handled correctly
+//    and before any auth middleware rejects the preflight with a 401.
+// ---------------------------------------------------------------------------
+
+app.use('*', corsMiddleware);
+
+// ---------------------------------------------------------------------------
+// 3. Request ID + structured logging.
+// ---------------------------------------------------------------------------
+
+app.use('*', requestIdMiddleware);
+
+// ---------------------------------------------------------------------------
+// 4. Env validation — skipped for health paths so liveness probes always work.
+//    Workers have no persistent startup hook; validation runs per-request.
 // ---------------------------------------------------------------------------
 
 app.use('*', async (c, next) => {
+  const path = c.req.path;
+  if (path === '/health' || path === '/api/health' || path === '/api') {
+    return next();
+  }
   validateEnv(c.env);
   await next();
 });
 
 // ---------------------------------------------------------------------------
+// 5. Global pause (circuit-breaker) — rejects non-GET, non-health mutating
+//    requests when AGENTPAY_GLOBAL_PAUSE=true.
+// ---------------------------------------------------------------------------
+
+app.use('*', globalPauseMiddleware);
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
-// Health checks — GET /health, GET /api/health, GET /api
-// Mounted first so liveness probes are never blocked by auth middleware.
+// Health checks — mounted first; exempt from env validation above.
 app.route('/', healthRouter);
+
+// Root splash (matches GET / in Express backend)
+app.get('/', (c) => c.text('AgentPay API is Live 🚀'));
 
 // ---------------------------------------------------------------------------
 // Global error handler
-//
-// Catches any unhandled error from route handlers or middleware.
-// EnvValidationError → 500 with a generic message (never exposes secrets).
-// All other errors → 500 with a generic message.
 // ---------------------------------------------------------------------------
 
 app.onError((err, c) => {
   if (err instanceof EnvValidationError) {
-    // Log to Cloudflare Workers tail logs (server-side only, not sent to client)
     console.error('[startup] env validation failed:', err.message);
     return c.json(
       { error: 'CONFIGURATION_ERROR', message: 'Server configuration error.' },
