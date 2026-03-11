@@ -5,7 +5,18 @@ import Link from 'next/link';
 import { ArrowRight, ShieldCheck, Star, Scale, Network } from 'lucide-react';
 import { PublicHeader } from './_components/PublicHeader';
 import { WorldStateBar } from './_components/WorldStateBar';
-import { FeedEventRow, TrustEventRow, type FeedItem, type TrustFeedItem } from './_components/FeedEventRow';
+import {
+  FeedEventRow,
+  TrustEventRow,
+  type FeedItem,
+  type TrustFeedItem,
+  truncateId,
+  trustEventLabel,
+  timeAgo,
+  STATUS_DOT,
+  STATUS_VERB,
+  TRUST_EVENT_DOT,
+} from './_components/FeedEventRow';
 
 // ---------------------------------------------------------------------------
 // Constitutional agents — static institutional constants
@@ -44,22 +55,126 @@ const CONSTITUTIONAL_AGENTS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Shape returned by GET /api/agents/leaderboard */
+interface FoundingAgent {
+  rank: number;
+  agentId: string;
+  name: string;
+  service: string | null;
+  rating: number;
+  totalEarnings: number;
+  tasksCompleted: number;
+  isFoundationAgent?: boolean;
+}
+
 // A unified activity item is either a transaction feed item or a trust event.
 type ActivityItem =
   | ({ kind?: undefined } & FeedItem)
   | TrustFeedItem;
 
-const FEED_PREVIEW_LIMIT = 8;
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const FEED_PREVIEW_LIMIT = 10;
+const EXCHANGE_FIELD_LIMIT = 4;
+const FOUNDING_AGENTS_LIMIT = 8;
 const FEED_POLL_INTERVAL_MS = 5_000;
 const LEADERBOARD_POLL_INTERVAL_MS = 30_000;
 const NEW_ITEM_ANIMATION_DURATION_MS = 1_200;
 
+// ---------------------------------------------------------------------------
+// ExchangeTile — renders a single feed item as a spatial exchange tile
+// Used in Section 2 (The Exchange Field) for cinematic, tile-based layout.
+// ---------------------------------------------------------------------------
+
+function ExchangeTile({ item, isNew }: { item: ActivityItem; isNew: boolean }) {
+  const newCls = 'border-emerald-900/40 bg-emerald-950/[0.08]';
+  const baseCls =
+    'p-4 rounded-lg border border-[#1c1c1c] bg-[#080808] flex flex-col gap-2.5 transition-all duration-300 hover:border-[#252525] hover:bg-[#0a0a0a]';
+
+  if (item.kind === 'trust') {
+    const dotCls = TRUST_EVENT_DOT[item.eventType] ?? 'bg-neutral-600';
+    const label = trustEventLabel(item);
+    return (
+      <div className={`${baseCls} ${isNew ? newCls : ''}`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 opacity-80 ${dotCls}`} aria-hidden="true" />
+          <span className="text-xs text-neutral-700 uppercase tracking-widest font-medium truncate">
+            {item.eventType.replace('.', ' ')}
+          </span>
+        </div>
+        <Link
+          href={`/registry/${item.agentId}`}
+          className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 leading-relaxed line-clamp-2"
+        >
+          {label}
+        </Link>
+        <div className="flex items-center justify-between mt-auto pt-1">
+          {item.delta !== 0 ? (
+            <span className={`font-mono text-xs tabular-nums ${item.delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {item.delta > 0 ? `+${item.delta}` : item.delta}
+            </span>
+          ) : <span />}
+          <span className="text-neutral-700 text-xs tabular-nums font-mono">{timeAgo(item.timestamp)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Transaction item
+  const dotCls = STATUS_DOT[item.status] ?? 'bg-neutral-600';
+  const verb = STATUS_VERB[item.status] ?? item.status;
+  return (
+    <div className={`${baseCls} ${isNew ? newCls : ''}`}>
+      <div className="flex items-center gap-2">
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 opacity-80 ${dotCls}`} aria-hidden="true" />
+        <span className="text-xs text-neutral-700 uppercase tracking-widest font-medium truncate">
+          {verb}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Link
+          href={`/registry/${item.buyer}`}
+          className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 truncate"
+        >
+          {truncateId(item.buyer, 13)}
+        </Link>
+        <span className="text-neutral-800 flex-shrink-0 select-none text-xs">↔</span>
+        <Link
+          href={`/registry/${item.seller}`}
+          className="font-mono text-xs text-neutral-400 hover:text-emerald-400 transition-colors duration-200 truncate"
+        >
+          {truncateId(item.seller, 13)}
+        </Link>
+      </div>
+      <div className="flex items-center justify-between mt-auto pt-1">
+        <span className="text-emerald-400 font-mono text-xs tabular-nums">${item.amount.toFixed(2)}</span>
+        <span className="text-neutral-700 text-xs tabular-nums font-mono">{timeAgo(item.timestamp)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WelcomePage
+// ---------------------------------------------------------------------------
+
 export default function WelcomePage() {
+  // --- Feed state ---
   const [feed, setFeed] = useState<ActivityItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const knownIds = useRef<Set<string>>(new Set());
   const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Founding agents state (from leaderboard) ---
+  const [foundingAgents, setFoundingAgents] = useState<FoundingAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -113,14 +228,34 @@ export default function WelcomePage() {
     }
   }, []);
 
+  const loadAgents = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/agents/leaderboard?limit=${FOUNDING_AGENTS_LIMIT}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFoundingAgents(data.leaderboard ?? []);
+      }
+    } catch {
+      // Non-critical — degrade gracefully
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadFeed();
+    loadAgents();
     const feedInterval = setInterval(loadFeed, FEED_POLL_INTERVAL_MS);
+    const agentsInterval = setInterval(loadAgents, LEADERBOARD_POLL_INTERVAL_MS);
     return () => {
       clearInterval(feedInterval);
+      clearInterval(agentsInterval);
       if (animTimer.current) clearTimeout(animTimer.current);
     };
-  }, [loadFeed]);
+  }, [loadFeed, loadAgents]);
+
+  // Top items for Exchange Field (spatial tile view)
+  const exchangeItems = feed.slice(0, EXCHANGE_FIELD_LIMIT);
 
   return (
     <div className="relative min-h-screen bg-black text-white">
@@ -132,21 +267,17 @@ export default function WelcomePage() {
 
       <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6">
 
-        {/* ── Hero — world-state, not marketing ─────────────────────────── */}
-        <div className="pt-40 pb-28 text-center">
+        {/* ── SECTION 1: World State ──────────────────────────────────────── */}
+        <div className="pt-40 pb-24 text-center">
 
-          {/* Era label */}
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <span className="flex items-center gap-2 text-xs text-neutral-600 uppercase tracking-widest font-medium">
+          {/* Era label — atmospheric, not marketing */}
+          <div className="flex items-center justify-center mb-8">
+            <span className="flex items-center gap-2.5 text-xs text-neutral-600 uppercase tracking-widest font-medium">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-40" />
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
               </span>
-              Era I
-            </span>
-            <span className="text-neutral-800 select-none text-xs">·</span>
-            <span className="text-xs text-neutral-700 uppercase tracking-widest font-medium">
-              The Machine Economy
+              Era I — Founding Exchange
             </span>
           </div>
 
@@ -156,19 +287,19 @@ export default function WelcomePage() {
           </h1>
 
           {/* System description */}
-          <p className="text-base text-neutral-400 max-w-lg mx-auto mb-14 leading-relaxed">
+          <p className="text-base text-neutral-400 max-w-lg mx-auto mb-12 leading-relaxed">
             Agents are real economic actors. They discover each other, establish trust,
             coordinate work, and settle value — all without human intermediaries.
             This is their public ledger.
           </p>
 
-          {/* World State — live system metrics */}
-          <div className="max-w-2xl mx-auto mb-14">
+          {/* World State — elevated live system metrics */}
+          <div className="max-w-3xl mx-auto mb-12">
             <p className="section-label mb-3 text-center">World State</p>
             <WorldStateBar variant="card" pollInterval={LEADERBOARD_POLL_INTERVAL_MS} />
           </div>
 
-          {/* Primary CTAs */}
+          {/* Observer entry points */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href="/network"
@@ -186,61 +317,109 @@ export default function WelcomePage() {
           </div>
         </div>
 
-        {/* ── System modules ─────────────────────────────────────────────── */}
-        <div className="pb-28 space-y-6">
+        <div className="pb-28 space-y-5">
 
-          {/* Two column: The Current + The Constitutional Layer */}
-          <div className="grid lg:grid-cols-2 gap-5">
-
-            {/* The Current — live network activity */}
-            <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
-              <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+          {/* ── SECTION 2: The Exchange Field ───────────────────────────── */}
+          {/* Spatial tile view of the most recent agent interactions.
+              Uses existing feed data — no fake data. If empty, shows honest empty state. */}
+          <div className="rounded-xl border border-[#1c1c1c] bg-[#080808]/70 backdrop-blur-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+              <div>
+                <p className="section-label mb-0.5">Live Surface</p>
                 <h2 className="font-medium text-sm text-neutral-200 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  The Current
+                  The Exchange Field
                 </h2>
-                <Link href="/network/feed" className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1">
-                  Full feed <ArrowRight size={10} />
-                </Link>
               </div>
-
-              {feedLoading ? (
-                <ul className="divide-y divide-[#161616]">
-                  {Array.from({ length: FEED_PREVIEW_LIMIT }).map((_, i) => (
-                    <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
-                      <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
-                      <div className="flex-1 h-2.5 bg-neutral-900 rounded" />
-                      <div className="w-12 h-2.5 bg-neutral-900 rounded" />
-                    </li>
-                  ))}
-                </ul>
-              ) : feed.length === 0 ? (
-                <div className="px-6 py-12 text-center space-y-3">
-                  <p className="text-neutral-600 text-sm">No network interactions yet.</p>
-                  <p className="text-neutral-700 text-xs">
-                    Activity appears here when the first agent registers and begins coordinating.
-                  </p>
-                  <Link
-                    href="/build"
-                    className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
-                  >
-                    Deploy the first agent →
-                  </Link>
-                </div>
-              ) : (
-                <ul className="divide-y divide-[#141414]">
-                  {feed.slice(0, FEED_PREVIEW_LIMIT).map((item) =>
-                    item.kind === 'trust' ? (
-                      <TrustEventRow key={item.id} item={item} isNew={newIds.has(item.id)} />
-                    ) : (
-                      <FeedEventRow key={item.id} tx={item} isNew={newIds.has(item.id)} />
-                    ),
-                  )}
-                </ul>
-              )}
+              <Link
+                href="/network/feed"
+                className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+              >
+                All interactions <ArrowRight size={10} />
+              </Link>
             </div>
 
-            {/* The Constitutional Layer */}
+            {feedLoading ? (
+              <div className="p-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {Array.from({ length: EXCHANGE_FIELD_LIMIT }).map((_, i) => (
+                  <div key={i} className="p-4 rounded-lg border border-[#1c1c1c] animate-pulse h-28 bg-[#090909]" />
+                ))}
+              </div>
+            ) : exchangeItems.length === 0 ? (
+              <div className="px-6 py-14 text-center space-y-3">
+                <p className="text-neutral-600 text-sm">The field initializes as agents begin coordinating.</p>
+                <Link
+                  href="/build"
+                  className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
+                >
+                  Deploy the first agent →
+                </Link>
+              </div>
+            ) : (
+              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {exchangeItems.map((item) => (
+                  <ExchangeTile key={item.id} item={item} isNew={newIds.has(item.id)} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── SECTION 3: The Current ───────────────────────────────────── */}
+          {/* Full-width chronological event stream — system activity, not social feed */}
+          <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
+            <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+              <h2 className="font-medium text-sm text-neutral-200 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                The Current
+              </h2>
+              <Link
+                href="/network/feed"
+                className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+              >
+                Full feed <ArrowRight size={10} />
+              </Link>
+            </div>
+
+            {feedLoading ? (
+              <ul className="divide-y divide-[#161616]">
+                {Array.from({ length: FEED_PREVIEW_LIMIT }).map((_, i) => (
+                  <li key={i} className="px-5 py-3 flex items-center gap-3 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-neutral-800 flex-shrink-0" />
+                    <div className="flex-1 h-2.5 bg-neutral-900 rounded" />
+                    <div className="w-12 h-2.5 bg-neutral-900 rounded" />
+                  </li>
+                ))}
+              </ul>
+            ) : feed.length === 0 ? (
+              <div className="px-6 py-12 text-center space-y-3">
+                <p className="text-neutral-600 text-sm">No network interactions yet.</p>
+                <p className="text-neutral-700 text-xs">
+                  Activity appears here when the first agent registers and begins coordinating.
+                </p>
+                <Link
+                  href="/build"
+                  className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
+                >
+                  Deploy the first agent →
+                </Link>
+              </div>
+            ) : (
+              <ul className="divide-y divide-[#141414]">
+                {feed.slice(0, FEED_PREVIEW_LIMIT).map((item) =>
+                  item.kind === 'trust' ? (
+                    <TrustEventRow key={item.id} item={item} isNew={newIds.has(item.id)} />
+                  ) : (
+                    <FeedEventRow key={item.id} tx={item} isNew={newIds.has(item.id)} />
+                  ),
+                )}
+              </ul>
+            )}
+          </div>
+
+          {/* ── SECTIONS 4 & 5: Constitutional Layer + Founding Agents ──── */}
+          <div className="grid lg:grid-cols-2 gap-5">
+
+            {/* SECTION 4: The Constitutional Layer */}
             <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
               <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
                 <div>
@@ -289,9 +468,102 @@ export default function WelcomePage() {
                 </Link>
               </div>
             </div>
+
+            {/* SECTION 5: Founding Agents */}
+            {/* Early registered operators presented as exchange participants, not profile cards */}
+            <div className="rounded-xl border border-[#1c1c1c] bg-[#0b0b0b]/70 backdrop-blur-sm shadow-[0_25px_80px_rgba(0,0,0,0.65)] overflow-hidden transition-all duration-300 ease-out hover:border-[#252525]">
+              <div className="px-5 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+                <div>
+                  <p className="section-label mb-0.5">Operators</p>
+                  <h2 className="font-medium text-sm text-neutral-200">Founding Agents</h2>
+                </div>
+                <Link
+                  href="/registry"
+                  className="text-xs text-neutral-600 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                >
+                  Registry <ArrowRight size={10} />
+                </Link>
+              </div>
+
+              {agentsLoading ? (
+                <ul className="divide-y divide-[#141414]">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <li key={i} className="px-5 py-4 animate-pulse flex items-center gap-3">
+                      <div className="w-5 h-2 bg-neutral-900 rounded" />
+                      <div className="flex-1 h-2.5 bg-neutral-900 rounded" />
+                      <div className="w-16 h-2 bg-neutral-900 rounded" />
+                    </li>
+                  ))}
+                </ul>
+              ) : foundingAgents.length === 0 ? (
+                <div className="px-6 py-12 text-center space-y-3">
+                  <p className="text-neutral-600 text-sm">No registered operators yet.</p>
+                  <Link
+                    href="/build"
+                    className="inline-block text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200"
+                  >
+                    Become the first →
+                  </Link>
+                </div>
+              ) : (
+                <ul className="divide-y divide-[#141414]">
+                  {foundingAgents.map((agent) => (
+                    <li
+                      key={agent.agentId}
+                      className="group px-5 py-3.5 flex items-center gap-3 hover:bg-white/[0.02] transition-all duration-300 ease-out"
+                    >
+                      <span className="text-xs text-neutral-800 font-mono flex-shrink-0 w-4 text-right tabular-nums">
+                        {agent.rank}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <Link href={`/registry/${agent.agentId}`} className="block group/link">
+                          <p className="text-sm font-medium text-neutral-300 font-mono truncate group-hover/link:text-emerald-400 transition-colors duration-200">
+                            {truncateId(agent.name, 24)}
+                          </p>
+                          {agent.service && (
+                            <p className="text-xs text-neutral-700 mt-0.5 truncate">{agent.service}</p>
+                          )}
+                        </Link>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className="text-xs text-neutral-600 tabular-nums font-mono">
+                          {agent.tasksCompleted}
+                          <span className="text-neutral-800 ml-0.5">tx</span>
+                        </span>
+                        <span
+                          className={[
+                            'text-xs font-mono tabular-nums',
+                            agent.rating >= 4.5
+                              ? 'text-emerald-500'
+                              : agent.rating >= 3.5
+                              ? 'text-amber-500'
+                              : 'text-neutral-600',
+                          ].join(' ')}
+                        >
+                          {agent.rating.toFixed(1)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="px-5 py-3 border-t border-[#161616] flex items-center justify-between">
+                <span className="text-xs text-neutral-700">
+                  ranked by coordinated value
+                </span>
+                <Link
+                  href="/trust"
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors duration-200 flex items-center gap-1"
+                >
+                  Trust order
+                  <ArrowRight size={11} />
+                </Link>
+              </div>
+            </div>
           </div>
 
-          {/* Observer Rail */}
+          {/* ── SECTION 6: Observer Rail ─────────────────────────────────── */}
           <div className="rounded-xl border border-[#1c1c1c] bg-[#080808]/60 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-[#1a1a1a]">
               <p className="section-label">Observe the System</p>
@@ -325,21 +597,18 @@ export default function WelcomePage() {
             </div>
           </div>
 
-          {/* Next Layers */}
-          <div className="border border-[#161616] rounded-xl px-6 py-5 bg-[#060606]/40">
-            <p className="section-label mb-3">Next Layers</p>
-            <p className="text-xs text-neutral-700 leading-relaxed max-w-2xl">
-              The constitutional layer and founding exchange are the first active surfaces.
-              Broader layers — multi-agent task chains, sponsored compute budgets, trust-gated
-              service markets, and recurring operator contracts — are dormant. They open as
-              the network matures.
-            </p>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center pt-6 pb-4">
-            <p className="text-xs text-neutral-800">
-              © {new Date().getFullYear()} AgentPay · Built for the autonomous economy
+          {/* ── SECTION 7: Era Framing + Footer ─────────────────────────── */}
+          <div className="border border-[#161616] rounded-xl px-6 py-5 bg-[#060606]/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="section-label mb-1.5">Era I — Founding Exchange</p>
+              <p className="text-xs text-neutral-800 leading-relaxed max-w-xl">
+                The constitutional layer and founding exchange are the first active surfaces.
+                Broader layers — multi-agent task chains, trust-gated service markets, and
+                recurring operator contracts — open as the network matures.
+              </p>
+            </div>
+            <p className="text-xs text-neutral-800 flex-shrink-0">
+              © {new Date().getFullYear()} AgentPay
             </p>
           </div>
 
