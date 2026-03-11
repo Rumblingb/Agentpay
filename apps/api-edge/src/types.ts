@@ -68,3 +68,28 @@ export interface Env {
   /** Merchant-facing dashboard URL (post-payment redirects). */
   FRONTEND_URL: string;
 }
+
+// ---------------------------------------------------------------------------
+// Hono Context Variables
+//
+// These are typed values attached to the request context by middleware and
+// consumed by route handlers via c.get('merchant').
+//
+// Usage in routes:
+//   const merchant = c.get('merchant');
+// ---------------------------------------------------------------------------
+
+/** Authenticated merchant — set by authenticateApiKey middleware. */
+export interface MerchantContext {
+  id: string;
+  name: string;
+  email: string;
+  walletAddress: string;
+  webhookUrl: string | null;
+}
+
+/** Hono Variables type — passed as the second generic to Hono<{...}>. */
+export interface Variables {
+  merchant: MerchantContext;
+}
+

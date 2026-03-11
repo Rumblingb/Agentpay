@@ -9,7 +9,7 @@
  */
 
 import { Hono } from 'hono';
-import type { Env } from './types';
+import type { Env, Variables } from './types';
 import { validateEnv, EnvValidationError } from './config/env';
 import { corsMiddleware } from './middleware/cors';
 import { requestIdMiddleware } from './middleware/requestId';
@@ -21,7 +21,7 @@ import { healthRouter } from './routes/health';
 // Application
 // ---------------------------------------------------------------------------
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ---------------------------------------------------------------------------
 // 1. Security headers — set on every response before any route logic runs.

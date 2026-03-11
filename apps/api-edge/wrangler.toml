@@ -8,8 +8,10 @@ main = "src/index.ts"
 # are available without needing compatibility flags.
 compatibility_date = "2024-09-23"
 
-# Workers Bundler (esbuild) handles TypeScript directly.
-# wrangler.toml does not need a separate build step.
+# nodejs_compat: enables Node.js-compatible built-ins (net, tls, crypto …)
+# Required by the `postgres` npm package so it can open TCP sockets to Supabase
+# (or to a Hyperdrive connection pooler in production).
+compatibility_flags = ["nodejs_compat"]
 
 # ---------------------------------------------------------------------------
 # Non-sensitive runtime variables

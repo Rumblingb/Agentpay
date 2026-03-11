@@ -10,7 +10,8 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.12.7"
+    "hono": "^4.12.7",
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260310.1",
