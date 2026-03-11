@@ -22,6 +22,8 @@ import { v1IntentsRouter } from './routes/v1Intents';
 import { verifyRouter } from './routes/verify';
 import { certificatesRouter } from './routes/certificates';
 import { receiptRouter } from './routes/receipt';
+import { webhooksRouter } from './routes/webhooks';
+import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -93,6 +95,12 @@ app.route('/api/certificates', certificatesRouter);
 
 // Receipt routes — /api/receipt/:intentId
 app.route('/api/receipt', receiptRouter);
+
+// Webhook subscription routes — /api/webhooks/*
+app.route('/api/webhooks', webhooksRouter);
+
+// Stripe webhook — /webhooks/stripe (raw body, no JSON parsing before signature check)
+app.route('/webhooks/stripe', stripeWebhooksRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));

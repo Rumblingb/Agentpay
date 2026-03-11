@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "hono": "^4.12.7",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "stripe": "^20.4.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260310.1",
