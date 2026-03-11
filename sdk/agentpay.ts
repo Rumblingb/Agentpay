@@ -90,6 +90,93 @@ export interface WebhookVerificationResult {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Interact — one-call orchestration (POST /api/v1/agents/interact)
+// ---------------------------------------------------------------------------
+
+/** Request shape for agentpay.interact() */
+export interface InteractParams {
+  /** ID of the calling / initiating agent */
+  fromAgentId: string;
+  /** ID of the target / counterparty agent */
+  toAgentId: string;
+  /** Nature of the interaction */
+  interactionType: 'payment' | 'task' | 'query' | 'delegation' | 'custom';
+  /** Optional service category (e.g. "web-scraping") */
+  service?: string;
+  /** Reported outcome — defaults to "success" */
+  outcome?: 'success' | 'failure' | 'pending';
+  /**
+   * Transaction amount.
+   * Required when `createIntent` is true — omitting it with createIntent=true
+   * will result in a 400 Validation Error (hard fail).
+   */
+  amount?: number;
+  /** Currency code — defaults to "USDC" */
+  currency?: string;
+  /** When true, fetch toAgent trust score from the reputation graph */
+  trustCheck?: boolean;
+  /**
+   * When true, create a coordination intent via IntentCoordinatorAgent.
+   * `amount` must also be provided; missing it is a 400 hard fail.
+   */
+  createIntent?: boolean;
+  /** Arbitrary caller-supplied metadata */
+  metadata?: Record<string, unknown>;
+}
+
+export interface InteractAgentInfo {
+  agentId: string;
+  /**
+   * identityFound: a record for this agent exists in the system.
+   * Does NOT imply any cryptographic verification has occurred.
+   */
+  identityFound: boolean;
+  /**
+   * identityVerified: the agent has at least one active, non-expired
+   * verification credential — a stronger trust signal than identityFound.
+   */
+  identityVerified: boolean;
+  trustLevel: string;
+  /** Only present when trustCheck was true in the request */
+  trustScore?: number | null;
+}
+
+export interface InteractTrustEvent {
+  category: string;
+  agentId: string;
+  /** Counterparty agent in this interaction */
+  counterpartyId: string;
+  delta: number;
+  score: number;
+  grade: string;
+  /** Rich metadata — includes interactionType, service, outcome, etc. */
+  metadata: Record<string, unknown>;
+}
+
+/** Structured response from agentpay.interact() */
+export interface InteractResult {
+  success: boolean;
+  interactionId: string;
+  fromAgent: InteractAgentInfo;
+  toAgent: InteractAgentInfo;
+  interaction: {
+    type: string;
+    service: string | null;
+    outcome: string;
+    amount?: number;
+    currency?: string;
+    /** Whether a trust score lookup was performed */
+    trustCheckPerformed: boolean;
+    /** Whether a coordination intent was successfully created */
+    intentCreated: boolean;
+    metadata: Record<string, unknown> | null;
+  };
+  intent: object | null;
+  emittedEvents: InteractTrustEvent[];
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
 // SDK class
 // ---------------------------------------------------------------------------
 
@@ -117,6 +204,28 @@ export class AgentPaySDK {
   async createAgent(params: CreateAgentParams): Promise<AgentRecord> {
     const res = await this.post<{ success: boolean; agent: AgentRecord }>('/api/agents', params);
     return res.agent;
+  }
+
+  /**
+   * One-call integration path for external agent ecosystems.
+   *
+   * Orchestrates identity verification, trust lookup, interaction recording,
+   * trust event emission, and optional intent coordination in a single request.
+   *
+   * Recommended as the **fastest integration path** for Clawbot, AutoGPT,
+   * LangGraph, CrewAI, and custom agents connecting to AgentPay.
+   *
+   * @example
+   * const result = await agentpay.interact({
+   *   fromAgentId: 'agent-abc',
+   *   toAgentId:   'agent-xyz',
+   *   interactionType: 'task',
+   *   outcome: 'success',
+   *   trustCheck: true,
+   * });
+   */
+  async interact(params: InteractParams): Promise<InteractResult> {
+    return this.post<InteractResult>('/api/v1/agents/interact', params);
   }
 
   /**
