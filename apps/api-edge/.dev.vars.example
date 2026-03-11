@@ -1,0 +1,47 @@
+# AgentPay Workers — local development secrets
+# ============================================================
+# Copy this file to .dev.vars (never commit .dev.vars).
+# Wrangler reads .dev.vars automatically during `wrangler dev`.
+#
+# In production, set these via `wrangler secret put <NAME>`
+# or in the Cloudflare Workers dashboard → Settings → Variables.
+#
+# Minimum secret length for WEBHOOK_SECRET, AGENTPAY_SIGNING_SECRET,
+# and VERIFICATION_SECRET is 32 characters.  Generate with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# ============================================================
+
+# ── Database ──────────────────────────────────────────────────────────────
+# PostgreSQL Direct connection string (Supabase port 5432, NOT the pooled
+# PgBouncer URL on port 6543).
+#
+# Use the Direct URL because:
+#   - Without Hyperdrive: Workers connect directly to Supabase; the pooled URL
+#     wastes a PgBouncer slot per Worker invocation.
+#   - With Hyperdrive: This value is not used at runtime (Hyperdrive provides
+#     its own connection string).  When creating the Hyperdrive config in the
+#     Cloudflare dashboard, also supply the Direct URL as the source URL —
+#     Hyperdrive does its own pooling and double-pooling causes errors.
+#
+# Format (Direct URL): postgres://user:password@db.XXX.supabase.co:5432/postgres
+DATABASE_URL=
+
+# ── Required secrets ──────────────────────────────────────────────────────
+# HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars).
+WEBHOOK_SECRET=
+
+# HMAC secret for AP2 payment receipt signatures (≥32 chars).
+AGENTPAY_SIGNING_SECRET=
+
+# HMAC secret for verification certificate signatures (≥32 chars).
+VERIFICATION_SECRET=
+
+# Bearer token protecting admin API endpoints (x-admin-key header).
+ADMIN_SECRET_KEY=
+
+# ── Stripe (optional) ─────────────────────────────────────────────────────
+# Leave blank to disable Stripe routes.
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_SUCCESS_URL=
+STRIPE_CANCEL_URL=

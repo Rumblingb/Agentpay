@@ -1,5 +1,27 @@
 # Render deployment configuration for AgentPay backend
 # https://render.com/docs/render-yaml
+#
+# ─── MIGRATION STATUS ────────────────────────────────────────────────────────
+# Public HTTP API has been migrated to Cloudflare Workers (apps/api-edge/).
+# Render now serves as:
+#   1. Rollback target — if the Workers backend has a critical issue, revert
+#      AGENTPAY_API_BASE_URL in Vercel to point here.
+#   2. Background daemon host — the following features MUST remain on Render
+#      until Phase 13 completes:
+#        - Solana transaction listener (src/services/solana-listener.ts)
+#        - Reconciliation daemon / liquidity cron (if present)
+#        - Any process.setInterval / setTimeout-based polling loops
+#   3. POST /api/merchants/payments/:id/verify — full Solana verification
+#      (blocked on Workers by lack of @solana/web3.js support)
+#   4. PIN-based agent auth (bcrypt — Node.js native C++ module)
+#
+# DO NOT DELETE this file or the src/ directory until Phase 13 is complete
+# and all deferred routes/daemons have been migrated or retired.
+#
+# Render should be removed from the public request path by updating
+# AGENTPAY_API_BASE_URL in Vercel to the Workers URL (see apps/api-edge/CUTOVER.md).
+# Render will continue to run for daemon tasks only.
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
   - type: web

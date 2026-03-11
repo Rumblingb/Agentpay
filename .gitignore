@@ -34,3 +34,9 @@ Agentpay_backup/
 coverage/
 dist/
 .idea/
+
+# Cloudflare Workers — apps/api-edge
+apps/api-edge/node_modules/
+apps/api-edge/.wrangler/
+# Local dev secrets — never commit
+apps/api-edge/.dev.vars
