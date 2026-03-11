@@ -53,18 +53,24 @@ import { metrics } from './services/metrics.js';
 dotenv.config();
 
 // ---------------------------------------------------------------------------
+// Canonical env config — validates secrets and exports typed config object.
+// Startup validation (fail-fast in production) runs on import.
+// ---------------------------------------------------------------------------
+import { env } from './config/env.js';
+
+// ---------------------------------------------------------------------------
 // Sentry — soft init (only when SENTRY_DSN is provided)
 // ---------------------------------------------------------------------------
 let SentryInstance: any = null;
 async function initSentry(): Promise<void> {
-  const dsn = process.env.SENTRY_DSN;
+  const dsn = env.SENTRY_DSN;
   if (!dsn) return;
   try {
     const Sentry = await import('@sentry/node');
     Sentry.init({
       dsn,
-      environment: process.env.NODE_ENV ?? 'development',
-      tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+      environment: env.NODE_ENV,
+      tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
     });
     SentryInstance = Sentry;
     logger.info('Sentry initialised');
@@ -73,69 +79,15 @@ async function initSentry(): Promise<void> {
   }
 }
 
-// --- STARTUP VALIDATION — fail fast in production if required secrets are defaults ---
-// All known placeholder/example values that must never reach a real deployment.
-// Run `npm run generate:secrets` to produce safe replacements.
-const INSECURE_SECRET_DEFAULTS: Record<string, string[]> = {
-  WEBHOOK_SECRET: [
-    'change-me-in-production',
-    'your-webhook-secret-here',
-    'REPLACE_WITH_STRONG_RANDOM_SECRET',
-  ],
-  AGENTPAY_SIGNING_SECRET: [
-    'your-signing-secret-here',
-    'REPLACE_WITH_STRONG_RANDOM_SECRET',
-  ],
-  VERIFICATION_SECRET: [
-    'your-verification-secret-here',
-    'REPLACE_WITH_STRONG_RANDOM_SECRET',
-  ],
-};
-const MIN_SECRET_LENGTH = 32;
-
-if (process.env.NODE_ENV === 'production') {
-  const GEN_CMD = 'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"';
-  for (const [key, insecureValues] of Object.entries(INSECURE_SECRET_DEFAULTS)) {
-    const val = process.env[key];
-    if (!val || insecureValues.includes(val) || val.length < MIN_SECRET_LENGTH) {
-      console.error(
-        `[STARTUP] FATAL: ${key} is not set, is an insecure placeholder, or is shorter than ${MIN_SECRET_LENGTH} characters. Refusing to start in production.\n` +
-        `  Fix: generate a secure value → ${GEN_CMD}\n` +
-        `  Then set ${key}=<generated_value> in your Render environment variables (or run: npm run generate:secrets).`,
-      );
-      process.exit(1);
-    }
-  }
-  if (!process.env.DATABASE_URL) {
-    console.error('[STARTUP] FATAL: DATABASE_URL is not set. Refusing to start in production.');
-    process.exit(1);
-  }
-  // Hard-block: AGENTPAY_TEST_MODE must never be true in production — it
-  // exposes the /api/test routes and a credential bypass (sk_test_sim key).
-  // Fix: set AGENTPAY_TEST_MODE=false (or remove it) in your Render env vars.
-  if (process.env.AGENTPAY_TEST_MODE === 'true') {
-    console.error('[STARTUP] FATAL: AGENTPAY_TEST_MODE=true in production. Refusing to start. Set AGENTPAY_TEST_MODE=false or remove it from environment variables.');
-    process.exit(1);
-  }
-} else if (process.env.NODE_ENV !== 'test') {
-  for (const [key, insecureValues] of Object.entries(INSECURE_SECRET_DEFAULTS)) {
-    const val = process.env[key];
-    if (!val || insecureValues.includes(val) || val.length < MIN_SECRET_LENGTH) {
-      // Non-production: warn but don't exit
-      console.warn(`[STARTUP] WARNING: ${key} is not set, is a placeholder, or is too short. Set a strong secret (≥${MIN_SECRET_LENGTH} chars) before going to production. Run: npm run generate:secrets`);
-    }
-  }
-}
-
 const app = express();
 app.set('trust proxy', 1);
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 const API_VERSION = '1.0.0';
 
 // --- RATE LIMITERS ---
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  windowMs: 15 * 60 * 1000,
+  max: env.RATE_LIMIT_MAX_REQUESTS,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -458,7 +410,7 @@ if (process.env.NODE_ENV !== 'test') {
     startReconciliationDaemon({ intervalMs: 15 * 60 * 1000 });
 
     // Liquidity engine — seeds marketplace with micro jobs every 5 min
-    if (process.env.LIQUIDITY_BOT_ENABLED !== 'false') {
+    if (env.LIQUIDITY_BOT_ENABLED) {
       startLiquidityCron();
     }
   });

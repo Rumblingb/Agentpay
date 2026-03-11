@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -34,7 +35,7 @@ router.get('/:txHash', async (req: Request, res: Response) => {
       settlementTimestamp: row?.created_at ? new Date(row.created_at).toISOString() : null,
     };
 
-    const secret = process.env.WEBHOOK_SECRET || process.env.AGENTPAY_HMAC_SECRET;
+    const secret = env.WEBHOOK_SECRET;
     if (!secret) {
       logger.error('HMAC secret not configured for verify endpoint');
       res.status(500).json({ error: 'Server misconfiguration: HMAC secret not set' });

@@ -113,9 +113,10 @@ jobs:
       NODE_ENV: test
       AGENTPAY_TEST_MODE: "true"
       WEBHOOK_SECRET: ci-test-secret-that-is-long-enough-32chars
+      AGENTPAY_SIGNING_SECRET: ci-signing-secret-that-is-long-enough-32c
+      VERIFICATION_SECRET: ci-verification-secret-long-enough-32chars
       SOLANA_RPC_URL: https://api.devnet.solana.com
       STRIPE_SECRET_KEY: sk_test_placeholder_for_ci
-      AGENTPAY_SIGNING_SECRET: ci-signing-secret-that-is-long-enough-32c
 
     steps:
       - name: Checkout
