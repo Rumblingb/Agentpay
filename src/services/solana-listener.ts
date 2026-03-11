@@ -4,6 +4,13 @@ import { verifyPaymentRecipient } from '../security/payment-verification.js';
 import * as webhooksService from './webhooks.js';
 import type { WebhookPayload } from './webhooks.js';
 import prisma from '../lib/prisma.js';
+import { ingestSolanaProof } from '../settlement/settlementEventIngestion.js';
+import {
+  runResolutionEngine,
+  type RunEngineParams,
+} from '../settlement/intentResolutionEngine.js';
+import { normalizeSolanaObservation } from '../settlement/settlementEventIngestion.js';
+import { emitSettlementEvent } from '../settlement/settlementEventService.js';
 
 const LISTENER_POLL_INTERVAL_MS = parseInt(process.env.LISTENER_POLL_INTERVAL_MS || '30000', 10);
 
@@ -17,12 +24,19 @@ interface PendingTx {
   webhookUrl: string | null;
 }
 
+/**
+ * Extended intent row — includes fields needed by the Phase 9 settlement path:
+ *   verificationToken  — compared to on-chain memo when requireMemoMatch=true
+ *   externalRef        — first-class tx_hash column (falls back to metadata->>'tx_hash')
+ */
 interface PendingIntent {
   intentId: string;
   merchantId: string;
   amountUsdc: number;
   recipientAddress: string;
   txHash: string;
+  verificationToken: string | null;
+  externalRef: string | null;
   metadata: Record<string, unknown> | null;
   webhookUrl: string | null;
 }
@@ -63,23 +77,30 @@ async function fetchPendingWithHash(): Promise<PendingTx[]> {
 
 /**
  * Fetches pending payment_intents that have had a tx_hash submitted via the
- * verify endpoint and stored in metadata.  These are intent-based payments
- * that have not yet had a transactions row created.
+ * verify endpoint and stored in metadata OR in the first-class external_ref
+ * column.  Phase 9: also selects verification_token and external_ref so the
+ * resolution engine can perform memo matching without a second DB round-trip.
  */
 async function fetchPendingIntentsWithHash(): Promise<PendingIntent[]> {
   const result = await query(
     `SELECT
-       pi.id          AS "intentId",
-       pi.merchant_id AS "merchantId",
-       pi.amount      AS "amountUsdc",
-       m.wallet_address AS "recipientAddress",
-       pi.metadata->>'tx_hash' AS "txHash",
-       pi.metadata    AS "metadata",
-       m.webhook_url  AS "webhookUrl"
+       pi.id                              AS "intentId",
+       pi.merchant_id                     AS "merchantId",
+       pi.amount                          AS "amountUsdc",
+       m.wallet_address                   AS "recipientAddress",
+       COALESCE(pi.external_ref,
+                pi.metadata->>'tx_hash')  AS "txHash",
+       pi.verification_token              AS "verificationToken",
+       pi.external_ref                    AS "externalRef",
+       pi.metadata                        AS "metadata",
+       m.webhook_url                      AS "webhookUrl"
      FROM payment_intents pi
      JOIN merchants m ON pi.merchant_id = m.id
      WHERE pi.status = 'pending'
-       AND pi.metadata->>'tx_hash' IS NOT NULL
+       AND (
+         pi.external_ref IS NOT NULL
+         OR pi.metadata->>'tx_hash' IS NOT NULL
+       )
        AND pi.expires_at > NOW()
      ORDER BY pi.created_at ASC
      LIMIT 50`
@@ -182,13 +203,45 @@ async function processTransaction(tx: PendingTx): Promise<void> {
 /**
  * Processes a pending payment_intent that has had a tx_hash submitted.
  *
- * When the transaction is confirmed on-chain this function:
- *   1. Updates payment_intent.status → 'completed'
- *   2. Creates a durable transactions row with status='released'
+ * Phase 9 settlement path (additive — existing Prisma $transaction unchanged):
  *
- * Both writes are wrapped in a prisma.$transaction to guarantee atomicity.
+ *   1. On first observation (hash seen, not yet on-chain confirmed):
+ *      emit a `hash_submitted` settlement event (fire-and-forget).
+ *
+ *   2. On confirmed on-chain tx:
+ *      a. Persist normalized settlement event via ingestSolanaProof()
+ *      b. Run the resolution engine (Phase 6) to produce an intent_resolutions
+ *         record with a fine-grained decision + reason code.
+ *      c. The engine's updateIntentStatus() call overwrites the intent status
+ *         consistently (confirmed → `completed`; failed → `failed`).
+ *      d. Existing Prisma $transaction still runs and creates the transactions
+ *         row for full backward compatibility / rollback safety.
+ *
+ * Resolution engine failures are non-fatal — logged at warn level.
+ * The legacy path (prisma.$transaction) always runs regardless.
+ *
+ * Explicit reason codes surfaced when matching fails:
+ *   - no_intent_found      — intent row missing (should not happen, guarded above)
+ *   - recipient_mismatch   — on-chain recipient ≠ merchant wallet
+ *   - amount_mismatch      — paid amount outside tolerance
+ *   - memo_missing         — policy requires memo but none present
  */
 async function processIntent(intent: PendingIntent): Promise<void> {
+  // ── Phase 9 Step 1: emit hash_submitted event on first observation ────────
+  // Fire-and-forget — does not block the on-chain check.
+  emitSettlementEvent({
+    eventType: 'hash_submitted',
+    protocol: 'solana',
+    intentId: intent.intentId,
+    externalRef: intent.txHash,
+    payload: {
+      txHash: intent.txHash,
+      merchantId: intent.merchantId,
+      recipientAddress: intent.recipientAddress,
+    },
+  });
+
+  // ── On-chain check (unchanged) ────────────────────────────────────────────
   const verification = await verifyPaymentRecipient(intent.txHash, intent.recipientAddress);
 
   if (!verification.valid) {
@@ -207,6 +260,62 @@ async function processIntent(intent: PendingIntent): Promise<void> {
     return;
   }
 
+  // ── Phase 9 Step 2: ingest confirmed Solana observation ───────────────────
+  // Returns the settlement event ID; the underlying emitSettlementEvent write
+  // is fire-and-forget so it does NOT block the atomic DB update below.
+  ingestSolanaProof(
+    {
+      txHash: intent.txHash,
+      sender: verification.payer ?? null,
+      recipient: intent.recipientAddress,
+      amountUsdc: Number(intent.amountUsdc),
+      memo: null,          // on-chain memo fetched by the engine if needed
+      confirmationDepth: verification.confirmationDepth ?? 0,
+      confirmed: true,
+    },
+    { intentId: intent.intentId },
+  );
+
+  // ── Phase 9 Step 3: run resolution engine ─────────────────────────────────
+  // Best-effort — failure must never block the legacy prisma.$transaction.
+  try {
+    const proof = normalizeSolanaObservation({
+      txHash: intent.txHash,
+      sender: verification.payer ?? null,
+      recipient: intent.recipientAddress,
+      amountUsdc: Number(intent.amountUsdc),
+      memo: null,
+      confirmationDepth: verification.confirmationDepth ?? 0,
+      confirmed: true,
+    });
+
+    const engineParams: RunEngineParams = {
+      intentId: intent.intentId,
+      proof,
+      expectedAmountUsdc: Number(intent.amountUsdc),
+      merchantWallet: intent.recipientAddress,
+      verificationToken: intent.verificationToken ?? null,
+      resolvedBy: 'solana_listener',
+    };
+
+    const engineResult = await runResolutionEngine(engineParams);
+
+    logger.info('Listener: resolution engine result', {
+      intentId: intent.intentId,
+      decision: engineResult.evaluation.decision,
+      reasonCode: engineResult.evaluation.reasonCode,
+      resolutionStatus: engineResult.evaluation.resolutionStatus,
+      wasAlreadyResolved: engineResult.wasAlreadyResolved,
+    });
+  } catch (engineErr: unknown) {
+    // Non-fatal — log and fall through to the legacy path.
+    logger.warn('Listener: resolution engine failed (continuing with legacy path)', {
+      intentId: intent.intentId,
+      error: engineErr instanceof Error ? engineErr.message : String(engineErr),
+    });
+  }
+
+  // ── Legacy path (unchanged) ───────────────────────────────────────────────
   // Strip the tx_hash sentinel from cleanMeta so a re-check doesn't double-process.
   // We update status to 'completed' and write a clean metadata snapshot that
   // preserves the submitted hash for audit purposes.
