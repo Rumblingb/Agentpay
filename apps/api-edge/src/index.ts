@@ -17,6 +17,8 @@ import { securityHeadersMiddleware } from './middleware/securityHeaders';
 import { globalPauseMiddleware } from './middleware/globalPause';
 import { healthRouter } from './routes/health';
 import { merchantsRouter } from './routes/merchants';
+import { intentsRouter } from './routes/intents';
+import { v1IntentsRouter } from './routes/v1Intents';
 
 // ---------------------------------------------------------------------------
 // Application
@@ -73,6 +75,12 @@ app.route('/', healthRouter);
 
 // Merchant / account routes — /api/merchants/*
 app.route('/', merchantsRouter);
+
+// Payment intent routes — /api/intents/*
+app.route('/api/intents', intentsRouter);
+
+// Agent-facing payment intents — /api/v1/payment-intents/*
+app.route('/api/v1/payment-intents', v1IntentsRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));
