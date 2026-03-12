@@ -6,6 +6,9 @@
    Design tokens — AgentPay sovereign financial interface
    ───────────────────────────────────────────────────────────── */
 :root {
+  /* System typography variables (fallbacks when next/font is not used) */
+  --font-geist-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-geist-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
   /* Background layers — true jet-black base */
   --background: #000000;
   --surface: #060606;

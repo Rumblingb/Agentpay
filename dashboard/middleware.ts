@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname } = new URL(request.url);
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
 
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
@@ -17,14 +17,21 @@ export async function middleware(request: NextRequest) {
     pathname === '/build';
 
   if (!isAuthenticated && !isPublicPage) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    return new Response(null, {
+      status: 302,
+      headers: { Location: new URL('/login', request.url).toString() },
+    });
   }
 
   if (isAuthenticated && pathname === '/login') {
-    return NextResponse.redirect(new URL('/overview', request.url));
+    return new Response(null, {
+      status: 302,
+      headers: { Location: new URL('/overview', request.url).toString() },
+    });
   }
 
-  return NextResponse.next();
+  // no response → continue to next handler
+  return;
 }
 
 export const config = {

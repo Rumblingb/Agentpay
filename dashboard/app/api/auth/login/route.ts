@@ -70,15 +70,18 @@ export async function POST(request: NextRequest) {
     // Sign the session cookie
     const token = await signSession({ apiKey, email: profile.email });
 
-    const response = NextResponse.json({ success: true });
-    response.cookies.set(COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: SESSION_MAX_AGE,
-      path: '/',
-    });
-    return response;
+    // Build a Set-Cookie header manually so TypeScript doesn't depend on NextResponse.cookies
+    const cookieParts = [
+      `${COOKIE_NAME}=${token}`,
+      `Path=/`,
+      `Max-Age=${SESSION_MAX_AGE}`,
+      `SameSite=Lax`,
+      `HttpOnly`,
+    ];
+    if (process.env.NODE_ENV === 'production') cookieParts.push('Secure');
+    const setCookie = cookieParts.join('; ');
+
+    return NextResponse.json({ success: true }, { status: 200, headers: { 'Set-Cookie': setCookie } });
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

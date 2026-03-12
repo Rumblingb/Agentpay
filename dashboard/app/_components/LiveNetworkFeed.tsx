@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 export default function LiveNetworkFeed() {
-  const [events, setEvents] = useState<string[]>([]);
+  const [events, setEvents] = useState<Array<string | Record<string, any>>>([]);
 
   useEffect(() => {
     let mounted = true;

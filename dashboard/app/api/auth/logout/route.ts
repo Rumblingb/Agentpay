@@ -2,13 +2,15 @@ import { NextResponse } from 'next/server';
 import { COOKIE_NAME } from '@/lib/session';
 
 export async function POST() {
-  const response = NextResponse.json({ success: true });
-  response.cookies.set(COOKIE_NAME, '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/',
-  });
-  return response;
+  const cookieParts = [
+    `${COOKIE_NAME}=`,
+    `Path=/`,
+    `Max-Age=0`,
+    `SameSite=Lax`,
+    `HttpOnly`,
+  ];
+  if (process.env.NODE_ENV === 'production') cookieParts.push('Secure');
+  const setCookie = cookieParts.join('; ');
+
+  return NextResponse.json({ success: true }, { status: 200, headers: { 'Set-Cookie': setCookie } });
 }

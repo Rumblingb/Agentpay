@@ -11,15 +11,17 @@ export async function POST(request: NextRequest) {
     const result = await rotateApiKey(session.apiKey);
     // Refresh session with the new API key
     const newToken = await signSession({ apiKey: result.apiKey, email: session.email });
-    const response = NextResponse.json({ success: true, apiKey: result.apiKey });
-    response.cookies.set(COOKIE_NAME, newToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: SESSION_MAX_AGE,
-      path: '/',
-    });
-    return response;
+    const cookieParts = [
+      `${COOKIE_NAME}=${newToken}`,
+      `Path=/`,
+      `Max-Age=${SESSION_MAX_AGE}`,
+      `SameSite=Lax`,
+      `HttpOnly`,
+    ];
+    if (process.env.NODE_ENV === 'production') cookieParts.push('Secure');
+    const setCookie = cookieParts.join('; ');
+
+    return NextResponse.json({ success: true, apiKey: result.apiKey }, { status: 200, headers: { 'Set-Cookie': setCookie } });
   } catch {
     return NextResponse.json({ error: 'Failed to rotate key' }, { status: 502 });
   }
