@@ -19,7 +19,7 @@
 
 import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
-import { sign, verify } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import { recordTrustEvent } from '../services/trustEventService.js';
 import { emitEvent } from '../services/events.js';
 import { logger } from '../logger.js';
@@ -390,12 +390,12 @@ class IdentityVerifierAgent {
   private async signCredential(credential: VerificationCredential): Promise<string> {
     const payload = this.serializeCredential(credential);
     // HS256 works with any string/Buffer secret (RS256 requires PEM RSA key)
-    return sign(payload, this.privateKey, { algorithm: 'HS256' });
+    return jwt.sign(payload, this.privateKey, { algorithm: 'HS256' });
   }
 
   private async verifySignature(signature: string, _payload: string): Promise<boolean> {
     try {
-      verify(signature, this.privateKey, { algorithms: ['HS256'] });
+      jwt.verify(signature, this.privateKey, { algorithms: ['HS256'] });
       return true;
     } catch {
       return false;

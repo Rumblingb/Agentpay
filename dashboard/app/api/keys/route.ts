@@ -4,7 +4,7 @@ import { rotateApiKey } from '@/lib/api';
 
 export async function POST(request: NextRequest) {
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
-  const session = sessionCookie ? await verifySession(sessionCookie) : null;
+    const session = sessionCookie ? await verifySession(sessionCookie) : null;
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

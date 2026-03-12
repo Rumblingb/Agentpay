@@ -25,7 +25,8 @@ router.post('/', async (req: Request, res: Response) => {
 
   try {
     // Step 0: Verify Agent Passport (identity)
-    const agentPassport = await require('../lib/prisma').default.agent.findUnique({ where: { id: from_agent } });
+    const { default: prisma } = await import('../lib/prisma.js');
+    const agentPassport = await prisma.agent.findUnique({ where: { id: from_agent } });
     if (!agentPassport) {
       res.status(404).json({ error: 'Agent Passport not found' });
       return;
@@ -43,13 +44,13 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Step 2: Auto-update trust_score in Agent table
     const [successCount, totalCount] = await Promise.all([
-      require('../lib/prisma').default.trustEvent.count({
+      prisma.trustEvent.count({
         where: {
           agentId: from_agent,
           category: 'successful_interaction',
         },
       }),
-      require('../lib/prisma').default.trustEvent.count({
+      prisma.trustEvent.count({
         where: {
           agentId: from_agent,
           category: { in: ['successful_interaction', 'failed_interaction'] },
@@ -57,16 +58,17 @@ router.post('/', async (req: Request, res: Response) => {
       }),
     ]);
     const trustScore = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 0;
-    await require('../lib/prisma').default.agent.update({
+    await prisma.agent.update({
       where: { id: from_agent },
       data: { trustScore },
     });
 
     // Step 3: Update TrustEdge (trust graph)
-    await require('../services/trustGraphService').updateTrustEdge(from_agent, to_agent, success);
+    const { updateTrustEdge } = await import('../services/trustGraphService.js');
+    await updateTrustEdge(from_agent, to_agent, success);
 
     // Step 4: Emit event to feed
-    const { addSseClient } = require('../events/marketplaceEmitter.js');
+    const { addSseClient } = (await import('../events/marketplaceEmitter.js')) as any;
     const event = {
       type: 'interaction',
       from: agentPassport.displayName || from_agent,

@@ -250,7 +250,13 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/stripe', stripeRouter); 
 
 app.use('/api/interactions', interactionsRouter);
-app.use('/api/endorse', require('./routes/endorsements').default);
+
+// endorsements route uses dynamic import to remain ESM-compatible
+import('./routes/endorsements.js')
+  .then((m) => app.use('/api/endorse', m.default))
+  .catch((err) => {
+    logger.warn('Failed to load endorsements routes', { err: err?.message ?? err });
+  });
 
 // Agent API Routes
 // NOTE: agentsRouter is mounted first and owns POST /register (AgentPay Network

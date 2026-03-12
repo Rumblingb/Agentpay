@@ -126,6 +126,11 @@ const INSECURE_DEFAULTS: Record<string, string[]> = {
     'your-verification-secret-here',
     'REPLACE_WITH_STRONG_RANDOM_SECRET',
   ],
+  // Admin secret must never be defaulted or weak in production
+  ADMIN_SECRET_KEY: [
+    'admin-dev-key',
+    'change-me-in-production',
+  ],
 };
 
 const MIN_SECRET_LENGTH = 32;
@@ -143,7 +148,7 @@ function parseEnv(): Env {
   // Production fast-fail checks
   if (isProduction) {
     const GEN_CMD =
-      'node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"';
+      'node -e "console.log(import(\'crypto\').then(c=>c.randomBytes(32).toString(\'hex\')))"';
 
     for (const [key, insecureValues] of Object.entries(INSECURE_DEFAULTS)) {
       const val = raw[key];
@@ -195,7 +200,7 @@ function parseEnv(): Env {
     WEBHOOK_SECRET: raw.WEBHOOK_SECRET ?? '',
     AGENTPAY_SIGNING_SECRET: raw.AGENTPAY_SIGNING_SECRET ?? '',
     VERIFICATION_SECRET: raw.VERIFICATION_SECRET ?? '',
-    ADMIN_SECRET_KEY: raw.ADMIN_SECRET_KEY ?? 'admin-dev-key',
+    ADMIN_SECRET_KEY: raw.ADMIN_SECRET_KEY ?? '',
 
     SOLANA_RPC_URL: raw.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com',
     CONFIRMATION_DEPTH: parseInt(raw.CONFIRMATION_DEPTH ?? '2', 10),

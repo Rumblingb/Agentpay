@@ -25,6 +25,7 @@ import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';
 import { logger } from '../logger.js';
 import { getLastReport } from '../services/reconciliationService.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -32,15 +33,15 @@ const router = Router();
 // Auth middleware — must precede all admin route handlers
 // ---------------------------------------------------------------------------
 
-const ADMIN_KEY = process.env.ADMIN_SECRET_KEY || 'admin-dev-key';
+const ADMIN_KEY = env.ADMIN_SECRET_KEY;
 
-if (!process.env.ADMIN_SECRET_KEY) {
-  logger.warn('ADMIN_SECRET_KEY is not set — using insecure default. Set this variable before deploying to production.');
+if (!env.ADMIN_SECRET_KEY) {
+  logger.warn('ADMIN_SECRET_KEY is not set. In production this will prevent startup.');
 }
 
 function requireAdminKey(req: Request, res: Response, next: NextFunction): void {
   const key = req.headers['x-admin-key'];
-  // Always accept 'admin-dev-key' in test mode
+  // Always accept the default dev admin key in test mode
   if (process.env.NODE_ENV === 'test' && key === 'admin-dev-key') {
     return next();
   }

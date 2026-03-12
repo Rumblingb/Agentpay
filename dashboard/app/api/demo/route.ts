@@ -7,27 +7,42 @@ function betaResponse() {
 }
 
 export async function POST(request: NextRequest) {
-  if (process.env.BETA_MODE === 'true') return betaResponse();
-  const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
-  const session = sessionCookie ? await verifySession(sessionCookie) : null;
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (process.env.BETA_MODE === 'true') {
+    return betaResponse();
+  }
+
   try {
+    const cookie = request.cookies.get(COOKIE_NAME)?.value;
+    const session = cookie ? await verifySession(cookie) : null;
+
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
+
     const res = await fetch(`${API_BASE}/api/demo/run-agent-payment`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${session.apiKey}`,
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.apiKey ?? ''}`,
       },
       body: JSON.stringify(body),
+      cache: 'no-store',
     });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({ error: 'Demo failed' }));
-      return NextResponse.json(errData, { status: res.status });
-    }
-    const data = await res.json();
-    return NextResponse.json(data, { status: 201 });
+
+    const data = await res.json().catch(() => null);
+
+    return NextResponse.json(data, {
+      status: res.status,
+    });
   } catch {
-    return NextResponse.json({ error: 'Demo payment failed' }, { status: 502 });
+    return NextResponse.json(
+      { error: 'Failed to create demo payment' },
+      { status: 500 }
+    );
   }
 }
