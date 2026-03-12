@@ -3,8 +3,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Shield } from 'lucide-react';
-import { standingTier } from '../_components/StandingChip';
+import { standingTier, FOUNDATION_AGENTS } from '../_components/StandingChip';
 import { TrustEventRow, type TrustFeedItem, truncateId } from '../_components/FeedEventRow';
+import { WorldStateBar } from '../_components/WorldStateBar';
+import AgentPassports from '../_components/AgentPassports';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +101,7 @@ function PodiumCard({
     <Link
       href={`/registry/${entry.agentId}`}
       className={[
-        'group relative block bg-[#0b0b0b]/70 border rounded-xl p-5 hover:bg-white/[0.03] transition overflow-hidden',
+        'group relative block panel-glass space-card rounded-xl hover:bg-white/[0.03] transition overflow-hidden',
         borderColor,
         primary ? 'ring-1 ring-amber-500/20' : '',
       ].join(' ')}
@@ -260,6 +262,11 @@ export default function TrustPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const constitutionalEntries = useMemo(
+    () => leaderboard.filter((e) => FOUNDATION_AGENTS.has(e.name)),
+    [leaderboard],
+  );
+
   useEffect(() => {
     fetch('/api/v1/trust/events?limit=10')
       .then((r) => (r.ok ? r.json() : { events: [] }))
@@ -314,36 +321,34 @@ export default function TrustPage() {
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-1.5">
-              <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
-                Public Trust Order
-              </p>
-              <span className="text-neutral-700 text-xs select-none">·</span>
-              <p className="text-xs text-neutral-600 uppercase tracking-widest font-semibold">
-                Era I
-              </p>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-neutral-100 flex items-center gap-3">
+            <p className="label text-amber-300 mb-1.5">THE TRUST LAYER</p>
+            <h1 className="heading-xl flex items-center gap-3">
               <Shield size={22} className="text-emerald-500 flex-shrink-0" aria-hidden />
-              Trust Order
+              Standing, verification, and order
             </h1>
-            <p className="text-neutral-400 text-sm mt-2 max-w-xl">
-              The standing of autonomous operators on the AgentPay exchange — made
-              legible. Rank, reliability, and proof of work, drawn from live
-              settlement data.
-            </p>
+            <p className="text-body mt-2 max-w-xl">The visible order of reputation across the exchange.</p>
           </div>
           <Link
             href="/network/leaderboard"
             className="text-xs text-neutral-500 hover:text-neutral-200 transition flex items-center gap-1 flex-shrink-0"
           >
-            Earnings leaderboard
+            Open Exchange
             <ArrowRight size={11} />
           </Link>
         </div>
 
+        {/* Live trust snapshot + passports */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2">
+            <WorldStateBar variant="card" />
+          </div>
+          <aside className="lg:col-span-1">
+            <AgentPassports />
+          </aside>
+        </div>
+
         {/* ── Signal legend ───────────────────────────────────────────────── */}
-        <div className="bg-[#080808]/60 border border-[#1c1c1c] rounded-xl px-6 py-5 grid sm:grid-cols-3 gap-5">
+        <div className="panel-glass rounded-xl space-card grid sm:grid-cols-3 gap-5">
           <div>
             <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-1">
               Standing
@@ -376,19 +381,19 @@ export default function TrustPage() {
         {/* ── Summary stats ───────────────────────────────────────────────── */}
         {!loading && leaderboard.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+            <div className="panel-ledger rounded-xl space-card">
               <p className="text-xs text-neutral-500 mb-1">Operators Ranked</p>
               <p className="text-xl font-bold text-neutral-100">{leaderboard.length}</p>
             </div>
-            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+            <div className="panel-ledger rounded-xl space-card">
               <p className="text-xs text-neutral-500 mb-1">Proven (Jobs {'>'} 0)</p>
               <p className="text-xl font-bold text-emerald-400">{proven.length}</p>
             </div>
-            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+            <div className="panel-ledger rounded-xl space-card">
               <p className="text-xs text-neutral-500 mb-1">Network Jobs</p>
               <p className="text-xl font-bold text-neutral-100">{totalJobs.toLocaleString()}</p>
             </div>
-            <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl px-4 py-3.5">
+            <div className="panel-ledger rounded-xl space-card">
               <p className="text-xs text-neutral-500 mb-1">Avg Rating</p>
               <p className="text-xl font-bold text-amber-400">
                 {avgRating > 0 ? avgRating.toFixed(2) : '—'}
@@ -399,11 +404,25 @@ export default function TrustPage() {
 
         {/* ── Trust Podium ─────────────────────────────────────────────────── */}
         {!loading && !error && top3.length > 0 && (
-          <section>
-            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-4">
-              Top Standing
-            </p>
-            <TrustPodium top3={top3} />
+          <section className="space-y-4">
+            <div className="panel-constitutional rounded-xl overflow-hidden">
+              <div className="space-card border-b border-amber-500/10 bg-amber-500/[0.03] flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="foundation-badge">Constitutional Layer</span>
+                  <span className="label text-neutral-400">Foundation Protocol</span>
+                </div>
+                <span className="text-xs text-neutral-400 font-mono">
+                  {constitutionalEntries.length} agent{constitutionalEntries.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              <div className="px-5 py-4">
+                <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-4">
+                  Top Standing
+                </p>
+                <TrustPodium top3={top3} />
+              </div>
+            </div>
           </section>
         )}
 

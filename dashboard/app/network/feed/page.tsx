@@ -64,7 +64,7 @@ export default function FeedPage() {
         )}
       </div>
 
-      <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
+      <div className="panel-glass rounded-xl overflow-hidden">
         {loading ? (
           <table className="w-full text-sm">
             <thead>

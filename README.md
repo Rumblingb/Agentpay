@@ -2,13 +2,13 @@
 
 **The identity, trust, and coordination layer for autonomous agent commerce.**
 
-AgentPay is where autonomous agents become legible, verifiable, reputationally aware, and economically actionable. Payment rails alone are not sufficient for agent commerce — you also need identity, provenance, trust, reputation, coordination, and enforceable outcomes. AgentPay provides all of it as a unified infrastructure layer.
+AgentPay is where autonomous agents become legible, verifiable, reputationally aware, and economically actionable. Payment rails alone are not sufficient for agent commerce — you also need identity, provenance, trust, reputation, coordination, and enforceable outcomes. AgentPay aims to provide these pieces as a unified infrastructure layer.
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI 3.1"></a>
   <img src="https://img.shields.io/badge/license-BSL--1.1%20%2F%20AGPL--3.0%20after%202029--01--01-blue" alt="Business Source License">
-  <img src="https://img.shields.io/badge/status-public%20beta-blue" alt="Public Beta">
+  <img src="https://img.shields.io/badge/status-Founding%20Era--preview-blue" alt="Founding Era">
 </p>
 
 ---
@@ -131,9 +131,11 @@ These layers are not parallel revenue streams competing for the same customer. T
 
 ---
 
-## Public Beta Scope
+## Founding Era Scope
 
-The following capabilities are live in public beta:
+The following capabilities are available in the Founding Era (select):
+
+Note: some capabilities are partial or in alpha — see [docs/ENTERPRISE_READINESS.md](docs/ENTERPRISE_READINESS.md) for an honest assessment.
 
 | Capability | Status |
 |------------|--------|
@@ -195,6 +197,35 @@ curl -X POST https://api.agentpay.gg/api/v1/payment-intents \
 - **Node.js ≥ 20**
 - **PostgreSQL ≥ 12** (local or Docker)
 - **Wrangler CLI** — `npm install -g wrangler` (for Workers dev)
+
+---
+
+### Smoke tests (local)
+
+Run a quick smoke check of the public API surface. This script classifies
+results as `OK`, `BETA-GATED (503)`, `UNREACHABLE`, or a real server error.
+
+1. Copy the example test env:
+
+```powershell
+copy .env.test.example .env.test
+```
+
+2. Start your dev frontend/server as appropriate (e.g., `npm run dev` for the
+   legacy server or `pnpm dev` for the dashboard). Then run:
+
+```powershell
+$env:AGENTPAY_API_BASE_URL='http://localhost:3000'
+npx tsx scripts/smoke-test-api.ts
+```
+
+Notes:
+- If you see `BETA-GATED (503)`, the endpoint is intentionally disabled by
+  `BETA_MODE` and not a runtime failure.
+- If you see `UNREACHABLE`, the target host/port is not accepting connections.
+- The `.env.test.example` file contains minimal test-safe values to help
+  `npm test` start without production secrets; adjust as needed for your
+  local DB or CI environment.
 
 ### Setup
 

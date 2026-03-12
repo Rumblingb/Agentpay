@@ -377,6 +377,22 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
+/*
+LEGACY RENDER BACKEND — ARCHIVED
+This server powered the previous Render deployment. The system now uses
+Workers + Next.js API routes for the public HTTP surface. The file is
+preserved for reference but its runtime entrypoint is intentionally disabled
+to prevent accidental startup during local development, smoke tests, or the
+Workers runtime.
+
+To re-enable for rollback testing, remove this comment and ensure you have
+appropriate production environment variables and secrets configured.
+*/
+
+// Runtime entrypoint disabled to quarantine legacy Render backend.
+// The original startup logic is preserved here for reference but commented
+// out to avoid accidental execution.
+/*
 if (process.env.NODE_ENV !== 'test') {
   // Initialise Sentry before starting server so first-request errors are captured
   initSentry().then(() => {
@@ -425,5 +441,6 @@ if (process.env.NODE_ENV !== 'test') {
     }
   });
 }
+*/
 
 export default app;

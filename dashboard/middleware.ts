@@ -9,7 +9,12 @@ export async function middleware(request: NextRequest) {
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   const isAuthenticated = session !== null;
   const isPublicPage =
-    pathname === '/login' || pathname === '/' || pathname.startsWith('/network');
+    pathname === '/login' ||
+    pathname === '/' ||
+    pathname.startsWith('/network') ||
+    pathname === '/registry' ||
+    pathname === '/trust' ||
+    pathname === '/build';
 
   if (!isAuthenticated && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url));

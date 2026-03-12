@@ -10,6 +10,8 @@
 
 An honest, unvarnished assessment of what AgentPay can and cannot currently offer enterprise customers. We believe transparency about current capabilities builds more trust than inflated claims.
 
+Note: During the Founding Era preview, live escrow operations are disabled by default. Escrow flows are documented as unavailable for the preview; this avoids moving real value until persistence and reliability guarantees are in place.
+
 ---
 
 ## Current Capabilities

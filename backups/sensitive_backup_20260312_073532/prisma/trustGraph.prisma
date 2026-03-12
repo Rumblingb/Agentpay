@@ -1,0 +1,14 @@
+model TrustEdge {
+  id               String   @id @default(cuid())
+  fromAgentId      String   @map("from_agent")
+  toAgentId        String   @map("to_agent")
+  trustWeight      Float    @default(0) @map("trust_weight")
+  interactionCount Int      @default(0) @map("interaction_count")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@unique([fromAgentId, toAgentId])
+  @@map("trust_edges")
+}

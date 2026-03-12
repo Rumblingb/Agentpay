@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────
    Design tokens — AgentPay sovereign financial interface
@@ -21,6 +23,97 @@
   --accent-amber: #fbbf24;     /* trust signals */
   --accent-sky: #38bdf8;       /* system operations */
 }
+
+/* =====================================================
+  DESIGN TOKENS — PHASE B SCAFFOLD
+
+  These tokens power the premium material system.
+
+  Panel types:
+  - panel-glass → live system surfaces
+  - panel-ledger → identity / registry objects
+  - panel-constitutional → governance layer
+
+  Semantic colors:
+  - live → exchange activity
+  - ceremony → founding / protocol layer
+  - trust → reputation system
+
+  Spacing tokens ensure visual rhythm across pages.
+
+  Components should migrate gradually to these tokens.
+  ===================================================== */
+/* ------------------------------------------------------------------
+  Phase B design tokens (minimal scaffold)
+  - Semantic colors
+  - Panel material tokens for panels to migrate later
+  - Spacing scale
+  - Typography scale tokens
+  ------------------------------------------------------------------ */
+:root {
+  /* Semantic color roles (do not change appearance yet) */
+  --color-live: #34d399;       /* emerald */
+  --color-ceremony: #f59e0b;   /* amber */
+  --color-trust: #7c3aed;      /* violet */
+
+  /* Panel materials */
+  --panel-glass-bg: rgba(255,255,255,0.02);
+  --panel-glass-border: rgba(255,255,255,0.04);
+  --panel-glass-glow: 0 8px 30px rgba(52, 211, 153, 0.06);
+  --panel-glass-elevation: 0 12px 40px rgba(0,0,0,0.6);
+
+  --panel-ledger-bg: rgba(10,8,6,0.75);
+  --panel-ledger-border: rgba(255,255,255,0.03);
+  --panel-ledger-glow: 0 10px 36px rgba(11,11,11,0.6);
+  --panel-ledger-elevation: 0 20px 60px rgba(0,0,0,0.7);
+
+  --panel-constitutional-bg: linear-gradient(180deg, rgba(124,58,237,0.06), rgba(0,0,0,0.45));
+  --panel-constitutional-border: rgba(124,58,237,0.12);
+  --panel-constitutional-glow: 0 10px 34px rgba(124,58,237,0.04);
+  --panel-constitutional-elevation: 0 22px 70px rgba(0,0,0,0.72);
+
+  /* Spacing scale (semantic) */
+  --space-section: 2.5rem; /* large section gap */
+  --space-card: 1.25rem;   /* card internal padding */
+  --space-tight: 0.5rem;   /* tight spacing */
+
+  /* Typography tokens */
+  --heading-xl: 3.2rem;
+  --heading-lg: 1.75rem;
+  --heading-md: 1.125rem;
+  --body-size: 0.9375rem;
+  --label-size: 0.75rem;
+}
+
+/* Small utility classes that map to tokens so components can start migrating */
+.panel-glass {
+  background: var(--panel-glass-bg);
+  border: 1px solid var(--panel-glass-border);
+  box-shadow: var(--panel-glass-elevation);
+  backdrop-filter: blur(10px);
+}
+
+.panel-ledger {
+  background: var(--panel-ledger-bg);
+  border: 1px solid var(--panel-ledger-border);
+  box-shadow: var(--panel-ledger-elevation);
+}
+
+.panel-constitutional {
+  background: var(--panel-constitutional-bg);
+  border: 1px solid var(--panel-constitutional-border);
+  box-shadow: var(--panel-constitutional-elevation);
+}
+
+.space-section { padding: var(--space-section) 0; }
+.space-card { padding: var(--space-card); }
+.space-tight { gap: var(--space-tight); }
+
+.heading-xl { font-size: var(--heading-xl); }
+.heading-lg { font-size: var(--heading-lg); }
+.heading-md { font-size: var(--heading-md); }
+.text-body { font-size: var(--body-size); }
+.label { font-size: var(--label-size); font-weight:600; letter-spacing:0.08em; text-transform:uppercase; }
 
 @theme inline {
   --color-background: var(--background);
@@ -69,6 +162,44 @@ body {
 .animate-marquee {
   animation: marquee 40s linear infinite;
   will-change: transform;
+}
+
+/* Vertical marquee for calmer continuous feed */
+@keyframes marquee-vertical {
+  from { transform: translateY(0%); }
+  to   { transform: translateY(-50%); }
+}
+
+.animate-marquee-vertical {
+  animation: marquee-vertical 28s linear infinite;
+  will-change: transform;
+}
+
+/* Fade overlays to soften edges of the ticker */
+.marquee-fade-top,
+.marquee-fade-bottom {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2.5rem;
+}
+.marquee-fade-top {
+  top: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.9), transparent);
+}
+.marquee-fade-bottom {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(0,0,0,0.9), transparent);
+}
+
+/* Reduced motion: pause marquee animations for users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-marquee-vertical {
+    animation: none !important;
+    transform: none !important;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -156,3 +287,52 @@ body {
   padding: 0.1rem 0.45rem;
   border-radius: 3px;
 }
+
+/* ------------------------------------------------------------------
+  CTA token styles — Phase B refinement
+  - btn-primary: emerald primary action
+  - btn-secondary: quiet bordered button
+  - btn-link: subtle textual link
+  ------------------------------------------------------------------ */
+.btn-primary {
+  background: var(--color-live);
+  color: #000;
+  padding: 0.6rem 1rem;
+  border-radius: 0.6rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.btn-primary:hover { filter: brightness(0.95); }
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+}
+
+.btn-link {
+  background: transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+.btn-link:hover { color: var(--foreground); }
+
+/* ------------------------------------------------------------------
+  Minimal route transition veil — very subtle fade between pages
+  Implemented as an overlay inserted briefly during route changes.
+  ------------------------------------------------------------------ */
+.route-veil {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(0,0,0,0.02);
+  opacity: 0;
+  transition: opacity 220ms ease;
+  z-index: 9999;
+}
+.route-veil.active { opacity: 1; }

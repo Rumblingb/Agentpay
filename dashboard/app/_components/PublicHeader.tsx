@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import FoundingRibbon from './FoundingRibbon';
 
 interface Props {
   /** Controls which sub-nav items appear and visual treatment.
@@ -19,14 +20,16 @@ export function PublicHeader({ variant = 'network' }: Props) {
   const isHomepage = variant === 'homepage';
 
   return (
-    <header
-      className={[
-        'px-6 py-4 flex items-center justify-between',
-        isHomepage
-          ? 'absolute top-0 left-0 right-0 z-20 border-b border-white/[0.04]'
-          : 'border-b border-neutral-900 bg-black/90 backdrop-blur-md sticky top-0 z-30',
-      ].join(' ')}
-    >
+    <>
+      <FoundingRibbon />
+      <header
+        className={[
+          'px-6 py-4 flex items-center justify-between',
+          isHomepage
+            ? 'absolute top-0 left-0 right-0 z-20 border-b border-white/[0.04]'
+            : 'border-b border-neutral-900 bg-black/90 backdrop-blur-md sticky top-0 z-30',
+        ].join(' ')}
+      >
       {/* Brand */}
       <Link
         href="/"
@@ -86,5 +89,6 @@ export function PublicHeader({ variant = 'network' }: Props) {
         </Link>
       </nav>
     </header>
+    </>
   );
 }

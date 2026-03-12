@@ -1,0 +1,663 @@
+// Preserve agent_reputation_network table
+model AgentReputationNetwork {
+  id              String   @id @default(uuid()) @db.Uuid
+  agent_id        String   @map("agent_id")
+  success_rate    Float    @default(0)
+  dispute_rate    Float    @default(0)
+  avg_response_time Int    @default(0) @map("avg_response_time")
+  rating          Float    @default(5.0)
+  total_tx        Int      @default(0) @map("total_tx")
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  @@map("agent_reputation_network")
+}
+// Legacy compatibility: bots table
+model Bot {
+  id                     String   @id @default(uuid()) @db.Uuid
+  platformBotId          String?  @map("platform_bot_id")
+  handle                 String   @unique
+  displayName            String?  @map("display_name")
+  bio                    String?
+  createdBy              String?  @map("created_by")
+  primaryFunction        String?  @map("primary_function")
+  walletAddress          String?  @map("wallet_address")
+  walletKeypairEncrypted String?  @map("wallet_keypair_encrypted")
+  dailySpendingLimit     Decimal? @map("daily_spending_limit")
+  perTxLimit             Decimal? @map("per_tx_limit")
+  autoApproveUnder       Decimal? @map("auto_approve_under")
+  dailyAutoApproveCap    Decimal? @map("daily_auto_approve_cap")
+  status                 String?  @default("active")
+  createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("bots")
+}
+
+// Legacy compatibility: api_logs table
+model ApiLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  method     String?
+  path       String?
+  statusCode Int?      @map("status_code")
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("api_logs")
+}
+
+// Legacy compatibility: agent_reputation table
+model AgentReputationLegacy {
+  agent_id      String   @id @map("agent_id")
+  trust_score   Int      @default(50)
+  total_payments Int     @default(0)
+  success_rate  Float    @default(0)
+  dispute_rate  Float    @default(0)
+  last_payment_at DateTime?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  @@map("agent_reputation")
+}
+
+// Legacy compatibility: rate_limit_counters table
+model RateLimitCounter {
+  id         String    @id @default(uuid()) @db.Uuid
+  key        String   @unique
+  count      Int      @default(0)
+  window     String?
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("rate_limit_counters")
+}
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"] // <--- ADD THIS LINE
+  // output = "../src/generated/prisma" (keep if you prefer Option B)
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+model Merchant {
+  id                       String    @id @default(uuid()) @db.Uuid
+  name                     String
+  email                    String    @unique
+  apiKeyHash               String    @map("api_key_hash")
+  apiKeySalt               String    @map("api_key_salt")
+  keyPrefix                String    @map("key_prefix")
+  walletAddress            String    @map("wallet_address")
+  webhookUrl               String?   @map("webhook_url")
+  stripeConnectedAccountId String?   @map("stripe_connected_account_id")
+  isActive                 Boolean?  @default(true) @map("is_active")
+  createdAt                DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  paymentIntents PaymentIntent[]
+  agents         Agent[]
+
+  @@map("merchants")
+}
+
+// First-class agent entity — owns intents and carries identity/risk data.
+// Network fields (service, endpointUrl, etc.) support the AgentPay Network marketplace.
+model Agent {
+  id             String    @id @default(uuid()) @db.Uuid
+  merchantId     String?   @map("merchant_id") @db.Uuid
+  merchant       Merchant? @relation(fields: [merchantId], references: [id])
+  displayName    String    @map("display_name")
+  publicKey      String?   @map("public_key")
+  riskScore      Int       @default(500) @map("risk_score")
+  // AgentPay Network marketplace fields
+  service        String?
+  endpointUrl    String?   @map("endpoint_url")
+  pricingModel   Json?     @default("{}") @map("pricing_model")
+  rating         Float     @default(5.0)
+  totalEarnings  Float     @default(0) @map("total_earnings")
+  tasksCompleted Int       @default(0) @map("tasks_completed")
+  // Semantic discovery — pgvector column (optional, requires pgvector extension)
+  embedding      Unsupported("vector(1536)")?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  intents        PaymentIntent[]
+  // Foundation agent fields
+  operatorId     String?   @map("operator_id")
+  trustScore     Float     @default(50.0) @map("trust_score")
+  verificationCredentials VerificationCredential[]
+  identityLinks           IdentityLink[]
+
+  @@map("agents")
+}
+
+// AgentPay Network: records every agent-to-agent job/hire.
+model AgentTransaction {
+  id            String   @id @default(cuid())
+  buyerAgentId  String   @map("buyer_agent_id")
+  sellerAgentId String   @map("seller_agent_id")
+  task          Json
+  status        String   @default("pending")
+  amount        Float
+  escrowId      String?  @map("escrow_id")
+  output        Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_transactions")
+}
+
+// AgentPay Network: escrow record per hire.
+model AgentEscrow {
+  id            String   @id @default(cuid())
+  transactionId String   @map("transaction_id")
+  amount        Float
+  status        String   @default("locked")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("agent_escrow")
+}
+
+// AgentPay Network: per-agent reputation derived from network transactions.
+// TODO: extend into a full trust graph (success chains, peer endorsements).
+
+model AgentReputation {
+  id              String   @id @default(cuid())
+  agentId         String   @unique @map("agent_id")
+  successRate     Float    @default(1.0) @map("success_rate")
+  disputeRate     Float    @default(0.0) @map("dispute_rate")
+  avgResponseTime Int      @default(0) @map("avg_response_time")
+  rating          Float    @default(5.0)
+  totalTx         Int      @default(0) @map("total_tx")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+}
+
+// Simple peer endorsement model for trust graph
+model Endorsement {
+  id          String   @id @default(cuid())
+  fromAgentId String   @map("from_agent")
+  toAgentId   String   @map("to_agent")
+  weight      Float    @default(0.1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@unique([fromAgentId, toAgentId])
+  @@map("endorsements")
+}
+
+model PaymentIntent {
+  id                String    @id @db.Uuid
+  merchantId        String    @map("merchant_id") @db.Uuid
+  agentId           String?   @map("agent_id") @db.Uuid
+  amount            Decimal   @db.Decimal(20, 6)
+  currency          String    @default("USDC")
+  status            String    @default("pending")
+  protocol          String?
+  verificationToken String    @unique @map("verification_token")
+  expiresAt         DateTime  @map("expires_at")
+  // First-class protocol-specific external reference.
+  // Replaces the metadata->>'tx_hash' side-channel used by the Solana listener.
+  // Populated when an agent submits a transaction hash via POST /:intentId/verify.
+  externalRef       String?   @map("external_ref")
+  // Business-level fee model override.
+  // Overrides global platform fee defaults when set (e.g. zero-fee for trial merchants).
+  // Kept at intent level, not inside MatchingPolicy, so fee logic stays per-intent.
+  feeConfiguration  Json?     @map("fee_configuration")
+  metadata          Json?
+  createdAt         DateTime? @default(now()) @map("created_at")
+  updatedAt         DateTime? @updatedAt @map("updated_at")
+
+  merchant             Merchant              @relation(fields: [merchantId], references: [id])
+  agent                Agent?                @relation(fields: [agentId], references: [id])
+  settlementIdentities SettlementIdentity[]
+  resolution           IntentResolution?
+
+  @@map("payment_intents")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_audit_log {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchant_id           String?   @db.Uuid
+  ip_address            String?
+  transaction_signature String?
+  endpoint              String?
+  method                String?
+  succeeded             Boolean?
+  failure_reason        String?
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model transactions {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchant_id              String    @db.Uuid
+  payment_id               String    @unique @db.Uuid
+  amount_usdc              Decimal   @db.Decimal(20, 6)
+  recipient_address        String
+  payer_address            String?
+  transaction_hash         String?
+  stripe_payment_reference String?
+  status                   String?   @default("pending")
+  webhook_status           String?   @default("not_sent")
+  confirmation_depth       Int?      @default(0)
+  required_depth           Int?      @default(2)
+  expires_at               DateTime?
+  metadata                 Json?
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: AgentRank persistence table
+model agentrank_scores {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id              String    @unique
+  score                 Int       @default(0)
+  grade                 String    @default("U")
+  payment_reliability   Decimal   @default(0) @db.Decimal(5, 4)
+  service_delivery      Decimal   @default(0) @db.Decimal(5, 4)
+  transaction_volume    Int       @default(0)
+  wallet_age_days       Int       @default(0)
+  dispute_rate          Decimal   @default(0) @db.Decimal(5, 4)
+  stake_usdc            Decimal   @default(0) @db.Decimal(20, 6)
+  unique_counterparties Int       @default(0)
+  factors               Json?     @default("{}")
+  history               Json?     @default("[]")
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Escrow transactions persistence table
+model escrow_transactions {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  hiring_agent             String
+  working_agent            String
+  amount_usdc              Decimal   @db.Decimal(20, 6)
+  status                   String    @default("funded")
+  work_description         String?
+  deadline                 DateTime? @db.Timestamptz(6)
+  completed_at             DateTime? @db.Timestamptz(6)
+  reputation_delta_hiring  Int       @default(0)
+  reputation_delta_working Int       @default(0)
+  dispute_reason           String?
+  guilty_party             String?
+  escrow_account_pubkey    String?
+  transaction_signature    String?
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Behavioral oracle alerts table
+model behavior_alerts {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id           String
+  alert_type         String
+  severity           String    @default("low")
+  description        String?
+  auto_paused        Boolean   @default(false)
+  reputation_penalty Int       @default(0)
+  metadata           Json?     @default("{}")
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: KYA (Know Your Agent) identity table
+model agent_identities {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id        String    @unique
+  owner_email     String
+  owner_id        String?
+  verified        Boolean   @default(false)
+  kyc_status      String    @default("pending")
+  risk_score      Decimal   @default(0) @db.Decimal(5, 2)
+  stripe_account  String?
+  platform_token  String?
+  world_id_hash   String?
+  metadata        Json?     @default("{}")
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// PRODUCTION FIX — INSURANCE POOL TABLE
+// Backstop for the Behavioral Oracle — holds USDC reserves for automated
+// insurance payouts when critical alerts trigger reputation slashing.
+// Migration: npx prisma db push  (or add migration via npx prisma migrate dev)
+model insurance_pool {
+  id                   Int      @id @default(autoincrement())
+  current_balance_usdc Decimal  @db.Decimal(20, 6)
+  max_coverage_per_tx  Decimal  @default(100.00) @db.Decimal(20, 6)
+  total_claims         Int      @default(0)
+  updated_at           DateTime @updatedAt
+
+  @@map("insurance_pool")
+}
+
+// PRODUCTION FIX — ADDED BY COPILOT: Dispute resolution cases table
+model dispute_cases {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  escrow_id        String
+  hiring_agent     String
+  working_agent    String
+  amount_usdc      Decimal   @db.Decimal(20, 6)
+  evidence         Json?     @default("{}")
+  completion_score Decimal?  @db.Decimal(5, 3)
+  peer_reviews     Json?     @default("[]")
+  outcome          String?
+  worker_payout    Decimal   @default(0) @db.Decimal(20, 6)
+  hirer_refund     Decimal   @default(0) @db.Decimal(20, 6)
+  resolved         Boolean   @default(false)
+  resolved_at      DateTime? @db.Timestamptz(6)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+// Hosted/custodial wallet for walletless agents (e.g. Moltbook bots).
+// The private key is stored AES-256-GCM encrypted via walletEncryption.ts.
+model agent_wallets {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id              String    @unique
+  public_key            String
+  encrypted_private_key String
+  balance_usdc          Decimal   @default(0) @db.Decimal(20, 6)
+  label                 String?
+  is_active             Boolean   @default(true)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@map("agent_wallets")
+}
+
+// ─── Foundation Agents — Database Models ─────────────────────────────────────
+
+// Agent-to-agent fee ledger: every service charge from the 4 constitutional
+// agents lands here so it can be audited without touching the merchant
+// transactions table.
+model AgentFeeTransaction {
+  id          String   @id @default(cuid())
+  fromAgent   String   @map("from_agent")
+  toAgent     String   @map("to_agent")
+  amount      Float
+  status      String   @default("completed")
+  description String?
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("agent_fee_transactions")
+}
+
+// IdentityVerifierAgent — issued identity credentials
+model VerificationCredential {
+  id         String   @id @db.Uuid
+  agentId    String   @map("agent_id") @db.Uuid
+  agent      Agent    @relation(fields: [agentId], references: [id])
+  operatorId String   @map("operator_id")
+  environment Json
+  issuedAt   DateTime @map("issued_at")
+  expiresAt  DateTime @map("expires_at")
+  signature  String
+  trustLevel String   @map("trust_level")
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("verification_credentials")
+}
+
+// IdentityVerifierAgent — cross-platform identity links
+model IdentityLink {
+  id                 String   @id @db.Uuid
+  primaryAgentId     String   @map("primary_agent_id") @db.Uuid
+  primaryAgent       Agent    @relation(fields: [primaryAgentId], references: [id])
+  linkedAgentIds     String[] @map("linked_agent_ids")
+  crossPlatformProof Json     @map("cross_platform_proof")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("identity_links")
+}
+
+// ReputationOracleAgent — query audit log
+model ReputationQueryLog {
+  id                String   @id @default(cuid())
+  requestingAgentId String   @map("requesting_agent_id")
+  queriedAgentId    String   @map("queried_agent_id")
+  depth             String   @default("standard")
+  trustScore        Float    @map("trust_score")
+  riskLevel         String   @map("risk_level")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("reputation_query_logs")
+}
+
+// DisputeResolverAgent — structured dispute cases
+model Dispute {
+  id            String    @id
+  transactionId String    @map("transaction_id")
+  claimant      String
+  respondent    String
+  claim         String
+  category      String
+  evidence      Json      @default("{\"claimant\":[],\"respondent\":[]}")
+  status        String    @default("filed")
+  resolution    Json?
+  filedAt       DateTime  @default(now()) @map("filed_at") @db.Timestamptz(6)
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@map("disputes")
+}
+
+// Trust event spine — canonical store for all trust-affecting events.
+// Queried by GET /api/v1/trust/events.
+model TrustEvent {
+  id             String   @id @default(cuid())
+  eventType      String   @map("event_type")
+  agentId        String   @map("agent_id")
+  counterpartyId String?  @map("counterparty_id")
+  delta          Int      @default(0)
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([agentId])
+  @@index([eventType])
+  @@index([createdAt(sort: Desc)])
+  @@map("trust_events")
+}
+
+// IntentCoordinatorAgent — multi-protocol routing log
+model CoordinatedTransaction {
+  id           String    @id @default(cuid())
+  intentId     String    @unique @map("intent_id")
+  fromAgent    String    @map("from_agent")
+  toAgent      String    @map("to_agent")
+  amount       Float
+  currency     String
+  purpose      String
+  status       String    @default("pending")
+  route        Json
+  steps        Json      @default("[]")
+  externalTxId String?   @map("external_tx_id")
+  metadata     Json?     @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@map("coordinated_transactions")
+}
+
+// ─── Phase 2: Settlement Identity Layer ──────────────────────────────────────
+//
+// These four models implement protocol-native settlement matching without
+// touching existing payment or intent tables. All changes are additive.
+//
+// Relationship summary:
+//   PaymentIntent ──< SettlementIdentity ──< SettlementEvent
+//   PaymentIntent ──  IntentResolution   ──> SettlementIdentity
+//   MatchingPolicy is a standalone config table (no FK to other models)
+
+// One record per (intent, protocol) pair. Links a payment intent to the
+// external proof of settlement for a specific protocol rail.
+// Replaces the scattered metadata->>'tx_hash' / stripe_payment_reference
+// side-channels with a first-class, indexed, protocol-aware record.
+model SettlementIdentity {
+  id          String    @id @default(uuid()) @db.Uuid
+  intentId    String    @map("intent_id") @db.Uuid
+  protocol    String
+  // Protocol-specific external reference: Solana txHash, Stripe sessionId,
+  // AP2 verificationToken, etc. Nullable until the payer submits proof.
+  externalRef String?   @map("external_ref")
+  status      String    @default("pending")
+  settledAt   DateTime? @map("settled_at") @db.Timestamptz(6)
+  metadata    Json?     @default("{}")
+  // true when this is the canonical identity for the intent (e.g. after a retry,
+  // only the successful identity is marked primary).
+  isPrimary   Boolean   @default(false) @map("is_primary")
+  // Ordering hint — higher value = preferred identity when multiple exist.
+  priority    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  intent     PaymentIntent     @relation(fields: [intentId], references: [id])
+  events     SettlementEvent[]
+  resolution IntentResolution?
+
+  @@index([intentId])
+  @@index([externalRef])
+  @@index([protocol])
+  @@index([status])
+  @@map("settlement_identities")
+}
+
+// Per-protocol configuration for how settlement evidence is matched to intents.
+// Seeded at migration time with defaults for every supported protocol.
+// Operators can update rows to tune matching behaviour without code deploys.
+model MatchingPolicy {
+  id                String   @id @default(uuid()) @db.Uuid
+  // One active policy per protocol (enforced at application layer, not DB unique,
+  // to allow A/B policy testing via is_active flag).
+  protocol          String
+  // How to identify the payer's proof: by_recipient | by_memo | by_external_ref
+  matchStrategy     String   @map("match_strategy")
+  // If true, the Solana Pay memo must equal payment_intents.verification_token.
+  requireMemoMatch  Boolean  @default(false) @map("require_memo_match")
+  // Minimum on-chain confirmations required before marking a Solana payment confirmed.
+  confirmationDepth Int      @default(2) @map("confirmation_depth")
+  // Seconds from intent creation until it auto-expires.
+  ttlSeconds        Int      @default(1800) @map("ttl_seconds")
+  isActive          Boolean  @default(true) @map("is_active")
+  // First-class fee source: 'payer' | 'merchant' | 'split' | 'waived'.
+  // Promoted from config JSONB for clarity; overrides config->>'feeSourcePolicy'.
+  allowedFeeSource  String?  @map("allowed_fee_source")
+  // Amount tolerance in basis points (e.g. 50 = 0.50%).
+  // Replaces/supplements config->>'feeTolerance' with a typed first-class column.
+  toleranceBps      Int?     @map("tolerance_bps")
+  // Policy schema version — bump when breaking changes are made to config structure.
+  version           Int      @default(1)
+  // Extra protocol-specific knobs (e.g. Stripe currency codes, AP2 TTL overrides).
+  config            Json?    @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([protocol])
+  @@index([isActive])
+  @@map("matching_policies")
+}
+
+// Append-only event log for every state change in the settlement lifecycle.
+// Mirrors the role of trust_events for the settlement domain — immutable, indexed,
+// and decoupled from the intent/transaction tables.
+model SettlementEvent {
+  id                   String    @id @default(cuid())
+  // FK to settlement_identities; nullable because events can be emitted before
+  // a SettlementIdentity record exists (e.g. premature hash submission).
+  settlementIdentityId String?   @map("settlement_identity_id") @db.Uuid
+  // Denormalised intent reference for fast per-intent event queries.
+  intentId             String?   @map("intent_id") @db.Uuid
+  // Discriminates the lifecycle step:
+  // hash_submitted | on_chain_confirmed | webhook_received
+  // | resolution_failed | expired | policy_mismatch
+  eventType            String    @map("event_type")
+  protocol             String
+  externalRef          String?   @map("external_ref")
+  // Raw proof payload as received from the chain or provider.
+  payload              Json      @default("{}")
+  // Where the proof originated: 'onchain' | 'webhook' | 'api' | 'listener' | …
+  proofSource          String?   @map("proof_source")
+  // Raw cryptographic signature from the chain or provider (base58 / hex).
+  // Preserved for future x402/AP2 signed-receipt verification.
+  rawProofSignature    String?   @map("raw_proof_signature")
+  // Structured reasoning / mismatch detail (complements payload).
+  details              Json?
+  // When the event was actually observed (distinct from createdAt which is DB insertion time).
+  observedAt           DateTime? @map("observed_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id])
+
+  @@index([settlementIdentityId])
+  @@index([intentId])
+  @@index([eventType])
+  @@index([createdAt(sort: Desc)])
+  // Compound index: identity events ordered by observation time.
+  @@index([settlementIdentityId, observedAt(sort: Desc)])
+  // Compound index: protocol-scoped proof lookups.
+  @@index([protocol, externalRef])
+  @@map("settlement_events")
+}
+
+// One record per intent. Written exactly once when the resolution engine
+// finalises the outcome (confirmed / failed / disputed / expired).
+// Provides a single, queryable source of truth for "was this intent paid?"
+// without requiring a join across payment_intents + transactions.
+model IntentResolution {
+  id                   String    @id @default(uuid()) @db.Uuid
+  intentId             String    @unique @map("intent_id") @db.Uuid
+  // FK to the SettlementIdentity that provided the winning proof.
+  // Null for resolutions that close without on-chain evidence (e.g. expired).
+  // @unique ensures at most one IntentResolution per SettlementIdentity.
+  settlementIdentityId String?   @unique @map("settlement_identity_id") @db.Uuid
+  protocol             String
+  // Which subsystem wrote this record:
+  // solana_listener | stripe_webhook | ap2_confirm | manual
+  resolvedBy           String    @map("resolved_by")
+  // confirmed | failed | disputed | expired
+  resolutionStatus     String    @map("resolution_status")
+  // Phase 6: fine-grained decision from the resolution engine
+  // matched | matched_with_external_fee | partial_match | underpaid | overpaid | unmatched | rejected
+  decisionCode         String?   @map("decision_code")
+  // Phase 6: machine-readable reason for the decision
+  reasonCode           String?   @map("reason_code")
+  // Phase 6: engine confidence score (0.000 – 1.000) — kept for backward compat
+  confidenceScore      Decimal?  @map("confidence_score") @db.Decimal(4, 3)
+  // Phase 035: 0-100 integer confidence score (preferred representation going forward).
+  // DB CHECK constraint enforces 0 ≤ value ≤ 100 (see migration 035).
+  confidencePct        Int?      @map("confidence_pct")
+  // Phase 035: structured reasoning / mismatch detail from the resolution engine
+  // (e.g. amount delta, memo comparison, recipient check output).
+  details              Json?
+  externalRef          String?   @map("external_ref")
+  confirmationDepth    Int?      @map("confirmation_depth")
+  // Payer address (Solana wallet) or Stripe customer ID — protocol-specific.
+  payerRef             String?   @map("payer_ref")
+  resolvedAt           DateTime  @map("resolved_at") @db.Timestamptz(6)
+  metadata             Json?     @default("{}")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  intent             PaymentIntent       @relation(fields: [intentId], references: [id])
+  // onDelete: Restrict — a SettlementIdentity named as the winning proof cannot
+  // be deleted while this resolution record exists, preserving the audit trail.
+  settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id], onDelete: Restrict)
+
+  @@index([intentId])
+  @@index([externalRef])
+  @@index([resolutionStatus])
+  @@index([decisionCode])
+  // Composite index: intent-scoped decision lookup (Phase 035).
+  @@index([intentId, decisionCode])
+  @@map("intent_resolutions")
+}
+
+model TrustEdge {
+  id               String   @id @default(cuid())
+  fromAgentId      String   @map("from_agent")
+  toAgentId        String   @map("to_agent")
+  trustWeight      Float    @default(0) @map("trust_weight")
+  interactionCount Int      @default(0) @map("interaction_count")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@unique([fromAgentId, toAgentId])
+  @@map("trust_edges")
+}

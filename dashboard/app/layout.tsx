@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import QueryProvider from "@/components/QueryProvider";
 import "./globals.css";
+import RouteTransition from './_components/RouteTransition';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,7 +38,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning // Add this line
       >
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <RouteTransition />
+          {children}
+        </QueryProvider>
       </body>
     </html>
   );

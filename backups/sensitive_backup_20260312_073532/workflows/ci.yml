@@ -1,0 +1,195 @@
+name: CI
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ CI Environment Notes                                                    │
+# │                                                                         │
+# │ 1. Dashboard build (Next.js) is NOT run in CI because the dashboard     │
+# │    is deployed separately on Vercel, which runs its own build checks.   │
+# │    The dashboard TypeScript type-check (`npx tsc --noEmit`) is clean.   │
+# │    Turbopack build failures in local sandboxes are due to blocked        │
+# │    network access to Google Fonts (fonts.googleapis.com), not code.      │
+# │                                                                         │
+# │ 2. Pre-existing TSC warnings in backend (webhookDeliveryWorker,         │
+# │    walletEncryption, etc.) involve missing @types/node — these are       │
+# │    tracked separately and do NOT affect runtime or test correctness.     │
+# │    `npm run build` (tsc with full compiler) exits 0.                    │
+# │                                                                         │
+# │ 3. The trust_events table is created by migration 031. CI tests that    │
+# │    touch trust events mock prisma.trustEvent — they do not require a    │
+# │    running DB. Integration tests that DO need a real DB use the         │
+# │    postgres service container defined in the 'test' job below.          │
+# └─────────────────────────────────────────────────────────────────────────┘
+
+on:
+  push:
+    branches: [main, 'copilot/**', 'feat/**', 'feature/**', 'fix/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Job 1: Lint, type-check, and dependency audit ────────────────────────
+  lint:
+    name: Lint & Type-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # Prisma schema references DATABASE_URL and DIRECT_URL via env().
+    # prisma generate / prisma validate parse the schema but do NOT open a
+    # database connection, so placeholder values are sufficient here.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentpay_lint
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/agentpay_lint
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Audit dependencies (fail on high/critical)
+        run: npm audit --audit-level=high
+
+      - name: Check for secrets in diff
+        # Skip on new-branch initial push (before = all zeros) — nothing to diff.
+        # For pull_request events use the PR base/head SHAs; for push events use
+        # before/after so base never equals head on a direct push to main.
+        if: >-
+          github.event_name == 'pull_request' ||
+          github.event.before != '0000000000000000000000000000000000000000'
+        uses: trufflesecurity/trufflehog@v3.88.29
+        with:
+          path: ./
+          base: >-
+            ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.base.sha
+            || github.event.before }}
+          head: >-
+            ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.head.sha
+            || github.event.after }}
+          extra_args: --only-verified
+
+  # ── Job 3: Workers API type-check and audit ──────────────────────────────
+  workers-typecheck:
+    name: Workers API (apps/api-edge) — type-check & audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: apps/api-edge
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/api-edge/package-lock.json
+
+      - name: Install Workers API dependencies
+        run: npm ci
+
+      - name: Type-check Workers API
+        run: npm run typecheck
+
+      - name: Audit Workers API dependencies (fail on high/critical)
+        run: npm audit --audit-level=high
+
+  # ── Job 4: Test suite with database ──────────────────────────────────────
+  test:
+    name: Node 20 / Postgres 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentpay_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/agentpay_test
+      NODE_ENV: test
+      AGENTPAY_TEST_MODE: "true"
+      WEBHOOK_SECRET: ci-test-secret-that-is-long-enough-32chars
+      AGENTPAY_SIGNING_SECRET: ci-signing-secret-that-is-long-enough-32c
+      VERIFICATION_SECRET: ci-verification-secret-long-enough-32chars
+      SOLANA_RPC_URL: https://api.devnet.solana.com
+      STRIPE_SECRET_KEY: sk_test_placeholder_for_ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Initialize database schema
+        run: node scripts/create-db.js
+
+      - name: Run database migrations
+        run: node scripts/migrate.js
+
+      - name: Run tests with coverage
+        run: npm test -- --coverage --coverageReporters=text-summary --coverageReporters=json-summary
+
+      - name: Report coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const s = require('./coverage/coverage-summary.json').total;
+              console.log('Coverage: statements=' + s.statements.pct + '% branches=' + s.branches.pct + '% lines=' + s.lines.pct + '%');
+            "
+          fi
+
+      - name: Validate migration idempotency (fresh DB)
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "DROP DATABASE IF EXISTS agentpay_migrate_test;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE agentpay_migrate_test;"
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/agentpay_migrate_test \
+            node scripts/create-db.js
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/agentpay_migrate_test \
+            node scripts/migrate.js
+          echo "✅ Migration smoke test passed (fresh DB)"

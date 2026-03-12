@@ -30,9 +30,9 @@ We commit to:
 - **Admin Endpoints:** Separate `ADMIN_SECRET_KEY` required via `X-Admin-Secret` header
 - **JWT:** Used for dashboard session management; signed with `VERIFICATION_SECRET`
 
-### Transport Security
+-### Transport Security
 
-- TLS enforced at the load balancer (Render)
+- TLS enforced at the edge/load balancer (Render or Cloudflare)
 - Helmet.js sets security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options
 - CORS configured via `CORS_ORIGIN` environment variable; no wildcard in production
 
