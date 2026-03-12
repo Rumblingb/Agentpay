@@ -14,7 +14,7 @@
  * Moat: Identity graph with cross-platform links
  */
 
-import { prisma } from '../db/client';
+import { prisma } from './src/lib/prisma';
 import crypto from 'crypto';
 import { sign, verify } from 'jsonwebtoken';
 
@@ -323,12 +323,12 @@ class IdentityVerifierAgent {
 
   private async signCredential(credential: VerificationCredential): Promise<string> {
     const payload = this.serializeCredential(credential);
-    return sign(payload, this.privateKey, { algorithm: 'RS256' });
+    return sign(payload, this.privateKey, { algorithm: 'HS256' });
   }
 
   private async verifySignature(signature: string, payload: string): Promise<boolean> {
     try {
-      verify(signature, this.privateKey, { algorithms: ['RS256'] });
+      verify(signature, this.privateKey, { algorithms: ['HS256'] });
       return true;
     } catch {
       return false;
@@ -430,7 +430,7 @@ class IdentityVerifierAgent {
   }
 
   private async chargeVerificationFee(operatorId: string, fee: number): Promise<void> {
-    await prisma.transaction.create({
+    await prisma.agentFeeTransaction.create({
       data: {
         fromAgent: operatorId,
         toAgent: this.agentId,

@@ -47,13 +47,13 @@ router.post('/', async (req: Request, res: Response) => {
       prisma.trustEvent.count({
         where: {
           agentId: from_agent,
-          category: 'successful_interaction',
+          eventType: 'successful_interaction',
         },
       }),
       prisma.trustEvent.count({
         where: {
           agentId: from_agent,
-          category: { in: ['successful_interaction', 'failed_interaction'] },
+          eventType: { in: ['successful_interaction', 'failed_interaction'] },
         },
       }),
     ]);
