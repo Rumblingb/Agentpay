@@ -1,49 +1,13 @@
-/**
- * Copyright (c) 2026 AgentPay
- * AgentPay™ is a trademark of AgentPay Ltd.
- * Licensed under Business Source License (BSL); converts to AGPL-3.0 after 2029-01-01.
- * Intent Resolution Engine (Phase 6)
- *
- * The core interpreter for AgentPay's settlement layer.  Transforms a raw
- * NormalizedProof (from Phase 5 ingestion) into a deterministic, auditable
- * resolution record — replacing the ad-hoc "verification_failed" dead end
- * that existed before Phase 6.
- *
- * ── Evaluation order (sequential, short-circuit on first failure) ─────────
- *
- *   1. Identity match   — proof.recipient / externalRef vs settlement identity
- *   2. Amount match     — observed vs expected, with fee + partial tolerances
- *   3. Memo/reference   — memo vs verificationToken (when requireMemoMatch=true)
- *   4. Policy eval      — feeSourcePolicy, amountMode, confidence score
- *
- * ── Decision codes ────────────────────────────────────────────────────────
- *
- *   matched                  All checks passed; exact amount + identity + memo
- *   matched_with_external_fee Amount short by ≤ FEE_TOLERANCE_USDC
- *   partial_match            Identity ok; amount short beyond fee but < 5 %
- *   underpaid                Amount significantly below expected
- *   overpaid                 Amount exceeds expected (policy typically accepts)
- *   unmatched                Identity check failed
- *   rejected                 Policy explicitly rejects (memo required but absent)
- *
- * ── Protocol support ──────────────────────────────────────────────────────
- *
- *   ✓  solana   — direct mode (by_recipient + optional memo match)
- *   ~  stripe   — stub ready for Phase 7 (by_external_ref)
- *   ~  ap2      — stub ready for Phase 7 (by_external_ref)
- *   ~  x402     — stub ready for Phase 7 (by_external_ref)
- *   ~  acp      — stub ready for Phase 7 (by_external_ref)
- *   ~  agent    — stub ready for Phase 7 (by_external_ref)
- *
- * @module settlement/intentResolutionEngine
- */
-
 import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
-import { resolveIntent } from '../../packages/agentpay-core/settlement/intentResolutionService.js';
-import { getActiveByIntentAndProtocol, getSettlementIdentityById } from '../../packages/agentpay-core/settlement/settlementIdentityService.js';
-import { emitSettlementEvent } from '../../packages/agentpay-core/settlement/settlementEventService.js';
-import type { NormalizedProof } from '../../packages/agentpay-core/settlement/settlementEventIngestion.js';
+import { emitSettlementEvent } from './settlementEventService.js';
+import {
+  resolveIntent,
+  getResolution,
+  getActiveByIntentAndProtocol,
+  getSettlementIdentityById,
+} from '../settlement/index.js';
+
 import type {
   IntentResolutionRecord,
   MatchingPolicyRecord,
@@ -54,8 +18,22 @@ import type {
   ResolvedBy,
   SettlementIdentityRecord,
   SettlementProtocol,
-} from '../../packages/agentpay-core/settlement/types.js';
-import { getResolution } from '../../packages/agentpay-core/settlement/intentResolutionService.js';
+} from './types.js';
+
+// ---------------------------------------------------------------------------
+// Local NormalizedProof type
+// ---------------------------------------------------------------------------
+
+export interface NormalizedProof {
+  protocol: SettlementProtocol;
+  proofType: string;
+  recipient: string | null;
+  sender: string | null;
+  memo: string | null;
+  externalRef: string | null;
+  grossAmount: number | null;
+  rawPayload?: Record<string, any>;
+}
 
 // ---------------------------------------------------------------------------
 // Tuning constants
@@ -821,7 +799,7 @@ export async function runResolutionEngine(
     resolvedBy,
     resolutionStatus: evaluation.resolutionStatus,
     settlementIdentityId: identity?.id,
-    externalRef: proof.externalRef,
+    externalRef: proof.externalRef ?? undefined,
     confirmationDepth: typeof proof.rawPayload?.confirmationDepth === 'number'
       ? proof.rawPayload.confirmationDepth
       : undefined,
@@ -852,7 +830,7 @@ export async function runResolutionEngine(
     protocol: proof.protocol,
     settlementIdentityId: identity?.id,
     intentId,
-    externalRef: proof.externalRef,
+    externalRef: proof.externalRef ?? undefined,
     payload: {
       decision:        evaluation.decision,
       reasonCode:      evaluation.reasonCode,

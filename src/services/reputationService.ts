@@ -14,20 +14,26 @@ export interface Reputation {
 }
 
 export async function getReputation(agentId: string): Promise<Reputation | null> {
-  const res = await query('SELECT * FROM agent_reputation WHERE agent_id = $1', [agentId]);
-  if (res.rows.length === 0) return null;
+  try {
+    const res = await query('SELECT * FROM agent_reputation WHERE agent_id = $1', [agentId]);
+    if (res.rows.length === 0) return null;
 
-  const row = res.rows[0];
-  return {
-    agentId: row.agent_id,
-    trustScore: parseFloat(row.trust_score || '0'),
-    totalPayments: parseInt(row.total_payments || '0', 10),
-    successRate: parseFloat(row.success_rate || '0'),
-    disputeRate: parseFloat(row.dispute_rate || '0'),
-    lastPaymentAt: row.last_payment_at ? new Date(row.last_payment_at) : null,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  };
+    const row = res.rows[0];
+    return {
+      agentId: row.agent_id,
+      trustScore: parseFloat(row.trust_score || '0'),
+      totalPayments: parseInt(row.total_payments || '0', 10),
+      successRate: parseFloat(row.success_rate || '0'),
+      disputeRate: parseFloat(row.dispute_rate || '0'),
+      lastPaymentAt: row.last_payment_at ? new Date(row.last_payment_at) : null,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    };
+  } catch (err: any) {
+    const isTableMissing = typeof err?.message === 'string' && err.message.includes('does not exist');
+    if (isTableMissing) return null;
+    throw err;
+  }
 }
 
 export async function updateReputationOnVerification(agentId: string, success: boolean): Promise<Reputation> {

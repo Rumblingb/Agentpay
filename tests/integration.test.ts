@@ -14,8 +14,15 @@ let transactionId: string = '';
 beforeAll(async () => {
   server = app.listen(0);
   try {
-    // Updated cleanup command
-await query('TRUNCATE merchants, transactions, rate_limit_counters, payment_verifications, webhook_events, payment_audit_log RESTART IDENTITY CASCADE');
+    const { safeTruncate } = await import('../src/test/safeTruncate');
+    await safeTruncate([
+      'merchants',
+      'transactions',
+      'rate_limit_counters',
+      'payment_verifications',
+      'webhook_events',
+      'payment_audit_log',
+    ]);
   } catch (e) {
     console.error('Cleanup failed:', e);
   }

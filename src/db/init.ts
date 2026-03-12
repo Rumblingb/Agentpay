@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { logger } from '../logger.js';
+import { logger } from '../logger.ts';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

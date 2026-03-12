@@ -76,11 +76,16 @@ describeIfDb('AgentPay E2E Protocol', () => {
     await startWebhookReceiver();
     appServer = app.listen(0);
     // Clean slate for this test run.
-    await query(
-      `TRUNCATE merchants, transactions, api_logs, rate_limit_counters,
-                payment_verifications, webhook_events, payment_audit_log
-       RESTART IDENTITY CASCADE`
-    );
+    const { safeTruncate } = await import('../../src/test/safeTruncate');
+    await safeTruncate([
+      'merchants',
+      'transactions',
+      'api_logs',
+      'rate_limit_counters',
+      'payment_verifications',
+      'webhook_events',
+      'payment_audit_log',
+    ]);
   }, 30_000);
 
   afterAll(async () => {

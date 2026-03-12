@@ -37,6 +37,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TEST_MODE
+        value: false
       - key: PORT
         value: 3001
       - key: LOG_LEVEL
@@ -68,5 +70,7 @@ services:
       # Public base URL of this service — used by protocol handlers and Stripe callbacks.
       - key: API_BASE_URL
         sync: false          # e.g. https://agentpay.onrender.com
+      - key: AGENTPAY_API_BASE_URL
+        value: ""
       - key: RATE_LIMIT_MAX_REQUESTS
         value: "100"

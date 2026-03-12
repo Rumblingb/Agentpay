@@ -51,10 +51,18 @@ export async function rankAgents(
 
   // Bulk fetch reputation
   const repResult = await query(
-    `SELECT agent_id, success_rate FROM agent_reputation_network WHERE agent_id = ANY($1::text[])`,
-    [agentIds],
-  );
-  const repMap = new Map(repResult.rows.map((r: any) => [r.agent_id, r.success_rate]));
+  let repMap = new Map();
+  try {
+    const repResult = await query(
+      `SELECT agent_id, success_rate FROM agent_reputation_network WHERE agent_id = ANY($1::text[])`,
+      [agentIds],
+    );
+    repMap = new Map(repResult.rows.map((r: any) => [r.agent_id, r.success_rate]));
+  } catch (err: any) {
+    const isTableMissing = typeof err?.message === 'string' && err.message.includes('does not exist');
+    if (!isTableMissing) throw err;
+    // Non-fatal if table missing
+  }
 
   // Compute ranked scores
   const ranked: RankedAgent[] = await Promise.all(

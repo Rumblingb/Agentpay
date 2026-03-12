@@ -1,3 +1,70 @@
+// Preserve agent_reputation_network table
+model AgentReputationNetwork {
+  id              String   @id @default(uuid()) @db.Uuid
+  agent_id        String   @map("agent_id")
+  success_rate    Float    @default(0)
+  dispute_rate    Float    @default(0)
+  avg_response_time Int    @default(0) @map("avg_response_time")
+  rating          Float    @default(5.0)
+  total_tx        Int      @default(0) @map("total_tx")
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  @@map("agent_reputation_network")
+}
+// Legacy compatibility: bots table
+model Bot {
+  id                     String   @id @default(uuid()) @db.Uuid
+  platformBotId          String?  @map("platform_bot_id")
+  handle                 String   @unique
+  displayName            String?  @map("display_name")
+  bio                    String?
+  createdBy              String?  @map("created_by")
+  primaryFunction        String?  @map("primary_function")
+  walletAddress          String?  @map("wallet_address")
+  walletKeypairEncrypted String?  @map("wallet_keypair_encrypted")
+  dailySpendingLimit     Decimal? @map("daily_spending_limit")
+  perTxLimit             Decimal? @map("per_tx_limit")
+  autoApproveUnder       Decimal? @map("auto_approve_under")
+  dailyAutoApproveCap    Decimal? @map("daily_auto_approve_cap")
+  status                 String?  @default("active")
+  createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("bots")
+}
+
+// Legacy compatibility: api_logs table
+model ApiLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  method     String?
+  path       String?
+  statusCode Int?      @map("status_code")
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("api_logs")
+}
+
+// Legacy compatibility: agent_reputation table
+model AgentReputationLegacy {
+  agent_id      String   @id @map("agent_id")
+  trust_score   Int      @default(50)
+  total_payments Int     @default(0)
+  success_rate  Float    @default(0)
+  dispute_rate  Float    @default(0)
+  last_payment_at DateTime?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  @@map("agent_reputation")
+}
+
+// Legacy compatibility: rate_limit_counters table
+model RateLimitCounter {
+  id         String    @id @default(uuid()) @db.Uuid
+  key        String   @unique
+  count      Int      @default(0)
+  window     String?
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("rate_limit_counters")
+}
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"] // <--- ADD THIS LINE
@@ -88,16 +155,7 @@ model AgentEscrow {
 
 // AgentPay Network: per-agent reputation derived from network transactions.
 // TODO: extend into a full trust graph (success chains, peer endorsements).
-model Endorsement {
-  id         String   @id @default(uuid())
-  fromAgent  String
-  toAgent    String
-  weight     Float    @default(1.0)
-  createdAt  DateTime @default(now())
 
-  from Agent @relation("FromAgent", fields: [fromAgent], references: [id])
-  to   Agent @relation("ToAgent", fields: [toAgent], references: [id])
-}
 model AgentReputation {
   id              String   @id @default(cuid())
   agentId         String   @unique @map("agent_id")
@@ -122,9 +180,6 @@ model Endorsement {
   @@index([toAgentId])
   @@unique([fromAgentId, toAgentId])
   @@map("endorsements")
-}
-
-  @@map("agent_reputation_network")
 }
 
 model PaymentIntent {
@@ -326,8 +381,8 @@ model AgentFeeTransaction {
 
 // IdentityVerifierAgent — issued identity credentials
 model VerificationCredential {
-  id         String   @id
-  agentId    String   @map("agent_id")
+  id         String   @id @db.Uuid
+  agentId    String   @map("agent_id") @db.Uuid
   agent      Agent    @relation(fields: [agentId], references: [id])
   operatorId String   @map("operator_id")
   environment Json
@@ -343,8 +398,8 @@ model VerificationCredential {
 
 // IdentityVerifierAgent — cross-platform identity links
 model IdentityLink {
-  id                 String   @id
-  primaryAgentId     String   @map("primary_agent_id")
+  id                 String   @id @db.Uuid
+  primaryAgentId     String   @map("primary_agent_id") @db.Uuid
   primaryAgent       Agent    @relation(fields: [primaryAgentId], references: [id])
   linkedAgentIds     String[] @map("linked_agent_ids")
   crossPlatformProof Json     @map("cross_platform_proof")

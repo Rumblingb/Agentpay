@@ -1,3 +1,4 @@
+import { adjustScore } from './agentrankService.js';
 /**
  * Trust Event Service — canonical catalog of trust-relevant event categories.
  *

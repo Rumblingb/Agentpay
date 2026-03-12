@@ -1,3 +1,8 @@
+if (process.env.NODE_ENV === 'test') {
+  process.env.IDENTITY_VERIFIER_PRIVATE_KEY = 'test-test-test-test-test-test-test';
+  process.env.AGENTPAY_SIGNING_SECRET = 'test-signing-secret';
+  process.env.ADMIN_SECRET_KEY = 'test-admin-secret';
+}
 // Load .env.test for local dev (CI sets env vars directly so dotenv won't
 // override them — dotenv skips keys that are already present in process.env).
 require('dotenv').config({ path: '.env.test' });

@@ -388,11 +388,18 @@ export class MoltbookIntegration {
    * empty or missing (e.g. dev environment without AGENTPAY_SIGNING_SECRET).
    */
   protected async getWallet(botId: string): Promise<Keypair> {
-    const result = await query(
-      `SELECT wallet_keypair_encrypted FROM bots WHERE id = $1 LIMIT 1`,
-      [botId],
-    );
-    const encrypted: string = result.rows[0]?.wallet_keypair_encrypted ?? '';
+    try {
+      const result = await query(
+        `SELECT wallet_keypair_encrypted FROM bots WHERE id = $1 LIMIT 1`,
+        [botId]
+      );
+      // ...existing code...
+      return result.rows[0]?.wallet_keypair_encrypted ? decryptKeypair(result.rows[0].wallet_keypair_encrypted) : generateThrowawayKeypair();
+    } catch (err: any) {
+      const isTableMissing = typeof err?.message === 'string' && err.message.includes('does not exist');
+      if (isTableMissing) return generateThrowawayKeypair();
+      throw err;
+    }
     if (!encrypted || !isEncrypted(encrypted)) {
       // No stored keypair — return ephemeral keypair (funds would be unrecoverable).
       // Log at WARN so operators can identify affected bots and investigate.

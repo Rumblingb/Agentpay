@@ -139,17 +139,20 @@ router.get('/discover', async (req: Request, res: Response) => {
       records.map(async (r, idx) => {
         let profile: any = null;
         try {
-          const botResult = await query(
-            `SELECT handle, bio, platform_bot_id, created_at
-             FROM bots
-             WHERE handle = $1 OR platform_bot_id = $1
-             LIMIT 1`,
-            [r.agent_id],
-          );
-          if (botResult.rows.length > 0) profile = botResult.rows[0];
-        } catch {
-          // bots table may not exist
-        }
+          try {
+            const botResult = await query(
+              `SELECT handle, bio, platform_bot_id, created_at
+               FROM bots
+               WHERE handle = $1 OR platform_bot_id = $1
+               LIMIT 1`,
+              [r.agent_id],
+            );
+            if (botResult.rows.length > 0) profile = botResult.rows[0];
+          } catch (err: any) {
+            const isTableMissing = typeof err?.message === 'string' && err.message.includes('does not exist');
+            if (!isTableMissing) throw err;
+            // bots table may not exist
+          }
 
         return {
           rank: effectiveOffset + idx + 1,

@@ -47,33 +47,42 @@ export async function computeIncentiveScores(agentId: string): Promise<Incentive
     [agentId],
   );
 
-  const agent = agentResult.rows[0];
+  const agent = agentResult?.rows?.[0];
   if (!agent) {
-    return { contributionScore: 0, fulfillmentScore: 0, qualityScore: 0, compositeScore: 0 };
+    return {
+      contributionScore: 0,
+      fulfillmentScore: 0,
+      qualityScore: 0,
+      compositeScore: 0,
+    };
   }
 
   // Contribution — tasks * log earnings bonus
   const contributionScore = Math.min(
     100,
-    (agent.tasks_completed ?? 0) * 2 + Math.log1p(agent.total_earnings ?? 0) * 5,
+    (Number(agent.tasks_completed ?? 0) * 2) + (Math.log1p(Number(agent.total_earnings ?? 0)) * 5),
   );
 
-  // Fulfillment — derived from AgentRank success_rate if available
+  // Fulfillment — derived from reputation table if available
   let fulfillmentScore = 50; // default neutral
   try {
     const repResult = await query(
       `SELECT success_rate, dispute_rate FROM agent_reputation_network WHERE agent_id = $1`,
       [agentId],
     );
-    if (repResult.rows.length > 0) {
+
+    if ((repResult?.rows?.length ?? 0) > 0) {
       const r = repResult.rows[0];
       fulfillmentScore = Math.round(
-        (r.success_rate ?? 0.5) * 80 - (r.dispute_rate ?? 0) * 30,
+        (Number(r.success_rate ?? 0.5) * 80) - (Number(r.dispute_rate ?? 0) * 30),
       );
       fulfillmentScore = Math.max(0, Math.min(100, fulfillmentScore));
     }
-  } catch {
-    // Non-fatal
+  } catch (err: any) {
+    const isTableMissing =
+      typeof err?.message === 'string' && err.message.includes('does not exist');
+    if (!isTableMissing) throw err;
+    // Non-fatal if table missing
   }
 
   // Quality — from rating (1–5 → 0–100) + reward event net delta
@@ -86,14 +95,14 @@ export async function computeIncentiveScores(agentId: string): Promise<Incentive
           AND (expires_at IS NULL OR expires_at > NOW())`,
       [agentId],
     );
-    rewardDelta = Number(rewardResult.rows[0]?.net ?? 0);
+    rewardDelta = Number(rewardResult?.rows?.[0]?.net ?? 0);
   } catch {
     // Non-fatal
   }
 
   const qualityScore = Math.min(
     100,
-    Math.max(0, ((agent.rating ?? 3) - 1) * 25 + rewardDelta),
+    Math.max(0, ((Number(agent.rating ?? 3) - 1) * 25) + rewardDelta),
   );
 
   const compositeScore = Math.round(
@@ -119,12 +128,13 @@ export async function recordRewardEvent(event: RewardEvent): Promise<void> {
         event.expiresAt ?? null,
       ],
     );
+
     logger.info(
       { agentId: event.agentId, type: event.eventType, amount: event.amount },
       '[Incentives] Reward event recorded',
     );
   } catch (err: any) {
-    logger.warn({ err: err.message }, '[Incentives] Failed to record reward event');
+    logger.warn({ err: err?.message }, '[Incentives] Failed to record reward event');
   }
 }
 
@@ -141,7 +151,8 @@ export async function getActiveBoostMultiplier(agentId: string): Promise<number>
           AND (expires_at IS NULL OR expires_at > NOW())`,
       [agentId],
     );
-    const boost = Number(result.rows[0]?.total ?? 0);
+
+    const boost = Number(result?.rows?.[0]?.total ?? 0);
     // Cap multiplier between 1.0x and 2.0x
     return Math.min(2.0, 1.0 + boost / 100);
   } catch {

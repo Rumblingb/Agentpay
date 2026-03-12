@@ -49,7 +49,7 @@
  * @module settlement/settlementEventIngestion
  */
 
-import { emitSettlementEvent } from './settlementEventService.js';
+import { emitSettlementEvent } from './settlementEventService';
 
 // ---------------------------------------------------------------------------
 // Types — identical shapes to apps/api-edge/src/lib/settlementEventIngestion.ts

@@ -12,43 +12,82 @@
  * @module services/agentrankService
  */
 
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
-import { scoreToGrade, type AgentRankHistoryEntry } from '../../packages/agentpay-core/trust/agentrank-core.js';
 import { logger } from '../logger.js';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+export interface AgentRankHistoryEntry {
+  score: number;
+  timestamp: string;
+  reason: string;
+}
 
 const MAX_HISTORY_ENTRIES = 100;
 const MAX_SCORE = 1000;
 const MIN_SCORE = 0;
 
-// ---------------------------------------------------------------------------
-// Core Functions
-// ---------------------------------------------------------------------------
+function clampScore(score: number): number {
+  return Math.max(MIN_SCORE, Math.min(MAX_SCORE, score));
+}
+
+function scoreToGrade(score: number): string {
+  if (score >= 950) return 'S';
+  if (score >= 800) return 'A';
+  if (score >= 600) return 'B';
+  if (score >= 400) return 'C';
+  return 'F';
+}
+
+function readHistory(value: Prisma.JsonValue | null | undefined): AgentRankHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  return (value as unknown[]).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+
+    const obj = item as Record<string, unknown>;
+    if (
+      typeof obj.score === 'number' &&
+      typeof obj.timestamp === 'string' &&
+      typeof obj.reason === 'string'
+    ) {
+      return [
+        {
+          score: obj.score,
+          timestamp: obj.timestamp,
+          reason: obj.reason,
+        },
+      ];
+    }
+
+    return [];
+  });
+}
+
+function writeHistory(history: AgentRankHistoryEntry[]): Prisma.InputJsonValue {
+  return history as unknown as Prisma.InputJsonValue;
+}
 
 /**
  * Adjust an agent's AgentRank score by a delta, recording the change in history.
- *
- * If no agentrank_scores record exists, one is created with the delta as the
- * initial score. The `history` JSONB array is appended with a new entry.
- *
- * Returns the updated score and grade, or null if the DB is unavailable.
  */
 export async function adjustScore(
   agentId: string,
   delta: number,
   event: string,
   details?: string,
-): Promise<{ score: number; grade: string } | null> {
+): Promise<{
+  agentId: string;
+  score: number;
+  grade: string;
+  history: AgentRankHistoryEntry[];
+} | null> {
   try {
     const existing = await prisma.agentrank_scores.findUnique({
       where: { agent_id: agentId },
     });
 
     const oldScore = existing?.score ?? 0;
-    const newScore = Math.max(MIN_SCORE, Math.min(MAX_SCORE, oldScore + delta));
+    const newScore = clampScore(oldScore + delta);
     const newGrade = scoreToGrade(newScore);
 
     const historyEntry: AgentRankHistoryEntry = {
@@ -57,32 +96,39 @@ export async function adjustScore(
       reason: details ? `${event}: ${details}` : event,
     };
 
-    // Parse existing history, append new entry, trim to MAX_HISTORY_ENTRIES
-    const existingHistory: AgentRankHistoryEntry[] = Array.isArray(existing?.history)
-      ? (existing.history as AgentRankHistoryEntry[])
-      : [];
+    const existingHistory = readHistory(existing?.history);
     const updatedHistory = [...existingHistory, historyEntry].slice(-MAX_HISTORY_ENTRIES);
 
-    if (existing) {
-      await prisma.agentrank_scores.update({
-        where: { agent_id: agentId },
-        data: {
-          score: newScore,
-          grade: newGrade,
-          history: updatedHistory,
-          updated_at: new Date(),
-        },
+    let record = null;
+    try {
+      if (existing) {
+        record = await prisma.agentrank_scores.update({
+          where: { agent_id: agentId },
+          data: {
+            score: newScore,
+            grade: newGrade,
+            history: writeHistory(updatedHistory),
+            updated_at: new Date(),
+          },
+        });
+      } else {
+        record = await prisma.agentrank_scores.create({
+          data: {
+            agent_id: agentId,
+            score: newScore,
+            grade: newGrade,
+            history: writeHistory(updatedHistory),
+            updated_at: new Date(),
+          },
+        });
+      }
+    } catch (dbErr: any) {
+      logger.error('AgentRank adjustment failed', {
+        agentId,
+        event,
+        error: dbErr?.message,
       });
-    } else {
-      await prisma.agentrank_scores.create({
-        data: {
-          agent_id: agentId,
-          score: newScore,
-          grade: newGrade,
-          history: updatedHistory,
-          updated_at: new Date(),
-        },
-      });
+      return null;
     }
 
     logger.info('AgentRank score adjusted', {
@@ -94,28 +140,35 @@ export async function adjustScore(
       newGrade,
     });
 
-    return { score: newScore, grade: newGrade };
-  } catch (err: any) {
-    // Gracefully handle missing table or DB connection issues
-    const isTableMissing =
-      err?.code === 'P2021' ||
-      (typeof err?.message === 'string' && err.message.includes('does not exist'));
-    if (isTableMissing) {
-      logger.warn('AgentRank adjustment skipped — table not available', { agentId, event });
-    } else {
-      logger.error('AgentRank adjustment failed', { agentId, event, error: err?.message });
+    if (!record) {
+      return null;
     }
+    return {
+      agentId: record.agent_id,
+      score: record.score,
+      grade: record.grade,
+      history: readHistory(record.history),
+    };
+  } catch (err: any) {
+    logger.error('AgentRank adjustment failed', {
+      agentId,
+      event,
+      error: err?.message,
+    });
     return null;
   }
 }
 
 /**
  * Get the score history for an agent.
- * Returns the history JSONB array from the agentrank_scores record.
  */
 export async function getScoreHistory(
   agentId: string,
-): Promise<{ score: number; grade: string; history: AgentRankHistoryEntry[] } | null> {
+): Promise<{
+  score: number;
+  grade: string;
+  history: AgentRankHistoryEntry[];
+} | null> {
   try {
     const record = await prisma.agentrank_scores.findUnique({
       where: { agent_id: agentId },
@@ -123,17 +176,16 @@ export async function getScoreHistory(
 
     if (!record) return null;
 
-    const history: AgentRankHistoryEntry[] = Array.isArray(record.history)
-      ? (record.history as AgentRankHistoryEntry[])
-      : [];
-
     return {
       score: record.score,
       grade: record.grade,
-      history,
+      history: readHistory(record.history),
     };
   } catch (err: any) {
-    logger.warn('AgentRank history fetch failed', { agentId, error: err?.message });
+    logger.warn('AgentRank history fetch failed', {
+      agentId,
+      error: err?.message,
+    });
     return null;
   }
 }

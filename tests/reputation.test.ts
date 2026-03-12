@@ -18,7 +18,8 @@ beforeAll(async () => {
   server = app.listen(0);
   // Ensure clean state for agent_reputation table
   try {
-    await query('DELETE FROM agent_reputation');
+    const { safeTruncate } = await import('../src/test/safeTruncate');
+    await safeTruncate(['agent_reputation']);
   } catch (e) {
     // Table may not exist in test env; skip
   }

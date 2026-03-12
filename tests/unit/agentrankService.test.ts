@@ -51,7 +51,7 @@ describe('agentrankService', () => {
 
     it('clamps score to MAX 1000', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 995, grade: 'S', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 1000, grade: 'S', history: [] });
 
       const result = await adjustScore(AGENT_ID, 100, 'bonus');
 
@@ -60,7 +60,7 @@ describe('agentrankService', () => {
 
     it('clamps score to MIN 0', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 5, grade: 'D', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 0, grade: 'F', history: [] });
 
       const result = await adjustScore(AGENT_ID, -100, 'dispute');
 
@@ -69,7 +69,7 @@ describe('agentrankService', () => {
 
     it('returns correct grade S for score >= 950', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 940, grade: 'A', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 955, grade: 'S', history: [] });
 
       const result = await adjustScore(AGENT_ID, 15, 'bonus');
       expect(result?.grade).toBe('S'); // 940 + 15 = 955 >= 950
@@ -77,7 +77,7 @@ describe('agentrankService', () => {
 
     it('returns grade A for score 800–949', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 790, grade: 'B', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 805, grade: 'A', history: [] });
 
       const result = await adjustScore(AGENT_ID, 15, 'bonus');
       expect(result?.grade).toBe('A'); // 790 + 15 = 805 >= 800
@@ -85,7 +85,7 @@ describe('agentrankService', () => {
 
     it('returns grade B for score >= 600', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 595, grade: 'C', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 605, grade: 'B', history: [] });
 
       const result = await adjustScore(AGENT_ID, 10, 'bonus');
       expect(result?.grade).toBe('B'); // 595 + 10 = 605 >= 600
@@ -93,7 +93,7 @@ describe('agentrankService', () => {
 
     it('returns grade C for score >= 400', async () => {
       mockFindUnique.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 395, grade: 'D', history: [] });
-      mockUpdate.mockResolvedValueOnce({});
+      mockUpdate.mockResolvedValueOnce({ agent_id: AGENT_ID, score: 405, grade: 'C', history: [] });
 
       const result = await adjustScore(AGENT_ID, 10, 'bonus');
       expect(result?.grade).toBe('C'); // 395 + 10 = 405 >= 400
