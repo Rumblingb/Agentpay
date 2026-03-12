@@ -393,24 +393,21 @@ export class MoltbookIntegration {
         `SELECT wallet_keypair_encrypted FROM bots WHERE id = $1 LIMIT 1`,
         [botId]
       );
-      // ...existing code...
-      return result.rows[0]?.wallet_keypair_encrypted ? decryptKeypair(result.rows[0].wallet_keypair_encrypted) : generateThrowawayKeypair();
+      const encrypted = result.rows[0]?.wallet_keypair_encrypted;
+      if (!encrypted || !isEncrypted(encrypted)) {
+        const { logger } = await import('../logger.js');
+        logger.warn('getWallet: no valid encrypted keypair found — returning ephemeral keypair', {
+          botId,
+          stored: encrypted ? 'present but invalid format' : 'empty',
+        });
+        return generateThrowawayKeypair();
+      }
+      return Keypair.fromSecretKey(decryptKeypair(encrypted));
     } catch (err: any) {
       const isTableMissing = typeof err?.message === 'string' && err.message.includes('does not exist');
       if (isTableMissing) return generateThrowawayKeypair();
       throw err;
     }
-    if (!encrypted || !isEncrypted(encrypted)) {
-      // No stored keypair — return ephemeral keypair (funds would be unrecoverable).
-      // Log at WARN so operators can identify affected bots and investigate.
-      const { logger } = await import('../logger.js');
-      logger.warn('getWallet: no valid encrypted keypair found — returning ephemeral keypair', {
-        botId,
-        stored: encrypted ? 'present but invalid format' : 'empty',
-      });
-      return Keypair.generate();
-    }
-    return Keypair.fromSecretKey(decryptKeypair(encrypted));
   }
 
   /** Update bot balance in the Moltbook/AgentPay database. */
@@ -439,3 +436,7 @@ export class MoltbookIntegration {
 }
 
 export default MoltbookIntegration;
+
+function generateThrowawayKeypair(): Keypair {
+  return Keypair.generate();
+}

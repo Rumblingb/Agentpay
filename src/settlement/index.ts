@@ -77,7 +77,7 @@ export {
   emitSettlementEvent,
   listEventsByIntent,
   listEventsByIdentity,
-} from './settlementEventService';
+} from './settlementEventService.js';
 
 // ── Intent Resolution Service ──────────────────────────────────────────────
 export {

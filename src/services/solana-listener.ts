@@ -10,7 +10,7 @@ import {
   type RunEngineParams,
 } from '../settlement/intentResolutionEngine.js';
 import { normalizeSolanaObservation } from '../settlement/settlementEventIngestion.js';
-import { emitSettlementEvent } from '../settlement/settlementEventService';
+import { emitSettlementEvent } from '../settlement/settlementEventService.js';
 
 const LISTENER_POLL_INTERVAL_MS = parseInt(process.env.LISTENER_POLL_INTERVAL_MS || '30000', 10);
 

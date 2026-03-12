@@ -17,7 +17,7 @@
  * Moat: Exclusive access to transaction graph data
  */
 
-import { prisma } from '../../packages/agentpay-core/agents/ReputationOracleAgent.js';
+import prisma from '../lib/prisma.js';
 
 interface ReputationQuery {
   agentId: string;

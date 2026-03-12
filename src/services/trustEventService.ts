@@ -1,4 +1,3 @@
-import { adjustScore } from './agentrankService.js';
 /**
  * Trust Event Service — canonical catalog of trust-relevant event categories.
  *
@@ -27,7 +26,7 @@ import { adjustScore } from './agentrankService.js';
  * @module services/trustEventService
  */
 
-import { adjustScore } from '../../packages/agentpay-core/trust/agentrankService.js';
+import { adjustScore } from './agentrankService.js';
 import { emitEvent } from './events.js';
 import { logger } from '../logger.js';
 import prisma from '../lib/prisma.js';
