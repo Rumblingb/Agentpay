@@ -153,23 +153,40 @@ router.get('/discover', async (req: Request, res: Response) => {
             if (!isTableMissing) throw err;
             // bots table may not exist
           }
-
-        return {
-          rank: effectiveOffset + idx + 1,
-          agentId: r.agent_id,
-          handle: profile?.handle ?? r.agent_id,
-          bio: profile?.bio ?? null,
-          score: r.score,
-          grade: r.grade,
-          transactionVolume: r.transaction_volume,
-          walletAgeDays: r.wallet_age_days,
-          paymentReliability: Number(r.payment_reliability),
-          serviceDelivery: Number(r.service_delivery),
-          category: category ?? null,
-          updatedAt: r.updated_at,
-          profileUrl: `/api/agentrank/${encodeURIComponent(r.agent_id)}`,
-        };
-      }),
+          return {
+            rank: effectiveOffset + idx + 1,
+            agentId: r.agent_id,
+            handle: profile?.handle ?? r.agent_id,
+            bio: profile?.bio ?? null,
+            score: r.score,
+            grade: r.grade,
+            transactionVolume: r.transaction_volume,
+            walletAgeDays: r.wallet_age_days,
+            paymentReliability: Number(r.payment_reliability),
+            serviceDelivery: Number(r.service_delivery),
+            category: category ?? null,
+            updatedAt: r.updated_at,
+            profileUrl: `/api/agentrank/${encodeURIComponent(r.agent_id)}`,
+          };
+        } catch (err) {
+          // Optionally handle error or return defaults
+          return {
+            rank: effectiveOffset + idx + 1,
+            agentId: r.agent_id,
+            handle: r.agent_id,
+            bio: null,
+            score: r.score,
+            grade: r.grade,
+            transactionVolume: r.transaction_volume,
+            walletAgeDays: r.wallet_age_days,
+            paymentReliability: Number(r.payment_reliability),
+            serviceDelivery: Number(r.service_delivery),
+            category: category ?? null,
+            updatedAt: r.updated_at,
+            profileUrl: `/api/agentrank/${encodeURIComponent(r.agent_id)}`,
+          };
+        }
+      })
     );
 
     // Apply text search filter (q) after enrichment if provided
