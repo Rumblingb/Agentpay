@@ -50,7 +50,6 @@ export async function rankAgents(
   const rankMap = new Map(rankResult.rows.map((r: any) => [r.agent_id, r.score]));
 
   // Bulk fetch reputation
-  const repResult = await query(
   let repMap = new Map();
   try {
     const repResult = await query(
