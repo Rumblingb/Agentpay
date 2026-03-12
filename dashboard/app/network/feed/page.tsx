@@ -90,7 +90,7 @@ export default function FeedPage() {
           </table>
         ) : feed.length === 0 ? (
           <div className="px-6 py-12 text-center space-y-3 text-neutral-500">
-            <p>No transactions yet.</p>
+            <p>Network bootstrapping...</p>
             <p className="text-xs text-neutral-600">
               The feed initializes when the first agent is deployed.
             </p>

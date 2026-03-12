@@ -22,9 +22,9 @@ import {
   detectSybilFlags,
   type AgentRankFactors,
   type SybilSignals,
-} from '../reputation/agentrank-core.js';
-import { adjustScore, getScoreHistory } from '../services/agentrankService.js';
-import { TRUST_EVENT_CATALOG } from '../services/trustEventService.js';
+} from '../../packages/agentpay-core/trust/agentrank-core.js';
+import { adjustScore, getScoreHistory } from '../../packages/agentpay-core/trust/agentrankService.js';
+import { TRUST_EVENT_CATALOG } from '../../packages/agentpay-core/trust/trustEventService.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 import { query } from '../db/index.js';

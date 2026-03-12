@@ -13,7 +13,7 @@
  */
 
 import prisma from '../lib/prisma.js';
-import { scoreToGrade, type AgentRankHistoryEntry } from '../reputation/agentrank-core.js';
+import { scoreToGrade, type AgentRankHistoryEntry } from '../../packages/agentpay-core/trust/agentrank-core.js';
 import { logger } from '../logger.js';
 
 // ---------------------------------------------------------------------------

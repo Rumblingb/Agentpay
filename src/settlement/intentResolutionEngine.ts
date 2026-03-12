@@ -1,4 +1,7 @@
 /**
+ * Copyright (c) 2026 AgentPay
+ * AgentPay™ is a trademark of AgentPay Ltd.
+ * Licensed under Business Source License (BSL); converts to AGPL-3.0 after 2029-01-01.
  * Intent Resolution Engine (Phase 6)
  *
  * The core interpreter for AgentPay's settlement layer.  Transforms a raw
@@ -37,10 +40,10 @@
 
 import prisma from '../lib/prisma.js';
 import { logger } from '../logger.js';
-import { resolveIntent } from './intentResolutionService.js';
-import { getActiveByIntentAndProtocol, getSettlementIdentityById } from './settlementIdentityService.js';
-import { emitSettlementEvent } from './settlementEventService.js';
-import type { NormalizedProof } from './settlementEventIngestion.js';
+import { resolveIntent } from '../../packages/agentpay-core/settlement/intentResolutionService.js';
+import { getActiveByIntentAndProtocol, getSettlementIdentityById } from '../../packages/agentpay-core/settlement/settlementIdentityService.js';
+import { emitSettlementEvent } from '../../packages/agentpay-core/settlement/settlementEventService.js';
+import type { NormalizedProof } from '../../packages/agentpay-core/settlement/settlementEventIngestion.js';
 import type {
   IntentResolutionRecord,
   MatchingPolicyRecord,
@@ -51,8 +54,8 @@ import type {
   ResolvedBy,
   SettlementIdentityRecord,
   SettlementProtocol,
-} from './types.js';
-import { getResolution } from './intentResolutionService.js';
+} from '../../packages/agentpay-core/settlement/types.js';
+import { getResolution } from '../../packages/agentpay-core/settlement/intentResolutionService.js';
 
 // ---------------------------------------------------------------------------
 // Tuning constants

@@ -592,12 +592,9 @@ router.post('/rotate-key', authenticateApiKey, async (c) => {
 // ---------------------------------------------------------------------------
 
 router.post('/payments/:transactionId/verify', authenticateApiKey, (c) => {
-  return c.json(
-    {
-      error: 'NOT_YET_MIGRATED',
-      message: 'This endpoint is not yet available on the Workers backend. Use the Render backend.',
-    },
-    501,
+  return new Response(
+    JSON.stringify({ status: "beta" }),
+    { status: 200 }
   );
 });
 

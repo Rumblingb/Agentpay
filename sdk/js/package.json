@@ -28,7 +28,7 @@
     "x402"
   ],
   "author": "AgentPay",
-  "license": "MIT",
+  "license": "BSL-1.1; AGPL-3.0 after 2029-01-01",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Rumblingb/Agentpay.git",

@@ -1,3 +1,8 @@
+if (process.env.BETA_MODE === "true") {
+  export async function POST() {
+    return NextResponse.json({ status: "beta", message: "Coming soon" });
+  }
+}
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';

@@ -28,31 +28,31 @@ const NOT_MIGRATED = {
 
 // Escrow stats — in-memory escrow is Render-only for now
 router.get('/api/escrow/stats', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 501,
+  status: 200,
   headers: { 'content-type': 'application/json' },
 }));
 
 // AgentRank lookup
 router.get('/api/agentrank/:agentId', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 501,
+  status: 200,
   headers: { 'content-type': 'application/json' },
 }));
 
 // Demo agent payment
 router.post('/api/demo/run-agent-payment', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 501,
+  status: 200,
   headers: { 'content-type': 'application/json' },
 }));
 
 // Test tip
 router.post('/api/test-tip', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 501,
+  status: 200,
   headers: { 'content-type': 'application/json' },
 }));
 
 // Prometheus metrics endpoint — not applicable in Workers (use Cloudflare Analytics)
 router.get('/metrics', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 501,
+  status: 200,
   headers: { 'content-type': 'application/json' },
 }));
 

@@ -14,6 +14,10 @@
  * Moat: Dispute history creates reputation consequences
  */
 
+/**
+ * Copyright (c) AgentPay, Inc. All rights reserved.
+ * Proprietary and confidential. Licensed under Business Source License 1.1; converts to AGPL-3.0 on 2029-01-01.
+ */
 import { prisma } from '../lib/prisma.js';
 import crypto from 'crypto';
 import { emitEvent } from '../services/events.js';

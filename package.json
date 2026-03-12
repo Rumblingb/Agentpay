@@ -49,7 +49,7 @@
   "bugs": {
     "url": "https://github.com/Rumblingb/Agentpay/issues"
   },
-  "license": "MIT",
+  "license": "BSL-1.1; AGPL-3.0 after 2029-01-01",
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.1",
     "@sentry/node": "^10.42.0",

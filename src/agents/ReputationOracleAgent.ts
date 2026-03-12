@@ -1,4 +1,7 @@
 /**
+ * Copyright (c) 2026 AgentPay
+ * AgentPay™ is a trademark of AgentPay Ltd.
+ * Licensed under Business Source License (BSL); converts to AGPL-3.0 after 2029-01-01.
  * ReputationOracleAgent - Constitutional Layer Agent #2
  *
  * Queries and packages trust context from AgentPay's reputation graph.
@@ -14,7 +17,7 @@
  * Moat: Exclusive access to transaction graph data
  */
 
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../../packages/agentpay-core/agents/ReputationOracleAgent.js';
 
 interface ReputationQuery {
   agentId: string;

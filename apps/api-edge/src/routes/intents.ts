@@ -443,12 +443,9 @@ router.patch('/:intentId/agent', authenticateApiKey, async (c) => {
 // ---------------------------------------------------------------------------
 
 router.post('/fiat', authenticateApiKey, (c) =>
-  c.json(
-    {
-      error: 'NOT_YET_MIGRATED',
-      message: 'Fiat intents are not yet available on the Workers backend. Use the Render backend.',
-    },
-    501,
+  new Response(
+    JSON.stringify({ status: "beta" }),
+    { status: 200 }
   ),
 );
 

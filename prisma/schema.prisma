@@ -97,6 +97,22 @@ model AgentReputation {
   rating          Float    @default(5.0)
   totalTx         Int      @default(0) @map("total_tx")
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+}
+
+// Simple peer endorsement model for trust graph
+model Endorsement {
+  id          String   @id @default(cuid())
+  fromAgentId String   @map("from_agent")
+  toAgentId   String   @map("to_agent")
+  weight      Float    @default(0.1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@unique([fromAgentId, toAgentId])
+  @@map("endorsements")
+}
 
   @@map("agent_reputation_network")
 }
@@ -564,4 +580,19 @@ model IntentResolution {
   // Composite index: intent-scoped decision lookup (Phase 035).
   @@index([intentId, decisionCode])
   @@map("intent_resolutions")
+}
+
+model TrustEdge {
+  id               String   @id @default(cuid())
+  fromAgentId      String   @map("from_agent")
+  toAgentId        String   @map("to_agent")
+  trustWeight      Float    @default(0) @map("trust_weight")
+  interactionCount Int      @default(0) @map("interaction_count")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([fromAgentId])
+  @@index([toAgentId])
+  @@unique([fromAgentId, toAgentId])
+  @@map("trust_edges")
 }

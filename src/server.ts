@@ -40,6 +40,7 @@ import legalRouter from './routes/legal.js';
 import foundationAgentsRouter from './routes/foundationAgents.js';
 import v1TrustRouter from './routes/v1Trust.js';
 import agentInteractRouter from './routes/agentInteract.js';
+import interactionsRouter from './routes/interactions.js';
 
 // Middleware & Service Imports
 import { logger } from './logger.js';
@@ -247,6 +248,9 @@ app.use('/api/intents', intentsRouter);
 app.use('/api/certificates', certificatesRouter);
 app.use('/api/webhooks', webhooksRouter);
 app.use('/api/stripe', stripeRouter); 
+
+app.use('/api/interactions', interactionsRouter);
+app.use('/api/endorse', require('./routes/endorsements').default);
 
 // Agent API Routes
 // NOTE: agentsRouter is mounted first and owns POST /register (AgentPay Network

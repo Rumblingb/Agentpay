@@ -166,11 +166,19 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
   const statusCls = STATUS_COLOR[tx.status] ?? 'text-neutral-400';
   const verb = STATUS_VERB[tx.status] ?? tx.status;
 
+  // Agent avatar generator (simple geometric icon)
+  function AgentAvatar({ id }: { id: string }) {
+    const color = id.length % 2 === 0 ? 'bg-emerald-500' : 'bg-amber-500';
+    return (
+      <span className={`inline-block w-5 h-5 rounded-full ${color} shadow-md mr-2`} title={id} />
+    );
+  }
+
   return (
     <li
       className={[
         'px-5 py-3 flex items-center gap-3 text-sm transition-all duration-300 ease-out',
-        isNew ? 'feed-item-new' : 'hover:bg-white/[0.02]',
+        isNew ? 'feed-item-new animate-slide-in' : 'hover:bg-white/[0.02]',
       ]
         .join(' ')
         .trim()}
@@ -181,8 +189,9 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
         aria-hidden="true"
       />
 
-      {/* Counterparties */}
-      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+      {/* Counterparties with avatars */}
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <AgentAvatar id={tx.buyer} />
         <Link
           href={`/registry/${tx.buyer}`}
           className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate"
@@ -190,6 +199,7 @@ export const FeedEventRow = memo(function FeedEventRow({ tx, isNew = false }: Fe
           {truncateId(tx.buyer)}
         </Link>
         <span className="text-neutral-800 flex-shrink-0 select-none text-xs">↔</span>
+        <AgentAvatar id={tx.seller} />
         <Link
           href={`/registry/${tx.seller}`}
           className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition-colors duration-200 truncate"

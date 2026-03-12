@@ -574,17 +574,6 @@ router.get('/:agentId', async (req: Request, res: Response) => {
       select: {
         id: true,
         displayName: true,
-        publicKey: true,
-        riskScore: true,
-        merchantId: true,
-        service: true,
-        endpointUrl: true,
-        pricingModel: true,
-        rating: true,
-        totalEarnings: true,
-        tasksCompleted: true,
-        createdAt: true,
-        updatedAt: true,
       },
     });
 
@@ -593,24 +582,15 @@ router.get('/:agentId', async (req: Request, res: Response) => {
       return;
     }
 
+    // Fetch reputation record
+    const rep = await reputationService.getReputation(agentId);
+
+    // Compose Agent Passport response
     res.json({
-      success: true,
-      agent: {
-        id: agent.id,
-        displayName: agent.displayName,
-        publicKey: agent.publicKey ?? null,
-        riskScore: agent.riskScore,
-        merchantId: agent.merchantId ?? null,
-        service: (agent as any).service ?? null,
-        endpointUrl: (agent as any).endpointUrl ?? null,
-        pricing: (agent as any).pricingModel,
-        rating: (agent as any).rating,
-        totalEarnings: (agent as any).totalEarnings,
-        tasksCompleted: (agent as any).tasksCompleted,
-        createdAt: agent.createdAt.toISOString(),
-        updatedAt: agent.updatedAt.toISOString(),
-        isFoundationAgent: (agent as any).service === 'constitutional-agent',
-      },
+      agent_id: agent.displayName || agent.id,
+      trust_score: rep && typeof rep.trustScore === 'number' ? rep.trustScore : 50,
+      interactions: rep && typeof rep.totalPayments === 'number' ? rep.totalPayments : 0,
+      success_rate: rep && typeof rep.successRate === 'number' ? rep.successRate : 1.0,
     });
   } catch (err: any) {
     logger.error('Agent fetch error', { err });

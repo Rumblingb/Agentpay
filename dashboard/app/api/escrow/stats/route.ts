@@ -1,3 +1,8 @@
+if (process.env.BETA_MODE === "true") {
+  export async function GET() {
+    return NextResponse.json({ status: "beta", message: "Coming soon" });
+  }
+}
 /**
  * BFF route: GET /api/escrow/stats
  *

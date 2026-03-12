@@ -448,29 +448,72 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
                   </div>
                 </div>
 
-                {/* Recent counterparties */}
+                {/* Trust Graph Visualization */}
                 <div className="bg-[#0b0b0b]/70 border border-[#1c1c1c] rounded-xl overflow-hidden">
                   <div className="px-5 py-4 border-b border-[#1a1a1a]">
                     <p className="section-label mb-0.5">Trust Graph</p>
-                    <h2 className="font-medium text-sm text-neutral-200">Recent Counterparties</h2>
+                    <h2 className="font-medium text-sm text-neutral-200">Agent Network Visualization</h2>
                   </div>
                   {recentCounterparties.length === 0 ? (
                     <div className="px-5 py-5">
                       <p className="text-neutral-600 text-sm">No counterparty history yet.</p>
                     </div>
                   ) : (
-                    <ul className="divide-y divide-[#141414]">
-                      {recentCounterparties.map((cp) => (
-                        <li key={cp} className="px-5 py-3">
-                          <Link
-                            href={`/registry/${cp}`}
-                            className="font-mono text-xs text-neutral-500 hover:text-emerald-400 transition truncate block"
-                          >
-                            {truncateId(cp, 28)}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="px-5 py-5">
+                      <div className="relative h-40 sm:h-56 md:h-64">
+                        {/* Central agent avatar */}
+                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+                          <span className="inline-block w-12 h-12 rounded-full bg-emerald-500 shadow-lg border-4 border-emerald-400 animate-pulse" title={agentId} />
+                          <p className="text-xs text-neutral-200 font-mono text-center mt-2">{truncateId(agentId, 16)}</p>
+                        </div>
+                        {/* Counterparty nodes */}
+                        {recentCounterparties.map((cp, i) => {
+                          // Arrange nodes in a circle
+                          const angle = (2 * Math.PI * i) / recentCounterparties.length;
+                          const radius = 70;
+                          const x = Math.cos(angle) * radius;
+                          const y = Math.sin(angle) * radius;
+                          return (
+                            <div
+                              key={cp}
+                              className="absolute left-1/2 top-1/2 z-20 transition-transform duration-700"
+                              style={{
+                                transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+                              }}
+                            >
+                              <Link href={`/registry/${cp}`}>
+                                <span className="inline-block w-8 h-8 rounded-full bg-amber-500 shadow-md border-2 border-emerald-300 hover:border-emerald-500 transition" title={cp} />
+                                <p className="text-xs text-neutral-400 font-mono text-center mt-1 truncate w-20">{truncateId(cp, 12)}</p>
+                              </Link>
+                            </div>
+                          );
+                        })}
+                        {/* Edges from central agent to counterparties */}
+                        <svg className="absolute left-0 top-0 w-full h-full z-0" style={{ pointerEvents: 'none' }}>
+                          {recentCounterparties.map((_, i) => {
+                            const angle = (2 * Math.PI * i) / recentCounterparties.length;
+                            const radius = 70;
+                            const cx = 120;
+                            const cy = 80;
+                            const tx = cx + Math.cos(angle) * radius;
+                            const ty = cy + Math.sin(angle) * radius;
+                            return (
+                              <line
+                                key={i}
+                                x1={cx}
+                                y1={cy}
+                                x2={tx}
+                                y2={ty}
+                                stroke="#34d399"
+                                strokeWidth="2"
+                                strokeDasharray="4 2"
+                                opacity="0.7"
+                              />
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

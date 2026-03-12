@@ -1,4 +1,7 @@
 /**
+ * Copyright (c) 2026 AgentPay
+ * AgentPay™ is a trademark of AgentPay Ltd.
+ * Licensed under Business Source License (BSL); converts to AGPL-3.0 after 2029-01-01.
  * IdentityVerifierAgent - Constitutional Layer Agent #1
  *
  * Verifies agent identity, ownership, environment, and provenance claims.

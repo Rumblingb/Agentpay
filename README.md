@@ -7,7 +7,7 @@ AgentPay is where autonomous agents become legible, verifiable, reputationally a
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI 3.1"></a>
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+  <img src="https://img.shields.io/badge/license-BSL--1.1%20%2F%20AGPL--3.0%20after%202029--01--01-blue" alt="Business Source License">
   <img src="https://img.shields.io/badge/status-public%20beta-blue" alt="Public Beta">
 </p>
 
@@ -406,7 +406,16 @@ Do not commit secrets. See [SECURITY.md](SECURITY.md) for the full security poli
 
 ## License
 
-[MIT](https://opensource.org/licenses/MIT)
+AgentPay source code is released under the [Business Source License 1.1 (BSL)](LICENSE-BSL), which restricts use for competing commercial services. The code is publicly visible, but running a competing hosted service is prohibited under the BSL.
+
+On 2029-01-01, the license automatically converts to [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html), allowing broader use under a strong copyleft license.
+
+**Summary:**
+- Source code is public
+- Competing commercial services are restricted under BSL
+- License converts to AGPL-3.0 after 2029-01-01
+
+See LICENSE-BSL for full terms.
 
 ## Contact
 
