@@ -17,6 +17,8 @@ import {
   STATUS_VERB,
   TRUST_EVENT_DOT,
 } from './_components/FeedEventRow';
+import ConstitutionalAgents from './_components/ConstitutionalAgents';
+import NetworkExplorer from './_components/NetworkExplorer';
 
 // ---------------------------------------------------------------------------
 // Constitutional agents — static institutional constants
@@ -329,6 +331,12 @@ export default function WelcomePage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Mission Control — supplemental panels */}
+            <div className="mt-6 space-y-6">
+              <ConstitutionalAgents />
+              <NetworkExplorer />
             </div>
 
           {/* ── SECTION 3: The Current ───────────────────────────────────── */}
