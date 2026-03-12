@@ -40,3 +40,9 @@ apps/api-edge/node_modules/
 apps/api-edge/.wrangler/
 # Local dev secrets — never commit
 apps/api-edge/.dev.vars
+
+# Local cookie jars used for manual curl/debugging
+cookies*.txt
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.*
