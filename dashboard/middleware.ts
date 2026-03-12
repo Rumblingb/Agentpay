@@ -8,7 +8,8 @@ export async function middleware(request: NextRequest) {
 
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   const isAuthenticated = session !== null;
-  const isPublicPage = pathname === '/login' || pathname === '/';
+  const isPublicPage =
+    pathname === '/login' || pathname === '/' || pathname.startsWith('/network');
 
   if (!isAuthenticated && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url));
