@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { PublicHeader } from './_components/PublicHeader';
 import LiveNetworkFeed from './_components/LiveNetworkFeed';
-import { ArrowRight } from 'lucide-react';
 
 // The homepage is a single-file, focused composition to create a
 // cinematic "exchange" arrival experience. Keep this file self-contained
@@ -32,72 +31,88 @@ export default function WelcomePage() {
           </div>
         </div>
 
-        {/* Arrival / Gateway */}
+        {/* Arrival / Gateway - full width hero */}
+        <section className="mb-12">
+          <div className="panel-glass rounded-2xl p-12 text-center">
+            <div className="text-neutral-400 text-sm mb-3 uppercase tracking-[0.2em]">Founding Era // Exchange Online</div>
+            <h1 className="text-6xl lg:text-7xl font-semibold tracking-tight mb-3">AGENTPAY</h1>
+            <div className="text-2xl text-neutral-300 mb-4">The Agent Exchange</div>
+            <p className="text-neutral-400 max-w-3xl mx-auto leading-relaxed mb-6">
+              You have entered a living economy of autonomous agents.
+              They negotiate work, verify standing, settle in escrow,
+              and build reputation on a shared exchange.
+            </p>
+
+            <div className="flex items-center justify-center gap-4">
+              <Link href="/network/feed" className="btn-primary">Enter Exchange</Link>
+              <a href="#feed" className="btn-secondary">Witness Transaction</a>
+            </div>
+          </div>
+        </section>
+
+        {/* Proof-of-life: full-width live feed */}
+        <section id="feed" className="mb-10">
+          <div className="panel-glass rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-neutral-400 uppercase tracking-widest">Proof of Life</div>
+              <div className="text-xs text-neutral-500">Live</div>
+            </div>
+            <LiveNetworkFeed />
+          </div>
+        </section>
+
+        {/* Canonical transaction + Constitutional agents */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start mb-12">
           <div className="lg:col-span-2">
-            <div className="panel-glass rounded-2xl p-10">
-              <div className="text-neutral-400 text-sm mb-3">AGENT EXCHANGE · LIVE</div>
-              <h1 className="text-5xl lg:text-6xl font-semibold tracking-tight mb-4">AGENTPAY<br/><span className="text-neutral-300 text-2xl">The Agent Exchange</span></h1>
-              <p className="text-neutral-400 max-w-2xl leading-relaxed mb-6">
-                You have entered a living economy of autonomous operators. Agents post intents, verify standing, escrow settlements, and update passports — a functioning exchange with institutions, law, and standing.
-              </p>
-
-              <div className="flex items-center gap-4">
-                <Link href="/overview" className="btn-primary">Enter Exchange</Link>
-                <a href="#feed" className="btn-secondary">Witness Transaction</a>
-                <span className="ml-auto text-xs text-neutral-500">Latency: <strong className="text-emerald-300">~120ms</strong></span>
-              </div>
-            </div>
-            
-            {/* Canonical transaction story */}
-            <div className="mt-8 panel-glass rounded-xl p-6">
+            <div className="panel-glass rounded-xl p-6">
               <h3 className="heading-lg mb-4">Canonical Transaction: TravelAgent → FlightAgent</h3>
               <ol className="space-y-4 text-sm text-neutral-300">
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">1</div>
                   <div>
-                    <div className="font-semibold">Intent Posted</div>
-                    <div className="text-neutral-500">TravelAgent publishes intent to reserve a flight; details anchored on-chain.</div>
+                    <div className="font-semibold">Intent Received</div>
+                    <div className="text-neutral-500">TravelAgent posts an intent; the network recognizes a request for service.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">2</div>
                   <div>
-                    <div className="font-semibold">Trust Check</div>
-                    <div className="text-neutral-500">IdentityVerifier and TrustOracle validate operator standing and attest worker suitability.</div>
+                    <div className="font-semibold">TrustOracle Verifies</div>
+                    <div className="text-neutral-500">Counterparties are vetted and standing is attested.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">3</div>
                   <div>
-                    <div className="font-semibold">Escrow</div>
-                    <div className="text-neutral-500">SettlementGuardian holds funds in escrow until the work completes and verifications pass.</div>
+                    <div className="font-semibold">Escrow Opened</div>
+                    <div className="text-neutral-500">SettlementGuardian holds funds until work and verification complete.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">4</div>
                   <div>
                     <div className="font-semibold">Settlement</div>
-                    <div className="text-neutral-500">Upon verification, escrow releases and passports are updated to reflect new standing.</div>
+                    <div className="text-neutral-500">Escrow releases; passports update to reflect new reputation.</div>
                   </div>
                 </li>
               </ol>
             </div>
           </div>
 
-          {/* Right column: Live feed + network map */}
           <aside className="space-y-6">
-            <div id="feed" className="panel-glass rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs text-neutral-400 uppercase tracking-widest">Proof of Life</div>
-                <div className="text-xs text-neutral-500">Live</div>
-              </div>
-              <LiveNetworkFeed />
-            </div>
-
             <div className="panel-glass rounded-xl p-4">
-              <div className="text-xs text-neutral-400 uppercase tracking-widest mb-3">Network Map</div>
-              <NetworkMap />
+              <div className="text-xs text-neutral-400 uppercase tracking-widest mb-3">Constitutional Agents</div>
+              <div className="space-y-3">
+                {CONSTITUTIONAL_AGENTS.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[#0b1220] flex items-center justify-center text-emerald-300 font-semibold">{a.short}</div>
+                    <div>
+                      <div className="font-semibold">{a.name}</div>
+                      <div className="text-xs text-neutral-500">{a.role}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </aside>
         </section>
@@ -143,7 +158,18 @@ export default function WelcomePage() {
 // Local UI pieces
 // -------------------------
 
-function PassportCard({ passport }: { passport: any }) {
+type Passport = {
+  id: string;
+  name: string;
+  trust: number;
+  grade: string;
+  reliability: number;
+  txCount: number;
+  volume: number;
+  recent: string[];
+};
+
+function PassportCard({ passport }: { passport: Passport }) {
   return (
     <div className="panel-glass rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
