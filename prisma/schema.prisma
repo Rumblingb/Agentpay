@@ -88,6 +88,16 @@ model AgentEscrow {
 
 // AgentPay Network: per-agent reputation derived from network transactions.
 // TODO: extend into a full trust graph (success chains, peer endorsements).
+model Endorsement {
+  id         String   @id @default(uuid())
+  fromAgent  String
+  toAgent    String
+  weight     Float    @default(1.0)
+  createdAt  DateTime @default(now())
+
+  from Agent @relation("FromAgent", fields: [fromAgent], references: [id])
+  to   Agent @relation("ToAgent", fields: [toAgent], references: [id])
+}
 model AgentReputation {
   id              String   @id @default(cuid())
   agentId         String   @unique @map("agent_id")
