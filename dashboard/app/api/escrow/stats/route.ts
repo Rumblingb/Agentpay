@@ -1,8 +1,20 @@
-if (process.env.BETA_MODE === "true") {
-  export async function GET() {
-    return NextResponse.json({ status: "beta", message: "Coming soon" });
-  }
+import { NextRequest, NextResponse } from 'next/server';
+
+function betaResponse() {
+  return NextResponse.json({ status: 'beta', message: 'Coming soon' }, { status: 503 });
 }
+
+export async function GET(request: NextRequest) {
+  if (process.env.BETA_MODE === 'true') return betaResponse();
+  const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
+  const session = sessionCookie ? await verifySession(sessionCookie) : null;
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/escrow/stats`, {
+      signal: AbortSignal.timeout(5000),
+      headers: { Authorization: `Bearer ${session.apiKey}` },
 /**
  * BFF route: GET /api/escrow/stats
  *

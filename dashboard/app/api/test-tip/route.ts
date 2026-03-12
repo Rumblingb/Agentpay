@@ -1,8 +1,24 @@
-if (process.env.BETA_MODE === "true") {
-  export async function POST() {
-    return NextResponse.json({ status: "beta", message: "Coming soon" });
-  }
+import { NextRequest, NextResponse } from 'next/server';
+
+function betaResponse() {
+  return NextResponse.json({ status: 'beta', message: 'Coming soon' }, { status: 503 });
 }
+
+export async function POST(request: NextRequest) {
+  if (process.env.BETA_MODE === 'true') return betaResponse();
+  const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
+  const session = sessionCookie ? await verifySession(sessionCookie) : null;
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const body = await request.json().catch(() => ({}));
+    const amount: number = Number(body.amount) || 1.0;
+    // Attempt to call the backend simulate-tip endpoint if it is available.
+    // Falls back to a client-side simulation so the tour works in all environments.
+    const backendUrl = `${API_BASE}/api/test/simulate-tip`;
+    const backendRes = await fetch(backendUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
