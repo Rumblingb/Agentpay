@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import demo from '../../_lib/demoData';
+import demo from '../../../_lib/demoData';
 
 // Read-only demo endpoint exposing the canonical Founding Era flow.
 export async function GET() {

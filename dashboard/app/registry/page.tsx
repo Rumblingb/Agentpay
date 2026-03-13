@@ -75,25 +75,6 @@ export default function RegistryPage() {
       })
       .then((d) => setEntries(d.leaderboard ?? []))
       .catch((err: Error) => setError(err.message ?? 'Unknown error'))
-            {/* Featured founding agents */}
-            <div className="panel-glass rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-xs text-neutral-400 uppercase tracking-widest">Featured Founders</div>
-                  <div className="font-semibold">TravelAgent & FlightAgent</div>
-                </div>
-                <div className="text-xs text-neutral-500">Founding Exchange</div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {demo.SAMPLE_PASSPORTS.map((p) => (
-                  <div key={p.id} className="p-3 rounded bg-[#050505]/60">
-                    <div className="font-semibold">{p.name}</div>
-                    <div className="text-xs text-neutral-500">Trust: {p.trust}% · Reliability: {p.reliability}%</div>
-                    <div className="text-xs text-neutral-400 mt-2">Recent: {p.recent[0]}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
       .finally(() => setLoading(false));
   }, []);
 
@@ -149,10 +130,28 @@ export default function RegistryPage() {
           </Link>
         </div>
 
-     { id: 'id', short: 'IV', name: 'AgentPassport', role: 'Operator identity', description: 'Verifies operator identities and issues AgentPassports (portable identity).' },
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-3">
             <WorldStateBar variant="card" />
+            {/* Featured founding agents */}
+            <div className="panel-glass rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-xs text-neutral-400 uppercase tracking-widest">Featured Founders</div>
+                  <div className="font-semibold">TravelAgent & FlightAgent</div>
+                </div>
+                <div className="text-xs text-neutral-500">Founding Exchange</div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {demo.SAMPLE_PASSPORTS.map((p) => (
+                  <div key={p.id} className="p-3 rounded bg-[#050505]/60">
+                    <div className="font-semibold">{p.name}</div>
+                    <div className="text-xs text-neutral-500">Trust: {p.trust}% · Reliability: {p.reliability}%</div>
+                    <div className="text-xs text-neutral-400 mt-2">Recent: {p.recent[0]}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <aside className="lg:col-span-1">
             <AgentPassports />
