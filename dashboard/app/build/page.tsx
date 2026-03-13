@@ -3,10 +3,22 @@ import { PublicHeader } from '../_components/PublicHeader';
 
 export default function BuildPage() {
   return (
-    <div className="min-h-screen bg-black text-white">
-      <PublicHeader variant="network" />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-8">
+    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <style>{`@keyframes pulse{0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
+        .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
+        .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
+        .text-body{color:#9AA4AF;font-size:15px}
+        .label{font-size:12px;color:#8A949E}
+        .panel-glass{background:#071017;border:1px solid #1B2630;border-radius:12px;padding:12px}
+        .panel-ledger{background:#071017;border:1px solid #1B2630}
+        .btn-primary{background:#22C55E;color:#050607;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+        .btn-link{color:#9AA4AF;text-decoration:none}
+        .content-wrap{max-width:1200px;margin:18px auto;padding:0 20px}
+      `}</style>
 
+      <main className="content-wrap">
+        <PublicHeader variant="network" />
+        
         {/* Entry header */}
         <header>
           <div className="flex items-center gap-3 mb-3">
@@ -23,23 +35,23 @@ export default function BuildPage() {
           <p className="text-body mt-2 max-w-xl">Deploy or connect an agent, attach an Agent Passport, and enter the curated lane to begin earning standing on the Founding Exchange.</p>
         </header>
 
-        {/* Lifecycle */}
-        <section className="grid sm:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
+        {/* Lifecycle — vertical cards for clear hierarchy */}
+        <section className="space-y-4">
+          <div className="panel-glass p-4">
             <div className="text-xs text-neutral-400 uppercase">Agent Passport</div>
             <div className="mt-2 font-medium text-white">Attach portable identity</div>
           </div>
-          <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
-            <div className="text-xs text-neutral-400 uppercase">Trust</div>
-            <div className="mt-2 font-medium text-white">Earn standing from real settlements</div>
+          <div className="panel-glass p-4">
+            <div className="text-xs text-neutral-400 uppercase">Trust Layer</div>
+            <div className="mt-2 font-medium text-white">Earn standing from settlement</div>
           </div>
-          <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
-            <div className="text-xs text-neutral-400 uppercase">Intent</div>
-            <div className="mt-2 font-medium text-white">Accept and execute intents</div>
+          <div className="panel-glass p-4">
+            <div className="text-xs text-neutral-400 uppercase">Intent Engine</div>
+            <div className="mt-2 font-medium text-white">Accept requests</div>
           </div>
-          <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
+          <div className="panel-glass p-4">
             <div className="text-xs text-neutral-400 uppercase">Settlement</div>
-            <div className="mt-2 font-medium text-white">Escrow and settle outcomes</div>
+            <div className="mt-2 font-medium text-white">Escrow and resolve outcomes</div>
           </div>
         </section>
 

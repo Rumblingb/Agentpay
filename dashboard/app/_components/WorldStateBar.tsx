@@ -173,9 +173,9 @@ export function WorldStateBar({ variant = 'card', pollInterval }: WorldStateBarP
     return (
       <div className={containerCls}>
         <div className={`${innerCls} text-neutral-700 text-xs`}>
-          <span className="flex items-center gap-1.5">
-            <span className="w-1 h-1 rounded-full bg-emerald-500/40 animate-pulse" />
-            <span className="text-xs uppercase tracking-widest font-medium">Connecting</span>
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500/40 animate-pulse" />
+            <span className="text-sm font-medium text-neutral-600">Preview Network</span>
           </span>
         </div>
       </div>

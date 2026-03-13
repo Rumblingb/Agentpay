@@ -110,9 +110,23 @@ export default function RegistryPage() {
     () => entries.filter((e) => FOUNDATION_AGENTS.has(e.name)),
     [entries],
   );
-
   return (
-    <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-6">
+    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <style>{`@keyframes pulse {0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
+        .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
+        .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
+        .text-body{color:#9AA4AF;font-size:15px}
+        .label{font-size:12px;color:#8A949E}
+        .panel-glass{background:#071017;border:1px solid #1B2630;border-radius:12px;padding:12px}
+        .panel-constitutional{background:#071017;border:1px solid #1B2630}
+        .panel-ledger{background:#071017;border:1px solid #1B2630}
+        .space-card{padding:12px}
+        .btn-primary{background:#22C55E;color:#050607;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+        .btn-link{color:#9AA4AF;text-decoration:none}
+        .content-wrap{max-width:1200px;margin:18px auto;padding:0 20px}
+      `}</style>
+
+      <main className="content-wrap">
 
         {/* Page header — ceremonial */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -130,9 +144,11 @@ export default function RegistryPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ marginTop: 12 }}>
           <div className="lg:col-span-2 space-y-3">
-            <WorldStateBar variant="card" />
+            <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+              <WorldStateBar variant="card" />
+            </div>
             {/* Featured founding agents */}
             <div className="panel-glass rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -144,22 +160,24 @@ export default function RegistryPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {demo.SAMPLE_PASSPORTS.map((p) => (
-                  <div key={p.id} className="p-3 rounded bg-[#050505]/60">
-                    <div className="font-semibold">{p.name}</div>
-                    <div className="text-xs text-neutral-500">Trust: {p.trust}% · Reliability: {p.reliability}%</div>
-                    <div className="text-xs text-neutral-400 mt-2">Recent: {p.recent[0]}</div>
+                  <div key={p.id} style={{ padding: 12, borderRadius: 10, background: 'rgba(5,6,7,0.12)' }}>
+                    <div style={{ fontWeight: 700, color: '#F5F7FA' }}>{p.name}</div>
+                    <div style={{ fontSize: 12, color: '#9AA4AF' }}>Trust: {p.trust}% · Reliability: {p.reliability}%</div>
+                    <div style={{ fontSize: 12, color: '#8A949E', marginTop: 8 }}>Recent: {p.recent[0]}</div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
           <aside className="lg:col-span-1">
-            <AgentPassports />
+            <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+              <AgentPassports />
+            </div>
           </aside>
         </div>
 
         {/* Constitutional Layer — pinned above the regular list */}
-        <div className="panel-constitutional rounded-xl overflow-hidden">
+        <div className="panel-constitutional rounded-xl overflow-hidden" style={{ marginTop: 12 }}>
           <div className="space-card border-b border-amber-500/10 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <span className="foundation-badge">Constitutional Layer</span>
@@ -200,7 +218,7 @@ export default function RegistryPage() {
 
         {/* Controls & categories */}
         {!loading && !error && entries.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 12 }}>
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
                 Sort
@@ -252,7 +270,7 @@ export default function RegistryPage() {
         )}
 
         {/* Registry table */}
-        <div className="panel-ledger rounded-xl overflow-hidden">
+        <div className="panel-ledger rounded-xl overflow-hidden" style={{ marginTop: 12 }}>
           {/* Section label for the regular operator list */}
           {!loading && !error && visible.length > 0 && (
             <div className="px-5 py-2.5 border-b border-[#1c1c1c]">
@@ -277,11 +295,14 @@ export default function RegistryPage() {
               ))}
             </ul>
           ) : error ? (
-            <div className="px-6 py-16 text-center space-y-2">
-              <p className="text-red-400 text-sm">{error}</p>
-              <p className="text-neutral-600 text-xs">
-                Registry temporarily unavailable — try again shortly.
+            <div className="px-6 py-16 text-center space-y-2 panel-glass" style={{ background: '#071017' }}>
+              <p className="text-sm" style={{ color: '#F5F7FA', fontWeight: 700 }}>Registry snapshot loading</p>
+              <p className="text-neutral-500 text-xs">
+                Live registry coming online — a read-only snapshot is displayed until the network syncs.
               </p>
+              <div className="mt-3">
+                <Link href="/network" className="btn-primary">View Live Network</Link>
+              </div>
             </div>
           ) : visible.length === 0 ? (
             <div className="px-6 py-16 text-center space-y-3">
@@ -358,17 +379,13 @@ export default function RegistryPage() {
                           {entry.service && (
                             <span className="text-neutral-500">{entry.service}</span>
                           )}
-                          <span className="text-emerald-400 font-semibold">
-                            ${entry.totalEarnings.toFixed(2)}
-                          </span>
+                          <span className="text-emerald-400 font-semibold">{"$" + entry.totalEarnings.toFixed(2)}</span>
                           <span>{entry.tasksCompleted} jobs</span>
                         </div>
                       </div>
 
                       {/* Earnings */}
-                      <span className="text-right text-emerald-400 font-semibold text-sm tabular-nums hidden sm:block">
-                        ${entry.totalEarnings.toFixed(2)}
-                      </span>
+                      <span className="text-right text-emerald-400 font-semibold text-sm tabular-nums hidden sm:block">{"$" + entry.totalEarnings.toFixed(2)}</span>
 
                       {/* Jobs */}
                       <span className="text-right text-neutral-300 text-sm tabular-nums hidden sm:block">
@@ -424,5 +441,6 @@ export default function RegistryPage() {
           )}
         </div>
       </main>
+    </div>
   );
 }

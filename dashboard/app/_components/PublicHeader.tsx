@@ -22,6 +22,11 @@ export function PublicHeader({ variant = 'network' }: Props) {
   return (
     <>
       <FoundingRibbon />
+      <style>{`@keyframes pulse {0% { opacity: .4; transform: scale(.9);} 50% { opacity: 1; transform: scale(1);} 100% { opacity: .4; transform: scale(.9);} }
+        .pulse-dot { width:8px; height:8px; border-radius:50%; background:#22C55E; box-shadow:0 0 8px rgba(34,197,94,0.18); display:inline-block; margin-right:8px; animation:pulse 2000ms infinite; }
+        .panel-glass { background: rgba(10,15,20,0.9); border: 1px solid #1b2630; border-radius: 14px; transition: all .25s ease; }
+        .panel-glass:hover { transform: translateY(-2px); border-color: #22c55e; box-shadow: 0 0 0 1px rgba(34,197,94,0.15), 0 12px 30px rgba(0,0,0,0.35); }
+      `}</style>
       <header
         className={[
           'px-6 py-4 flex items-center justify-between',
@@ -39,7 +44,7 @@ export function PublicHeader({ variant = 'network' }: Props) {
         <span className="tracking-tight">AgentPay</span>
       </Link>
 
-      <nav className="flex items-center gap-6 text-sm text-neutral-500">
+      <nav className="flex items-center gap-6 md:gap-8 text-sm text-neutral-500">
         <Link href="/network" className="hover:text-neutral-200 transition-colors duration-200">
           Network
         </Link>
@@ -54,12 +59,7 @@ export function PublicHeader({ variant = 'network' }: Props) {
         >
           Registry
         </Link>
-        <Link
-          href="/market"
-          className="hover:text-neutral-200 transition-colors duration-200 hidden md:inline"
-        >
-          Market
-        </Link>
+        {/* Market removed from primary nav for cleaner top navigation */}
         <Link
           href="/trust"
           className="hover:text-neutral-200 transition-colors duration-200 hidden md:inline"
@@ -72,14 +72,7 @@ export function PublicHeader({ variant = 'network' }: Props) {
         >
           Build
         </Link>
-        <a
-          href="https://github.com/Rumblingb/Agentpay#readme"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-neutral-200 transition-colors duration-200 hidden md:inline"
-        >
-          Docs
-        </a>
+        {/* Docs intentionally omitted from primary nav to simplify header */}
 
         <Link
           href="/login"
@@ -88,6 +81,17 @@ export function PublicHeader({ variant = 'network' }: Props) {
           Open App
         </Link>
       </nav>
+
+      {/* Compact network status indicator (top-right) */}
+      <div style={{ marginLeft: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 140 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9AA4AF', fontSize: 12, lineHeight: 1 }}>
+          <span className="pulse-dot" aria-hidden />
+          <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F7FA' }}>Preview Network</span>
+            <span style={{ fontSize: 11, color: '#9AA4AF' }}>Founding Era Beta</span>
+          </div>
+        </div>
+      </div>
     </header>
     </>
   );

@@ -1,314 +1,160 @@
-'use client';
 
-import { useEffect, useState } from 'react';
+"use client";
+
+import { useMemo } from 'react';
 import Link from 'next/link';
-import { PublicHeader } from './_components/PublicHeader';
-import LiveNetworkFeed from './_components/LiveNetworkFeed';
-import publicAgentName from './_lib/publicAgentNames';
 import demo from './_lib/demoData';
 
-// The homepage is a single-file, focused composition to create a
-// cinematic "exchange" arrival experience. Keep this file self-contained
-// so it can be iterated without touching many shared components.
+export default function PremiumHome() {
+  const events = useMemo(() => demo.getSeedEvents().slice(0, 4), []);
+  const passports = useMemo(() => demo.SAMPLE_PASSPORTS.filter((p) => p.name === 'TravelAgent' || p.name === 'FlightAgent'), []);
+  const institutions = useMemo(() => demo.CONSTITUTIONAL_AGENTS.filter((i) => ['TrustOracle', 'SettlementGuardian', 'AgentPassport', 'NetworkObserver'].includes(i.name)), []);
+  const isProd = process.env.NODE_ENV === 'production';
 
-export default function WelcomePage() {
   return (
-    <div className="relative min-h-screen bg-black text-white">
-      <div className="absolute inset-0 bg-grid pointer-events-none" />
+    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <style>
+        {`@keyframes pulse { 0% { opacity: .4; transform: scale(.9); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: .4; transform: scale(.9); } }
+        .live-dot{ width:8px; height:8px; border-radius:50%; background:#22C55E; box-shadow:0 0 8px rgba(34,197,94,0.18); display:inline-block; margin-right:8px; animation:pulse 2000ms infinite; }
+        .hero-bg { background: radial-gradient(600px circle at 50% 10%, rgba(34,197,94,0.08), transparent 60%); }
+        .hero-title{ max-width: unset; }
+        .card{ transition: transform .18s ease, box-shadow .18s ease; }
+        .card:hover{ transform: translateY(-3px); box-shadow: 0 12px 36px rgba(2,6,23,0.5); }
+        .card-actor { font-size: 12px; color: #9aa4af; font-family: Fira Code, monospace; }
+        .card-title { font-size: 16px; font-weight: 700; color: #f5f7fa; }
+        .card-meta { font-size: 12px; color: #8a949e; }
+        .trust-score { text-shadow: 0 0 12px rgba(34,197,94,0.35); }
+        /* Hide Next.js dev badges / issue overlays on homepage screenshots */
+        [data-next-badge-root], [data-next-badge], [data-issues], [data-issues-open], [data-issues-count], .segment-explorer-footer-badge { display: none !important; }
+        @media (max-width:640px){ .hero-title{ max-width:18ch; margin-left:auto; margin-right:auto; } .home-top-strip{display:none !important} }
+        `}
+      </style>
+      {isProd && <style>{`.dev-badge{display:none !important}`}</style>}
+      {/* Minimal top strip */}
+      <div className="home-top-strip" style={{ width: '100%', borderBottom: '1px solid #0F1720', background: '#050607', padding: '8px 0' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px', color: '#9AA4AF', textAlign: 'center', fontSize: 13, letterSpacing: 0.4 }}>
+          Founding Era Beta · Curated Exchange · Non-Transactable Preview
+        </div>
+      </div>
 
-      <PublicHeader variant="homepage" />
+      <main style={{ maxWidth: 1200, margin: '48px auto', padding: '0 20px' }}>
+        {/* Premium hero */}
+        <section className="hero-bg" style={{ textAlign: 'center', padding: '72px 12px 40px' }}>
+          <h1 className="hero-title" style={{ fontSize: 44, margin: 0, fontWeight: 900, color: '#F5F7FA', letterSpacing: -0.6 }}>The First Agentic Exchange</h1>
+          <p style={{ color: '#9AA4AF', maxWidth: 840, margin: '18px auto 0', fontSize: 18, lineHeight: 1.5 }}>
+            A curated economy where agents transact with agents and humans, while AgentPassport and cross-network trust turn every interaction into standing.
+          </p>
+          <div style={{ marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>TravelAgent → FlightAgent · Trust checked · Settlement controlled · Standing updated</div>
 
-      <main className="relative z-10 max-w-6xl mx-auto px-6 lg:px-8 py-12">
-        {/* Founding Era strip (exact framing) */}
-        <div className="w-full flex items-center justify-center text-xs text-neutral-300 mb-6">
-          <div className="px-3 py-1 rounded-full bg-white/5 text-neutral-200 font-medium">Founding Era Beta · Curated Exchange · Non-Transactable Preview</div>
+          <div style={{ marginTop: 28, display: 'flex', gap: 14, justifyContent: 'center' }}>
+            <Link href="/network" style={{ background: '#22C55E', color: '#050607', padding: '12px 22px', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>Enter the Exchange</Link>
+            <Link href="/docs" style={{ border: '1px solid #1B2630', color: '#9AA4AF', padding: '10px 18px', borderRadius: 10, textDecoration: 'none' }}>Read the Protocol</Link>
+          </div>
+        </section>
+
+        {/* Live Exchange - compact premium cards */}
+        <section aria-labelledby="live-exchange" style={{ marginTop: 28 }}>
+          <h2 id="live-exchange" style={{ margin: '0 0 12px 0', fontSize: 16, color: '#F5F7FA' }}>Live Exchange</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, maxWidth: 720 }}>
+            {events.map((e: any) => (
+              <CompactEvent key={e.id} e={e} />
+            ))}
+          </div>
+        </section>
+
+        {/* Premium AgentPassport section - exactly two cards */}
+        <section aria-labelledby="passports" style={{ marginTop: 36 }}>
+          <h2 id="passports" style={{ margin: '0 0 12px 0', fontSize: 16, color: '#F5F7FA' }}>AgentPassports</h2>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'nowrap', alignItems: 'stretch' }}>
+            {passports.map((p: any) => (
+              <PremiumPassport key={p.id} p={p} />
+            ))}
+          </div>
+        </section>
+
+        {/* Constitutional layer (once) */}
+        <section aria-labelledby="institutions" style={{ marginTop: 36 }}>
+          <h2 id="institutions" style={{ margin: '0 0 12px 0', fontSize: 14, color: '#F5F7FA' }}>Founding Institutions</h2>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {institutions.map((a: any) => (
+              <InstitutionCard key={a.id} a={a} />
+            ))}
+          </div>
+        </section>
+
+        {/* Minimal footer CTA */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 44, alignItems: 'center' }}>
+          <Link href="/network" style={{ background: '#22C55E', color: '#050607', padding: '12px 22px', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>Enter the Exchange</Link>
+          <Link href="/docs" style={{ border: '1px solid #1B2630', color: '#9AA4AF', padding: '10px 16px', borderRadius: 10, textDecoration: 'none' }}>Read the Protocol</Link>
         </div>
 
-        {/* Arrival / Gateway - focused hero */}
-        <section className="mb-8">
-          <div className="panel-glass rounded-2xl p-10 text-center">
-            <div className="text-xxs text-amber-300 font-semibold mb-2">Founding Era Beta · Curated Preview</div>
-            <h1 className="text-4xl lg:text-5xl font-semibold tracking-tight mb-2">The First Agentic Exchange</h1>
-            <div className="text-lg text-neutral-300 mb-4">A curated economy where agents transact with agents and humans, while AgentPassport and cross-network trust turn every interaction into standing.</div>
-
-            <div className="text-neutral-400 max-w-2xl mx-auto leading-relaxed mb-6"> 
-              <div className="text-sm">TravelAgent → FlightAgent · Trust checked · Settlement controlled · Passport updated</div>
-            </div>
-
-            <div className="flex items-center justify-center gap-4">
-              <Link href="/network" className="btn-primary">Enter the Exchange</Link>
-              <a href="#canonical" className="btn-secondary">Watch the Founding Flow</a>
-            </div>
-            <div className="text-xs text-neutral-500 mt-4">Public beta · Curated preview · Non-transactable demo</div>
-          </div>
-        </section>
-
-        {/* Proof of life: ledger, canonical flow, participants (3-column) */}
-        <section id="feed" className="mb-10">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Ledger / streaming feed */}
-            <div className="panel-glass rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs text-neutral-400 uppercase tracking-widest">The Exchange Is Alive</div>
-                <FeedPulseIndicator />
-              </div>
-              <div className="h-72 overflow-auto">
-                <LiveNetworkFeed compact />
-              </div>
-            </div>
-
-            {/* Canonical flow (center) */}
-            <div className="panel-glass rounded-xl p-6" id="canonical">
-              <h3 className="heading-lg mb-3">Canonical Founding Flow</h3>
-              <FlowRail />
-              <div className="text-xs text-neutral-500 mt-4">This is a curated, read-only canonical trace of the Founding Era — non-transactable preview.</div>
-            </div>
-
-            {/* Founding participants (constitutional + active agents) */}
-            <div className="panel-glass rounded-xl p-6">
-              <h3 className="heading-lg mb-3">Founding Participants</h3>
-              <div className="mb-4">
-                <div className="text-xs text-neutral-400 uppercase mb-2">Constitutional Layer</div>
-                <div className="grid grid-cols-1 gap-3">
-                  {demo.CONSTITUTIONAL_AGENTS.map((a) => (
-                    <div key={a.id} className="p-4 rounded-lg border-2 border-neutral-700 bg-gradient-to-b from-black/60 to-black/40">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#071017] flex items-center justify-center text-emerald-300 font-semibold text-sm">{a.short}</div>
-                          <div>
-                            <div className="text-sm font-semibold">{a.name}</div>
-                            <div className="text-xs text-neutral-400">Institution · {a.role}</div>
-                          </div>
-                        </div>
-                        <div className="text-xs text-neutral-300">{a.short}</div>
-                      </div>
-                      <div className="text-xs text-neutral-300 mt-2 truncate">{a.description}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-neutral-400 uppercase mb-2">Active Founders</div>
-                <div className="grid grid-cols-1 gap-3">
-                  {demo.FOUNDING_ECONOMIC_AGENTS.map((f) => (
-                    <div key={f.id} className="p-3 rounded bg-[#071017]/60">
-                      <div className="font-semibold">{f.name}</div>
-                      <div className="text-xs text-neutral-500">{f.desc}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* NOTE: removed duplicated explanatory flow block to keep hero + FlowRail focused */}
-
-        {/* Constitutional agents — sovereign institutions */}
-        <section className="mb-10">
-          <h2 className="text-2xl font-semibold mb-4">Constitutional Agents</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {demo.CONSTITUTIONAL_AGENTS.map((a) => (
-              <div key={a.id} className="rounded-xl p-6 border-2 border-neutral-700 bg-[#00050a]/80">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-[#071017] flex items-center justify-center text-emerald-300 font-semibold text-sm">{a.short}</div>
-                  <div>
-                    <div className="font-semibold">{a.name}</div>
-                    <div className="text-xs text-neutral-400">{a.role}</div>
-                  </div>
-                </div>
-                <div className="text-sm text-neutral-300 truncate">{a.description}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* AgentPassport section (highlight two canonical passports) */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold mb-2">AgentPassport</h2>
-          <p className="text-neutral-400 mb-4">Portable economic identity for agents across networks. Identity, standing, history, and trust-bearing memory in one layer.</p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {demo.SAMPLE_PASSPORTS.slice(0,2).map((p) => (
-              <HighlightedPassport key={p.id} passport={p} />
-            ))}
-          </div>
-        </section>
-
-        {/* Plug-and-play section */}
-        <section className="mb-10">
-          <h2 className="text-xl font-semibold mb-2">Bring Any Agent Into The Exchange</h2>
-          <p className="text-neutral-400">AgentPay’s founding exchange is curated, but AgentPassport is portable. Agents from other platforms can connect, build standing, and enter the shared lane over time.</p>
-        </section>
-
-        {/* Final CTA */}
-        <section className="mb-16 text-center">
-          <div className="inline-flex gap-4">
-              <Link href="/network" className="btn-primary">Enter the Exchange</Link>
-              <Link href="/vision" className="btn-secondary">Read the Protocol</Link>
-          </div>
-        </section>
-
-        <footer className="mt-12 text-center text-xs text-neutral-600">
-          © {new Date().getFullYear()} AgentPay · A living economy of autonomous agents
-        </footer>
+        <footer style={{ marginTop: 18, textAlign: 'center', color: '#9AA4AF', fontSize: 12 }}>© {new Date().getFullYear()} AgentPay — a living protocol</footer>
       </main>
     </div>
   );
 }
 
-// -------------------------
-// Local UI pieces
-// -------------------------
+// Compact, readable event presentation designed for the homepage
+function CompactEvent({ e }: { e: any }) {
+  const actorPair = (e.agents || []).slice(0, 2).join(' → ');
+  const meta = [];
+  if (e.txId) meta.push('Tx');
+  if (e.value) meta.push(`$${Number(e.value).toFixed(2)}`);
+  if (e.trust) meta.push(String(e.trust));
 
-type Passport = {
-  id: string;
-  name: string;
-  trust: number;
-  grade: string;
-  reliability: number;
-  txCount: number;
-  volume: number;
-  recent: string[];
-};
-
-function PassportCard({ passport }: { passport: Passport }) {
   return (
-    <div className="panel-glass rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="card" style={{ background: '#0A0F14', border: '1px solid #1B2630', borderRadius: 12, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', transition: 'transform 160ms ease', boxShadow: '0 8px 24px rgba(2,6,23,0.6)' }}>
+      <div style={{ minWidth: 0 }}>
+        <div className="card-actor">{actorPair}</div>
+        <div className="card-title" style={{ marginTop: 6 }}>{e.title}</div>
+        <div className="card-meta" style={{ marginTop: 6 }}>{e.detail}</div>
+      </div>
+
+      <div style={{ textAlign: 'right', minWidth: 120, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="live-dot" aria-hidden />
+          <div className="card-meta">{meta.join(' · ')}</div>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: '#9AA4AF' }}>{new Date(e.at).toLocaleTimeString()}</div>
+      </div>
+    </div>
+  );
+}
+
+function PremiumPassport({ p }: { p: any }) {
+  return (
+    <div className="card" style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 14, padding: 16, minWidth: 320, boxShadow: '0 14px 50px rgba(2,6,23,0.6)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div className="font-mono text-xs text-neutral-400">{passport.id}</div>
-          <div className="font-semibold">{passport.name}</div>
+          <div style={{ fontSize: 12, color: '#9AA4AF', fontFamily: 'Fira Code, monospace' }}>{p.id}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: '#F5F7FA' }}>{p.name}</div>
         </div>
-        <div className="text-right">
-          <div className={`text-sm font-semibold ${passport.trust >= 90 ? 'text-emerald-300' : 'text-amber-300'}`}>{passport.trust}%</div>
-          <div className="text-xs text-neutral-500">Trust Score</div>
-        </div>
-      </div>
-
-      <div className="text-xs text-neutral-400 mb-3">Grade: <strong className="text-neutral-200">{passport.grade}</strong> · Reliability: <strong>{passport.reliability}%</strong></div>
-
-      <div className="text-xs text-neutral-500 mb-3">Tx Count: <strong className="text-neutral-300">{passport.txCount}</strong> · Volume: <strong className="text-neutral-300">${passport.volume.toFixed(2)}</strong></div>
-
-      <details className="text-xs text-neutral-400">
-        <summary className="cursor-pointer">Recent Activity</summary>
-        <ul className="mt-2 space-y-1">
-          {passport.recent.map((r: string, i: number) => (
-            <li key={i} className="text-neutral-300">{r}</li>
-          ))}
-        </ul>
-      </details>
-    </div>
-  );
-}
-// Note: demo data (passports, constitutional agents, founding agents) is sourced
-// from `dashboard/app/_lib/demoData.ts` and consumed above via the `demo` import.
-
-function NetworkMap() {
-  return (
-    <div className="w-full h-40 relative">
-      <svg viewBox="0 0 300 120" className="w-full h-full">
-        {/* constitutional agents */}
-        <g>
-          <circle cx="50" cy="30" r="18" fill="#0d1720" stroke="#2ee6b0" strokeWidth="1" />
-          <text x="50" y="34" textAnchor="middle" fontSize="10" fill="#2ee6b0">Trust</text>
-
-          <circle cx="250" cy="30" r="18" fill="#0d1720" stroke="#8b5cf6" strokeWidth="1" />
-          <text x="250" y="34" textAnchor="middle" fontSize="10" fill="#8b5cf6">Settle</text>
-
-          <circle cx="150" cy="90" r="16" fill="#0d1720" stroke="#60a5fa" strokeWidth="1" />
-          <text x="150" y="94" textAnchor="middle" fontSize="10" fill="#60a5fa">ID</text>
-        </g>
-
-        {/* sample agents and pulsating links */}
-        <g>
-          <circle cx="110" cy="50" r="6" fill="#34d399">
-            <animate attributeName="r" values="6;9;6" dur="3s" repeatCount="indefinite" />
-          </circle>
-          <circle cx="190" cy="50" r="6" fill="#34d399">
-            <animate attributeName="r" values="6;12;6" dur="2.4s" repeatCount="indefinite" />
-          </circle>
-          <line x1="110" y1="50" x2="190" y2="50" stroke="#34d39922" strokeWidth="2" />
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-function FlowRail() {
-  const [steps] = useState(() => demo.getCanonicalFlowTrace());
-  const [active, setActive] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setActive((s) => (s + 1) % steps.length), 2200);
-    return () => clearInterval(id);
-  }, [steps.length]);
-
-  return (
-    <div className="space-y-3">
-      {steps.map((s, i) => (
-        <div key={s.id} className={`flex items-start gap-3 p-3 rounded ${i === active ? 'bg-emerald-800/20 ring-1 ring-emerald-400/10' : 'bg-white/2'}`}>
-          <div className="w-8 flex-shrink-0">
-            <div className={`w-4 h-4 rounded-full ${i === active ? 'bg-emerald-300 animate-pulse' : 'bg-neutral-600'}`}></div>
-          </div>
-          <div>
-            <div className={`font-semibold ${i === active ? 'text-emerald-200' : 'text-neutral-200'}`}>{s.title}</div>
-            <div className="text-xs text-neutral-400">{s.detail}</div>
-            <div className="text-xxs text-neutral-500 mt-1">{s.agents.join(' · ')}</div>
-            {i === active && <div className="text-xxs text-emerald-300 mt-1">status: {s.kind.toLowerCase()}</div>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function FeedPulseIndicator() {
-  const [hasImpact, setHasImpact] = useState(false);
-
-  useEffect(() => {
-    const events = demo.getSeedEvents();
-    const interesting = events.some((e: any) => ['Trust verification', 'Escrow lifecycle', 'Identity attestations'].includes(e.kind));
-    setHasImpact(interesting);
-  }, []);
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="w-3 h-3 rounded-full bg-emerald-300" />
-      <div className="text-xs text-neutral-400">Live</div>
-      {hasImpact && <div className="ml-2 text-xxs text-emerald-300 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-300 animate-ping" />standing updated</div>}
-    </div>
-  );
-}
-
-function HighlightedPassport({ passport }: { passport: Passport }) {
-  return (
-    <div className="rounded-2xl p-5 bg-[#041017]/60 border border-neutral-800">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <div className="text-xs text-neutral-400">{passport.id}</div>
-          <div className="text-xl font-semibold">{passport.name}</div>
-        </div>
-        <div className="text-right">
-          <div className={`text-2xl font-semibold ${passport.trust >= 90 ? 'text-emerald-300' : 'text-amber-300'}`}>{passport.trust}%</div>
-          <div className="text-xs text-neutral-500">Trust Score</div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="trust-score" style={{ fontSize: 40, fontWeight: 900, color: p.trust >= 95 ? '#22C55E' : '#38BDF8' }}>{p.trust}%</div>
+          <div style={{ fontSize: 12, color: '#9AA4AF' }}>TRUST</div>
         </div>
       </div>
 
-      <div className="text-sm text-neutral-400 mb-3">Grade: <strong className="text-neutral-200">{passport.grade}</strong> · Reliability: <strong>{passport.reliability}%</strong></div>
-
-      <div className="flex items-center justify-between text-xs text-neutral-500 mb-3">
-        <div>Tx: <strong className="text-neutral-300">{passport.txCount}</strong></div>
-        <div>Volume: <strong className="text-neutral-300">${passport.volume.toFixed(2)}</strong></div>
+      <div style={{ display: 'flex', gap: 18, marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>
+        <div>Reliability: <strong style={{ color: '#F5F7FA' }}>{p.reliability}%</strong></div>
+        <div>Tx: <strong style={{ color: '#F5F7FA' }}>{p.txCount}</strong></div>
       </div>
 
-      <div className="text-xs text-neutral-400">Recent activity:</div>
-      <ul className="mt-2 text-xs text-neutral-300 space-y-1">
-        {passport.recent.map((r: string, i: number) => (
-          <li key={i}>{r}</li>
-        ))}
-      </ul>
+      <div style={{ marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>Recent: <span style={{ color: '#F5F7FA' }}>{p.recent?.[0] ?? '—'}</span></div>
     </div>
   );
 }
+
+function InstitutionCard({ a }: { a: any }) {
+  return (
+    <div style={{ flex: '1 1 220px', background: '#071017', border: '1px solid #1B2630', borderRadius: 10, padding: '16px 18px', textAlign: 'left', boxShadow: '0 8px 24px rgba(2,6,23,0.35)' }}>
+      <div style={{ color: '#9AA4AF', fontSize: 11, marginBottom: 6 }}>Institution</div>
+      <div style={{ color: '#F5F7FA', fontWeight: 700 }}>{a.name}</div>
+      <div style={{ color: '#9AA4AF', marginTop: 8, fontSize: 13 }}>{a.description}</div>
+    </div>
+  );
+}
+
+
+
+
