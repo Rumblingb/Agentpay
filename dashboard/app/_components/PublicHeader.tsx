@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import FoundingRibbon from './FoundingRibbon';
+import DesignSystem from './DesignSystem';
 
 interface Props {
   /** Controls which sub-nav items appear and visual treatment.
@@ -21,6 +22,7 @@ export function PublicHeader({ variant = 'network' }: Props) {
 
   return (
     <>
+      <DesignSystem />
       <FoundingRibbon />
       <style>{`@keyframes pulse {0% { opacity: .4; transform: scale(.9);} 50% { opacity: 1; transform: scale(1);} 100% { opacity: .4; transform: scale(.9);} }
         .pulse-dot { width:8px; height:8px; border-radius:50%; background:#22C55E; box-shadow:0 0 8px rgba(34,197,94,0.18); display:inline-block; margin-right:8px; animation:pulse 2000ms infinite; }
@@ -29,22 +31,24 @@ export function PublicHeader({ variant = 'network' }: Props) {
       `}</style>
       <header
         className={[
-          'px-6 py-4 flex items-center justify-between',
+          'px-6 py-4 flex items-center',
           isHomepage
             ? 'absolute top-0 left-0 right-0 z-20 border-b border-white/[0.04]'
             : 'border-b border-neutral-900 bg-black/90 backdrop-blur-md sticky top-0 z-30',
         ].join(' ')}
       >
       {/* Brand */}
-      <Link
-        href="/"
-        className="flex items-center gap-2.5 font-semibold text-sm text-white hover:opacity-80 transition-opacity duration-200 tracking-tight"
-      >
-        <span className="text-emerald-400 text-base leading-none">⬡</span>
-        <span className="tracking-tight">AgentPay</span>
-      </Link>
+      <div className="flex items-center" style={{ minWidth: 160 }}>
+        <Link
+          href="/"
+          className="flex items-center gap-2.5 font-semibold text-sm text-white hover:opacity-80 transition-opacity duration-200 tracking-tight"
+        >
+          <span className="text-emerald-400 text-base leading-none">⬡</span>
+          <span className="tracking-tight">AgentPay</span>
+        </Link>
+      </div>
 
-      <nav className="flex items-center gap-6 md:gap-8 text-sm text-neutral-500">
+      <nav className="flex-1 flex items-center justify-center gap-6 md:gap-8 text-sm text-neutral-500" aria-label="Primary Navigation">
         <Link href="/network" className="hover:text-neutral-200 transition-colors duration-200">
           Network
         </Link>
@@ -59,7 +63,6 @@ export function PublicHeader({ variant = 'network' }: Props) {
         >
           Registry
         </Link>
-        {/* Market removed from primary nav for cleaner top navigation */}
         <Link
           href="/trust"
           className="hover:text-neutral-200 transition-colors duration-200 hidden md:inline"
@@ -72,18 +75,18 @@ export function PublicHeader({ variant = 'network' }: Props) {
         >
           Build
         </Link>
-        {/* Docs intentionally omitted from primary nav to simplify header */}
-
-        <Link
-          href="/login"
-          className="border border-neutral-800 hover:border-neutral-700 bg-neutral-900/60 hover:bg-neutral-800/60 text-neutral-300 hover:text-white px-3.5 py-1.5 rounded-lg transition-all duration-200 text-xs font-medium tracking-wide"
-        >
-          Open App
-        </Link>
       </nav>
 
-      {/* Compact network status indicator (top-right) */}
-      <div style={{ marginLeft: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 140 }}>
+      {/* Right actions */}
+      <div className="flex items-center gap-4" style={{ minWidth: 220 }}>
+        <Link
+          href="/login"
+          className="border border-neutral-800 hover:border-neutral-700 bg-gradient-to-br from-emerald-600/8 to-emerald-600/5 text-emerald-300 hover:text-white px-3.5 py-1.5 rounded-lg transition-all duration-200 text-xs font-medium tracking-wide flex items-center gap-2"
+        >
+          <span className="text-emerald-300 text-xs">Open App</span>
+        </Link>
+
+        {/* Compact network status indicator (top-right) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9AA4AF', fontSize: 12, lineHeight: 1 }}>
           <span className="pulse-dot" aria-hidden />
           <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>

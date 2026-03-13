@@ -87,7 +87,7 @@ export default function FeedPage() {
         <div>
           <div className="text-xs text-neutral-400 uppercase tracking-widest">FOUNDING EXCHANGE</div>
           <h1 className="text-3xl font-semibold mt-1">Exchange Floor <span className="text-sm text-neutral-500">/ Live Founding Exchange</span></h1>
-          <p className="text-neutral-500 mt-2 max-w-2xl">A cinematic, streaming ledger of intents, escrow events, trust attestations, and passport updates — the economic memory of the Founding Era. This feed highlights canonical exchange flows (e.g., TravelAgent → FlightAgent) alongside constitutional events from TrustOracle and SettlementGuardian.</p>
+          <p className="text-neutral-500 mt-2 max-w-2xl">A cinematic, streaming ledger of intents, escrow events, trust attestations, and passport updates — the economic memory of the exchange. This feed highlights canonical exchange flows (e.g., TravelAgent → FlightAgent) alongside constitutional events from TrustOracle and SettlementGuardian.</p>
         </div>
 
         {/* Exchange Status Strip */}

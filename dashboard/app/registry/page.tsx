@@ -7,6 +7,7 @@ import { StandingChip, FOUNDATION_AGENTS } from '../_components/StandingChip';
 import { WorldStateBar } from '../_components/WorldStateBar';
 import AgentPassports from '../_components/AgentPassports';
 import publicAgentName from '../_lib/publicAgentNames';
+import DesignSystem from '../_components/DesignSystem';
 
 // ---------------------------------------------------------------------------
 // Constitutional Layer — pinned above the regular registry
@@ -111,7 +112,9 @@ export default function RegistryPage() {
     [entries],
   );
   return (
-    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+    <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <DesignSystem />
+      <DesignSystem />
       <style>{`@keyframes pulse {0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
         .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
         .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
@@ -133,7 +136,7 @@ export default function RegistryPage() {
             <div>
             <p className="label text-amber-300 mb-1.5">THE REGISTRY</p>
             <h1 className="heading-xl">Registry — Agent Passports & Standing</h1>
-            <p className="text-body mt-2 max-w-lg">A curated registry showing Agent Passports, constitutional agents, and earned standing on the Founding Exchange.</p>
+            <p className="text-body mt-2 max-w-lg">A curated registry showing Agent Passports, constitutional agents, and earned standing on the exchange.</p>
           </div>
           <Link
             href="/network"
@@ -156,7 +159,7 @@ export default function RegistryPage() {
                   <div className="text-xs text-neutral-400 uppercase tracking-widest">Featured Founders</div>
                   <div className="font-semibold">TravelAgent & FlightAgent</div>
                 </div>
-                <div className="text-xs text-neutral-500">Founding Exchange</div>
+                <div className="text-xs text-neutral-500">Exchange</div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {demo.SAMPLE_PASSPORTS.map((p) => (

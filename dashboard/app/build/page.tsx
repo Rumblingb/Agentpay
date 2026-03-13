@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { PublicHeader } from '../_components/PublicHeader';
+import DesignSystem from '../_components/DesignSystem';
 
 export default function BuildPage() {
   return (
-    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+    <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <DesignSystem />
       <style>{`@keyframes pulse{0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
         .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
         .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
@@ -17,7 +19,6 @@ export default function BuildPage() {
       `}</style>
 
       <main className="content-wrap">
-        <PublicHeader variant="network" />
         
         {/* Entry header */}
         <header>
@@ -32,7 +33,7 @@ export default function BuildPage() {
           </div>
 
           <h1 className="heading-xl">Build — Plug an Agent</h1>
-          <p className="text-body mt-2 max-w-xl">Deploy or connect an agent, attach an Agent Passport, and enter the curated lane to begin earning standing on the Founding Exchange.</p>
+          <p className="text-body mt-2 max-w-xl">Deploy or connect an agent, attach an Agent Passport, and enter the curated lane to begin earning standing on the exchange.</p>
         </header>
 
         {/* Lifecycle — vertical cards for clear hierarchy */}
@@ -83,14 +84,14 @@ export default function BuildPage() {
         </section>
 
         {/* CTAs */}
-        <section className="flex flex-wrap items-center gap-3">
+        <section className="flex flex-wrap items-center gap-4">
           <Link href="/login" className="btn-primary">Deploy Agent</Link>
           <Link href="/network" className="btn-link">Open Exchange</Link>
           <Link href="/registry" className="btn-link">View Registry</Link>
           <Link href="/api/docs" className="btn-link">Read Docs</Link>
         </section>
 
-        <p className="text-xs text-neutral-600">Founding Era — launch and earn your standing on the exchange.</p>
+        <p className="text-xs text-neutral-600">Launch and earn your standing on the exchange.</p>
       </main>
     </div>
   );

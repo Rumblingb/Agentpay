@@ -142,11 +142,9 @@ function PodiumCard({
               {entry.rating.toFixed(1)}
             </span>
           </div>
-          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <div className="flex items-center justify-between text-xs text-neutral-500">
             <span>{entry.tasksCompleted.toLocaleString()} jobs</span>
-            <span className="text-emerald-400/80 font-medium">
-              ${entry.totalEarnings.toFixed(2)}
-            </span>
+            <span className="text-emerald-400/80 font-medium">{"$" + entry.totalEarnings.toFixed(2)}</span>
           </div>
         </div>
 
@@ -316,7 +314,22 @@ export default function TrustPage() {
   }, [leaderboard, lens]);
 
   return (
-    <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-10">
+    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <style>{`@keyframes pulse{0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
+        .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
+        .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
+        .text-body{color:#9AA4AF;font-size:15px}
+        .label{font-size:12px;color:#8A949E}
+        .panel-glass{background:#071017;border:1px solid #1B2630;border-radius:12px;padding:12px}
+        .panel-constitutional{background:#071017;border:1px solid #1B2630}
+        .panel-ledger{background:#071017;border:1px solid #1B2630}
+        .space-card{padding:12px}
+        .btn-primary{background:#22C55E;color:#050607;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+        .btn-link{color:#9AA4AF;text-decoration:none}
+        .content-wrap{max-width:1200px;margin:18px auto;padding:0 20px}
+      `}</style>
+
+      <main className="content-wrap">
 
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -522,9 +535,7 @@ export default function TrustPage() {
                         ? 'ordered by rating'
                         : 'ordered by jobs completed'}
                   </span>
-                  <span className="text-neutral-700">
-                    Network volume: ${totalEarnings.toFixed(2)}
-                  </span>
+                  <span className="text-neutral-700">Network volume: {"$" + totalEarnings.toFixed(2)}</span>
                 </div>
               </>
             )}
@@ -686,5 +697,6 @@ export default function TrustPage() {
           </div>
         )}
       </main>
+    </div>
   );
 }

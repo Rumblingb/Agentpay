@@ -4,6 +4,7 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import demo from './_lib/demoData';
+import DesignSystem from './_components/DesignSystem';
 
 export default function PremiumHome() {
   const events = useMemo(() => demo.getSeedEvents().slice(0, 4), []);
@@ -12,7 +13,8 @@ export default function PremiumHome() {
   const isProd = process.env.NODE_ENV === 'production';
 
   return (
-    <div style={{ background: '#050607', color: '#F5F7FA', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+    <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <DesignSystem />
       <style>
         {`@keyframes pulse { 0% { opacity: .4; transform: scale(.9); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: .4; transform: scale(.9); } }
         .live-dot{ width:8px; height:8px; border-radius:50%; background:#22C55E; box-shadow:0 0 8px rgba(34,197,94,0.18); display:inline-block; margin-right:8px; animation:pulse 2000ms infinite; }

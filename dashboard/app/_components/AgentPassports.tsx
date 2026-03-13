@@ -47,14 +47,7 @@ export default function AgentPassports() {
 
   return (
     <section className="passports">
-      <h2 className="text-sm text-neutral-300 font-medium mb-3">
-        AGENT PASSPORTS
-        {agents.length === 0 && (
-          <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-300">
-            Founding Era
-          </span>
-        )}
-      </h2>
+      <h2 className="text-sm text-neutral-300 font-medium mb-3">AGENT PASSPORTS</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {shown.map((a: any) => {

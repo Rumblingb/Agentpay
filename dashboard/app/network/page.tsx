@@ -1,70 +1,85 @@
-'use client';
+ 'use client';
 
 import Link from 'next/link';
 import LiveNetworkFeed from '../_components/LiveNetworkFeed';
+import DesignSystem from '../_components/DesignSystem';
 import AgentPassports from '../_components/AgentPassports';
 import ConstitutionalAgents from '../_components/ConstitutionalAgents';
 import NetworkExplorer from '../_components/NetworkExplorer';
 
 export default function NetworkHomePage() {
   return (
-    <div className="space-y-10">
+    <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+      <DesignSystem />
+      <style>{`@keyframes pulse {0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
+        .live-dot{width:8px;height:8px;border-radius:50%;background:#22C55E;box-shadow:0 0 8px rgba(34,197,94,0.12);display:inline-block;margin-right:8px;animation:pulse 2000ms infinite}
+        .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
+        .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
+        .text-body{color:#9AA4AF;font-size:15px}
+        .label{font-size:12px;color:#8A949E}
+        .panel-glass{background:#071017;border:1px solid #1B2630;border-radius:12px;padding:12px}
+        .panel-constitutional{background:#071017;border:1px solid #1B2630}
+        .panel-ledger{background:#071017;border:1px solid #1B2630}
+        .space-card{padding:12px}
+        .btn-primary{background:#22C55E;color:#050607;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
+        .btn-link{color:#9AA4AF;text-decoration:none}
+        .heading-strip{max-width:1200px;margin:48px auto;padding:0 20px}
+        .content-wrap{max-width:1200px;margin:18px auto;padding:0 20px}
+      `}</style>
 
-      {/* Exchange header — ceremonial */}
-      <header className="pt-3">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-30" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
-          <div className="text-xs text-neutral-500 uppercase tracking-widest">THE EXCHANGE</div>
-          <div className="text-xs text-neutral-700">·</div>
-          <div className="text-xs text-amber-300 uppercase">Founding Era</div>
-        </div>
-        <h1 className="heading-xl">AgentPay Exchange Floor</h1>
-        <p className="text-body mt-2 max-w-xl">Live agent commerce across the Founding Exchange — a curated floor where constitutional agents (TrustOracle, SettlementGuardian, IdentityVerifier, NetworkObserver) oversee canonical economic agents such as TravelAgent → FlightAgent. Human intent, escrow, and standing updates appear here.</p>
-      </header>
+      {/* top strip removed to avoid duplicate Founding Era text (header shows canonical preview state) */}
 
-      {/* Main floor — Live ticker (dominant) + Passports (rail) */}
-      <div className="grid lg:grid-cols-3 gap-8 items-start">
-        <div className="lg:col-span-2">
-          <LiveNetworkFeed />
-        </div>
+      <main className="content-wrap">
+        <header style={{ paddingTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span className="live-dot" aria-hidden />
+            <div style={{ fontSize: 12, color: '#9AA4AF', textTransform: 'uppercase', letterSpacing: 1 }}>The Exchange</div>
+          </div>
+          <h1 className="heading-xl">AgentPay Exchange Floor</h1>
+          <p className="text-body" style={{ marginTop: 8, maxWidth: 920 }}>Live agent commerce across the exchange — a curated floor where constitutional agents oversee canonical economic agents such as TravelAgent → FlightAgent. Human intent, escrow, and standing updates appear here.</p>
+        </header>
 
-        <aside className="lg:col-span-1">
-          <AgentPassports />
-        </aside>
-      </div>
-
-      {/* Constitutional oversight */}
-      <div>
-        <ConstitutionalAgents />
-      </div>
-
-      {/* Explorer + next-step CTA */}
-      <div className="grid lg:grid-cols-3 gap-8 items-start">
-        <div className="lg:col-span-2">
-          <NetworkExplorer />
-        </div>
-        <aside className="lg:col-span-1 flex items-center">
-          <div className="w-full text-center">
-            <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold mb-2">Explore</p>
-              <h3 className="heading-lg mb-4">Open the Floor</h3>
-            <div className="flex flex-col items-center gap-3">
-              <Link href="/network/feed" className="btn-primary">
-                Live Stream
-              </Link>
-              <Link href="/network/leaderboard" className="btn-link">
-                Registry →
-              </Link>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 18, marginTop: 18 }}>
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+              <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+                <LiveNetworkFeed />
+              </div>
             </div>
           </div>
-        </aside>
-      </div>
 
-      <footer className="text-center text-xs text-neutral-600">
-        © {new Date().getFullYear()} AgentPay — a living protocol
-      </footer>
+          <aside style={{ marginTop: 6 }}>
+            <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+              <AgentPassports />
+            </div>
+          </aside>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+            <ConstitutionalAgents />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginTop: 18 }}>
+          <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+            <NetworkExplorer />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 6 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#9AA4AF', textTransform: 'uppercase', letterSpacing: 1 }}>Explore</div>
+              <h3 className="heading-lg" style={{ marginTop: 8 }}>Open the Floor</h3>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 10 }}>
+                <Link href="/network/feed" className="btn-primary">Live Stream</Link>
+                <Link href="/network/leaderboard" className="btn-link">Registry →</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer style={{ textAlign: 'center', color: '#9AA4AF', fontSize: 13, marginTop: 18 }}>© {new Date().getFullYear()} AgentPay — a living protocol</footer>
+      </main>
     </div>
   );
 }
