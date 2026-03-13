@@ -396,7 +396,7 @@ model VerificationCredential {
   @@map("verification_credentials")
 }
 
-// IdentityVerifierAgent — cross-platform identity links
+// IdentityVerifier — cross-platform identity links
 model IdentityLink {
   id                 String   @id @db.Uuid
   primaryAgentId     String   @map("primary_agent_id") @db.Uuid
@@ -408,7 +408,7 @@ model IdentityLink {
   @@map("identity_links")
 }
 
-// ReputationOracleAgent — query audit log
+// TrustOracle — query audit log
 model ReputationQueryLog {
   id                String   @id @default(cuid())
   requestingAgentId String   @map("requesting_agent_id")
@@ -421,7 +421,7 @@ model ReputationQueryLog {
   @@map("reputation_query_logs")
 }
 
-// DisputeResolverAgent — structured dispute cases
+// SettlementGuardian — structured dispute cases
 model Dispute {
   id            String    @id
   transactionId String    @map("transaction_id")
@@ -455,7 +455,7 @@ model TrustEvent {
   @@map("trust_events")
 }
 
-// IntentCoordinatorAgent — multi-protocol routing log
+// NetworkObserver — multi-protocol routing / coordination log
 model CoordinatedTransaction {
   id           String    @id @default(cuid())
   intentId     String    @unique @map("intent_id")

@@ -82,10 +82,10 @@ AgentPay's trust infrastructure is operated by four constitutional agents:
 
 | Agent | Layer | Role |
 |-------|-------|------|
-| **IdentityVerifierAgent** | #1 Identity | KYA — agent registration, credential signing, proof verification |
-| **ReputationOracleAgent** | #2 Reputation | Trust score queries, counterparty risk, reputation history |
-| **DisputeResolverAgent** | #3 Dispute | Evidence review, arbitration, reputation consequences |
-| **IntentCoordinatorAgent** | #4 Coordination | Payment route selection across Solana, Stripe, and hybrid rails |
+| **IdentityVerifier** | #1 Identity | KYA — agent registration, credential signing, proof verification |
+| **TrustOracle** | #2 Reputation | Trust score queries, counterparty risk, reputation history |
+| **SettlementGuardian** | #3 Dispute / Escrow | Evidence review, arbitration, escrow settlement |
+| **NetworkObserver** | #4 Coordination / Monitoring | Payment route selection, routing recommendations, integrity checks |
 
 These agents expose their own API surface at `/api/foundation-agents/*` and participate in the public agent registry. Every interaction feeds the trust graph.
 
@@ -358,10 +358,10 @@ console.log(rank.score, rank.grade); // 750, 'A'
 | `GET` | `/api/certificates/:id` | Certificate validation |
 | `POST` | `/api/webhooks/register` | Register webhook endpoint |
 | `GET` | `/api/foundation-agents` | Constitutional agent manifest |
-| `POST` | `/api/foundation-agents/identity` | IdentityVerifierAgent |
-| `POST` | `/api/foundation-agents/reputation` | ReputationOracleAgent |
-| `POST` | `/api/foundation-agents/dispute` | DisputeResolverAgent |
-| `POST` | `/api/foundation-agents/intent` | IntentCoordinatorAgent |
+| `POST` | `/api/foundation-agents/identity` | IdentityVerifier (public) — endpoint unchanged |
+| `POST` | `/api/foundation-agents/reputation` | TrustOracle (public) — endpoint unchanged |
+| `POST` | `/api/foundation-agents/dispute` | SettlementGuardian (public) — endpoint unchanged |
+| `POST` | `/api/foundation-agents/intent` | NetworkObserver (public) — endpoint unchanged |
 | `GET` | `/health` | Health check |
 
 Full API reference: [openapi.yaml](openapi.yaml)

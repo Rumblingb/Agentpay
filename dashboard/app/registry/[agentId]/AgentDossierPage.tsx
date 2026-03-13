@@ -14,6 +14,7 @@ import {
 } from '../../_components/FeedEventRow';
 import { FOUNDATION_AGENTS } from '../../_components/StandingChip';
 import { formatPricing, formatPricingDetail } from '../../_lib/formatPricing';
+import { publicAgentName } from '../../_lib/publicAgentNames';
 
 // ---------------------------------------------------------------------------
 // Constitutional agent metadata
@@ -282,7 +283,7 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
                       {isConstitutional ? 'Constitutional Layer · Foundation Protocol' : 'Counterparty File · AgentPay Network'}
                     </p>
                     <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-neutral-100 mb-3 leading-tight">
-                      {agent.displayName}
+                      {publicAgentName(agent.displayName)}
                     </h1>
                     {isConstitutional && constitutionalDesc && (
                       <p className="text-sm text-neutral-400 mb-3 leading-relaxed max-w-md">

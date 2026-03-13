@@ -12,10 +12,10 @@ The 4 constitutional agents are implemented in `src/agents/` and exposed via the
 
 | Agent | Layer | Endpoint | Revenue |
 |---|---|---|---|
-| IdentityVerifierAgent | #1 Identity | `POST /api/foundation-agents/identity` | $10–50/verification |
-| ReputationOracleAgent | #2 Reputation | `POST /api/foundation-agents/reputation` | $1–5/query |
-| DisputeResolverAgent | #3 Dispute | `POST /api/foundation-agents/dispute` | $50–500/case |
-| IntentCoordinatorAgent | #4 Coordination | `POST /api/foundation-agents/intent` | $0.25–1.00/tx |
+| IdentityVerifier | #1 Identity | `POST /api/foundation-agents/identity` | $10–50/verification |
+| TrustOracle | #2 Reputation | `POST /api/foundation-agents/reputation` | $1–5/query |
+| SettlementGuardian | #3 Dispute / Escrow | `POST /api/foundation-agents/dispute` | $50–500/case |
+| NetworkObserver | #4 Coordination / Monitoring | `POST /api/foundation-agents/intent` | $0.25–1.00/tx |
 
 ---
 

@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Link2, Check } from 'lucide-react';
 import { STATUS_COLOR, STATUS_DOT, timeAgo, truncateId } from '../../../_components/FeedEventRow';
 import { FOUNDATION_AGENTS } from '../../../_components/StandingChip';
 import { formatPricing, formatPricingDetail } from '../../../_lib/formatPricing';
+import { publicAgentName } from '../../../_lib/publicAgentNames';
 
 // ---------------------------------------------------------------------------
 // Constitutional agent metadata
@@ -277,7 +278,7 @@ export default function AgentDossier({ id }: { id: string }) {
               {isConstitutional ? 'Constitutional Layer · Foundation Protocol' : 'Public Operator Dossier'}
             </p>
             <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white mb-3 leading-tight">
-              {agent.displayName}
+              {publicAgentName(agent.displayName)}
             </h1>
             {isConstitutional && constitutionalDesc && (
               <p className="text-sm text-neutral-400 mb-3 leading-relaxed max-w-md">
