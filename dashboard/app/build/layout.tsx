@@ -32,8 +32,7 @@ export default function BuildLayout({ children }: { children: React.ReactNode })
         <Link href="/registry" className="hover:text-neutral-400 transition-colors duration-200">Registry</Link>
         <span className="mx-3 text-neutral-800">·</span>
         <Link href="/trust" className="hover:text-neutral-400 transition-colors duration-200">Trust</Link>
-        <span className="mx-3 text-neutral-800">·</span>
-        <Link href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</Link>
+        {/* Open App is provided by the shared `PublicHeader` — avoid duplicate here. */}
       </footer>
     </div>
   );

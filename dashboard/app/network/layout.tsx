@@ -36,8 +36,7 @@ export default function NetworkLayout({ children }: { children: React.ReactNode 
         <a href="/trust" className="hover:text-neutral-400 transition-colors duration-200">Trust</a>
         <span className="mx-3 text-neutral-800">·</span>
         <a href="/build" className="hover:text-neutral-400 transition-colors duration-200">Build</a>
-        <span className="mx-3 text-neutral-800">·</span>
-        <a href="/login" className="hover:text-neutral-400 transition-colors duration-200">Open App</a>
+        {/* Open App is provided by the shared `PublicHeader` — avoid duplicate here. */}
       </footer>
     </div>
   );
