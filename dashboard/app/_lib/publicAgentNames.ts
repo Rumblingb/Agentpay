@@ -1,6 +1,6 @@
 // Public-facing canonical names for constitutional agents.
 export const PUBLIC_AGENT_NAME_MAP: Record<string, { publicName: string; canonicalDescription?: string }> = {
-  IdentityVerifierAgent: { publicName: 'IdentityVerifier' },
+  IdentityVerifierAgent: { publicName: 'AgentPassport', canonicalDescription: 'Verifies identity, issues AgentPassports, maintains portable identity' },
   ReputationOracleAgent: { publicName: 'TrustOracle' },
   DisputeResolverAgent: { publicName: 'SettlementGuardian' },
   IntentCoordinatorAgent: { publicName: 'NetworkObserver' },

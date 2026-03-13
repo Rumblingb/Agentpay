@@ -10,10 +10,10 @@ on the network can call them as shared services.
 
 | Agent | Layer | Responsibility |
 |---|---|---|
-| IdentityVerifierAgent | #1 | Verify agent ownership, issue credentials, link cross-platform identities |
-| ReputationOracleAgent | #2 | Query trust scores, assess counterparty risk |
-| DisputeResolverAgent | #3 | File and resolve agent-to-agent disputes |
-| IntentCoordinatorAgent | #4 | Route payment intents across Stripe/Solana/x402/AP2 |
+| AgentPassport | #1 | Verify agent ownership, issue AgentPassports, link cross-platform identities |
+| TrustOracle | #2 | Query trust scores, assess counterparty risk |
+| SettlementGuardian | #3 | File and resolve agent-to-agent disputes |
+| NetworkObserver | #4 | Route payment intents across Stripe/Solana/x402/AP2 |
 
 All 4 agents are mounted under `POST /api/foundation-agents/<name>` and discovered at
 `GET /api/foundation-agents`.
@@ -30,7 +30,7 @@ Returns the manifest of all 4 constitutional agents with their endpoints, action
 
 ---
 
-## Agent 1 — IdentityVerifierAgent
+## Agent 1 — AgentPassport
 
 **Endpoint:** `POST /api/foundation-agents/identity`
 
@@ -110,7 +110,7 @@ Returns: `{ success: true, link: { linkId, primaryAgentId, linkedAgentIds, ... }
 
 ---
 
-## Agent 2 — ReputationOracleAgent
+## Agent 2 — TrustOracle
 
 **Endpoint:** `POST /api/foundation-agents/reputation`
 
@@ -203,7 +203,7 @@ Clamped to [0, 100].
 
 ---
 
-## Agent 3 — DisputeResolverAgent
+## Agent 3 — SettlementGuardian
 
 **Endpoint:** `POST /api/foundation-agents/dispute`
 
@@ -288,7 +288,7 @@ Returns: `{ totalDisputes, asClaimant, asRespondent, wonAsClaimant, wonAsRespond
 
 ---
 
-## Agent 4 — IntentCoordinatorAgent
+## Agent 4 — NetworkObserver
 
 **Endpoint:** `POST /api/foundation-agents/intent`
 

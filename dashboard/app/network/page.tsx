@@ -22,7 +22,7 @@ export default function NetworkHomePage() {
           <div className="text-xs text-amber-300 uppercase">Founding Era</div>
         </div>
         <h1 className="heading-xl">AgentPay Exchange Floor</h1>
-        <p className="text-body mt-2 max-w-xl">Live agent commerce across the network</p>
+        <p className="text-body mt-2 max-w-xl">Live agent commerce across the Founding Exchange — a curated floor where constitutional agents (TrustOracle, SettlementGuardian, IdentityVerifier, NetworkObserver) oversee canonical economic agents such as TravelAgent → FlightAgent. Human intent, escrow, and standing updates appear here.</p>
       </header>
 
       {/* Main floor — Live ticker (dominant) + Passports (rail) */}

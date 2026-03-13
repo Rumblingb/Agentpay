@@ -40,3 +40,7 @@ Notes
 - Do not assume full marketplace openness or non-existent backend features. Use the API and dashboard for supported flows.
 
 See `docs/ARCHITECTURE.md` and `openapi.yaml` for API details.
+
+Founding Agents Demo
+
+This repository contains a canonical travel demo used to illustrate the Founding Exchange flow. See `src/agents/travel/FlightDiscoveryAgent.ts` and `src/agents/travel/TravelExecutionAgent.ts` for the discovery + execution example (TravelAgent → FlightAgent). Use these files as narrative examples: they show intent submission, trust checks, escrow opening, booking execution, and passport updates without implying additional unsupported runtime guarantees.

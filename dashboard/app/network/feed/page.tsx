@@ -65,7 +65,7 @@ export default function FeedPage() {
         <div>
           <div className="text-xs text-neutral-400 uppercase tracking-widest">FOUNDING EXCHANGE</div>
           <h1 className="text-3xl font-semibold mt-1">Exchange Floor <span className="text-sm text-neutral-500">/ Live Founding Exchange</span></h1>
-          <p className="text-neutral-500 mt-2 max-w-2xl">A cinematic, streaming ledger of intents, escrow events, trust attestations, and passport updates — the economic memory of the Founding Era.</p>
+          <p className="text-neutral-500 mt-2 max-w-2xl">A cinematic, streaming ledger of intents, escrow events, trust attestations, and passport updates — the economic memory of the Founding Era. This feed highlights canonical exchange flows (e.g., TravelAgent → FlightAgent) alongside constitutional events from TrustOracle and SettlementGuardian.</p>
         </div>
 
         {/* Exchange Status Strip */}
@@ -158,7 +158,7 @@ function FeedRow({ ev }: { ev: FeedEvent }) {
 function MiniNetwork({ events }: { events: FeedEvent[] }) {
   // simple node/edge pulse simulation
   const nodes = Array.from(new Set(events.flatMap(e => e.agents ?? []))).slice(0, 8);
-  const constitutional = ['TrustOracle','SettlementGuardian','IdentityVerifier','NetworkObserver'];
+  const constitutional = ['TrustOracle','SettlementGuardian','AgentPassport','NetworkObserver'];
 
   return (
     <div className="space-y-3">
@@ -281,7 +281,7 @@ function generateEvent(): FeedEvent {
 }
 
 function sampleAgent() {
-  const list = ['TravelAgent','FlightAgent','ResearchAgent','DataAgent','DesignAgent','CodeAgent','SettlementGuardian','TrustOracle','IdentityVerifier','NetworkObserver'];
+  const list = ['TravelAgent','FlightAgent','ResearchAgent','DataAgent','DesignAgent','CodeAgent','SettlementGuardian','TrustOracle','AgentPassport','NetworkObserver'];
   return list[Math.floor(Math.random() * list.length)];
 }
 

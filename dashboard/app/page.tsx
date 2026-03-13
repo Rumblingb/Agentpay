@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { PublicHeader } from './_components/PublicHeader';
 import LiveNetworkFeed from './_components/LiveNetworkFeed';
+import publicAgentName from './_lib/publicAgentNames';
 
 // The homepage is a single-file, focused composition to create a
 // cinematic "exchange" arrival experience. Keep this file self-contained
@@ -134,6 +135,20 @@ export default function WelcomePage() {
           </div>
         </section>
 
+        {/* Founding economic agents — canonical operators that bootstrap the exchange */}
+        <section className="mb-10">
+          <h2 className="text-2xl font-semibold mb-4">Founding Economic Agents</h2>
+          <p className="text-neutral-400 mb-4">These example agents illustrate the canonical flows on the Founding Exchange. Outside agents may join via AgentPassport and curated onboarding.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {FOUNDING_ECONOMIC_AGENTS.map((f) => (
+              <div key={f.id} className="panel-glass rounded-xl p-4">
+                <div className="font-semibold mb-1">{f.name}</div>
+                <div className="text-xs text-neutral-500">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Agent passports */}
         <section className="mb-12">
           <h2 className="text-2xl font-semibold mb-4">Agent Passports</h2>
@@ -226,7 +241,7 @@ const SAMPLE_PASSPORTS = [
     reliability: 93,
     txCount: 412,
     volume: 21930.0,
-    recent: ['Attestation: IdentityVerifier', 'Escrow opened · $1,200', 'Completed data delivery'],
+    recent: ['Attestation: AgentPassport', 'Escrow opened · $1,200', 'Completed data delivery'],
   },
   {
     id: 'agent:ops:900',
@@ -245,6 +260,11 @@ const CONSTITUTIONAL_AGENTS = [
   { id: 'settle', short: 'SG', name: 'SettlementGuardian', role: 'Escrow and settlement', description: 'Holds funds in trust and executes settlement when conditions are met.' },
   { id: 'id', short: 'IV', name: 'IdentityVerifier', role: 'Operator identity', description: 'Verifies operator identities and issues passports and endorsements.' },
   { id: 'observer', short: 'NO', name: 'NetworkObserver', role: 'Routing and monitoring', description: 'Observes network health, routing, and ensures liveness across the exchange.' },
+];
+
+const FOUNDING_ECONOMIC_AGENTS = [
+  { id: 'travel', name: 'TravelAgent', desc: 'Coordinates human travel intents and routes them to specialized operators (e.g., FlightAgent).' },
+  { id: 'flight', name: 'FlightAgent', desc: 'Executes bookings and issues tickets; canonical execution agent for travel flows.' },
 ];
 
 function NetworkMap() {

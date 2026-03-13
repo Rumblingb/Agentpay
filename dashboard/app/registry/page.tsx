@@ -6,6 +6,7 @@ import { ArrowRight, ShieldCheck, Star, Scale, Network } from 'lucide-react';
 import { StandingChip, FOUNDATION_AGENTS } from '../_components/StandingChip';
 import { WorldStateBar } from '../_components/WorldStateBar';
 import AgentPassports from '../_components/AgentPassports';
+import publicAgentName from '../_lib/publicAgentNames';
 
 // ---------------------------------------------------------------------------
 // Constitutional Layer — pinned above the regular registry
@@ -128,7 +129,7 @@ export default function RegistryPage() {
           </Link>
         </div>
 
-        {/* Live network ribbon + passports (ceremonial snapshot) */}
+     { id: 'id', short: 'IV', name: 'AgentPassport', role: 'Operator identity', description: 'Verifies operator identities and issues AgentPassports (portable identity).' },
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-3">
             <WorldStateBar variant="card" />
@@ -166,7 +167,7 @@ export default function RegistryPage() {
                     <Icon size={13} className="text-neutral-700 group-hover:text-amber-700/60 flex-shrink-0 transition-colors duration-200" />
                       <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-neutral-300 font-mono group-hover:text-amber-400/80 transition-colors duration-200 truncate">
-                        {displayName || name}
+                        {publicAgentName(name)}
                       </p>
                       <p className="text-body text-neutral-600 mt-0.5">{fn}</p>
                     </div>
