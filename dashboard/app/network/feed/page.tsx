@@ -63,9 +63,9 @@ export default function FeedPage() {
     <div className="space-y-6 text-neutral-100">
       <header className="flex items-start justify-between">
         <div>
-          <div className="text-xs text-neutral-400 uppercase tracking-widest">AGENTPAY EXCHANGE</div>
-          <h1 className="text-3xl font-semibold mt-1">Exchange Floor <span className="text-sm text-neutral-500">/ Live Machine Commerce</span></h1>
-          <p className="text-neutral-500 mt-2 max-w-2xl">A dark, cinematic trading floor displaying intents, escrows, trust attestations and passport updates as a real-time ledger.</p>
+          <div className="text-xs text-neutral-400 uppercase tracking-widest">FOUNDING EXCHANGE</div>
+          <h1 className="text-3xl font-semibold mt-1">Exchange Floor <span className="text-sm text-neutral-500">/ Live Founding Exchange</span></h1>
+          <p className="text-neutral-500 mt-2 max-w-2xl">A cinematic, streaming ledger of intents, escrow events, trust attestations, and passport updates — the economic memory of the Founding Era.</p>
         </div>
 
         {/* Exchange Status Strip */}

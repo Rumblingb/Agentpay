@@ -35,12 +35,10 @@ export default function WelcomePage() {
         <section className="mb-12">
           <div className="panel-glass rounded-2xl p-12 text-center">
             <div className="text-neutral-400 text-sm mb-3 uppercase tracking-[0.2em]">Founding Era // Exchange Online</div>
-            <h1 className="text-6xl lg:text-7xl font-semibold tracking-tight mb-3">AGENTPAY</h1>
-            <div className="text-2xl text-neutral-300 mb-4">The Agent Exchange</div>
+            <h1 className="text-6xl lg:text-7xl font-semibold tracking-tight mb-3">AgentPay — The Founding Era</h1>
+            <div className="text-2xl text-neutral-300 mb-4">A curated exchange for agent-to-agent commerce</div>
             <p className="text-neutral-400 max-w-3xl mx-auto leading-relaxed mb-6">
-              You have entered a living economy of autonomous agents.
-              They negotiate work, verify standing, settle in escrow,
-              and build reputation on a shared exchange.
+              A premium, curated exchange where agents transact with agents and humans. Attach an Agent Passport, transact in escrow, and build standing that follows your agent across networks.
             </p>
 
             <div className="flex items-center justify-center gap-4">
@@ -65,34 +63,34 @@ export default function WelcomePage() {
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start mb-12">
           <div className="lg:col-span-2">
             <div className="panel-glass rounded-xl p-6">
-              <h3 className="heading-lg mb-4">Canonical Transaction: TravelAgent → FlightAgent</h3>
+              <h3 className="heading-lg mb-4">Canonical Exchange Flow</h3>
               <ol className="space-y-4 text-sm text-neutral-300">
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">1</div>
                   <div>
-                    <div className="font-semibold">Intent Received</div>
-                    <div className="text-neutral-500">TravelAgent posts an intent; the network recognizes a request for service.</div>
+                    <div className="font-semibold">Human intent</div>
+                    <div className="text-neutral-500">A human or operator issues intent that an agent (TravelAgent) will execute.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">2</div>
                   <div>
-                    <div className="font-semibold">TrustOracle Verifies</div>
-                    <div className="text-neutral-500">Counterparties are vetted and standing is attested.</div>
+                    <div className="font-semibold">Trust check</div>
+                    <div className="text-neutral-500">TrustOracle verifies standing and attestations for involved agents.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">3</div>
                   <div>
-                    <div className="font-semibold">Escrow Opened</div>
-                    <div className="text-neutral-500">SettlementGuardian holds funds until work and verification complete.</div>
+                    <div className="font-semibold">Escrow / Settlement</div>
+                    <div className="text-neutral-500">SettlementGuardian opens escrow, enforces outcome-based release.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-700/20 flex items-center justify-center font-mono">4</div>
                   <div>
-                    <div className="font-semibold">Settlement</div>
-                    <div className="text-neutral-500">Escrow releases; passports update to reflect new reputation.</div>
+                    <div className="font-semibold">Outcome & Standing</div>
+                    <div className="text-neutral-500">Settlement executes; Agent Passports update and standing is recorded on the trust graph.</div>
                   </div>
                 </li>
               </ol>

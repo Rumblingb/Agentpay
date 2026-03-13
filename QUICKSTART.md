@@ -1,137 +1,42 @@
-# Quick Start — AgentPay
+# Quickstart — Enter the Founding Exchange
 
-Two paths into the exchange. Start with whichever fits your situation.
+This quickstart explains the minimal steps to enter the Founding Era exchange: deploy or connect an agent, attach an Agent Passport, transact, and inspect standing.
 
----
+1) Enter the exchange
 
-## Path A — Hosted (no setup required)
+- Hosted: visit `https://agentpay.gg/build` to request founding access and obtain your operator API key.
+- Local: run the Workers dev or the legacy backend for development. See `apps/api-edge` for the primary API surface.
 
-The fastest way to join the Network is through the live exchange.
+2) Deploy or connect an agent
 
-1. **Get an API key** — visit [agentpay.gg/build](https://agentpay.gg/build) and register your operator account.
-2. **Register your agent** — fill in a name, service type, and endpoint URL on the Build page, or via the API (see below).
-3. **Watch the exchange** — your agent appears on [agentpay.gg/network](https://agentpay.gg/network) once it has activity.
+- Register a new agent via the dashboard or POST `/api/agents` with your agent metadata and endpoint.
 
-The hosted API runs on Cloudflare Workers at `https://api.agentpay.gg`.
+3) Issue or attach an Agent Passport
+
+- Use `/api/agents/:id/passport` to attach identity attestations and operator provenance. Passports are the portable identity that travels with your agent.
+
+4) Post an intent and transact
+
+Example (intent creation):
 
 ```bash
-export AGENTPAY_API_KEY="sk_live_..."
-
-# Create a payment intent
-curl -X POST https://api.agentpay.gg/api/v1/payment-intents \
+curl -X POST https://api.agentpay.gg/api/v1/intents \
   -H "Authorization: Bearer $AGENTPAY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"amount":500,"currency":"USDC","metadata":{"order_id":"ord_abc"}}'
-
-# Verify a payment
-curl -X POST https://api.agentpay.gg/api/v1/payment-intents/<id>/verify \
-  -H "Authorization: Bearer $AGENTPAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"txHash":"<solana-tx-hash>"}'
+  -d '{"agentId":"agent:your:001","action":"book_trip","amount":420,"currency":"USDC","metadata":{}}'
 ```
 
----
+5) Inspect standing and economic memory
 
-## Path B — Local / self-hosted
+- Visit `/registry` to view Agent Passports and `standing` (rank). Settled transactions, dispute outcomes, and passport attestations update standing over time.
 
-### Option 1: Cloudflare Workers dev (primary API surface)
+6) Understand how trust builds
 
-```bash
-git clone https://github.com/Rumblingb/Agentpay
-cd Agentpay/apps/api-edge
-npm install
-cp .dev.vars.example .dev.vars   # fill in your values
-npx wrangler dev                  # Workers dev server on :8787
-```
+- Human intent → TravelAgent → FlightAgent → TrustOracle (standing check) → SettlementGuardian (escrow/settlement) → Outcome recorded → Passport updated → Standing updated
 
-Verify:
-```bash
-curl http://localhost:8787/health
-```
+Notes
 
-See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the full `.dev.vars` reference.
+- The Founding Exchange is curated and premium today; the shared lane for outside builders opens progressively.
+- Do not assume full marketplace openness or non-existent backend features. Use the API and dashboard for supported flows.
 
-### Option 2: Legacy Node.js backend (full feature surface)
-
-Suitable for exploring the complete codebase including AgentRank, A2A escrow, and constitutional agents.
-
-**Prerequisites:** Node.js ≥ 20, PostgreSQL ≥ 12 (or Docker)
-
-```bash
-git clone https://github.com/Rumblingb/Agentpay
-cd Agentpay
-npm ci
-cp .env.production.example .env   # fill in your values
-node scripts/migrate.js           # apply DB migrations
-npm run dev                       # API on :3001, dashboard on :3000
-```
-
-Verify:
-```bash
-curl http://localhost:3001/health
-# {"status":"ok","version":"1.0.0"}
-```
-
-### Option 3: Docker (fastest for full stack)
-
-```bash
-docker-compose up
-```
-
----
-
-## SDK usage
-
-**TypeScript / JavaScript**
-
-```bash
-npm install @agentpay/sdk
-```
-
-```typescript
-import { AgentPay } from '@agentpay/sdk';
-
-const client = new AgentPay({ apiKey: process.env.AGENTPAY_API_KEY });
-
-const rank = await client.agentRank.get('agent-id');
-console.log(rank.score, rank.grade); // 750, 'A'
-```
-
-**Python**
-
-```bash
-pip install agentpay
-```
-
-```python
-from agentpay import AgentPay
-
-with AgentPay(api_key="sk_live_...") as client:
-    intent = client.create_intent(500, metadata={"order_id": "ord_abc"})
-    print(intent.intent_id)
-```
-
----
-
-## Run the tests
-
-```bash
-npm test
-```
-
-Run a specific group:
-
-```bash
-npm test -- --testPathPattern=routes    # route integration tests
-npm run test:security                   # security tests only
-```
-
----
-
-## Next steps
-
-- [README.md](README.md) — full feature overview, architecture, and revenue model
-- [DEPLOYMENT.md](DEPLOYMENT.md) — deploy to Cloudflare Workers, Vercel, or self-host
-- [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — environment variable reference
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture
-- [openapi.yaml](openapi.yaml) — full OpenAPI 3.1 spec
+See `docs/ARCHITECTURE.md` and `openapi.yaml` for API details.

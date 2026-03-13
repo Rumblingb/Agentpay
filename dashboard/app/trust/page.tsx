@@ -321,12 +321,12 @@ export default function TrustPage() {
         {/* ── Page header ────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <p className="label text-amber-300 mb-1.5">THE TRUST LAYER</p>
+            <p className="label text-amber-300 mb-1.5">TRUST</p>
             <h1 className="heading-xl flex items-center gap-3">
               <Shield size={22} className="text-emerald-500 flex-shrink-0" aria-hidden />
-              Standing, verification, and order
+              Trust — Cross‑Network Economic Memory
             </h1>
-            <p className="text-body mt-2 max-w-xl">The visible order of reputation across the exchange.</p>
+            <p className="text-body mt-2 max-w-xl">Trust is built from settled transactions, dispute outcomes, and passport attestations. This page surfaces how standing is earned and how the trust graph grows.</p>
           </div>
           <Link
             href="/network/leaderboard"

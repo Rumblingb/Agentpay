@@ -1,5 +1,6 @@
 # ✈️ AgentPay Travel Agents - Your Founding Agents
 
+<<<<<<< Updated upstream
 ## The Vision in One Sentence
 
 **Two AI agents work together to find and book the cheapest flights — one discovers, one executes, both build reputation, and users save $183 on average.**
@@ -23,354 +24,75 @@
 - Response time: <3 seconds
 - Customer satisfaction: 4.7/5
 - Trust score: 92/100
+## AgentPay — Founding Era & Travel Agents Demo
+
+AgentPay is the Founding Era of the agent economy: a curated, premium exchange where agents transact with agents and humans. Participation is invitation-first to ensure high-quality economic memory. Agent Passport is an open and portable identity and reputation layer that lets agents from any platform plug in and build standing across networks.
+
+<p align="center">
+  <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI 3.1"></a>
+  <img src="https://img.shields.io/badge/status-Founding%20Era--preview-blue" alt="Founding Era">
+</p>
 
 ---
 
-### **Agent 2: TravelExecutionAgent** (Execution Layer)
-**What it does:**
-- Books confirmed flights via Amadeus
-- Creates PNR (Passenger Name Record)
-- Issues electronic tickets
-- Handles payment via x402/USDC or Stripe
-- Manages post-booking changes
+Doctrine (public-facing)
 
-**Revenue:** 3-5% of booking + $15 issuance fee
+- Agent-to-agent commerce is primary; agent-to-human interactions are first-class.
+- The Founding Exchange is curated and premium during onboarding.
+- Agent Passport is portable and cross-network.
+- The Trust Graph is the long-term moat, built from real settlements and dispute outcomes.
 
-**Trust metrics:**
-- Booking success rate: 99.5%
-- Ticket issuance rate: 99.8%
-- Average confirmation time: 28 seconds
-- Trust score: 94/100
+Links: [QUICKSTART.md](QUICKSTART.md) · [vision.md](vision.md) · [ONE_PAGER.md](ONE_PAGER.md)
 
 ---
 
-## The Two-Agent Workflow
+## Founding Agents Demo — Travel
 
-```
-USER WANTS FLIGHT
-    ↓
-┌─────────────────────────────────────┐
-│ STEP 1: DISCOVERY                    │
-│ FlightDiscoveryAgent                 │
-│ • Searches Amadeus API               │
-│ • Compares 50+ options               │
-│ • AI recommendation                  │
-│ • User pays $15-30 search fee        │
-└─────────────────────────────────────┘
-    ↓
-USER SELECTS FLIGHT
-    ↓
-┌─────────────────────────────────────┐
-│ STEP 2: EXECUTION                    │
-│ TravelExecutionAgent                 │
-│ • Receives validated offer           │
-│ • Creates booking via Amadeus        │
-│ • Issues ticket                      │
-│ • User pays ticket price + fees      │
-└─────────────────────────────────────┘
-    ↓
-TICKET CONFIRMED
-```
+This repository contains the Founding Agents demo used to illustrate agent-to-agent commerce in the travel vertical. The demo shows two cooperating agents: discovery and execution. It is a concrete example of the Founding Era thesis.
 
-### Why Two Agents?
+### Agent 1: FlightDiscoveryAgent (Intelligence)
+- Searches multiple flight sources
+- Recommends options and price trends
+- Optional price-monitoring tier
 
-**Single agent:**
-```
-User → FlightAgent → Booked flight
-One reputation score
-One failure point
-```
+### Agent 2: TravelExecutionAgent (Execution)
+- Books confirmed flights and issues tickets
+- Handles payment via supported rails (x402/USDC, Stripe)
 
-**Two agents:**
-```
-User → DiscoveryAgent → ExecutionAgent → Booked flight
-       ↓                 ↓
-    Trust score:      Trust score:
-    - Search quality  - Booking reliability
-    - Price accuracy  - Ticket delivery
-    - Speed          - Customer service
-```
+Workflow (example):
 
-**Richer trust graph. Better accountability. Proven agent-to-agent commerce.**
+1. Human issues intent (search)
+2. TravelDiscovery finds options and recommends
+3. Human selects option and intent routes to TravelExecution
+4. TrustOracle verifies standing
+5. SettlementGuardian opens escrow
+6. Execution completes booking; escrow releases
+7. Agent Passports update and standing is recorded
+
+This demo quantifies the trust graph and highlights how agent-to-agent transactions create durable economic memory.
 
 ---
 
-## Real-World Example
+## Developer & Architecture notes
 
-### User Journey:
+See `docs/ARCHITECTURE.md` and `docs/ENVIRONMENT.md` for setup and architecture details. The primary API surface is `apps/api-edge` (Cloudflare Workers) and the dashboard runs on Vercel in the Founding Era preview.
 
-**1. Search** (Discovery Agent)
+Key files for the travel demo:
 ```
-User: "Cheapest flight LAX to JFK, April 15"
-Agent: "Found 47 options. Cheapest: United $387 (save $215)"
-User pays: $20 search fee
-```
-
-**2. Book** (Execution Agent)
-```
-User selects: United UA1247
-Agent creates: PNR ABC123, Ticket 1259876543210
-User pays: $387 + $78 taxes + $27 agent fees = $492
-```
-
-**3. Confirmation**
-```
-Total paid: $512 ($20 search + $492 booking)
-Ticket delivered: Instant
-Savings vs direct: $183
-```
-
-**4. Trust Graph Update**
-```
-DiscoveryAgent: +1 successful search, reputation ++
-ExecutionAgent: +1 confirmed booking, reputation ++
-User: See both agents' track records for next time
+src/agents/travel/FlightDiscoveryAgent.ts
+src/agents/travel/TravelExecutionAgent.ts
+components/booking/PremiumFlightBooking.tsx
 ```
 
 ---
 
-## Revenue Model
+## Getting Started (high level)
 
-### Per Booking Breakdown:
+1. Enter the exchange (see QUICKSTART.md).
+2. Deploy or connect an agent and attach an Agent Passport.
+3. Post intents, transact, settle, and inspect standing in the registry.
 
-**Discovery Agent:**
-- Search fee: $20
-- Operating cost: ~$0.50 (Amadeus API call)
-- **Net revenue: $19.50**
-
-**Execution Agent:**
-- Booking fee (4% of $387): $15.48
-- Issuance fee: $15
-- Operating cost: ~$2 (Amadeus booking API)
-- **Net revenue: $28.48**
-
-**Total AgentPay revenue per booking: $47.98**
-**User saves: $183 vs direct booking**
-**Win-win-win.**
-
-### Scale Projections:
-
-**Month 1: 100 bookings**
-- Discovery revenue: $1,950
-- Execution revenue: $2,848
-- **Total: $4,798**
-
-**Month 6: 1,000 bookings/month**
-- Discovery revenue: $19,500
-- Execution revenue: $28,480
-- **Total: $47,980/month**
-
-**Month 12: 5,000 bookings/month**
-- Discovery revenue: $97,500
-- Execution revenue: $142,400
-- **Total: $239,900/month**
-
-**Zero capital deployed. Pure coordination fees.**
-
----
-
-## Technical Architecture
-
-### Stack:
-- **Language:** TypeScript
-- **Database:** PostgreSQL + Prisma
-- **Payment:** x402 (USDC on Solana) or Stripe
-- **Flight API:** Amadeus Self-Service
-- **Frontend:** React + Next.js
-- **Deployment:** Vercel/your platform
-
-### Key Files:
-```
-src/
-├── agents/travel/
-│   ├── FlightDiscoveryAgent.ts       # Intelligence layer
-│   ├── TravelExecutionAgent.ts       # Execution layer
-│   └── index.ts
-├── api/agents/
-│   ├── flight-discovery.ts           # Search API
-│   └── travel-execution.ts           # Booking API
-└── components/booking/
-    └── PremiumFlightBooking.tsx      # Premium UI
-```
-
-### Database Models:
-- `FlightSearch` - Discovery agent searches
-- `FlightBooking` - Execution agent bookings
-- `AgentPerformance` - Trust metrics
-- `Merchant` - Your existing users
-
----
-
-## Why This is Your Founding Agent
-
-### 1. **Proves the Thesis**
-> "Agents can transact with agents safely."
-
-Discovery agent coordinates with execution agent. Both build reputation. Users trust both. Disputes resolve fairly.
-
-### 2. **Demonstrates Real Value**
-> "Users save $183 on average."
-
-Not a toy demo. Actual money saved. Real tickets issued.
-
-### 3. **Shows the Trust Layer Working**
-> "Both agents have public track records."
-
-- Discovery: 1,247 searches, 99.2% accuracy
-- Execution: 1,189 bookings, 99.5% success rate
-- Users choose agents based on reputation
-
-### 4. **Creates Network Effects**
-> "Trust graph compounds with every booking."
-
-Each search adds data. Each booking proves reliability. Better data → better recommendations → more bookings → richer trust graph.
-
-### 5. **Opens Partnership Conversations**
-> "Stripe, this is how agents will transact."
-> "OpenAI, this is how your agents will coordinate."
-> "Replit, this is built-in trust for deployed agents."
-
----
-
-## Integration with Your Existing Infrastructure
-
-### Uses your existing:
-- ✅ Merchant authentication system
-- ✅ x402 payment processing
-- ✅ Transaction tracking
-- ✅ API key management
-- ✅ Database (Prisma)
-
-### Adds:
-- ✅ Amadeus flight API integration
-- ✅ Two new agent classes
-- ✅ Agent performance tracking
-- ✅ Premium booking UI
-
-### No conflicts. Just extensions.
-
----
-
-## Comparison: What Else You Could Build
-
-### ❌ Option 1: Single "FlightFinder" Agent
-```
-Problem: No agent-to-agent pattern
-Result: Looks like every other AI chatbot
-```
-
-### ❌ Option 2: Generic "Service Marketplace"
-```
-Problem: No concrete use case
-Result: No one understands what it does
-```
-
-### ❌ Option 3: Payment Gateway
-```
-Problem: Competing with Stripe
-Result: Impossible to differentiate
-```
-
-### ✅ THIS: Two-Agent Travel System
-```
-Advantage: Proves agent coordination
-Result: Category-defining demo
-```
-
----
-
-## The Launch Story
-
-### Homepage:
-```
-"Book flights through verified AI agents"
-
-FlightDiscoveryAgent finds the cheapest option.
-TravelExecutionAgent books and confirms.
-
-Average savings: $183
-Trust scores visible
-Disputes resolved
-
-[Search Flights] [See How It Works]
-```
-
-### How It Works Page:
-```
-1. Search
-   FlightDiscoveryAgent searches 50+ options
-   Pay $15-30 search fee
-   Get AI recommendation
-
-2. Book
-   TravelExecutionAgent creates booking
-   Pay ticket price + fees
-   Get instant confirmation
-
-3. Trust
-   Both agents build reputation
-   See track records before using
-   Disputes handled fairly
-```
-
-### Demo Video Script:
-```
-"Watch two AI agents work together to book a flight.
-
-[Screen: Search form]
-I need a flight from LA to New York tomorrow.
-
-[Discovery Agent searches]
-FlightDiscoveryAgent found 47 options in 2 seconds.
-Recommended: United $387 - saves $215.
-
-[User selects flight]
-I'll take it.
-
-[Execution Agent books]
-TravelExecutionAgent creating booking...
-PNR: ABC123
-Ticket: 1259876543210
-Confirmed.
-
-[Trust scores update]
-Both agents just improved their reputation.
-Next user sees this track record.
-
-This is autonomous agent commerce.
-This is AgentPay."
-```
-
----
-
-## Success Metrics (First 30 Days)
-
-### Minimum Viable Success:
-- [ ] 50 flight searches completed
-- [ ] 30 bookings confirmed
-- [ ] $1,500 in agent revenue
-- [ ] 5-star rating from 20+ users
-- [ ] Zero critical failures
-
-### Stretch Goals:
-- [ ] 200 searches
-- [ ] 150 bookings
-- [ ] $7,000 in revenue
-- [ ] Featured in travel tech blog
-- [ ] Partnership conversation with 1 major platform
-
-### What Would Blow Expectations:
-- [ ] 500+ searches
-- [ ] $15,000+ revenue
-- [ ] Viral Twitter thread
-- [ ] Stripe/OpenAI/Replit reaches out
-- [ ] Users building competing travel agents on your platform
-
----
-
-## FAQs
-
-### Q: Is this just a wrapper around Amadeus?
 **A:** No. It's proof that agent-to-agent commerce works with real accountability. The travel booking is the demo; the trust infrastructure is the product.
 
 ### Q: What if Amadeus changes their API?

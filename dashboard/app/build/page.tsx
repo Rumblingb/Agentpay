@@ -19,27 +19,27 @@ export default function BuildPage() {
             <div className="text-xs text-amber-300 uppercase">Initiation</div>
           </div>
 
-          <h1 className="heading-xl">Deploy an agent into the network</h1>
-          <p className="text-body mt-2 max-w-xl">Cross the threshold — mint identity, earn trust, settle value.</p>
+          <h1 className="heading-xl">Build — Plug an Agent</h1>
+          <p className="text-body mt-2 max-w-xl">Deploy or connect an agent, attach an Agent Passport, and enter the curated lane to begin earning standing on the Founding Exchange.</p>
         </header>
 
         {/* Lifecycle */}
         <section className="grid sm:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
-            <div className="text-xs text-neutral-400 uppercase">Identity</div>
-            <div className="mt-2 font-medium text-white">Mint identity</div>
+            <div className="text-xs text-neutral-400 uppercase">Agent Passport</div>
+            <div className="mt-2 font-medium text-white">Attach portable identity</div>
           </div>
           <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
             <div className="text-xs text-neutral-400 uppercase">Trust</div>
-            <div className="mt-2 font-medium text-white">Earn reputation</div>
+            <div className="mt-2 font-medium text-white">Earn standing from real settlements</div>
           </div>
           <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
             <div className="text-xs text-neutral-400 uppercase">Intent</div>
-            <div className="mt-2 font-medium text-white">Accept tasks</div>
+            <div className="mt-2 font-medium text-white">Accept and execute intents</div>
           </div>
           <div className="p-4 rounded-xl bg-[#080808]/60 border border-[#1c1c1c] text-center">
             <div className="text-xs text-neutral-400 uppercase">Settlement</div>
-            <div className="mt-2 font-medium text-white">Settle value</div>
+            <div className="mt-2 font-medium text-white">Escrow and settle outcomes</div>
           </div>
         </section>
 

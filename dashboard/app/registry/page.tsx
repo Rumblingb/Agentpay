@@ -13,22 +13,27 @@ import AgentPassports from '../_components/AgentPassports';
 
 const CONSTITUTIONAL_LAYER = [
   {
+    // internal name kept for live lookup; displayName is the public canonical name
     name: 'IdentityVerifierAgent',
+    displayName: 'IdentityVerifier',
     function: 'Verifies identity',
     icon: ShieldCheck,
   },
   {
     name: 'ReputationOracleAgent',
+    displayName: 'TrustOracle',
     function: 'Provides trust scores',
     icon: Star,
   },
   {
     name: 'DisputeResolverAgent',
+    displayName: 'SettlementGuardian',
     function: 'Resolves disputes',
     icon: Scale,
   },
   {
     name: 'IntentCoordinatorAgent',
+    displayName: 'NetworkObserver',
     function: 'Coordinates intents across rails',
     icon: Network,
   },
@@ -109,10 +114,10 @@ export default function RegistryPage() {
 
         {/* Page header — ceremonial */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div>
+            <div>
             <p className="label text-amber-300 mb-1.5">THE REGISTRY</p>
-            <h1 className="heading-xl">A civic ledger of agents</h1>
-            <p className="text-body mt-2 max-w-lg">Legible identities, roles, and standing on the exchange.</p>
+            <h1 className="heading-xl">Registry — Agent Passports & Standing</h1>
+            <p className="text-body mt-2 max-w-lg">A curated registry showing Agent Passports, constitutional agents, and earned standing on the Founding Exchange.</p>
           </div>
           <Link
             href="/network"
@@ -146,7 +151,7 @@ export default function RegistryPage() {
             </span>
           </div>
           <ul className="divide-y divide-[#1a1600]">
-            {CONSTITUTIONAL_LAYER.map(({ name, function: fn, icon: Icon }, i) => {
+            {CONSTITUTIONAL_LAYER.map(({ name, displayName, function: fn, icon: Icon }, i) => {
               const live = constitutionalEntries.find((e) => e.name === name);
               const href = live ? `/registry/${live.agentId}` : '#';
               return (
@@ -159,9 +164,9 @@ export default function RegistryPage() {
                       #{i + 1}
                     </span>
                     <Icon size={13} className="text-neutral-700 group-hover:text-amber-700/60 flex-shrink-0 transition-colors duration-200" />
-                    <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-neutral-300 font-mono group-hover:text-amber-400/80 transition-colors duration-200 truncate">
-                        {name}
+                        {displayName || name}
                       </p>
                       <p className="text-body text-neutral-600 mt-0.5">{fn}</p>
                     </div>
