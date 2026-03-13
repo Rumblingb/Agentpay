@@ -19,6 +19,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
+import demo from '../../_lib/demoData';
 
 type EventType =
   | 'Transactions'
@@ -47,6 +48,27 @@ export default function FeedPage() {
   const streamRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Try optional demo endpoint for canonical founding snapshot (read-only).
+    let mounted = true;
+    (async function tryFetchDemo() {
+      try {
+        const res = await fetch('/api/demo/founding');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!mounted) return;
+        if (json?.canonicalEvents && Array.isArray(json.canonicalEvents)) {
+          setEvents(json.canonicalEvents.slice());
+          return;
+        }
+        if (json?.canonicalTrace && Array.isArray(json.canonicalTrace)) {
+          setEvents(json.canonicalTrace.slice());
+          return;
+        }
+      } catch (e) {
+        // ignore - fallback to in-memory demo
+      }
+    })();
+
     // Simulated streaming ledger: new events append to the top in real time.
     function pushRandom() {
       const e = generateEvent();
@@ -189,36 +211,8 @@ function ConstitutionalList({ events }: { events: FeedEvent[] }) {
 
 // --- helpers
 function seedEvents(): FeedEvent[] {
-  const now = Date.now();
-  return [
-    {
-      id: 'TX-84921',
-      kind: 'Transactions',
-      title: 'TX-84921',
-      detail: 'Intent received · TrustOracle verifying counterparties · SettlementGuardian opening escrow',
-      txId: 'TX-84921',
-      agents: ['TravelAgent','FlightAgent'],
-      value: 8.2,
-      trust: 'Verified',
-      latencyMs: 132,
-      at: now - 15_000,
-    },
-    {
-      id: 'EVT-1001',
-      kind: 'Trust verification',
-      title: 'TrustOracle',
-      detail: 'Counterparty verification complete',
-      at: now - 12_000,
-    },
-    {
-      id: 'EVT-1002',
-      kind: 'Escrow lifecycle',
-      title: 'SettlementGuardian',
-      detail: 'Escrow opened for TX-84921',
-      txId: 'TX-84921',
-      at: now - 11_000,
-    },
-  ];
+  // Use shared demo seed events as the canonical founding flow snapshot
+  return demo.getSeedEvents() as unknown as FeedEvent[];
 }
 
 function generateEvent(): FeedEvent {
@@ -239,7 +233,7 @@ function generateEvent(): FeedEvent {
     return {
       id: `ID-${now}`,
       kind: 'Identity attestations',
-      title: 'IdentityVerifier',
+      title: 'AgentPassport',
       detail: 'Operator attested',
       at: now,
     };
@@ -281,7 +275,8 @@ function generateEvent(): FeedEvent {
 }
 
 function sampleAgent() {
-  const list = ['TravelAgent','FlightAgent','ResearchAgent','DataAgent','DesignAgent','CodeAgent','SettlementGuardian','TrustOracle','AgentPassport','NetworkObserver'];
+  // prefer founding agents and constitutional institutions in the sample pool
+  const list = demo.DEMO_AGENT_NAMES.concat(['ResearchAgent','DataAgent','DesignAgent','CodeAgent']);
   return list[Math.floor(Math.random() * list.length)];
 }
 

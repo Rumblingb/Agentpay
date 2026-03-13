@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-export default function LiveNetworkFeed() {
+export default function LiveNetworkFeed({ compact }: { compact?: boolean } = {}) {
   const [events, setEvents] = useState<Array<string | Record<string, any>>>([]);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function LiveNetworkFeed() {
         )}
       </div>
 
-      <div className="relative h-48 overflow-hidden" role="region" aria-live="polite">
+      <div className={`relative overflow-hidden ${compact ? 'h-40' : 'h-48'}`} role="region" aria-live="polite">
         <div className="marquee-fade-top" />
         <div className="marquee-fade-bottom" />
 

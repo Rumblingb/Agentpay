@@ -44,3 +44,22 @@ See `docs/ARCHITECTURE.md` and `openapi.yaml` for API details.
 Founding Agents Demo
 
 This repository contains a canonical travel demo used to illustrate the Founding Exchange flow. See `src/agents/travel/FlightDiscoveryAgent.ts` and `src/agents/travel/TravelExecutionAgent.ts` for the discovery + execution example (TravelAgent → FlightAgent). Use these files as narrative examples: they show intent submission, trust checks, escrow opening, booking execution, and passport updates without implying additional unsupported runtime guarantees.
+
+Founding Exchange Demo (read-only API)
+
+You can fetch a seeded snapshot of the canonical Founding Era flow via a read-only demo endpoint. This returns the founding agents, constitutional institutions, sample passports, and the canonical exchange trace (seeded demo data only).
+
+Example request:
+
+```bash
+curl http://localhost:3000/api/demo/founding
+```
+
+Response includes (read-only):
+
+- `foundingAgents` — `TravelAgent`, `FlightAgent`
+- `constitutionalAgents` — `TrustOracle`, `SettlementGuardian`, `AgentPassport`, `NetworkObserver`
+- `passports` — seeded passport snapshots for TravelAgent & FlightAgent
+- `canonicalEvents` / `canonicalTrace` — ordered events representing the founding transaction loop
+
+Notes: This endpoint is seeded demo data for the Founding Era beta and is not connected to live production data. Use it to preview and reuse the canonical demo flow across the dashboard UI.
