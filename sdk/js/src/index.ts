@@ -35,6 +35,8 @@ export {
   VerificationTimeoutError,
 } from './errors.js';
 
+export { Agent } from './agent.js';
+
 /**
  * Class-based AgentPay SDK client.
  *

@@ -46,3 +46,18 @@ cookies*.txt
 dashboard/.env
 dashboard/.env.local
 dashboard/.env.*
+
+# Phase-2 conservative cleanup: targeted ignore entries (narrowed)
+# Root-only temporary captures created during ad-hoc UI dumps
+/tmp_*.html
+# Dashboard-local temporary captures
+dashboard/tmp_*.html
+
+# Explicit runtime log artifacts observed in the working tree
+mock-api.out
+mock-api.err
+server.err
+server.log
+
+# Sensitive backup archives produced during investigation (explicit)
+backups/sensitive_backup_*
