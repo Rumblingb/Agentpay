@@ -101,14 +101,20 @@ router.post('/spawn-agent', authenticateApiKey, async (c) => {
       }
     }
 
-    // best-effort reputation lookup
-    const repRows = await sql`
-      SELECT total_tx AS "totalTx", success_rate AS "successRate"
-      FROM agent_reputation
-      WHERE agent_id = ${agent.id}
-      LIMIT 1
-    `;
-    const rep = repRows.length ? repRows[0] : null;
+    // best-effort reputation lookup (guarded to avoid 500 if schema differs)
+    let rep: any = null;
+    try {
+      const repRows = await sql`
+        SELECT total_tx AS "totalTx", success_rate AS "successRate"
+        FROM agent_reputation
+        WHERE agent_id = ${agent.id}
+        LIMIT 1
+      `;
+      rep = repRows.length ? repRows[0] : null;
+    } catch (err: any) {
+      console.warn('agent reputation lookup failed, continuing without reputation', err?.message ?? String(err));
+      rep = null;
+    }
 
     const receiptSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120"><rect width="100%" height="100%" fill="#071017" rx="8"/><text x="20" y="36" fill="#9AA4AF" font-family="Inter, sans-serif" font-size="14">AgentPay Demo Receipt</text><text x="20" y="64" fill="#F5F7FA" font-family="Inter, sans-serif" font-size="18">Tx: ${transactionId.slice(0, 8)}</text><text x="20" y="92" fill="#38BDF8" font-family="Inter, sans-serif" font-size="16">Amount: $${amount.toFixed(2)}</text></svg>`;
 
@@ -150,7 +156,13 @@ router.post('/spawn-agent', authenticateApiKey, async (c) => {
       500,
     );
   } finally {
-    sql.end().catch(() => {});
+    // Schedule connection close without blocking the response
+    try {
+      c.executionCtx.waitUntil(sql.end().catch(() => {}));
+    } catch (e) {
+      // Fallback if executionCtx is not available for some reason
+      sql.end().catch(() => {});
+    }
   }
 });
 

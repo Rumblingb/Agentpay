@@ -53,9 +53,10 @@ export function createDb(env: Env): Sql {
 
   return postgres(connectionString, usingHyperdrive
     ? {
-        max: 5,
+        max: 1,
         fetch_types: false,
-        prepare: true,
+        prepare: false,
+        idle_timeout: 5,
         connect_timeout: 10,
       }
     : {
