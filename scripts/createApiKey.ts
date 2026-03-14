@@ -5,23 +5,25 @@ const prisma = new PrismaClient()
 
 async function main() {
 
-  const keyPrefix = "agp_test"
+  // Generate an 8-hex prefix (matches Workers key_prefix lookup)
+  const keyPrefix = crypto.randomBytes(4).toString("hex")
 
-  const secret = crypto.randomBytes(24).toString("hex")
+  // Secret portion (hex). Keep reasonably long.
+  const secret = crypto.randomBytes(32).toString("hex")
 
   const rawKey = `${keyPrefix}_${secret}`
 
   const apiKeySalt = crypto.randomBytes(16).toString("hex")
 
+  // Derive PBKDF2 with the same parameters as apps/api-edge (100k, sha256, 32 bytes)
   const apiKeyHash = crypto
-    .createHash("sha256")
-    .update(secret + apiKeySalt)
-    .digest("hex")
+    .pbkdf2Sync(secret, apiKeySalt, 100_000, 32, 'sha256')
+    .toString('hex')
 
   const merchant = await prisma.merchant.create({
     data: {
       name: "Demo Merchant",
-      email: "demo@agentpay.ai",
+      email: `demo+${Date.now()}@agentpay.ai`,
 
       keyPrefix: keyPrefix,
       apiKeySalt: apiKeySalt,

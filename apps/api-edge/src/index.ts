@@ -25,6 +25,7 @@ import { receiptRouter } from './routes/receipt';
 import { webhooksRouter } from './routes/webhooks';
 import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 import { stubsRouter } from './routes/stubs';
+import { demoRouter } from './routes/demo';
 
 import { scheduledHandler } from './cron';
 
@@ -110,6 +111,9 @@ app.route('/webhooks/stripe', stripeWebhooksRouter);
 
 // Stubs for non-migrated endpoints (returns 501 instead of 404)
 app.route('/', stubsRouter);
+
+// Demo routes — /api/demo/*
+app.route('/api/demo', demoRouter);
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));

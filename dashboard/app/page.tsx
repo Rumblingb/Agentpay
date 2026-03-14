@@ -1,14 +1,57 @@
 
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import demo from './_lib/demoData';
 import DesignSystem from './_components/DesignSystem';
 
+const STATE_TO_UI_STATUS: Record<string, string> = {
+  I: 'Pending',
+  A: 'Pending',
+  L: 'Active',
+  X: 'Active',
+  C: 'Active',
+  R: 'Completed',
+  U: 'Completed',
+  F: 'Failed',
+  D: 'Disputed',
+};
+
+function normalizeSpawnResponse(resp: any) {
+  const state = resp?.state ?? resp?.status ?? 'U';
+  const uiStatus = resp?.uiStatus ?? STATE_TO_UI_STATUS[state] ?? 'Pending';
+  const agentRaw = resp?.agent ?? {};
+  const agent = {
+    id: agentRaw.id ?? null,
+    name: agentRaw.name ?? agentRaw.displayName ?? null,
+    role: agentRaw.role ?? agentRaw.operatorId ?? 'agent',
+    services: agentRaw.services ?? [],
+    trust_score: agentRaw.trust_score ?? agentRaw.trust ?? 0,
+    txn_count: agentRaw.txn_count ?? agentRaw.txCount ?? 0,
+    success_rate: agentRaw.success_rate ?? agentRaw.successRate ?? 1,
+    created_at: agentRaw.created_at ?? agentRaw.createdAt ?? new Date().toISOString(),
+  };
+
+  const feedEvent = resp?.feedEvent ?? null;
+
+  return {
+    transactionId: resp?.transactionId ?? resp?.intentId ?? null,
+    amount: resp?.amount ?? resp?.value ?? 0,
+    receiptSvg: resp?.receiptSvg ?? null,
+    message: resp?.message ?? null,
+    state,
+    uiStatus,
+    agent,
+    feedEvent,
+    raw: resp,
+  };
+}
+
 export default function PremiumHome() {
-  const events = useMemo(() => demo.getSeedEvents().slice(0, 4), []);
-  const passports = useMemo(() => demo.SAMPLE_PASSPORTS.filter((p) => p.name === 'TravelAgent' || p.name === 'FlightAgent'), []);
+  const [events, setEvents] = useState(() => demo.getSeedEvents().slice(0, 4));
+  const [passports, setPassports] = useState(() => demo.SAMPLE_PASSPORTS.filter((p) => p.name === 'TravelAgent' || p.name === 'FlightAgent'));
+  const [spawnResult, setSpawnResult] = useState<any>(null);
   const institutions = useMemo(() => demo.CONSTITUTIONAL_AGENTS.filter((i) => ['TrustOracle', 'SettlementGuardian', 'AgentPassport', 'NetworkObserver'].includes(i.name)), []);
   const isProd = process.env.NODE_ENV === 'production';
 
@@ -51,6 +94,19 @@ export default function PremiumHome() {
           <div style={{ marginTop: 28, display: 'flex', gap: 14, justifyContent: 'center' }}>
             <Link href="/network" style={{ background: '#22C55E', color: '#050607', padding: '12px 22px', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>Enter the Exchange</Link>
             <Link href="/docs" style={{ border: '1px solid #1B2630', color: '#9AA4AF', padding: '10px 18px', borderRadius: 10, textDecoration: 'none' }}>Read the Protocol</Link>
+            <SpawnButton setEvents={setEvents} setPassports={setPassports} setSpawnResult={setSpawnResult} />
+          </div>
+          <div style={{ marginTop: 18, maxWidth: 800, marginLeft: 'auto', marginRight: 'auto', textAlign: 'center' }}>
+            {spawnResult ? (
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-start' }}>
+                <div dangerouslySetInnerHTML={{ __html: spawnResult.receiptSvg ?? '' }} />
+                <div style={{ color: '#9AA4AF', textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, color: '#F5F7FA' }}>{spawnResult.agent?.name ?? 'New Agent'}</div>
+                  <div style={{ marginTop: 6 }}>Trust: <strong style={{ color: '#F5F7FA' }}>{spawnResult.agent?.trust_score ?? '—'}</strong></div>
+                  <div style={{ marginTop: 8, fontSize: 13 }}>{spawnResult.message ?? ''} {spawnResult.uiStatus ? `· ${spawnResult.uiStatus}` : ''}</div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -95,6 +151,81 @@ export default function PremiumHome() {
     </div>
   );
 }
+
+function SpawnButton({ setEvents, setPassports, setSpawnResult }: { setEvents: any; setPassports: any; setSpawnResult: any }) {
+  async function handleSpawn() {
+    try {
+      // show loading state
+      setSpawnResult({ loading: true });
+
+      const res = await fetch('/api/demo/spawn', { method: 'POST' });
+      if (!res.ok) throw new Error('Spawn failed');
+      const data = await res.json();
+
+      const norm = normalizeSpawnResponse(data);
+
+      // show normalized receipt and agent info
+      setSpawnResult(norm);
+
+      // prefer feedEvent from backend
+      const ev = norm.feedEvent
+        ? {
+            id: norm.feedEvent.id ?? `feed-${Date.now()}`,
+            title: 'Demo Transaction',
+            detail: norm.message ?? 'Agent executed demo transaction',
+            agents: [norm.agent.name, 'SettlementGuardian'],
+            value: norm.amount ?? 0,
+            txId: norm.transactionId ?? null,
+            at: Date.parse(norm.feedEvent.timestamp) || Date.now(),
+          }
+        : {
+            id: norm.transactionId ?? `demo-${Date.now()}`,
+            title: 'Demo Transaction',
+            detail: norm.message ?? 'Agent executed demo transaction',
+            agents: [norm.agent.name, 'SettlementGuardian'],
+            value: norm.amount ?? 0,
+            txId: norm.transactionId ?? null,
+            at: Date.now(),
+          };
+
+      setEvents((prev: any[]) => [ev, ...prev].slice(0, 8));
+
+      // update passport/trust display using canonical agent fields
+      if (norm?.agent) {
+        setPassports((prev: any[]) => {
+          const found = prev.find((p) => p.id === norm.agent.id || p.name === norm.agent.name);
+          if (found) {
+            return prev.map((p) =>
+              p.id === found.id || p.name === found.name
+                ? { ...p, trust: norm.agent.trust_score ?? p.trust, recent: [(norm.message ?? 'Settlement released'), ...((p.recent || []).slice(0, 4))], txCount: (p.txCount || 0) + (norm.agent.txn_count ?? 1) }
+                : p
+            );
+          }
+          return [
+            {
+              id: norm.agent.id ?? `agent:${Date.now()}`,
+              name: norm.agent.name ?? 'Agent',
+              trust: norm.agent.trust_score ?? 80,
+              grade: 'A',
+              reliability: Math.round((norm.agent.success_rate ?? 1) * 100),
+              txCount: norm.agent.txn_count ?? 1,
+              volume: norm.amount ?? 0,
+              recent: [norm.message ?? 'Demo settlement'],
+            },
+            ...prev,
+          ].slice(0, 6);
+        });
+      }
+    } catch (err) {
+      setSpawnResult({ error: String(err) });
+    }
+  }
+
+  return (
+    <button onClick={() => handleSpawn()} style={{ background: 'transparent', color: '#9AA4AF', padding: '10px 18px', borderRadius: 10, border: '1px dashed #2A3942', cursor: 'pointer' }}>Spawn Agent</button>
+  );
+}
+
 
 // Compact, readable event presentation designed for the homepage
 function CompactEvent({ e }: { e: any }) {
