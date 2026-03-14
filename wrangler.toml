@@ -1,0 +1,25 @@
+name = "agentpay-api"
+main = "apps/api-edge/src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Non-sensitive defaults; override in Cloudflare dashboard or CI environment
+CORS_ORIGIN = "apay-delta.vercel.app"
+API_BASE_URL = "https://agentpay-api.apaybeta.workers.dev"
+FRONTEND_URL = "apay-delta.vercel.app"
+NODE_ENV = "production"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "be606bac9fde4493b21fff2e085eb82c"
+
+[dev]
+port = 8787
+local_protocol = "http"
+
+[triggers]
+crons = [
+  "*/5 * * * *",
+  "*/15 * * * *",
+]
