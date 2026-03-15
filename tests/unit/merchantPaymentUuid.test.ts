@@ -30,8 +30,42 @@ jest.mock('../../src/lib/prisma', () => ({
   },
 }));
 
+// Mock logger to avoid requiring pino during tests
+jest.mock('../../src/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
+// Mock Solana verification util to avoid importing heavy native/ESM libs
+jest.mock('../../src/security/payment-verification', () => ({
+  verifyPaymentRecipient: jest.fn(async (_txHash: string, _recipient: string) => ({
+    valid: true,
+    verified: true,
+    payer: 'payer-addr',
+    confirmationDepth: 2,
+    error: null,
+  })),
+}));
+
 import request from 'supertest';
-import app from '../../src/server';
+import express from 'express';
+
+// Mock ESM-only 'uuid' package to avoid Jest transform issues in node_modules
+// Return true only for the specific VALID_UUID used in tests; treat other
+// values as invalid so validation behavior can be tested.
+jest.mock('uuid', () => ({
+  validate: (s: string) => s === 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12',
+}));
+
+import merchantsRouter from '../../src/routes/merchants';
+
+const app = express();
+app.use(express.json());
+app.use('/api/merchants', merchantsRouter as any);
 
 const VALID_UUID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12';
 
