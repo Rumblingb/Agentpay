@@ -46,10 +46,10 @@ fi
 # Step 3: Check for Prisma
 echo ""
 echo "Step 3: Checking Prisma setup..."
-if [ -f "prisma/schema.prisma" ]; then
+if [ -f "infra/prisma/schema.prisma" ]; then
     echo -e "${GREEN}✓${NC} Prisma schema found"
 else
-    echo -e "${RED}Error: prisma/schema.prisma not found${NC}"
+    echo -e "${RED}Error: infra/prisma/schema.prisma not found${NC}"
     exit 1
 fi
 
@@ -88,7 +88,7 @@ fi
 echo ""
 echo "Step 5: Database schema..."
 echo -e "${YELLOW}Action required:${NC}"
-echo "1. Open prisma/schema.prisma"
+echo "1. Open infra/prisma/schema.prisma"
 echo "2. Add the models from prisma-additions.prisma"
 echo "3. Run: npx prisma migrate dev --name add_travel_agents"
 echo "4. Run: npx prisma generate"

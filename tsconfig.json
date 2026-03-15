@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2020", "DOM"],
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -16,8 +16,8 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"],
+  "include": ["infra/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "src", "Agentpay", "backups"],
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"

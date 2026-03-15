@@ -1,4 +1,42 @@
 name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --workspaces
+
+      - name: Prisma: generate
+        run: npm run prisma:generate
+
+      - name: Build dashboard
+        run: npm --prefix dashboard run build
+
+      - name: Build apps/api-edge workspace
+        run: npm -w apps/api-edge run build
+
+      - name: Upload workflow run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary
+          path: |
+            .name: CI
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │ CI Environment Notes                                                    │
 # │                                                                         │

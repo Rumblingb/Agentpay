@@ -1,3 +1,4 @@
+// @ts-nocheck -- legacy root file excluded from active workspaces
 import express, { Request, Response } from 'express';
 import { endorseAgent } from '../services/endorsementService.js';
 import prisma from '../lib/prisma.js';
