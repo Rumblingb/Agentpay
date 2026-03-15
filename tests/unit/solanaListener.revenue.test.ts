@@ -8,6 +8,16 @@ jest.mock('../../src/db/index', () => ({
   closePool: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Mock logger to avoid requiring `pino` at test runtime
+jest.mock('../../src/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    error: jest.fn(),
+  },
+}));
+
 jest.mock('../../src/lib/prisma', () => ({
   __esModule: true,
   default: {
