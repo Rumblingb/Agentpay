@@ -24,7 +24,7 @@ jest.mock('../../src/lib/prisma', () => ({
   default: {
     merchant: { findUnique: jest.fn() },
     paymentIntent: { updateMany: jest.fn() },
-    transactions: { create: jest.fn() },
+    transactions: { create: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn().mockResolvedValue([{ count: 1 }, {}]),
   },
 }));
@@ -88,6 +88,7 @@ const mockEmitSettlementEvent = emitSettlementEvent as jest.Mock;
 const mockRunEngine = runResolutionEngine as jest.Mock;
 const mockPrismaTransaction = (prisma as any).$transaction as jest.Mock;
 const mockPrismaTransactionsCreate = (prisma as any).transactions.create as jest.Mock;
+const mockPrismaTransactionsUpdateMany = (prisma as any).transactions.updateMany as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,6 +132,7 @@ function setupQueryMocks(intents: object[] = [PENDING_INTENT_ROW]) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPrismaTransactionsUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 afterEach(() => {
