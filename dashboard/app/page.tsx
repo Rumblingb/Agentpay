@@ -236,7 +236,7 @@ function CompactEvent({ e }: { e: any }) {
   if (e.trust) meta.push(String(e.trust));
 
   return (
-    <div className="card" style={{ background: '#0A0F14', border: '1px solid #1B2630', borderRadius: 12, padding: 12, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', transition: 'transform 160ms ease', boxShadow: '0 8px 24px rgba(2,6,23,0.6)' }}>
+    <div className="panel-glass card flex justify-between gap-3 items-center" style={{ transition: 'transform 160ms ease' }}>
       <div style={{ minWidth: 0 }}>
         <div className="card-actor">{actorPair}</div>
         <div className="card-title" style={{ marginTop: 6 }}>{e.title}</div>
@@ -256,7 +256,7 @@ function CompactEvent({ e }: { e: any }) {
 
 function PremiumPassport({ p }: { p: any }) {
   return (
-    <div className="card" style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 14, padding: 16, minWidth: 320, boxShadow: '0 14px 50px rgba(2,6,23,0.6)' }}>
+    <div className="panel-ledger card rounded-xl p-4 min-w-[320px]">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontSize: 12, color: '#9AA4AF', fontFamily: 'Fira Code, monospace' }}>{p.id}</div>
@@ -280,7 +280,7 @@ function PremiumPassport({ p }: { p: any }) {
 
 function InstitutionCard({ a }: { a: any }) {
   return (
-    <div style={{ flex: '1 1 220px', background: '#071017', border: '1px solid #1B2630', borderRadius: 10, padding: '16px 18px', textAlign: 'left', boxShadow: '0 8px 24px rgba(2,6,23,0.35)' }}>
+    <div className="panel-glass rounded-lg p-4 flex-1 min-w-[220px] text-left">
       <div style={{ color: '#9AA4AF', fontSize: 11, marginBottom: 6 }}>Institution</div>
       <div style={{ color: '#F5F7FA', fontWeight: 700 }}>{a.name}</div>
       <div style={{ color: '#9AA4AF', marginTop: 8, fontSize: 13 }}>{a.description}</div>
