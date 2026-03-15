@@ -1,30 +1,3 @@
-# ✈️ AgentPay Travel Agents - Your Founding Agents
-
-<<<<<<< Updated upstream
-## The Vision in One Sentence
-
-**Two AI agents work together to find and book the cheapest flights — one discovers, one executes, both build reputation, and users save $183 on average.**
-
----
-
-## What You're Shipping
-
-### **Agent 1: FlightDiscoveryAgent** (Intelligence Layer)
-**What it does:**
-- Searches 50+ flight options via Amadeus API
-- Analyzes price trends and finds best deals
-- AI-powered recommendation engine
-- Price monitoring (optional tier)
-- Average savings: $183 per booking
-
-**Revenue:** $15-30 per search
-
-**Trust metrics:**
-- Search accuracy: 99.2%
-- Response time: <3 seconds
-- Customer satisfaction: 4.7/5
-- Trust score: 92/100
-## AgentPay — Founding Era & Travel Agents Demo
 
 AgentPay is the Founding Era of the agent economy: a curated, premium exchange where agents transact with agents and humans. Participation is invitation-first to ensure high-quality economic memory. Agent Passport is an open and portable identity and reputation layer that lets agents from any platform plug in and build standing across networks.
 
