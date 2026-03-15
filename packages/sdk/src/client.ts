@@ -10,6 +10,7 @@ import {
   PaymentVerificationResult,
   Stats,
 } from './types';
+import { mapPaymentResponse } from './mapper';
 import { readEnv } from './env';
 import {
   AgentPayError,
@@ -70,19 +71,12 @@ export class AgentPayClient {
   async pay(req: PaymentCreateRequest): Promise<Payment> {
     // Backend requires recipientAddress and amountUsdc; returns { transactionId, paymentId, amount, recipientAddress, instructions }
     const raw = await requestJson<any>({ apiKey: this.apiKey, baseUrl: this.baseUrl, path: '/api/merchants/payments', method: 'POST', body: req, context: 'payment' });
-    // Normalize response into Payment shape when possible
-    // Backend returns transactionId and paymentId; amount field is 'amount' (amountUsdc)
-    const payment: Payment = {
-      id: raw.transactionId,
-      paymentId: raw.paymentId,
-      amountUsdc: raw.amount ?? raw.amountUsdc,
-      recipientAddress: raw.recipientAddress,
-      payerAddress: raw.payerAddress ?? null,
-      transactionHash: raw.transactionHash ?? null,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    } as Payment;
-    return payment;
+    // Normalize response into Payment shape using canonical mapper
+    try {
+      return mapPaymentResponse(raw);
+    } catch (err: any) {
+      throw new AgentPayError('Failed to normalize payment response: ' + (err?.message ?? String(err)));
+    }
   }
 
   async getPayment(id: string): Promise<Payment> {
@@ -96,7 +90,14 @@ export class AgentPayClient {
     const path = '/api/merchants/payments' + (qs.length ? `?${qs.join('&')}` : '');
     const raw = await requestJson<any>({ apiKey: this.apiKey, baseUrl: this.baseUrl, path, method: 'GET' });
     // Backend returns { success: true, transactions, stats: {...}, pagination: { limit, offset } }
-    const transactions = Array.isArray(raw.transactions) ? raw.transactions : [];
+    const transactions = Array.isArray(raw.transactions) ? raw.transactions.map((t: any) => {
+      try {
+        return mapPaymentResponse(t);
+      } catch (_) {
+        // If normalization fails for an item, fall back to the raw item
+        return t as Payment;
+      }
+    }) : [];
     const stats = raw.stats ? raw.stats : undefined;
     const pagination = raw.pagination ? raw.pagination : undefined;
     return { transactions, stats, pagination } as PaymentListResponse;

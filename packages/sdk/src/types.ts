@@ -23,6 +23,10 @@ export type Profile = {
 
 export type Payment = {
   id: string; // transaction id (UUID) - canonical identifier used in method args
+  /**
+   * The x402 payment reference string. Display/log only.
+   * Never pass to `getPayment()` or `verifyPayment()` — use `Payment.id` instead.
+   */
   paymentId: string; // payment id (UUID) for payment-level grouping
   ref?: string; // x402 display reference (optional)
   amountUsdc: number;

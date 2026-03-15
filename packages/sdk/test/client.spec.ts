@@ -39,6 +39,17 @@ describe('AgentPayClient PR1', () => {
     const p = await client.pay({ amountUsdc: 5, recipientAddress: 'recipient_1' });
     expect(p.id).toBe('uuid-1');
     expect(p.paymentId).toBe('payment-1');
+    expect(p.amountUsdc).toBe(5);
+  });
+
+  test('pay() accepts backend amountUsdc field', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    const response = { transactionId: 'uuid-2', paymentId: 'payment-2', amountUsdc: 7.25, recipientAddress: 'recipient_2' };
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 201, text: async () => JSON.stringify(response) });
+    const p = await client.pay({ amountUsdc: 7.25, recipientAddress: 'recipient_2' });
+    expect(p.id).toBe('uuid-2');
+    expect(p.paymentId).toBe('payment-2');
+    expect(p.amountUsdc).toBe(7.25);
   });
 
   test('verifyPayment success', async () => {
