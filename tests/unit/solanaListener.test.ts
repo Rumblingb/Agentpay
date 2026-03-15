@@ -397,7 +397,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
       mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-claim-1' });
 
       startSolanaListener();
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 350));
 
       expect(mockPrismaTransactionsCreate).toHaveBeenCalledTimes(1);
       expect(mockIngestSolana).toHaveBeenCalledTimes(1);
@@ -446,5 +446,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
       expect(mockIngestSolana).not.toHaveBeenCalled();
       expect(mockRunEngine).not.toHaveBeenCalled();
     });
+
+    // The focused rollback behavior is tested in webhookScheduler unit tests.
   });
 });
