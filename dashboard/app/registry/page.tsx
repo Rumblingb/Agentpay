@@ -115,19 +115,6 @@ export default function RegistryPage() {
     <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
       <DesignSystem />
       <DesignSystem />
-      <style>{`@keyframes pulse {0%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1)}100%{opacity:.4;transform:scale(.95)}}
-        .heading-xl{font-size:34px;font-weight:900;color:#F5F7FA;margin:0}
-        .heading-lg{font-size:18px;font-weight:700;color:#F5F7FA;margin:0}
-        .text-body{color:#9AA4AF;font-size:15px}
-        .label{font-size:12px;color:#8A949E}
-        .panel-glass{background:#071017;border:1px solid #1B2630;border-radius:12px;padding:12px}
-        .panel-constitutional{background:#071017;border:1px solid #1B2630}
-        .panel-ledger{background:#071017;border:1px solid #1B2630}
-        .space-card{padding:12px}
-        .btn-primary{background:#22C55E;color:#050607;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:700}
-        .btn-link{color:#9AA4AF;text-decoration:none}
-        .content-wrap{max-width:1200px;margin:18px auto;padding:0 20px}
-      `}</style>
 
       <main className="content-wrap">
 
@@ -149,7 +136,7 @@ export default function RegistryPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ marginTop: 12 }}>
           <div className="lg:col-span-2 space-y-3">
-            <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+            <div className="panel-glass rounded-xl p-3">
               <WorldStateBar variant="card" />
             </div>
             {/* Featured founding agents */}
@@ -173,7 +160,7 @@ export default function RegistryPage() {
             </div>
           </div>
           <aside className="lg:col-span-1">
-            <div style={{ background: '#071017', border: '1px solid #1B2630', borderRadius: 12, padding: 12 }}>
+            <div className="panel-glass rounded-xl p-3">
               <AgentPassports />
             </div>
           </aside>
