@@ -266,23 +266,52 @@ async function processIntent(intent: PendingIntent): Promise<void> {
   }
 
   // ── Phase 9 Step 2: ingest confirmed Solana observation ───────────────────
+  // Attempt to claim this intent/txHash by creating the transactions row.
+  // If the row already exists, assume another worker has processed it and
+  // skip all side-effects (ingest, resolution engine, webhooks, revenue).
+  try {
+    await prisma.transactions.create({
+      data: {
+        merchant_id: intent.merchantId,
+        payment_id: intent.intentId,
+        amount_usdc: intent.amountUsdc,
+        recipient_address: intent.recipientAddress,
+        payer_address: verification.payer ?? null,
+        transaction_hash: intent.txHash,
+        status: 'released',
+        webhook_status: 'not_sent',
+        confirmation_depth: verification.confirmationDepth ?? 0,
+        metadata: intent.metadata as object ?? undefined,
+      },
+    });
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      logger.debug('Listener: transactions row already exists, skipping processing', {
+        intentId: intent.intentId,
+        txHash: intent.txHash,
+      });
+      return;
+    }
+    throw err;
+  }
+
   // Returns the settlement event ID; the underlying emitSettlementEvent write
-  // is fire-and-forget so it does NOT block the atomic DB update below.
+  // is fire-and-forget so it does NOT block the remaining work below.
   ingestSolanaProof(
     {
       txHash: intent.txHash,
       sender: verification.payer ?? null,
       recipient: intent.recipientAddress,
       amountUsdc: Number(intent.amountUsdc),
-      memo: null,          // on-chain memo fetched by the engine if needed
+      memo: null, // on-chain memo fetched by the engine if needed
       confirmationDepth: verification.confirmationDepth ?? 0,
       confirmed: true,
     },
     { intentId: intent.intentId },
   );
 
-  // ── Phase 9 Step 3: run resolution engine ─────────────────────────────────
-  // Best-effort — failure must never block the legacy prisma.$transaction.
+  // Run resolution engine (best-effort). Failures here should not revert the
+  // claimed transactions row — the claim ensures single-apply semantics.
   try {
     const proof = normalizeSolanaObservation({
       txHash: intent.txHash,
@@ -313,8 +342,7 @@ async function processIntent(intent: PendingIntent): Promise<void> {
       wasAlreadyResolved: engineResult.wasAlreadyResolved,
     });
   } catch (engineErr: unknown) {
-    // Non-fatal — log and fall through to the legacy path.
-    logger.warn('Listener: resolution engine failed (continuing with legacy path)', {
+    logger.warn('Listener: resolution engine failed (continuing)', {
       intentId: intent.intentId,
       error: engineErr instanceof Error ? engineErr.message : String(engineErr),
     });
@@ -333,41 +361,20 @@ async function processIntent(intent: PendingIntent): Promise<void> {
   // preserves the submitted hash for audit purposes.
   const { tx_hash: _txHash, ...cleanMeta } = (intent.metadata ?? {}) as Record<string, unknown>;
 
-  try {
-    // Atomic: update the intent AND create the transactions row together.
-    await prisma.$transaction([
-      prisma.paymentIntent.updateMany({
-        where: { id: intent.intentId, status: 'pending' },
-        data: {
-          status: 'completed',
-          metadata: { ...cleanMeta, tx_hash: intent.txHash },
-        },
+  // Update the intent status to completed and persist a clean metadata snapshot.
+  // The transactions row has already been created above; this update is best-effort
+  // and may be redundant if the resolution engine already updated the intent.
+  await prisma.paymentIntent
+    .updateMany({
+      where: { id: intent.intentId, status: 'pending' },
+      data: { status: 'completed', metadata: { ...cleanMeta, tx_hash: intent.txHash } },
+    })
+    .catch((err: any) =>
+      logger.debug('Listener: could not update payment_intents status (post-claim)', {
+        paymentId: intent.intentId,
+        error: err?.message,
       }),
-      prisma.transactions.create({
-        data: {
-          merchant_id: intent.merchantId,
-          payment_id: intent.intentId,
-          amount_usdc: intent.amountUsdc,
-          recipient_address: intent.recipientAddress,
-          payer_address: verification.payer ?? null,
-          transaction_hash: intent.txHash,
-          status: 'released',
-          webhook_status: 'not_sent',
-          confirmation_depth: verification.confirmationDepth ?? 0,
-          metadata: intent.metadata as object ?? undefined,
-        },
-      }),
-    ]);
-  } catch (err: any) {
-    // P2002 = unique_violation on payment_id — already processed by concurrent poll or trigger
-    if (err?.code === 'P2002') {
-      logger.debug('Listener: intent transactions row already exists, skipping', {
-        intentId: intent.intentId,
-      });
-      return;
-    }
-    throw err;
-  }
+    );
 
   logger.info('Listener: intent payment released', {
     intentId: intent.intentId,
