@@ -1,6 +1,6 @@
 import { AgentPayClient } from '../src/client';
 import { readEnv } from '../src/env';
-import { AuthError, RateLimitError } from '../src/errors';
+import { AuthError, RateLimitError, NotFoundError } from '../src/errors';
 
 describe('AgentPayClient PR1', () => {
   const OLD_ENV = process.env;
@@ -47,6 +47,49 @@ describe('AgentPayClient PR1', () => {
     (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify(response) });
     const r = await client.verifyPayment('uuid-1', '0xabc');
     expect(r.verified).toBe(true);
+  });
+
+  test('verifyPayment beta returns verified false and raw preserved', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    const response = { status: 'beta' };
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify(response) });
+    const r = await client.verifyPayment('uuid-1', '0xabc');
+    expect(r.verified).toBe(false);
+    expect(r.raw).toBeDefined();
+    expect(r.raw.status).toBe('beta');
+  });
+
+  test('verifyPayment explicit verified true and verifiedAt preserved', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    const response = { status: 'confirmed', verified: true, verifiedAt: '2026-03-15T12:00:00Z' };
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify(response) });
+    const r = await client.verifyPayment('uuid-1', '0xabc');
+    expect(r.verified).toBe(true);
+    expect(r.verifiedAt).toBe('2026-03-15T12:00:00Z');
+  });
+
+  test('verifyPayment surfaces proof unchanged', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    const proof = { type: 'hmac', signature: 'sig', payload: { amount: 5 } };
+    const response = { status: 'confirmed', verified: true, proof };
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify(response) });
+    const r = await client.verifyPayment('uuid-1', '0xabc');
+    expect(r.proof).toEqual(proof);
+  });
+
+  test('verifyPayment 404 -> NotFoundError', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: false, status: 404, text: async () => JSON.stringify({ message: 'not found' }) });
+    await expect(client.verifyPayment('uuid-1', '0xabc')).rejects.toThrow(NotFoundError);
+  });
+
+  test('verifyPayment malformed response handled conservatively', async () => {
+    const client = new AgentPayClient({ auth: { apiKey: 'k' }, baseUrl: 'https://api.test' });
+    (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => 'not-json' });
+    const r = await client.verifyPayment('uuid-1', '0xabc');
+    expect(r.verified).toBe(false);
+    expect(r.raw).toBeUndefined();
+    expect(r.id).toBe('uuid-1');
   });
 
   test('401 -> AuthError', async () => {

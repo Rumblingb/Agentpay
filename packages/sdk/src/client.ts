@@ -104,10 +104,32 @@ export class AgentPayClient {
 
   async verifyPayment(id: string, txHash: string): Promise<PaymentVerificationResult> {
     const raw = await requestJson<any>({ apiKey: this.apiKey, baseUrl: this.baseUrl, path: `/api/merchants/payments/${encodeURIComponent(id)}/verify`, method: 'POST', body: { txHash }, context: 'verification' });
-    // Backend currently returns { status: "beta" } (deferred). Map conservatively.
-    const status = raw?.status ?? raw;
-    const verified = status === 'confirmed' || status === 'released';
-    return { id, txHash, verified, status, raw } as PaymentVerificationResult;
+    // Conservative, future-proof mapping:
+    // 1) Prefer explicit `verified` boolean from the server when present.
+    // 2) Otherwise, fall back to a documented status -> verified mapping.
+    // 3) If server returns beta/unknown shapes, return verified=false and preserve raw.
+    const status: string | undefined = raw && typeof raw.status === 'string' ? raw.status : undefined;
+    let verified: boolean = false;
+    if (raw && typeof raw.verified === 'boolean') {
+      verified = raw.verified;
+    } else if (status) {
+      verified = status === 'confirmed' || status === 'released';
+    } else {
+      verified = false;
+    }
+
+    const result: PaymentVerificationResult = {
+      id: raw?.id ?? id,
+      txHash: raw?.txHash ?? txHash,
+      verified,
+      status: status,
+      verifiedAt: raw?.verifiedAt,
+      confirmationDepth: raw?.confirmationDepth,
+      requiredDepth: raw?.requiredDepth,
+      proof: raw?.proof ?? null,
+      raw,
+    };
+    return result;
   }
 
   async getStats(): Promise<Stats> {

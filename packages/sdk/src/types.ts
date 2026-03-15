@@ -63,11 +63,24 @@ export type PaymentListResponse = {
   pagination?: { limit: number; offset: number };
 };
 
+export type PaymentProof = {
+  type?: string;
+  payload?: any;
+  signature?: string;
+  algorithm?: string;
+  metadata?: Record<string, any>;
+};
+
 export type PaymentVerificationResult = {
   id?: string;
   txHash?: string;
+  // authoritative boolean when provided by server; SDK may fallback to status mapping
   verified: boolean;
   status?: string;
+  verifiedAt?: string;
+  confirmationDepth?: number;
+  requiredDepth?: number;
+  proof?: PaymentProof | null;
   raw?: any;
 };
 
