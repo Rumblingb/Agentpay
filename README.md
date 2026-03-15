@@ -1,6 +1,5 @@
 # ✈️ AgentPay Travel Agents - Your Founding Agents
 
-<<<<<<< Updated upstream
 ## The Vision in One Sentence
 
 **Two AI agents work together to find and book the cheapest flights — one discovers, one executes, both build reputation, and users save $183 on average.**
