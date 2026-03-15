@@ -1,0 +1,20 @@
+{
+  "name": "@agentpay/sdk",
+  "version": "0.0.0-pr1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "jest --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.3",
+    "jest": "^29.6.1",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.2.2"
+  }
+}
