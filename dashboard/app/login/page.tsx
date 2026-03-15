@@ -10,6 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [health, setHealth] = useState<HealthStatus>('checking');
@@ -76,7 +77,7 @@ export default function LoginPage() {
               AgentPay
             </span>
           </h1>
-          <p className="text-slate-400 text-sm mt-2">Merchant Dashboard</p>
+          <p className="text-slate-400 text-sm mt-2">Operator Console — Infrastructure-first payments & proofs</p>
         </div>
 
         {/* Glassmorphism card */}
@@ -86,34 +87,39 @@ export default function LoginPage() {
               <LogIn className="text-emerald-400" size={20} />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Sign in</h2>
-              <p className="text-xs text-slate-500">Access your payment dashboard</p>
+              <h2 className="text-lg font-bold">Operator Sign in</h2>
+              <p className="text-xs text-slate-500">Secure access to settlement, verification, and audit controls</p>
             </div>
           </div>
+
+        {/* Small constitutional agents mention (restrained) */}
+        <div className="mt-3 text-center text-[11px] text-slate-500">
+          Part of the AgentPay trust layer — settlement, AgentPassport, and verification. Constitutional agents and governance primitives supported by the platform.
+        </div>
 
           {/* Backend health banner */}
           {health === 'checking' && (
             <div className="mb-4 bg-slate-800/60 border border-slate-700/50 text-slate-400 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
               <RefreshCw className="shrink-0 animate-spin" size={12} />
-              <span>Checking backend status…</span>
+              <span>Checking API health…</span>
             </div>
           )}
           {health === 'unreachable' && (
-            <div className="mb-4 bg-yellow-900/30 border border-yellow-700/50 text-yellow-300 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2">
+            <div className="mb-4 bg-red-900/30 border border-red-700/50 text-red-300 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2">
               <AlertTriangle className="shrink-0 mt-0.5" size={13} />
-              <span>Backend unreachable — Render may be cold-starting. Wait ~30 s and refresh before logging in.</span>
+              <span>API unreachable — try again in ~30s</span>
             </div>
           )}
           {health === 'degraded' && (
             <div className="mb-4 bg-yellow-900/30 border border-yellow-700/50 text-yellow-300 px-4 py-2.5 rounded-xl text-xs flex items-start gap-2">
               <AlertTriangle className="shrink-0 mt-0.5" size={13} />
-              <span>Backend is degraded (database may be unavailable). Login may fail.</span>
+              <span>API degraded — some features may be limited</span>
             </div>
           )}
           {health === 'ok' && (
             <div className="mb-4 bg-emerald-900/20 border border-emerald-700/30 text-emerald-400 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
               <CheckCircle2 className="shrink-0" size={12} />
-              <span>Backend is online</span>
+              <span>API online — settlement available; identity services experimental</span>
             </div>
           )}
 
@@ -143,15 +149,25 @@ export default function LoginPage() {
               <label htmlFor="login-apikey" className="text-[10px] text-slate-500 uppercase font-bold mb-1.5 block tracking-wider">
                 API Key
               </label>
-              <input
-                id="login-apikey"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="ap_…"
-                autoComplete="current-password"
-                className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm w-full font-mono text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200"
-              />
+              <div className="relative">
+                <input
+                  id="login-apikey"
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="ap_…"
+                  autoComplete="current-password"
+                  className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 pr-12 text-sm w-full font-mono text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all duration-200"
+                />
+                <button
+                  type="button"
+                  aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-xs px-2 py-1"
+                >
+                  {showApiKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
 
             <button
@@ -178,6 +194,37 @@ export default function LoginPage() {
                 View setup docs →
               </a>
             </p>
+          </div>
+
+          {/* Compact Trust Panel (factual, infra-first) */}
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            <div className="bg-white/3 border border-white/6 rounded-xl px-3 py-2 text-xs text-slate-200">
+              <div className="flex items-center gap-2">
+                <Coins size={14} className="text-emerald-300" />
+                <div>
+                  <div className="font-semibold text-[12px]">Settlement</div>
+                  <div className="text-[11px] text-slate-400">USDC — Live</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/3 border border-white/6 rounded-xl px-3 py-2 text-xs text-slate-200">
+              <div className="flex items-center gap-2">
+                <Shield size={14} className="text-amber-300" />
+                <div>
+                  <div className="font-semibold text-[12px]">AgentPassport</div>
+                  <div className="text-[11px] text-slate-400">Identity & standing — portable operator identity (experimental)</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/3 border border-white/6 rounded-xl px-3 py-2 text-xs text-slate-200">
+              <div className="flex items-center gap-2">
+                <Lock size={14} className="text-slate-300" />
+                <div>
+                  <div className="font-semibold text-[12px]">Verification</div>
+                  <div className="text-[11px] text-slate-400">Stubbed — SDK falls back conservatively</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <p className="mt-4 text-xs text-slate-500 text-center">
