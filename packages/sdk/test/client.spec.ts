@@ -21,7 +21,7 @@ describe('AgentPayClient PR1', () => {
   });
 
   test('getProfile injects auth header', async () => {
-    process.env.AGENTPAY_API_KEY = 'sk_test_123';
+    process.env.AGENTPAY_API_KEY = 'test_key';
     const client = AgentPayClient.fromEnv();
     (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, text: async () => JSON.stringify({ merchantId: 'm1', email: 'a@b' }) });
     const profile = await client.getProfile();
@@ -29,7 +29,7 @@ describe('AgentPayClient PR1', () => {
     expect((global as any).fetch).toHaveBeenCalled();
     const callArgs = (global as any).fetch.mock.calls[0];
     const headers = callArgs[1].headers;
-    expect(headers.Authorization).toBe('Bearer sk_test_123');
+    expect(headers.Authorization).toBe('Bearer test_key');
   });
 
   test('pay() success normalization', async () => {
