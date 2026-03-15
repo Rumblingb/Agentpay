@@ -194,9 +194,24 @@ async function processTransaction(tx: PendingTx): Promise<void> {
       verified: true,
       timestamp: new Date().toISOString(),
     };
-    webhooksService
-      .scheduleWebhook(tx.webhookUrl, payload, tx.merchantId, tx.id)
-      .catch((err) => logger.error('Listener: webhook scheduling error', { err }));
+    // Atomically mark the transaction's webhook_status to 'scheduled' only
+    // if it was previously 'not_sent'. This prevents duplicate scheduling
+    // when multiple workers/processes observe the same confirmed tx.
+    try {
+      const updated = await prisma.transactions.updateMany({
+        where: { id: tx.id, webhook_status: 'not_sent' },
+        data: { webhook_status: 'scheduled' },
+      });
+      if ((updated as any).count && (updated as any).count > 0) {
+        webhooksService
+          .scheduleWebhook(tx.webhookUrl, payload, tx.merchantId, tx.id)
+          .catch((err) => logger.error('Listener: webhook scheduling error', { err }));
+      } else {
+        logger.debug('Listener: webhook already scheduled for transaction', { transactionId: tx.id });
+      }
+    } catch (err) {
+      logger.error('Listener: failed to mark webhook_status on transaction', { err });
+    }
   }
 }
 
@@ -390,9 +405,24 @@ async function processIntent(intent: PendingIntent): Promise<void> {
       verified: true,
       timestamp: new Date().toISOString(),
     };
-    webhooksService
-      .scheduleWebhook(intent.webhookUrl, payload, intent.merchantId, intent.intentId)
-      .catch((err) => logger.error('Listener: intent webhook scheduling error', { err }));
+    // Ensure we schedule the intent webhook at-most-once by atomically
+    // transitioning the transactions row's webhook_status from 'not_sent'
+    // to 'scheduled'. Only if the update affects a row do we enqueue delivery.
+    try {
+      const updated = await prisma.transactions.updateMany({
+        where: { payment_id: intent.intentId, webhook_status: 'not_sent' },
+        data: { webhook_status: 'scheduled' },
+      });
+      if ((updated as any).count && (updated as any).count > 0) {
+        webhooksService
+          .scheduleWebhook(intent.webhookUrl, payload, intent.merchantId, intent.intentId)
+          .catch((err) => logger.error('Listener: intent webhook scheduling error', { err }));
+      } else {
+        logger.debug('Listener: webhook already scheduled for intent', { intentId: intent.intentId });
+      }
+    } catch (err) {
+      logger.error('Listener: failed to mark webhook_status on intent transaction', { err });
+    }
   }
 }
 

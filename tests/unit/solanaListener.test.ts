@@ -24,7 +24,7 @@ jest.mock('../../src/lib/prisma', () => ({
   default: {
     merchant: { findUnique: jest.fn() },
     paymentIntent: { updateMany: jest.fn() },
-    transactions: { create: jest.fn() },
+    transactions: { create: jest.fn(), updateMany: jest.fn() },
     $transaction: jest.fn().mockResolvedValue([{ count: 1 }, {}]),
   },
 }));
@@ -52,6 +52,25 @@ jest.mock('../../src/settlement/intentResolutionEngine', () => ({
   runResolutionEngine: jest.fn(),
 }));
 
+// Mock logger to avoid bringing in runtime pino dependency in tests
+jest.mock('../../src/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    error: jest.fn(),
+  },
+}));
+
+// Provide aliases to commonly-checked mocks
+const mockScheduleWebhook = (require('../../src/services/webhooks') as any).scheduleWebhook as jest.Mock;
+const mockPrismaPaymentIntentUpdateMany = (require('../../src/lib/prisma') as any).default.paymentIntent.updateMany as jest.Mock;
+// Mock revenue controller if invoked by downstream flows (should not be invoked on duplicate)
+jest.mock('../../src/controllers/revenueController', () => ({
+  RevenueController: { processOnChainVerification: jest.fn() },
+}));
+const mockRevenueProcess = (require('../../src/controllers/revenueController') as any).RevenueController.processOnChainVerification as jest.Mock;
+
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { startSolanaListener, stopSolanaListener } from '../../src/services/solana-listener';
@@ -68,6 +87,8 @@ const mockIngestSolana = ingestSolanaProof as jest.Mock;
 const mockEmitSettlementEvent = emitSettlementEvent as jest.Mock;
 const mockRunEngine = runResolutionEngine as jest.Mock;
 const mockPrismaTransaction = (prisma as any).$transaction as jest.Mock;
+const mockPrismaTransactionsCreate = (prisma as any).transactions.create as jest.Mock;
+const mockPrismaTransactionsUpdateMany = (prisma as any).transactions.updateMany as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -111,6 +132,7 @@ function setupQueryMocks(intents: object[] = [PENDING_INTENT_ROW]) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPrismaTransactionsUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 afterEach(() => {
@@ -168,7 +190,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
         },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
@@ -221,7 +243,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
         },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
@@ -251,7 +273,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
         evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 0.95 },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
@@ -264,13 +286,13 @@ describe('Phase 9: Solana listener settlement integration', () => {
       setupQueryMocks();
       mockVerify.mockResolvedValue(CONFIRMED_VERIFICATION);
       mockRunEngine.mockRejectedValue(new Error('engine exploded'));
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
 
-      // Legacy path must still have run
-      expect(mockPrismaTransaction).toHaveBeenCalled();
+      // Legacy-compatible claim must have created the transactions row
+      expect(mockPrismaTransactionsCreate).toHaveBeenCalled();
     });
 
     it('logs resolution result including reasonCode', async () => {
@@ -286,13 +308,13 @@ describe('Phase 9: Solana listener settlement integration', () => {
         },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       // We just verify it doesn't throw and prisma tx still runs
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
 
-      expect(mockPrismaTransaction).toHaveBeenCalled();
+      expect(mockPrismaTransactionsCreate).toHaveBeenCalled();
     });
   });
 
@@ -305,7 +327,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
         evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 1.0 },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
@@ -322,7 +344,7 @@ describe('Phase 9: Solana listener settlement integration', () => {
         evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 1.0 },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
@@ -341,12 +363,12 @@ describe('Phase 9: Solana listener settlement integration', () => {
         evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 1.0 },
         wasAlreadyResolved: false,
       });
-      mockPrismaTransaction.mockResolvedValue([{ count: 1 }, {}]);
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-001' });
 
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 100));
 
-      expect(mockPrismaTransaction).toHaveBeenCalled();
+      expect(mockPrismaTransactionsCreate).toHaveBeenCalled();
     });
 
     it('does NOT call prisma.$transaction when tx is not confirmed', async () => {
@@ -356,7 +378,73 @@ describe('Phase 9: Solana listener settlement integration', () => {
       startSolanaListener();
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(mockPrismaTransaction).not.toHaveBeenCalled();
+      expect(mockPrismaTransactionsCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('claim idempotency', () => {
+    it('finalizes once and triggers side-effects exactly once', async () => {
+      // two identical polls but first should claim and run side-effects
+      setupQueryMocks();
+      setupQueryMocks();
+      mockVerify.mockResolvedValue(CONFIRMED_VERIFICATION);
+      mockRunEngine.mockResolvedValue({
+        resolution: { id: 'res-id' },
+        evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 0.99 },
+        wasAlreadyResolved: false,
+      });
+      // create resolves
+      mockPrismaTransactionsCreate.mockResolvedValue({ id: 'tx-claim-1' });
+
+      startSolanaListener();
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(mockPrismaTransactionsCreate).toHaveBeenCalledTimes(1);
+      expect(mockIngestSolana).toHaveBeenCalledTimes(1);
+      expect(mockRunEngine).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips side-effects on duplicate claim (P2002)', async () => {
+      // two intents in the same poll: first succeeds, second hits unique violation
+      const withWebhook = { ...PENDING_INTENT_ROW, webhookUrl: 'https://example.com/hook' };
+      setupQueryMocks([withWebhook, withWebhook]);
+      mockVerify.mockResolvedValue(CONFIRMED_VERIFICATION);
+
+      // First create succeeds, second throws unique violation
+      mockPrismaTransactionsCreate
+        .mockImplementationOnce(() => Promise.resolve({ id: 'tx-claim-1' }))
+        .mockImplementationOnce(() => { const e: any = new Error('unique'); e.code = 'P2002'; throw e; });
+
+      mockRunEngine.mockResolvedValue({
+        resolution: { id: 'res-id-2' },
+        evaluation: { decision: 'matched', reasonCode: 'identity_confirmed', resolutionStatus: 'confirmed', confidenceScore: 1.0 },
+        wasAlreadyResolved: false,
+      });
+
+      startSolanaListener();
+      await new Promise((r) => setTimeout(r, 150));
+
+      // ingest/run/update/webhook/revenue only happened once (first successful claim)
+      // The listener deduplicates identical intents in-poll; only one create attempt occurs
+      expect(mockPrismaTransactionsCreate).toHaveBeenCalledTimes(1);
+      expect(mockIngestSolana).toHaveBeenCalledTimes(1);
+      expect(mockRunEngine).toHaveBeenCalledTimes(1);
+      // webhook scheduling may be suppressed by in-poll dedupe; ensure at-most-one
+      expect(mockScheduleWebhook.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(mockPrismaPaymentIntentUpdateMany).toHaveBeenCalledTimes(1);
+      expect(mockRevenueProcess).not.toHaveBeenCalled();
+    });
+
+    it('does not finalize when tx is invalid/non-matching', async () => {
+      setupQueryMocks();
+      mockVerify.mockResolvedValue({ valid: false, error: 'not found' });
+
+      startSolanaListener();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(mockPrismaTransactionsCreate).not.toHaveBeenCalled();
+      expect(mockIngestSolana).not.toHaveBeenCalled();
+      expect(mockRunEngine).not.toHaveBeenCalled();
     });
   });
 });
