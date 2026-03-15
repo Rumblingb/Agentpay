@@ -11,6 +11,7 @@ import {
 } from '../settlement/intentResolutionEngine.js';
 import { normalizeSolanaObservation } from '../settlement/settlementEventIngestion.js';
 import { emitSettlementEvent } from '../settlement/settlementEventService.js';
+import { RevenueController } from '../controllers/revenueController.js';
 
 const LISTENER_POLL_INTERVAL_MS = parseInt(process.env.LISTENER_POLL_INTERVAL_MS || '30000', 10);
 
@@ -197,6 +198,21 @@ async function processTransaction(tx: PendingTx): Promise<void> {
     webhooksService
       .scheduleWebhook(tx.webhookUrl, payload, tx.merchantId, tx.id)
       .catch((err) => logger.error('Listener: webhook scheduling error', { err }));
+  }
+
+  // Optionally record a revenue event for on-chain verifications
+  if (process.env.ENABLE_ONCHAIN_FEE_LOGGING === 'true') {
+    try {
+      await RevenueController.processOnChainVerification({
+        from_bot_id: verification.payer ?? 'unknown',
+        to_bot_id: tx.merchantId,
+        amount_usdc: Number(tx.amountUsdc),
+        transaction_hash: tx.transactionHash,
+        succeeded: true,
+      });
+    } catch (err: unknown) {
+      logger.warn('Listener: revenue logging failed', { err });
+    }
   }
 }
 
@@ -393,6 +409,21 @@ async function processIntent(intent: PendingIntent): Promise<void> {
     webhooksService
       .scheduleWebhook(intent.webhookUrl, payload, intent.merchantId, intent.intentId)
       .catch((err) => logger.error('Listener: intent webhook scheduling error', { err }));
+  }
+
+  // Optionally record a revenue event for on-chain verifications (legacy path)
+  if (process.env.ENABLE_ONCHAIN_FEE_LOGGING === 'true') {
+    try {
+      await RevenueController.processOnChainVerification({
+        from_bot_id: verification.payer ?? 'unknown',
+        to_bot_id: intent.merchantId,
+        amount_usdc: Number(intent.amountUsdc),
+        transaction_hash: intent.txHash,
+        succeeded: true,
+      });
+    } catch (err: unknown) {
+      logger.warn('Listener: revenue logging failed (intent)', { err });
+    }
   }
 }
 
