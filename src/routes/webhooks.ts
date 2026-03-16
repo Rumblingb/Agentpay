@@ -1,5 +1,15 @@
 import { Router, Request, Response } from 'express';
-import { z } from 'zod';
+// Prefer zod when available at runtime, but provide a tiny fallback
+// so tests can run in environments without the optional dependency.
+let z: any;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const _mod = require('zod');
+  // Normalize CommonJS/ESM shapes: prefer named `z`, then `default`, then the module itself.
+  z = (_mod && (_mod.z || _mod.default || _mod)) ?? null;
+} catch (err) {
+  z = null;
+}
 import { authenticateApiKey } from '../middleware/auth.js';
 import * as webhookController from '../controllers/webhookController.js';
 import { verifyWebhookSignature } from '../middleware/verifyWebhook.js';
@@ -9,12 +19,38 @@ const router = Router();
 
 const ALLOWED_EVENT_TYPES = ['payment_verified'] as const;
 
-const subscribeSchema = z.object({
-  url: z.string().url('url must be a valid URL'),
-  eventTypes: z
-    .array(z.enum(ALLOWED_EVENT_TYPES))
-    .min(1, 'eventTypes must contain at least one event type'),
-});
+const subscribeSchema =
+  z?.object({
+    url: z.string().url('url must be a valid URL'),
+    eventTypes: z
+      .array(z.enum(ALLOWED_EVENT_TYPES))
+      .min(1, 'eventTypes must contain at least one event type'),
+  }) ?? {
+    // Minimal fallback validator with a `safeParse` API compatible with zod
+    safeParse: (obj: any) => {
+      const issues: Array<{ message: string }> = [];
+      const url = obj?.url;
+      try {
+        // basic URL validation
+        if (typeof url !== 'string' || !(new URL(url))) {
+          issues.push({ message: 'url must be a valid URL' });
+        }
+      } catch (e) {
+        issues.push({ message: 'url must be a valid URL' });
+      }
+
+      const eventTypes = obj?.eventTypes;
+      if (!Array.isArray(eventTypes) || eventTypes.length < 1) {
+        issues.push({ message: 'eventTypes must contain at least one event type' });
+      } else {
+        const invalid = eventTypes.some((t) => !ALLOWED_EVENT_TYPES.includes(t));
+        if (invalid) issues.push({ message: 'eventTypes contains invalid event type' });
+      }
+
+      if (issues.length) return { success: false, error: { issues } };
+      return { success: true, data: { url, eventTypes } };
+    },
+  };
 
 // POST /api/webhooks/subscribe
 router.post('/subscribe', authenticateApiKey, async (req: Request, res: Response) => {

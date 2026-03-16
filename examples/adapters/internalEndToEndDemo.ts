@@ -12,7 +12,7 @@
 
 import { executeAgentPayTool, registerAgentPayTools } from '../../packages/adapters/src/tools/index.js';
 import { createAgentPayCapability } from '../../packages/adapters/src/agentPayCapabilityAdapter.js';
-import evaluatePolicy from '../../src/policy/evaluatePolicy.js';
+import { evaluatePolicy } from '../../src/policy/evaluatePolicy.js';
 import type { PaymentCreateRequest, Payment, PaymentVerificationResult } from '../../packages/sdk/src/types.js';
 
 // Mock AgentPayClient: implements the tiny subset used by the capability adapter.
@@ -110,7 +110,9 @@ async function main() {
 }
 
 // Run if executed directly
-if (require.main === module) {
+// Run when executed directly. Use `typeof require` check so this works in both
+// CommonJS and ESM runtimes (`require` is undefined in ESM).
+if (typeof require === 'undefined' || (typeof require !== 'undefined' && require.main === module)) {
   main().catch((err) => {
     // eslint-disable-next-line no-console
     console.error('internalEndToEndDemo failed:', err);

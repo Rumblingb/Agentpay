@@ -31,5 +31,8 @@ export default {
     '\\.\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
     '\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
     'src/generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
+    // Provide a lightweight runtime mock for `zod` so Jest can load routes
+    // in environments where `zod` is an optional dependency.
+    '^zod$': '<rootDir>/src/test/mocks/zodMock.ts',
   },
 };

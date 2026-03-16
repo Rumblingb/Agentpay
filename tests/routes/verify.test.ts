@@ -32,8 +32,15 @@ jest.mock('../../src/lib/prisma', () => ({
 
 import request from 'supertest';
 import crypto from 'crypto';
-import app from '../../src/server';
+import express from 'express';
+import verifyRouter from '../../src/routes/verify';
 import * as db from '../../src/db/index';
+
+// Create a tiny express app and mount only the verify router to avoid
+// importing the full server (which pulls in bcrypt and other unrelated modules).
+const app = express();
+app.use(express.json());
+app.use('/api/verify', verifyRouter);
 
 const mockQuery = db.query as jest.Mock;
 
