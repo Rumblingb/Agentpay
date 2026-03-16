@@ -21,7 +21,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
-import { evaluatePolicy } from '../../src/policy/evaluatePolicy';
+import { evaluatePolicy } from '../../../../src/policy/evaluatePolicy';
 import {
   insertSettlementIdentity,
   resolveMatchingPolicy,
