@@ -1,0 +1,57 @@
+# AgentPay Workers — local development secrets
+# ============================================================
+# Copy this file to .dev.vars (never commit .dev.vars).
+# Wrangler reads .dev.vars automatically during `wrangler dev`.
+#
+# In production, set these via `wrangler secret put <NAME>`
+# or in the Cloudflare Workers dashboard → Settings → Variables.
+#
+# Minimum secret length for WEBHOOK_SECRET, AGENTPAY_SIGNING_SECRET,
+# and VERIFICATION_SECRET is 32 characters.  Generate with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# ============================================================
+
+# ── Database ──────────────────────────────────────────────────────────────
+# PostgreSQL Direct connection string (Supabase port 5432, NOT the pooled
+# PgBouncer URL on port 6543).
+#
+# Use the Direct URL because:
+#   - Without Hyperdrive: Workers connect directly to Supabase; the pooled URL
+#     wastes a PgBouncer slot per Worker invocation.
+#   - With Hyperdrive: This value is not used at runtime (Hyperdrive provides
+#     its own connection string).  When creating the Hyperdrive config in the
+#     Cloudflare dashboard, also supply the Direct URL as the source URL —
+#     Hyperdrive does its own pooling and double-pooling causes errors.
+#
+# Format (Direct URL): postgres://user:password@db.XXX.supabase.co:5432/postgres
+# For the App (Transaction Mode)
+DATABASE_URL="postgresql://postgres.yndlhhkhylwihsggdyru:Agentpay2026@aws-1-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+
+# For Migrations (Session Mode - change port to 5432)
+DIRECT_URL="postgresql://postgres.yndlhhkhylwihsggdyru:Agentpay2026@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+
+# ── Required secrets ──────────────────────────────────────────────────────
+# HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars).
+WEBHOOK_SECRET="137fbef7c9d4438fcd9b0601ccb6beef720bf3dfe7ef0ec7f5f3d1dee07ef78b"
+
+# HMAC secret for AP2 payment receipt signatures (≥32 chars).
+AGENTPAY_SIGNING_SECRET="e4749c044e808b48f61bc4ab0e04cfbcabb94b68e30437394410c4e71d22c15f"
+
+# HMAC secret for verification certificate signatures (≥32 chars).
+VERIFICATION_SECRET="7f8b9c0a1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6g7h8i9j0k"
+
+# Bearer token protecting admin API endpoints (x-admin-key header).
+ADMIN_SECRET_KEY="e4ad3fab454d3e6702641acdb0dff84986a3c91de8cb0597eb548160eeb08442"
+
+# ── Stripe (optional) ─────────────────────────────────────────────────────
+# Leave blank to disable Stripe routes.
+STRIPE_SECRET_KEY="mk_1T4sdNBGHccSp1StkSMXshDY"
+STRIPE_WEBHOOK_SECRET="whsec_48GqwExMXMpgudQG97ffBNlbVJH4cF0q"
+STRIPE_SUCCESS_URL=
+STRIPE_CANCEL_URL=
+
+AGENTPAY_TEST_MODE=false
+NODE_ENV=development
+CORS_ORIGIN=http://localhost:3000
+API_BASE_URL=http://localhost:8787
+FRONTEND_URL=http://localhost:3000

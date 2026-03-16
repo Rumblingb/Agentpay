@@ -1,0 +1,211 @@
+// ============================================
+// AGENTPAY TRAVEL AGENTS - DATABASE SCHEMA
+// Add these models to your existing schema.prisma
+// ============================================
+
+// Flight Discovery Agent - Stores search results and recommendations
+model FlightSearch {
+  id                String   @id @default(uuid())
+  merchantId        String   // Who requested the search
+  searchId          String   @unique  // Public search ID
+  
+  // Search parameters
+  origin            String   // Airport code (e.g., "LAX")
+  destination       String   // Airport code (e.g., "JFK")
+  departureDate     DateTime
+  returnDate        DateTime?
+  passengers        Int      @default(1)
+  cabinClass        String   // economy, premium_economy, business, first
+  
+  // Search results (from Amadeus API)
+  results           Json     // Array of flight offers
+  cheapestOffer     Json     // Best value option
+  fastestOffer      Json?    // Quickest route
+  recommendedOffer  Json     // AI recommendation
+  
+  // Pricing
+  searchFee         Decimal  @db.Decimal(10, 2)  // Discovery agent fee ($15-30)
+  status            String   // pending, completed, expired
+  
+  // x402 Payment
+  paymentId         String?  // x402 payment ID
+  paymentStatus     String   @default("pending")
+  transactionHash   String?  // Solana transaction hash
+  
+  // Metadata
+  searchedAt        DateTime @default(now())
+  expiresAt         DateTime
+  completedAt       DateTime?
+  
+  // Relations
+  merchant          Merchant @relation("FlightSearches", fields: [merchantId], references: [id])
+  bookings          FlightBooking[]
+  
+  @@index([merchantId])
+  @@index([searchId])
+  @@index([searchedAt])
+}
+
+// Travel Execution Agent - Handles actual flight bookings
+model FlightBooking {
+  id                String   @id @default(uuid())
+  merchantId        String   // Who made the booking
+  searchId          String?  // Link to original search
+  bookingReference  String   @unique  // PNR / Booking reference
+  
+  // Passenger details
+  passengers        Json     // Array of passenger objects
+  contactEmail      String
+  contactPhone      String
+  
+  // Flight details (from selected offer)
+  selectedOffer     Json     // The flight offer being booked
+  origin            String
+  destination       String
+  departureDate     DateTime
+  returnDate        DateTime?
+  
+  // Pricing breakdown
+  basePrice         Decimal  @db.Decimal(10, 2)  // Ticket price
+  taxes             Decimal  @db.Decimal(10, 2)  // Airport taxes, fees
+  executionFee      Decimal  @db.Decimal(10, 2)  // Execution agent fee (3-5%)
+  totalPrice        Decimal  @db.Decimal(10, 2)  // Grand total
+  
+  // Booking status
+  status            String   // pending, confirmed, ticketed, cancelled
+  pnr               String?  // Passenger Name Record
+  ticketNumbers     Json?    // Array of ticket numbers (when issued)
+  
+  // Payment coordination
+  paymentIntentId   String?  // x402 payment intent
+  paymentStatus     String   @default("pending")
+  paymentTxHash     String?  // Solana tx hash for ticket payment
+  
+  // Amadeus booking IDs
+  amadeus BookingId  String?  // Amadeus Flight Order ID
+  amadeusPnr        String?  // Amadeus PNR
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  confirmedAt       DateTime?
+  ticketedAt        DateTime?
+  cancelledAt       DateTime?
+  expiresAt         DateTime
+  
+  // Relations
+  merchant          Merchant @relation("FlightBookings", fields: [merchantId], references: [id])
+  search            FlightSearch? @relation(fields: [searchId], references: [id])
+  
+  @@index([merchantId])
+  @@index([searchId])
+  @@index([bookingReference])
+  @@index([status])
+}
+
+// Agent performance tracking
+model AgentPerformance {
+  id                String   @id @default(uuid())
+  agentId           String   @unique  // "flight_discovery" or "travel_execution"
+  agentName         String
+  
+  // Performance metrics
+  totalTransactions Int      @default(0)
+  successfulTxs     Int      @default(0)
+  failedTxs         Int      @default(0)
+  disputedTxs       Int      @default(0)
+  
+  // Financial metrics
+  totalRevenue      Decimal  @db.Decimal(15, 2) @default(0)
+  averageFee        Decimal  @db.Decimal(10, 2) @default(0)
+  
+  // Quality metrics (for FlightDiscovery)
+  averageSavings    Decimal? @db.Decimal(10, 2)
+  averageSearchTime Int?     // milliseconds
+  
+  // Reliability metrics (for TravelExecution)
+  bookingSuccessRate Decimal? @db.Decimal(5, 4)  // e.g., 0.9850 = 98.50%
+  averageConfirmTime Int?     // milliseconds
+  
+  // Trust score
+  trustScore        Int      @default(85)  // 0-100
+  reputation        String   // excellent, good, fair, poor
+  
+  // Timestamps
+  lastUpdated       DateTime @default(now())
+  
+  @@index([agentId])
+}
+
+// Customer feedback and ratings
+model AgentRating {
+  id                String   @id @default(uuid())
+  agentId           String   // Which agent (discovery or execution)
+  merchantId        String   // Who left the rating
+  
+  // Transaction references
+  searchId          String?  // For discovery agent ratings
+  bookingId         String?  // For execution agent ratings
+  
+  // Rating
+  stars             Int      // 1-5
+  feedback          String?
+  category          String   // value, speed, accuracy, service
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  
+  // Relations
+  merchant          Merchant @relation("AgentRatings", fields: [merchantId], references: [id])
+  
+  @@index([agentId])
+  @@index([merchantId])
+}
+
+// Travel agent discovery metadata (for agent registry)
+model TravelAgentMetadata {
+  id                String   @id @default(uuid())
+  agentId           String   @unique
+  agentType         String   // "discovery" or "execution"
+  
+  // Agent info
+  name              String
+  description       String
+  version           String
+  capabilities      Json     // Array of capabilities
+  
+  // API endpoints
+  endpoints         Json     // { search: "/api/...", book: "/api/..." }
+  
+  // Pricing
+  baseFee           Decimal  @db.Decimal(10, 2)
+  feeStructure      Json     // Detailed pricing info
+  
+  // Verification
+  verified          Boolean  @default(true)
+  verifiedBy        String?  // "AgentPay" or verifier ID
+  verifiedAt        DateTime?
+  
+  // Status
+  isActive          Boolean  @default(true)
+  lastHealthCheck   DateTime?
+  
+  // Statistics (cached from AgentPerformance)
+  totalBookings     Int      @default(0)
+  trustScore        Int      @default(85)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([agentId])
+  @@index([agentType])
+}
+
+// Update existing Merchant model (add these relations)
+model Merchant {
+  // ... existing fields ...
+  
+  // New relations for travel agents
+  flightSearches    FlightSearch[] @relation("FlightSearches")
+  flightBookings    FlightBooking[] @relation("FlightBookings")
+  agentRatings      AgentRating[] @relation("AgentRatings")
+}

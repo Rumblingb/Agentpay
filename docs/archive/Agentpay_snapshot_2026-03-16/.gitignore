@@ -1,0 +1,63 @@
+node_modules/
+.env
+.DS_Store
+dist/
+dashboard/.next/
+dashboard/node_modules/
+
+/src/generated/prisma
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Coverage artifacts — never commit these
+coverage/
+*.lcov
+lcov.info
+
+# Build artifacts
+*.js.map
+*.tsbuildinfo
+
+# Misc local output
+output.txt
+test-output.txt
+*.log
+
+# IDE configuration
+.idea/
+.vscode/
+dist/
+
+Agentpay/
+Agentpay_backup/
+coverage/
+dist/
+.idea/
+
+# Cloudflare Workers — apps/api-edge
+apps/api-edge/node_modules/
+apps/api-edge/.wrangler/
+# Local dev secrets — never commit
+apps/api-edge/.dev.vars
+
+# Local cookie jars used for manual curl/debugging
+cookies*.txt
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.*
+
+# Phase-2 conservative cleanup: targeted ignore entries (narrowed)
+# Root-only temporary captures created during ad-hoc UI dumps
+/tmp_*.html
+# Dashboard-local temporary captures
+dashboard/tmp_*.html
+
+# Explicit runtime log artifacts observed in the working tree
+mock-api.out
+mock-api.err
+server.err
+server.log
+
+# Sensitive backup archives produced during investigation (explicit)
+backups/sensitive_backup_*
