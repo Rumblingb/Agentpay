@@ -17,6 +17,13 @@ import { logger } from '../logger.js';
 
 // Interface for the Authenticated Request
 interface AuthRequest extends Request {
+  body: any;
+  params: Record<string, string>;
+  query: Record<string, string | undefined>;
+  ip: string;
+  socket: { remoteAddress?: string | null };
+  path: string;
+  method: string;
   merchant?: {
     id: string;
     name: string;
@@ -101,7 +108,7 @@ router.post('/register', async (req: Request, res: Response) => {
     if (error) {
       return res.status(400).json({
         error: 'Validation error',
-        details: error.details.map((d) => d.message),
+        details: error.details.map((d: any) => d.message),
       });
     }
 
@@ -213,7 +220,7 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
     if (error) {
       return res.status(400).json({
         error: 'Validation error',
-        details: error.details.map((d) => d.message),
+        details: error.details.map((d: any) => d.message),
       });
     }
 

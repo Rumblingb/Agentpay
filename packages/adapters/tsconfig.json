@@ -4,6 +4,7 @@
     "rootDir": "../..",
     "outDir": "dist",
     "composite": true
+    ,"types": ["node"]
   },
   "include": ["src/**/*.ts", "../sdk/src/**/*.ts", "../../examples/adapters/**/*.ts"],
   "exclude": ["node_modules", "dist"]

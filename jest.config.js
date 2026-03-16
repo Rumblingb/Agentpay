@@ -31,5 +31,17 @@ export default {
     '\\.\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
     '\\./generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
     'src/generated/prisma/client': '<rootDir>/src/test/mocks/prisma-client.ts',
+    // Map direct @prisma/client imports (the runtime PrismaClient constructor)
+    '^@prisma/client$': '<rootDir>/src/test/mocks/prisma-client.ts',
+    // Provide lightweight runtime mocks for optional/native deps used by tests
+    '^bcrypt$': '<rootDir>/src/test/mocks/bcryptMock.js',
+    '^pg$': '<rootDir>/src/test/mocks/pgMock.js',
+    '^@solana/web3.js$': '<rootDir>/src/test/mocks/solanaMock.js',
+    '^uuid$': '<rootDir>/src/test/mocks/uuidMock.js',
+    '^src/lib/prisma$': '<rootDir>/src/test/mocks/prisma-client.ts',
+    // Map relative/practical import paths for `prisma` to the comprehensive test mock
+    '^(\\.{1,2}/lib/prisma)(?:\\.js)?$': '<rootDir>/src/test/mocks/prisma-client.ts',
+    '^\\./lib/prisma$': '<rootDir>/src/test/mocks/prisma-client.ts',
+    '^jsonwebtoken$': '<rootDir>/src/test/mocks/jsonwebtokenMock.js',
   },
 };
