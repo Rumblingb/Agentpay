@@ -591,11 +591,106 @@ router.post('/rotate-key', authenticateApiKey, async (c) => {
 // (Phase 9 for certificates, Phase 10 for webhooks).
 // ---------------------------------------------------------------------------
 
-router.post('/payments/:transactionId/verify', authenticateApiKey, (c) => {
-  return new Response(
-    JSON.stringify({ status: "beta" }),
-    { status: 200 }
-  );
+router.post('/payments/:transactionId/verify', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { transactionId } = c.req.param();
+
+  if (!isUuid(transactionId)) {
+    return c.json({ error: 'Invalid transaction ID' }, 400);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  // Normalize request: accept only `txHash` key. Reject legacy `transactionHash`.
+  const { txHash, transactionHash } = body as Record<string, unknown>;
+  if (transactionHash !== undefined) {
+    return c.json({ error: 'Deprecated field "transactionHash"; use "txHash"' }, 400);
+  }
+
+  const TX_HASH_PATTERN = /^[a-zA-Z0-9]{16,128}$/;
+  if (!txHash || typeof txHash !== 'string' || !TX_HASH_PATTERN.test(txHash)) {
+    return c.json({ error: 'Invalid or missing txHash' }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<
+      Array<{
+        id: string;
+        merchantId: string;
+        paymentId: string;
+        amountUsdc: number;
+        recipientAddress: string;
+        payerAddress: string | null;
+        transactionHash: string | null;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date | null;
+      }>
+    >`
+      SELECT id,
+             merchant_id        AS "merchantId",
+             payment_id         AS "paymentId",
+             amount_usdc        AS "amountUsdc",
+             recipient_address  AS "recipientAddress",
+             payer_address      AS "payerAddress",
+             transaction_hash   AS "transactionHash",
+             status,
+             created_at         AS "createdAt",
+             updated_at         AS "updatedAt"
+      FROM transactions
+      WHERE id = ${transactionId}
+    `;
+
+    if (!rows.length) {
+      return c.json({ error: 'Transaction not found' }, 404);
+    }
+
+    const tx = rows[0];
+    if (tx.merchantId !== merchant.id) {
+      return c.json({ error: 'Unauthorized access to this transaction' }, 403);
+    }
+
+    // Determine verification state (preserve existing settlement semantics)
+    const verified = tx.status === 'confirmed';
+
+    // Canonical receipt schema
+    const receipt = {
+      receiptId: crypto.randomUUID(),
+      transactionId: tx.id,
+      payer: tx.payerAddress ?? null,
+      recipient: tx.recipientAddress,
+      amount: Number(tx.amountUsdc),
+      token: 'USDC',
+      txHash: txHash as string,
+      timestamp: new Date().toISOString(),
+    };
+
+    const response = {
+      paymentId: tx.paymentId,
+      status: tx.status,
+      verified,
+      amount: Number(tx.amountUsdc),
+      token: 'USDC',
+      payer: tx.payerAddress ?? null,
+      recipient: tx.recipientAddress,
+      txHash: txHash as string,
+      verifiedAt: verified && tx.updatedAt ? (tx.updatedAt instanceof Date ? tx.updatedAt.toISOString() : tx.updatedAt) : null,
+      receipt,
+    };
+
+    return c.json(response);
+  } catch (err: unknown) {
+    console.error('[merchants] verify error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to verify transaction' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
 });
 
 export { router as merchantsRouter };
