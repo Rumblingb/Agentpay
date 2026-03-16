@@ -25,3 +25,18 @@ Use the Worker `GET /api/verify/:txHash` endpoint and provide the `txHash` from
 the payment to receive the canonical receipt payload.
 
 See `INTEGRATION_GUIDE.md` and `docs/INDEX.md` for full integration notes.
+
+## Semi-live demo
+
+A minimal, in-repo semi-live demo simulates the AgentPay adapter and runs a
+full create→policy→verify flow without external services.
+
+Run it with:
+
+```bash
+npm install
+npx tsx examples/adapters/semiLiveDemo.ts
+```
+
+This script is intentionally self-contained and uses an in-memory sandbox
+client so it does not require Postgres/Prisma/Solana/Stripe.
