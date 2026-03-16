@@ -21,6 +21,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
+import { evaluatePolicy } from '../../src/policy/evaluatePolicy';
 import {
   insertSettlementIdentity,
   resolveMatchingPolicy,
@@ -133,6 +134,36 @@ router.post('/', async (c) => {
          ${JSON.stringify(intentMetadata)}::jsonb,
          NOW(), NOW())
     `;
+
+    // Evaluate policy before attempting settlement-related work.
+    try {
+      const evalRes = await evaluatePolicy(sql, merchantId as string, {
+        amount: amount as number,
+        recipientAddress: merchantRow.walletAddress,
+        agentId: agentId as string,
+      });
+
+      if (evalRes.decision === 'REJECT') {
+        await sql`UPDATE payment_intents SET status = 'rejected', updated_at = NOW() WHERE id = ${intentId}`;
+        return c.json({ success: false, intentId, status: 'rejected', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt }, 403);
+      }
+
+      if (evalRes.decision === 'REQUIRES_APPROVAL') {
+        await sql`UPDATE payment_intents SET status = 'requires_approval', updated_at = NOW() WHERE id = ${intentId}`;
+        return c.json(
+          {
+            status: 'approval_required',
+            reason: evalRes.reason,
+            policyVersion: evalRes.policyVersion,
+            evaluatedAt: evalRes.evaluatedAt,
+            intentId,
+          },
+          202,
+        );
+      }
+    } catch (err) {
+      console.warn('[v1-intents] policy evaluation failed, continuing with intent creation', err);
+    }
 
     const solanaPayUri = `solana:${merchantRow.walletAddress}?amount=${amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(verificationToken)}`;
 

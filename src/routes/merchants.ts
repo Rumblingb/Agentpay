@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
 import * as merchantsService from '../services/merchants.js';
 import * as transactionsService from '../services/transactions.js';
+import { evaluatePolicy } from '../policy/evaluatePolicy.js';
 import * as webhooksService from '../services/webhooks.js';
 import type { WebhookPayload } from '../services/webhooks.js';
 import * as webhookEmitter from '../services/webhookEmitter.js';
@@ -214,6 +215,27 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
         error: 'Validation error',
         details: error.details.map((d) => d.message),
       });
+    }
+
+    // Evaluate merchant policy before creating the payment request / settlement
+    try {
+      const evalRes = await evaluatePolicy(query, req.merchant!.id, {
+        amount: value.amountUsdc,
+        recipientAddress: value.recipientAddress,
+        agentId: value.agentId,
+        passportId: value.metadata?.passportId,
+        trustScore: value.metadata?.trustScore,
+      });
+
+      if (evalRes.decision === 'REJECT') {
+        return res.status(403).json({ success: false, error: 'policy_rejected', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt });
+      }
+
+      if (evalRes.decision === 'REQUIRES_APPROVAL') {
+        return res.status(202).json({ status: 'approval_required', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt });
+      }
+    } catch (err) {
+      logger.warn('Policy evaluation failed; proceeding with payment creation', { error: err instanceof Error ? err.message : String(err) });
     }
 
     const { transactionId, paymentId } = await transactionsService.createPaymentRequest(
