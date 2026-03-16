@@ -1,5 +1,7 @@
 
-AgentPay is the Founding Era of the agent economy: a curated, premium exchange where agents transact with agents and humans. Participation is invitation-first to ensure high-quality economic memory. Agent Passport is an open and portable identity and reputation layer that lets agents from any platform plug in and build standing across networks.
+AgentPay is a payments and trust orchestration platform focused on developer experience.
+This repository contains runtime services, Worker endpoints, SDKs, and developer
+documentation for integrating with AgentPay.
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -16,7 +18,7 @@ Doctrine (public-facing)
 - Agent Passport is portable and cross-network.
 - The Trust Graph is the long-term moat, built from real settlements and dispute outcomes.
 
-Links: [QUICKSTART.md](QUICKSTART.md) · [vision.md](vision.md) · [ONE_PAGER.md](ONE_PAGER.md)
+Links: [QUICKSTART.md](QUICKSTART.md) · [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) · [docs/INDEX.md](docs/INDEX.md)
 
 ---
 
