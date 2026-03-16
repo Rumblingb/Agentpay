@@ -30,17 +30,12 @@ jest.mock('../../src/lib/prisma', () => ({
   },
 }));
 
-// We'll dynamically mock ESM/unfriendly modules *before* requiring the app
-// to ensure mocks take effect prior to module evaluation.
-
-
 import request from 'supertest';
 import crypto from 'crypto';
+import app from '../../src/server';
 import * as db from '../../src/db/index';
 
-let app: any;
-
-let mockQuery: jest.Mock;
+const mockQuery = db.query as jest.Mock;
 
 const VALID_SOLANA_HASH = '5W2v3RrRTXuCCZB8FrdQAuREf9JHMETVvHWw4rVSEGbgM1SjS5qw8ZAjS9Nqz7R';
 const VALID_EVM_HASH = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2';
@@ -65,37 +60,6 @@ function mockSettlementChain(
 }
 
 describe('GET /api/verify/:txHash', () => {
-  beforeAll(() => {
-    jest.resetModules();
-    // Mock ESM / newer packages before requiring the app to avoid ESM parsing errors
-    jest.doMock('uuid', () => ({ validate: () => true, v4: () => '00000000-0000-0000-0000-000000000000' }));
-    // Ensure the db module is the same mocked instance for both test and route
-    jest.doMock('../../src/db/index', () => ({
-      query: jest.fn(),
-      pool: { on: jest.fn() },
-      closePool: jest.fn().mockResolvedValue(undefined),
-    }));
-    // Mock the local logger module to avoid resolving external logger packages.
-    jest.doMock('../../src/logger', () => ({ logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } }));
-    // Mock Solana helper module to avoid requiring @solana/web3.js in tests.
-    jest.doMock('../../src/security/payment-verification', () => ({
-      verifyPaymentRecipient: async () => ({ valid: false }),
-      checkConfirmationDepth: async () => ({ confirmed: false, depth: 0, required: 2 }),
-      isValidSolanaAddress: (_: string) => true,
-    }));
-    // now require only the verify router and mount it on a minimal express app
-    // to avoid pulling in unrelated app modules and their dependencies.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const express = require('express');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const verifyRouter = require('../../src/routes/verify').default;
-    const expressApp = express();
-    expressApp.use('/api/verify', verifyRouter);
-    app = expressApp;
-    // Bind the mockQuery reference to the freshly mocked db module
-    mockQuery = require('../../src/db/index').query as jest.Mock;
-  });
-
   beforeEach(() => jest.clearAllMocks());
 
   // ── Legacy transaction fallback ──────────────────────────────────────────
