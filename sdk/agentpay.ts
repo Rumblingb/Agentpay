@@ -30,6 +30,10 @@
 
 import { createHmac, timingSafeEqual } from 'crypto';
 
+// Clarification: `packages/sdk` is the canonical SDK path for server-side
+// integrations in this monorepo. The `sdk/js` folder is retained for
+// legacy/compatibility packaging and does not replace the canonical path.
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
