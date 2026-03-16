@@ -4,7 +4,22 @@ const makeNoop = () => {
   const chain: any = {
     safeParse: (data: any) => ({ success: true, data }),
   };
-  const methods = ['min', 'max', 'optional', 'url', 'int'];
+  const methods = [
+    'min',
+    'max',
+    'optional',
+    'url',
+    'int',
+    'positive',
+    'nonempty',
+    'length',
+    'regex',
+    'startsWith',
+    'endsWith',
+    'positive',
+    'nullable',
+    'transform',
+  ];
   for (const m of methods) {
     chain[m] = () => chain;
   }
