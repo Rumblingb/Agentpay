@@ -1,7 +1,9 @@
 
-AgentPay is a payments and trust orchestration platform focused on developer experience.
-This repository contains runtime services, Worker endpoints, SDKs, and developer
-documentation for integrating with AgentPay.
+# AgentPay
+
+AgentPay is protocol-agnostic infrastructure for agent-to-agent commerce — enabling autonomous agents to create payments, verify settlement, enforce policy, and build portable economic reputation through AgentPassport.
+
+This repository contains the runtime services, Worker endpoints, SDKs, and developer documentation for integrating with AgentPay.
 
 <p align="center">
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -15,10 +17,36 @@ Doctrine (public-facing)
 
 - Agent-to-agent commerce is primary; agent-to-human interactions are first-class.
 - The Founding Exchange is curated and premium during onboarding.
-- Agent Passport is portable and cross-network.
-- The Trust Graph is the long-term moat, built from real settlements and dispute outcomes.
+- AgentPassport is portable and cross-network.
+- The Trust Graph is the long-term network moat, built from real settlements and dispute outcomes.
 
 Links: [QUICKSTART.md](QUICKSTART.md) · [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) · [docs/INDEX.md](docs/INDEX.md)
+
+---
+
+## Protocol-Agnostic by Design
+
+AgentPay is protocol-agnostic settlement infrastructure for agents.
+
+The platform is designed to integrate with any emerging agent commerce protocol rather than replace them.
+
+AgentPay can operate alongside or on top of:
+
+- x402 payment authorization flows
+- AP2 (Agent Payment Protocol)
+- Coinbase AgentKit / agent commerce integrations
+- direct blockchain settlement (Solana, Ethereum, etc.)
+- custom in-house agent runtimes
+
+Instead of enforcing a single protocol, AgentPay provides:
+
+- payment intent creation
+- settlement verification
+- receipt generation
+- policy enforcement
+- agent identity via AgentPassport
+
+This allows developers to use AgentPay as a universal payment capability layer regardless of the underlying agent protocol. AgentPay sits above payment protocols — it does not replace them.
 
 ---
 
@@ -33,7 +61,7 @@ This repository contains the Founding Agents demo used to illustrate agent-to-ag
 
 ### Agent 2: TravelExecutionAgent (Execution)
 - Books confirmed flights and issues tickets
-- Handles payment via supported rails (x402/USDC, Stripe)
+- Handles payment via supported rails (USDC, Stripe)
 
 Workflow (example):
 
@@ -43,9 +71,9 @@ Workflow (example):
 4. TrustOracle verifies standing
 5. SettlementGuardian opens escrow
 6. Execution completes booking; escrow releases
-7. Agent Passports update and standing is recorded
+7. AgentPassports update and standing is recorded
 
-This demo quantifies the trust graph and highlights how agent-to-agent transactions create durable economic memory.
+This demo illustrates how agent-to-agent transactions produce verifiable economic history that feeds the trust graph.
 
 ---
 
@@ -62,11 +90,9 @@ components/booking/PremiumFlightBooking.tsx
 
 ---
 
-## Getting Started (high level)
+## Getting Started
 
-1. Enter the exchange (see QUICKSTART.md).
-2. Deploy or connect an agent and attach an Agent Passport.
-3. Post intents, transact, settle, and inspect standing in the registry.
+Start here → [QUICKSTART.md](QUICKSTART.md)
 
 **A:** No. It's proof that agent-to-agent commerce works with real accountability. The travel booking is the demo; the trust infrastructure is the product.
 
@@ -84,37 +110,13 @@ components/booking/PremiumFlightBooking.tsx
 
 ---
 
-## Next Steps
-
-### This Week:
-1. ✅ Review this README
-2. ✅ Read INTEGRATION_GUIDE.md
-3. ✅ Get Amadeus API keys
-4. ✅ Run database migration
-5. ✅ Deploy to staging
-
-### Next Week:
-1. ✅ Test with 5 beta users
-2. ✅ Fix any bugs
-3. ✅ Collect feedback
-4. ✅ Deploy to production
-5. ✅ Launch publicly
-
-### This Month:
-1. ✅ Get 100 bookings
-2. ✅ Write case study
-3. ✅ Reach out to potential partners
-4. ✅ Build second agent pair (prove pattern)
-
----
-
 ## Support
 
 Questions? Issues? Want to discuss the vision?
 
 - GitHub Issues: /Rumblingb/Agentpay/issues
-- Documentation: See INTEGRATION_GUIDE.md
-- API Docs: /docs/travel-agents
+- Docs: [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)
+- API Reference: [openapi.yaml](openapi.yaml)
 
 ---
 
