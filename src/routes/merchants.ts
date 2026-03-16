@@ -86,7 +86,7 @@ const paymentSchema = Joi.object({
 });
 
 const verifyPaymentSchema = Joi.object({
-  transactionHash: Joi.string().required(),
+  txHash: Joi.string().required(),
 });
 
 // --- ROUTES ---
@@ -266,6 +266,11 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
       });
     }
 
+    // Reject legacy `transactionHash` key to normalize to `{ txHash }`.
+    if ((req.body as any).transactionHash !== undefined) {
+      return res.status(400).json({ error: 'Deprecated field "transactionHash"; use "txHash"' });
+    }
+
     const tx = await transactionsService.getTransaction(req.params.transactionId);
     
     // Existence Check
@@ -288,9 +293,10 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
       return res.status(403).json({ error: 'Unauthorized access to this transaction' });
     }
 
+    // Forward normalized txHash into existing verification service.
     const verification = await transactionsService.verifyAndUpdatePayment(
       req.params.transactionId,
-      value.transactionHash
+      value.txHash
     );
 
     await auditService.logVerifyAttempt({
@@ -309,10 +315,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
         transactionId: req.params.transactionId,
         error: verification.error,
       });
-      return res.status(400).json({
-        success: false,
-        error: verification.error,
-      });
+      return res.status(400).json({ success: false, error: verification.error });
     }
 
     let certificate: string | undefined;
@@ -368,13 +371,30 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
       }).catch((err) => logger.error('V2 webhook emitter error', { err }));
     }
 
-    res.json({
-      success: true,
-      verified: verification.verified,
-      payer: verification.payer,
-      certificate,
-      message: verification.verified ? 'Payment confirmed!' : 'Payment detected but pending confirmations',
-    });
+    // Build tightened, authoritative response contract for SDK consumers.
+    const response = {
+      paymentId: tx.paymentId,
+      status: tx.status,
+      verified: !!verification.verified,
+      amount: Number(tx.amountUsdc),
+      token: 'USDC',
+      payer: verification.payer ?? null,
+      recipient: tx.recipientAddress,
+      txHash: value.txHash,
+      verifiedAt: verification.verified ? new Date().toISOString() : null,
+      receipt: {
+        receiptId: uuidv4(),
+        transactionId: tx.id,
+        payer: verification.payer ?? null,
+        recipient: tx.recipientAddress,
+        amount: Number(tx.amountUsdc),
+        token: 'USDC',
+        txHash: value.txHash,
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    res.json(response);
   } catch (error: any) {
     logger.error('Payment verification error:', error);
     res.status(500).json({ error: error.message });
