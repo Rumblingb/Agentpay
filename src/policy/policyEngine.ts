@@ -1,48 +1,70 @@
-import { PolicyConfig, PolicyContext, PolicyDecision, POLICY_DECISIONS } from './types';
+import {
+  PolicyConfig,
+  PolicyContext,
+  PolicyDecision,
+  POLICY_DECISIONS,
+  PolicyEvaluationResult,
+} from './types';
 
 type GetDailySpendFn = (merchantId?: string) => Promise<number>;
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 export async function evaluatePolicyConfig(
   config: PolicyConfig | undefined,
   context: PolicyContext,
   getDailySpend?: GetDailySpendFn,
-): Promise<PolicyDecision> {
+): Promise<{ decision: PolicyDecision; reason: PolicyEvaluationResult['reason']; policyVersion: string }> {
   const cfg: PolicyConfig = config ?? {};
-
   const amount = Number(context.amount || 0);
 
-  // paymentsEnabled (default true)
-  if (cfg.paymentsEnabled === false) return POLICY_DECISIONS.REJECT;
+  const policyVersion = cfg.policyVersion ?? 'v1';
 
-  // maxTransactionAmount: immediate rejection if single tx exceeds allowed max
-  if (typeof cfg.maxTransactionAmount === 'number' && amount > cfg.maxTransactionAmount) {
-    return POLICY_DECISIONS.REJECT;
+  // paymentsEnabled (default true)
+  if (cfg.paymentsEnabled === false) {
+    return { decision: 'REJECT', reason: 'payments_disabled', policyVersion };
   }
 
-  // dailySpendLimit: if provided, check today's spend (via helper); if unavailable
-  // assume conservative path: require approval when limit would be exceeded.
-  if (typeof cfg.dailySpendLimit === 'number' && typeof getDailySpend === 'function') {
+  // blocklistRecipients: immediate reject
+  if (Array.isArray(cfg.blocklistRecipients) && cfg.blocklistRecipients.length > 0 && context.recipientAddress) {
+    const recipient = context.recipientAddress.toLowerCase();
+    if (cfg.blocklistRecipients.map((r) => r.toLowerCase()).includes(recipient)) {
+      return { decision: 'REJECT', reason: 'recipient_blocked', policyVersion };
+    }
+  }
+
+  // maxAmountPerTransaction: immediate rejection if single tx exceeds allowed max
+  if (typeof cfg.maxAmountPerTransaction === 'number' && amount > cfg.maxAmountPerTransaction) {
+    return { decision: 'REJECT', reason: 'amount_above_threshold', policyVersion };
+  }
+
+  // maxDailySpend: if provided, check today's spend via helper; require approval if would exceed
+  if (typeof cfg.maxDailySpend === 'number' && typeof getDailySpend === 'function') {
     try {
       const today = await getDailySpend(context.merchantId);
-      if (today + amount > cfg.dailySpendLimit) {
-        return POLICY_DECISIONS.REQUIRES_APPROVAL;
+      if (today + amount > cfg.maxDailySpend) {
+        return { decision: 'REQUIRES_APPROVAL', reason: 'daily_limit_exceeded', policyVersion };
       }
     } catch (err) {
-      // If the helper fails, fallthrough — do not block by default.
+      // If helper fails, fall through permissively
     }
   }
 
   // approvalRequiredAbove: explicit approval threshold
   if (typeof cfg.approvalRequiredAbove === 'number' && amount > cfg.approvalRequiredAbove) {
-    return POLICY_DECISIONS.REQUIRES_APPROVAL;
+    return { decision: 'REQUIRES_APPROVAL', reason: 'amount_above_threshold', policyVersion };
   }
 
-  // allowedRecipients: if provided and recipient not listed, require approval
-  if (Array.isArray(cfg.allowedRecipients) && cfg.allowedRecipients.length > 0) {
-    const recipient = (context.recipientAddress || '').toLowerCase();
-    const allowed = cfg.allowedRecipients.map((r) => r.toLowerCase());
-    if (!allowed.includes(recipient)) return POLICY_DECISIONS.REQUIRES_APPROVAL;
+  // allowlistRecipients: require approval if recipient not listed
+  if (Array.isArray(cfg.allowlistRecipients) && cfg.allowlistRecipients.length > 0 && context.recipientAddress) {
+    const recipient = context.recipientAddress.toLowerCase();
+    if (!cfg.allowlistRecipients.map((r) => r.toLowerCase()).includes(recipient)) {
+      return { decision: 'REQUIRES_APPROVAL', reason: 'recipient_not_allowed', policyVersion };
+    }
   }
 
-  return POLICY_DECISIONS.ALLOW;
+  return { decision: 'ALLOW', reason: 'allowed', policyVersion };
 }
+

@@ -1,11 +1,9 @@
-import { PolicyDecision, PolicyContext, PolicyConfig, POLICY_DECISIONS } from './types';
+import { PolicyContext, PolicyConfig, PolicyEvaluationResult } from './types';
 import { evaluatePolicyConfig } from './policyEngine';
 
 // `sql` is the per-request Postgres.js tagged template function used in this
-// codebase (apps/api-edge uses a similar `sql` instance). We type it as any
-// to avoid adding a new dependency on postgres types in this patch.
-export async function evaluatePolicy(sql: any, merchantId: string, context: PolicyContext): Promise<PolicyDecision> {
-  // Default policy: allow everything unless a merchant-level policy exists.
+// codebase. We accept `any` here for portability in the demo environment.
+export async function evaluatePolicy(sql: any, merchantId: string, context: PolicyContext): Promise<PolicyEvaluationResult> {
   let policyConfig: PolicyConfig | undefined = undefined;
 
   try {
@@ -16,12 +14,9 @@ export async function evaluatePolicy(sql: any, merchantId: string, context: Poli
       LIMIT 1
     `;
     if (rows && rows.length) {
-      // Expect config stored as jsonb in `config` column.
       policyConfig = rows[0].config ?? undefined;
     }
   } catch (err) {
-    // Table might not exist or query may fail in some environments. Fall back
-    // to an open policy (do not block intent creation by default).
     policyConfig = undefined;
   }
 
@@ -35,18 +30,26 @@ export async function evaluatePolicy(sql: any, merchantId: string, context: Poli
           AND created_at >= date_trunc('day', now())
       `;
       if (!res || !res.length) return 0;
-      const total = res[0].total ?? 0;
-      return Number(total);
+      return Number(res[0].total ?? 0);
     } catch (err) {
-      // If the DB query fails, bubble up to let engine decide fallback behavior.
       throw err;
     }
   };
 
   try {
-    return await evaluatePolicyConfig(policyConfig, { ...context, merchantId }, getDailySpend);
+    const { decision, reason, policyVersion } = await evaluatePolicyConfig(policyConfig, { ...context, merchantId }, getDailySpend);
+    return {
+      decision,
+      reason,
+      policyVersion,
+      evaluatedAt: new Date().toISOString(),
+    };
   } catch (err) {
-    // On unexpected errors, be permissive to avoid blocking flows.
-    return POLICY_DECISIONS.ALLOW;
+    return {
+      decision: 'ALLOW',
+      reason: 'unknown_error',
+      policyVersion: policyConfig?.policyVersion ?? 'v1',
+      evaluatedAt: new Date().toISOString(),
+    };
   }
 }

@@ -219,18 +219,20 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
 
     // Evaluate merchant policy before creating the payment request / settlement
     try {
-      const policyDecision = await evaluatePolicy(query, req.merchant!.id, {
+      const evalRes = await evaluatePolicy(query, req.merchant!.id, {
         amount: value.amountUsdc,
         recipientAddress: value.recipientAddress,
         agentId: value.agentId,
+        passportId: value.metadata?.passportId,
+        trustScore: value.metadata?.trustScore,
       });
 
-      if (policyDecision === 'REJECT') {
-        return res.status(403).json({ success: false, error: 'policy_rejected' });
+      if (evalRes.decision === 'REJECT') {
+        return res.status(403).json({ success: false, error: 'policy_rejected', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt });
       }
 
-      if (policyDecision === 'REQUIRES_APPROVAL') {
-        return res.status(202).json({ success: true, status: 'requires_approval', message: 'Payment requires manual approval before settlement' });
+      if (evalRes.decision === 'REQUIRES_APPROVAL') {
+        return res.status(202).json({ status: 'approval_required', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt });
       }
     } catch (err) {
       logger.warn('Policy evaluation failed; proceeding with payment creation', { error: err instanceof Error ? err.message : String(err) });

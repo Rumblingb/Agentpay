@@ -136,24 +136,28 @@ router.post('/', async (c) => {
     `;
 
     // Evaluate policy before attempting settlement-related work.
-    // If the policy rejects or requires approval, update the intent status
-    // accordingly and return early without creating a settlement identity.
     try {
-      const decision = await evaluatePolicy(sql, merchantId as string, {
+      const evalRes = await evaluatePolicy(sql, merchantId as string, {
         amount: amount as number,
         recipientAddress: merchantRow.walletAddress,
         agentId: agentId as string,
       });
 
-      if (decision === 'REJECT') {
+      if (evalRes.decision === 'REJECT') {
         await sql`UPDATE payment_intents SET status = 'rejected', updated_at = NOW() WHERE id = ${intentId}`;
-        return c.json({ success: false, intentId, status: 'rejected', reason: 'policy_rejected' }, 403);
+        return c.json({ success: false, intentId, status: 'rejected', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt }, 403);
       }
 
-      if (decision === 'REQUIRES_APPROVAL') {
+      if (evalRes.decision === 'REQUIRES_APPROVAL') {
         await sql`UPDATE payment_intents SET status = 'requires_approval', updated_at = NOW() WHERE id = ${intentId}`;
         return c.json(
-          { success: true, intentId, status: 'requires_approval', message: 'Intent requires manual approval before settlement' },
+          {
+            status: 'approval_required',
+            reason: evalRes.reason,
+            policyVersion: evalRes.policyVersion,
+            evaluatedAt: evalRes.evaluatedAt,
+            intentId,
+          },
           202,
         );
       }
