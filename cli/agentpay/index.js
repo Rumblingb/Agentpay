@@ -49,7 +49,7 @@ function getApiBase() {
     process.env.AGENTPAY_API_BASE ||
     process.env.AGENTPAY_API_URL ||
     config.apiUrl ||
-    'https://agentpay-api.onrender.com'
+    'https://agentpay-api.apaybeta.workers.dev'
   );
 }
 
