@@ -1,11 +1,11 @@
-# @agentpay/mcp-server
+# @agentpayxyz/mcp-server
 
 Model Context Protocol server for AgentPay. Gives any MCP-compatible AI assistant (Claude, etc.) the ability to create payment intents, verify settlements, look up AgentPassports, and discover agents on the network.
 
 ## Install
 
 ```bash
-npx @agentpay/mcp-server
+npx @agentpayxyz/mcp-server
 ```
 
 ## Claude Desktop Setup
@@ -17,7 +17,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "agentpay": {
       "command": "npx",
-      "args": ["@agentpay/mcp-server"],
+      "args": ["@agentpayxyz/mcp-server"],
       "env": {
         "AGENTPAY_API_KEY": "apk_your_key_here",
         "AGENTPAY_MERCHANT_ID": "your_merchant_id"

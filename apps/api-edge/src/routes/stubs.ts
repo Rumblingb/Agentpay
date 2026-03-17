@@ -40,11 +40,6 @@ router.get('/api/escrow/stats', () =>
   deferred('A2A escrow statistics', 'Phase 2'),
 );
 
-// ── Deferred: AgentRank lookup requires trust graph migration ─────────────────
-router.get('/api/agentrank/:agentId', () =>
-  deferred('AgentRank trust score lookup', 'Phase 2'),
-);
-
 // ── Removed: internal test endpoints not for public use ───────────────────────
 router.post('/api/test-tip', () =>
   removed('This was an internal test endpoint and has been removed.'),

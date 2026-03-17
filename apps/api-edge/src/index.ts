@@ -27,6 +27,7 @@ import { webhooksRouter } from './routes/webhooks';
 import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 import { stubsRouter } from './routes/stubs';
 import { demoRouter } from './routes/demo';
+import { passportRouter } from './routes/passport';
 
 import { scheduledHandler } from './cron';
 
@@ -110,6 +111,9 @@ app.route('/api/certificates', certificatesRouter);
 
 // Receipt routes — /api/receipt/:intentId
 app.route('/api/receipt', receiptRouter);
+
+// AgentPassport — /api/passport/:agentId and /api/passport/rank/:agentId
+app.route('/api/passport', passportRouter);
 
 // Webhook subscription routes — /api/webhooks/*
 app.route('/api/webhooks', webhooksRouter);

@@ -15,7 +15,7 @@ const cfg = { baseUrl: 'http://localhost:3002', apiKey: process.env.AGENTPAY_API
 ```
 
 This is intentionally minimal — the SDK provides convenience helpers for demo flows.
-# @agentpay/sdk
+# @agentpayxyz/sdk
 
 JavaScript/TypeScript SDK for [AgentPay](https://agentpay.gg) — the universal payment gateway for AI agents.
 
@@ -24,5 +24,5 @@ See [docs/sdk/js.md](../../docs/sdk/js.md) for full documentation.
 ## Quick install
 
 ```bash
-npm install @agentpay/sdk
+npm install @agentpayxyz/sdk
 ```

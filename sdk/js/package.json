@@ -1,5 +1,5 @@
 {
-  "name": "@agentpay/sdk",
+  "name": "@agentpayxyz/sdk",
   "version": "0.3.0",
   "description": "JavaScript/TypeScript SDK for AgentPay - Universal payment gateway for AI agents",
   "type": "module",

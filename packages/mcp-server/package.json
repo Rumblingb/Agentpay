@@ -1,12 +1,12 @@
 {
-  "name": "@agentpay/mcp-server",
-  "version": "0.1.0",
+  "name": "@agentpayxyz/mcp-server",
+  "version": "0.1.1",
   "description": "Model Context Protocol (MCP) server for AgentPay — gives AI assistants the ability to create payment intents, verify settlements, and look up AgentPassports",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "agentpay-mcp": "./dist/index.js"
+    "agentpay-mcp": "./bin/agentpay-mcp.mjs"
   },
   "exports": {
     ".": {
@@ -14,7 +14,7 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "bin", "README.md"],
   "scripts": {
     "build": "tsc",
     "dev": "node --watch dist/index.js",

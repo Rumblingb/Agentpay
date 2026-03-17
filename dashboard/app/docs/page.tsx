@@ -123,11 +123,11 @@ export default function DocsPage() {
           <SectionHeader step="02" title="JavaScript / TypeScript SDK" />
 
           <Step n={1} title="Install">
-            <CodeBlock>{`npm install @agentpay/sdk`}</CodeBlock>
+            <CodeBlock>{`npm install @agentpayxyz/sdk`}</CodeBlock>
           </Step>
 
           <Step n={2} title="Basic payment flow">
-            <CodeBlock>{`import { AgentPay } from '@agentpay/sdk';
+            <CodeBlock>{`import { AgentPay } from '@agentpayxyz/sdk';
 
 const agentpay = new AgentPay({
   baseUrl: '${API}',
