@@ -1,6 +1,6 @@
 {
   "name": "@agentpay/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "JavaScript/TypeScript SDK for AgentPay - Universal payment gateway for AI agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,8 +24,14 @@
     "agentpay",
     "payments",
     "ai-agents",
+    "autonomous-agents",
+    "agent-economy",
+    "agentpassport",
+    "solana",
+    "usdc",
     "sdk",
-    "x402"
+    "x402",
+    "mcp"
   ],
   "author": "AgentPay",
   "license": "BSL-1.1; AGPL-3.0 after 2029-01-01",

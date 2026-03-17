@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import demo from './_lib/demoData';
 import DesignSystem from './_components/DesignSystem';
+import EconomyTicker from './_components/EconomyTicker';
 
 const STATE_TO_UI_STATUS: Record<string, string> = {
   I: 'Pending',
@@ -75,12 +76,7 @@ export default function PremiumHome() {
         `}
       </style>
       {isProd && <style>{`.dev-badge{display:none !important}`}</style>}
-      {/* Minimal top strip */}
-      <div className="home-top-strip" style={{ width: '100%', borderBottom: '1px solid #0F1720', background: '#050607', padding: '8px 0' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 20px', color: '#9AA4AF', textAlign: 'center', fontSize: 13, letterSpacing: 0.4 }}>
-          Founding Era Beta · Curated Exchange · Non-Transactable Preview
-        </div>
-      </div>
+      <EconomyTicker />
 
       <main style={{ maxWidth: 1200, margin: '48px auto', padding: '0 20px' }}>
         {/* Premium hero */}

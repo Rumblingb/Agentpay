@@ -1,19 +1,12 @@
 /**
- * Stub routes for endpoints not yet migrated to Workers.
+ * Deferred routes — endpoints that are on the roadmap but not yet migrated
+ * to the Workers runtime.
  *
- * Purpose: prevent hard 404s when the dashboard's AGENTPAY_API_BASE_URL is
- * pointed at the Workers backend before all routes are migrated.  The stubs
- * return a clearly-labelled 501 response so the dashboard BFF displays a
- * graceful error rather than a confusing 404.
- *
- * Routes stubbed here will be removed as each phase migrates the real implementation.
- *
- * Current stubs (all deferred to Phase 13 or later):
- *   GET /api/escrow/stats          — in-memory escrow (not Workers-compatible)
- *   GET /api/agentrank/:agentId    — AgentRank service (not yet migrated)
- *   POST /api/demo/run-agent-payment — demo endpoint
- *   POST /api/test-tip             — test endpoint
- *   GET /api/metrics               — Prometheus metrics (Render-specific)
+ * Rules:
+ *   - Returns 503 with a JSON body so callers get a clear, actionable message.
+ *   - Never returns 200 with an error body (that pattern masks failures in SDKs).
+ *   - Removed/deprecated routes return 410 Gone.
+ *   - Each stub documents when it will be implemented.
  */
 
 import { Hono } from 'hono';
@@ -21,39 +14,46 @@ import type { Env, Variables } from '../types';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const NOT_MIGRATED = {
-  error: 'NOT_YET_MIGRATED',
-  message: 'This endpoint is not yet available on the Workers backend. Use the Render backend.',
-} as const;
+const deferred = (feature: string, eta?: string) =>
+  new Response(
+    JSON.stringify({
+      error: 'NOT_YET_AVAILABLE',
+      feature,
+      message: `${feature} is not yet available. ${eta ? `Expected: ${eta}.` : 'Check the changelog for updates.'}`,
+      docs: 'https://github.com/Rumblingb/Agentpay/tree/main/docs',
+    }),
+    { status: 503, headers: { 'content-type': 'application/json' } },
+  );
 
-// Escrow stats — in-memory escrow is Render-only for now
-router.get('/api/escrow/stats', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-}));
+const removed = (reason: string) =>
+  new Response(
+    JSON.stringify({
+      error: 'ENDPOINT_REMOVED',
+      message: reason,
+      docs: 'https://github.com/Rumblingb/Agentpay/tree/main/docs',
+    }),
+    { status: 410, headers: { 'content-type': 'application/json' } },
+  );
 
-// AgentRank lookup
-router.get('/api/agentrank/:agentId', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-}));
+// ── Deferred: escrow stats requires in-memory state not yet migrated ──────────
+router.get('/api/escrow/stats', () =>
+  deferred('A2A escrow statistics', 'Phase 2'),
+);
 
-// Demo agent payment
-router.post('/api/demo/run-agent-payment', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-}));
+// ── Deferred: AgentRank lookup requires trust graph migration ─────────────────
+router.get('/api/agentrank/:agentId', () =>
+  deferred('AgentRank trust score lookup', 'Phase 2'),
+);
 
-// Test tip
-router.post('/api/test-tip', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-}));
+// ── Removed: internal test endpoints not for public use ───────────────────────
+router.post('/api/test-tip', () =>
+  removed('This was an internal test endpoint and has been removed.'),
+);
 
-// Prometheus metrics endpoint — not applicable in Workers (use Cloudflare Analytics)
-router.get('/metrics', () => new Response(JSON.stringify(NOT_MIGRATED), {
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-}));
+// ── Removed: Prometheus metrics not applicable in Cloudflare Workers ──────────
+// Use Cloudflare Analytics in the dashboard instead.
+router.get('/metrics', () =>
+  removed('Prometheus metrics are not available in the Workers runtime. Use Cloudflare Analytics.'),
+);
 
 export { router as stubsRouter };

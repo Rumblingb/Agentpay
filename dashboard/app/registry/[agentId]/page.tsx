@@ -7,20 +7,24 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { agentId } = await params;
-  const title = `${agentId} — Agent Passport · AgentPay`;
-  const description = `Public counterparty file for agent ${agentId} — trust score, dispute record, interaction history, and network standing on AgentPay.`;
+  const title = `${agentId} · AgentPassport`;
+  const description = `Portable identity and trust record for ${agentId} — trust score, interaction history, dispute record, and economic standing on the AgentPay network.`;
+  const canonical = `/agent/${agentId}`;
   return {
     title,
     description,
+    alternates: { canonical },
     openGraph: {
       type: 'profile',
-      siteName: 'AgentPay',
+      siteName: 'AgentPay — Trust & Settlement Infrastructure',
       title,
       description,
-      url: `/registry/${agentId}`,
+      url: canonical,
     },
-    alternates: {
-      canonical: `/registry/${agentId}`,
+    twitter: {
+      card: 'summary',
+      title,
+      description,
     },
   };
 }

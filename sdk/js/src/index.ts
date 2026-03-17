@@ -6,8 +6,13 @@ import {
 } from './errors.js';
 import type {
   AgentPayConfig,
+  AgentPassport,
+  AgentPassportResponse,
   Certificate,
   CreateIntentResponse,
+  DiscoverParams,
+  DiscoverResponse,
+  HireResponse,
   IntentMetadata,
   IntentStatusResponse,
   PaymentConfig,
@@ -15,16 +20,25 @@ import type {
   ValidateCertificateResponse,
 } from './types.js';
 
+// ─── Public type exports ──────────────────────────────────────────────────────
+
 export type {
   AgentPayConfig,
+  AgentPassport,
+  AgentPassportResponse,
   Certificate,
   CreateIntentResponse,
+  DiscoverParams,
+  DiscoverResponse,
+  DiscoverSortBy,
+  HireResponse,
   IntentMetadata,
   IntentStatus,
   IntentStatusResponse,
   PaymentConfig,
   PaymentResult,
   PaymentStatus,
+  SplitEntry,
   ValidateCertificateResponse,
 } from './types.js';
 
@@ -37,15 +51,26 @@ export {
 
 export { Agent } from './agent.js';
 
+// ─── AgentPay SDK client ──────────────────────────────────────────────────────
+
 /**
- * Class-based AgentPay SDK client.
- *
- * Allows AI agents to create and execute payments with minimal code:
+ * AgentPay SDK — payment infrastructure for AI agents.
  *
  * ```ts
- * const agentpay = new AgentPay({ apiKey: process.env.AGENTPAY_API_KEY });
- * const payment = await agentpay.pay({ amount: 1, currency: 'USDC' });
- * console.log(payment.status);
+ * import { AgentPay } from '@agentpay/sdk';
+ *
+ * const agentpay = new AgentPay({
+ *   baseUrl: 'https://agentpay-api.apaybeta.workers.dev',
+ *   apiKey: process.env.AGENTPAY_API_KEY!,
+ * });
+ *
+ * // Create and pay in one call
+ * const payment = await agentpay.pay({ amount: 5, purpose: 'Research task fee' });
+ * console.log(payment.solanaPayUri); // open in any Solana wallet
+ *
+ * // Wait for on-chain confirmation
+ * const result = await agentpay.verify(payment.intentId);
+ * console.log(result.status); // 'verified'
  * ```
  */
 export class AgentPay {
@@ -65,6 +90,7 @@ export class AgentPay {
    * @param amount - Amount in USDC
    * @param currency - Currency code (default: "USDC")
    * @param metadata - Optional metadata to attach
+   * @param purpose - Human-readable description (max 500 chars)
    */
   async createIntent(
     amount: number,
@@ -87,7 +113,7 @@ export class AgentPay {
    */
   async getIntent(intentId: string): Promise<IntentStatusResponse> {
     return this.client.get<IntentStatusResponse>(
-      `/api/intents/${intentId}/status`,
+      `/api/v1/payment-intents/${intentId}`,
     );
   }
 
@@ -95,32 +121,35 @@ export class AgentPay {
    * High-level helper: create an intent and return a PaymentResult with the
    * Solana Pay URI. For fully autonomous payments, follow up with verify().
    *
-   * @param config - Payment configuration (amount, currency, recipient, metadata)
+   * @param config - Payment configuration
    */
   async pay(config: PaymentConfig): Promise<PaymentResult> {
-    const { amount, currency = 'USDC', recipient, metadata, purpose } = config;
+    const { amount, currency = 'USDC', recipient, metadata, purpose, splits } = config;
 
     const meta: IntentMetadata = {
       ...(metadata ?? {}),
       ...(recipient ? { recipient } : {}),
     };
 
-    const intent = await this.createIntent(
+    const intent = await this.client.post<CreateIntentResponse>('/api/intents', {
       amount,
       currency,
-      Object.keys(meta).length > 0 ? meta : undefined,
-      purpose,
-    );
+      ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
+      ...(purpose ? { purpose } : {}),
+      ...(splits ? { splits } : {}),
+    });
 
-    // Extract the Solana Pay URI from the instructions if present
+    const raw = intent as unknown as Record<string, unknown>;
     const solanaPayUri =
-      (intent as any).instructions?.solanaPayUri ??
-      (intent as any).solanaPayUri ??
+      (typeof raw.solanaPayUri === 'string' ? raw.solanaPayUri : undefined) ??
+      (raw.instructions && typeof (raw.instructions as Record<string, unknown>).solanaPayUri === 'string'
+        ? (raw.instructions as Record<string, unknown>).solanaPayUri as string
+        : undefined) ??
       '';
 
     return {
       intentId: intent.intentId,
-      verificationToken: (intent as any).verificationToken ?? '',
+      verificationToken: typeof raw.verificationToken === 'string' ? raw.verificationToken : '',
       solanaPayUri,
       status: 'created',
       expiresAt: intent.expiresAt,
@@ -134,6 +163,9 @@ export class AgentPay {
    * @param intentId - ID of the intent to verify
    * @param timeoutMs - Maximum polling duration in ms (default: 60_000)
    * @param pollIntervalMs - Polling interval in ms (default: 2_000)
+   * @throws {IntentExpiredError} if the intent expires before verification
+   * @throws {VerificationFailedError} if the intent reaches a failed state
+   * @throws {VerificationTimeoutError} if the timeout is exceeded
    */
   async verify(
     intentId: string,
@@ -144,22 +176,21 @@ export class AgentPay {
   }
 
   /**
-   * Discover agents on the AgentPay marketplace.
+   * Retrieve an agent's AgentPassport — portable identity and trust record.
    *
-   * @param params.q        - Free-text search query
-   * @param params.category - Filter by agent category
-   * @param params.minScore - Minimum AgentRank score
-   * @param params.sortBy   - Sort mode: 'best_match' | 'cheapest' | 'fastest' | 'score'
-   * @param params.limit    - Max results to return (default 20)
+   * @param agentId - The agent's unique identifier
    */
-  async discover(params: {
-    q?: string;
-    category?: string;
-    minScore?: number;
-    sortBy?: 'best_match' | 'cheapest' | 'fastest' | 'score' | 'volume' | 'recent';
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<any> {
+  async getPassport(agentId: string): Promise<AgentPassport> {
+    const res = await this.client.get<AgentPassportResponse>(`/api/passport/${encodeURIComponent(agentId)}`);
+    return res.passport;
+  }
+
+  /**
+   * Discover agents on the AgentPay network.
+   *
+   * @param params - Search, filter, and sort parameters
+   */
+  async discover(params: DiscoverParams = {}): Promise<DiscoverResponse> {
     const qs = new URLSearchParams();
     if (params.q) qs.set('q', params.q);
     if (params.category) qs.set('category', params.category);
@@ -168,24 +199,24 @@ export class AgentPay {
     if (params.limit !== undefined) qs.set('limit', String(params.limit));
     if (params.offset !== undefined) qs.set('offset', String(params.offset));
     const path = `/api/marketplace/discover${qs.toString() ? `?${qs}` : ''}`;
-    return this.client.get<any>(path);
+    return this.client.get<DiscoverResponse>(path);
   }
 
   /**
-   * Hire an agent from the marketplace with USDC escrow.
+   * Hire an agent from the network with USDC escrow.
    *
-   * @param agentId         - ID of the agent to hire
-   * @param amount          - Amount in USDC
+   * @param agentId - ID of the agent to hire
+   * @param amount - Amount in USDC
    * @param taskDescription - Description of the task
-   * @param timeoutHours    - Escrow timeout in hours (default: 72)
+   * @param timeoutHours - Escrow timeout in hours (default: 72)
    */
   async hire(
     agentId: string,
     amount: number,
     taskDescription: string,
     timeoutHours = 72,
-  ): Promise<any> {
-    return this.client.post<any>('/api/marketplace/hire', {
+  ): Promise<HireResponse> {
+    return this.client.post<HireResponse>('/api/marketplace/hire', {
       agentIdToHire: agentId,
       amountUsd: amount,
       taskDescription,
@@ -195,103 +226,82 @@ export class AgentPay {
 
   /**
    * Subscribe to the live marketplace SSE feed.
-   *
-   * Returns an EventSource-compatible object. Call .close() to unsubscribe.
-   * Only available in browser environments — in Node.js use a polyfill.
+   * Returns an object with a close() method.
+   * In Node.js, provide an EventSource polyfill (e.g. `eventsource` package).
    *
    * @param agentId - Optional agent ID to filter events
-   * @param callback - Called for each marketplace event
+   * @param callback - Called for each event
    */
   subscribeFeed(
     agentId?: string,
-    callback?: (event: any) => void,
+    callback?: (event: Record<string, unknown>) => void,
   ): { close: () => void } {
     const url = `${this.config.baseUrl}/api/feed/stream${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`;
-
-    // Use EventSource in browser; in Node.js caller provides a polyfill
     const EventSourceCtor =
       typeof EventSource !== 'undefined'
         ? EventSource
-        : (globalThis as any).EventSource;
+        : (globalThis as Record<string, unknown>).EventSource as typeof EventSource | undefined;
 
     if (!EventSourceCtor) {
-      throw new Error('EventSource not available. Install an SSE polyfill (e.g. eventsource) for Node.js.');
+      throw new Error('EventSource not available. Install an SSE polyfill for Node.js (e.g. npm i eventsource).');
     }
 
-    const es = new EventSourceCtor(url) as EventSource;
-
+    const es = new EventSourceCtor(url);
     if (callback) {
       es.onmessage = (e: MessageEvent) => {
-        try {
-          callback(JSON.parse(e.data));
-        } catch {
-          callback(e.data);
-        }
+        try { callback(JSON.parse(e.data as string) as Record<string, unknown>); }
+        catch { callback({ raw: e.data as string }); }
       };
     }
-
     return { close: () => es.close() };
   }
 
-  /** Register a one-time listener for a specific event type on the feed. */
-  on(eventType: string, callback: (event: any) => void): { close: () => void } {
-    const subscription = this.subscribeFeed(undefined, (event) => {
-      if (event && event.type === eventType) {
-        callback(event);
-      }
+  /** Register a one-time listener for a specific event type. */
+  on(eventType: string, callback: (event: Record<string, unknown>) => void): { close: () => void } {
+    return this.subscribeFeed(undefined, (event) => {
+      if (event.type === eventType) callback(event);
     });
-    return subscription;
   }
 }
 
+// ─── Standalone function API ──────────────────────────────────────────────────
+
 /**
- * Create a new payment intent.
+ * Create a new payment intent (functional API).
  *
- * @param config - SDK configuration (baseUrl, apiKey, timeoutMs)
- * @param amount - Amount to charge (in the currency's smallest unit, e.g. cents)
- * @param metadata - Optional key/value metadata to attach to the intent
+ * @example
+ * ```ts
+ * const intent = await createIntent(config, 5, { agentId: 'agent_abc' });
+ * ```
  */
 export async function createIntent(
   config: AgentPayConfig,
   amount: number,
   metadata?: IntentMetadata,
+  purpose?: string,
 ): Promise<CreateIntentResponse> {
-  const client = new HttpClient(
-    config.baseUrl,
-    config.apiKey,
-    config.timeoutMs,
-  );
+  const client = new HttpClient(config.baseUrl, config.apiKey, config.timeoutMs);
   return client.post<CreateIntentResponse>('/api/intents', {
     amount,
     ...(metadata ? { metadata } : {}),
+    ...(purpose ? { purpose } : {}),
   });
 }
 
 /**
- * Retrieve the current status of a payment intent.
- *
- * @param config - SDK configuration
- * @param intentId - ID of the intent to query
+ * Retrieve the current status of a payment intent (functional API).
  */
 export async function getIntentStatus(
   config: AgentPayConfig,
   intentId: string,
 ): Promise<IntentStatusResponse> {
-  const client = new HttpClient(
-    config.baseUrl,
-    config.apiKey,
-    config.timeoutMs,
-  );
-  return client.get<IntentStatusResponse>(`/api/intents/${intentId}/status`);
+  const client = new HttpClient(config.baseUrl, config.apiKey, config.timeoutMs);
+  return client.get<IntentStatusResponse>(`/api/v1/payment-intents/${intentId}`);
 }
 
 /**
- * Poll until the intent reaches `verified` status or times out.
+ * Poll until the intent reaches `verified` status or times out (functional API).
  *
- * @param config - SDK configuration
- * @param intentId - ID of the intent to watch
- * @param timeoutMs - Maximum time to wait in milliseconds (default: 60_000)
- * @param pollIntervalMs - Polling interval in milliseconds (default: 2_000)
  * @throws {IntentExpiredError} if the intent expires before verification
  * @throws {VerificationFailedError} if the intent reaches a failed state
  * @throws {VerificationTimeoutError} if the timeout is exceeded
@@ -303,50 +313,29 @@ export async function waitForVerification(
   pollIntervalMs = 2_000,
 ): Promise<IntentStatusResponse> {
   const deadline = Date.now() + timeoutMs;
-
   while (Date.now() < deadline) {
     const status = await getIntentStatus(config, intentId);
-
-    if (status.status === 'verified') {
-      return status;
-    }
-    if (status.status === 'expired') {
-      throw new IntentExpiredError(intentId);
-    }
-    if (status.status === 'failed') {
-      throw new VerificationFailedError(intentId);
-    }
-
+    if (status.status === 'verified' || status.status === 'confirmed') return status;
+    if (status.status === 'expired') throw new IntentExpiredError(intentId);
+    if (status.status === 'failed') throw new VerificationFailedError(intentId);
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     await sleep(Math.min(pollIntervalMs, remaining));
   }
-
   throw new VerificationTimeoutError(intentId, timeoutMs);
 }
 
 /**
  * Validate an agent certificate against the AgentPay certificate store.
- *
- * @param config - SDK configuration
- * @param certificate - Certificate object to validate
  */
 export async function validateCertificate(
   config: AgentPayConfig,
   certificate: Certificate,
 ): Promise<ValidateCertificateResponse> {
-  const client = new HttpClient(
-    config.baseUrl,
-    config.apiKey,
-    config.timeoutMs,
-  );
-  return client.post<ValidateCertificateResponse>(
-    '/api/certificates/validate',
-    certificate,
-  );
+  const client = new HttpClient(config.baseUrl, config.apiKey, config.timeoutMs);
+  return client.post<ValidateCertificateResponse>('/api/certificates/validate', certificate);
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-

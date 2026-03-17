@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Bell } from 'lucide-react';
 
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   '/overview':    { title: 'Overview',     desc: 'Payment metrics and network activity' },
@@ -72,13 +71,6 @@ export default function TopBar() {
           </span>
         </div>
 
-        {/* Notification bell (stub) */}
-        <button
-          className="w-7 h-7 rounded-md flex items-center justify-center text-[#404040] hover:text-[#737373] hover:bg-white/[0.03] transition-all"
-          title="Notifications"
-        >
-          <Bell size={13} />
-        </button>
       </div>
     </header>
   );

@@ -104,3 +104,16 @@ export async function rotateApiKey(apiKey: string): Promise<{ apiKey: string }> 
   if (!res.ok) throw new Error(`Key rotation failed: ${res.status}`);
   return res.json();
 }
+
+export async function updateWebhookUrl(
+  apiKey: string,
+  webhookUrl: string | null,
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/api/merchants/profile/webhook`, {
+    method: 'PATCH',
+    headers: headers(apiKey),
+    body: JSON.stringify({ webhookUrl }),
+  });
+  if (!res.ok) throw new Error(`Webhook update failed: ${res.status}`);
+  return res.json();
+}
