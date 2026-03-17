@@ -26,6 +26,7 @@ import {
   insertSettlementIdentity,
   resolveMatchingPolicy,
 } from '../lib/settlementDb';
+import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -62,7 +63,7 @@ router.post('/', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { merchantId, agentId, amount, currency, pin, metadata } = body as Record<string, unknown>;
+  const { merchantId, agentId, amount, currency, pin, metadata, idempotencyKey, purpose, splits } = body as Record<string, unknown>;
 
   // Validation — mirrors createAgentIntentSchema (Joi)
   if (!merchantId || !isUuid(merchantId as string)) {
@@ -77,6 +78,41 @@ router.post('/', async (c) => {
   const resolvedCurrency = (currency as string | undefined)?.toUpperCase() ?? 'USDC';
   if (resolvedCurrency !== 'USDC') {
     return c.json({ error: 'Validation error', details: ['"currency" must be USDC'] }, 400);
+  }
+  if (purpose !== undefined && (typeof purpose !== 'string' || purpose.length > 500)) {
+    return c.json({ error: 'Validation error', details: ['"purpose" must be a string with max 500 characters'] }, 400);
+  }
+  const resolvedPurpose = typeof purpose === 'string' ? purpose.trim() : undefined;
+
+  // Split payment validation
+  // splits: [{ address: string (Solana), bps: number (1–10000) }]
+  // bps = basis points of net amount (after platform fee). Must sum to 10000.
+  // Max 5 splits. Each address must be a valid Solana address format.
+  type SplitEntry = { address: string; bps: number };
+  let resolvedSplits: SplitEntry[] | undefined;
+  if (splits !== undefined) {
+    if (!Array.isArray(splits) || splits.length === 0 || splits.length > 5) {
+      return c.json({ error: 'Validation error', details: ['"splits" must be an array of 1–5 entries'] }, 400);
+    }
+    const splitErrors: string[] = [];
+    let bpsTotal = 0;
+    for (let i = 0; i < splits.length; i++) {
+      const s = splits[i] as Record<string, unknown>;
+      if (!s || typeof s !== 'object') { splitErrors.push(`splits[${i}]: must be an object`); continue; }
+      if (typeof s.address !== 'string' || s.address.length < 32 || s.address.length > 44) {
+        splitErrors.push(`splits[${i}].address: must be a valid Solana address (32–44 chars)`);
+      }
+      if (typeof s.bps !== 'number' || !Number.isInteger(s.bps) || s.bps < 1 || s.bps > 10000) {
+        splitErrors.push(`splits[${i}].bps: must be an integer between 1 and 10000`);
+      } else {
+        bpsTotal += s.bps;
+      }
+    }
+    if (splitErrors.length) return c.json({ error: 'Validation error', details: splitErrors }, 400);
+    if (bpsTotal !== 10000) {
+      return c.json({ error: 'Validation error', details: [`splits bps must sum to 10000 (100%). Got ${bpsTotal}`] }, 400);
+    }
+    resolvedSplits = splits.map((s: any) => ({ address: s.address as string, bps: s.bps as number }));
   }
 
   // PIN verification uses bcrypt (Node.js native) — deferred in Workers beta.
@@ -93,8 +129,59 @@ router.post('/', async (c) => {
     );
   }
 
+  // Idempotency key: validate format if provided
+  const idemKey = typeof idempotencyKey === 'string' ? idempotencyKey.slice(0, 128) : null;
+
   const sql = createDb(c.env);
   try {
+    // Idempotency check — return existing intent if same key was used before
+    if (idemKey) {
+      const existing = await sql<Array<{
+        id: string;
+        status: string;
+        amount: number;
+        currency: string;
+        verificationToken: string;
+        expiresAt: Date;
+        walletAddress: string;
+      }>>`
+        SELECT pi.id,
+               pi.status,
+               pi.amount,
+               pi.currency,
+               pi.verification_token AS "verificationToken",
+               pi.expires_at         AS "expiresAt",
+               m.wallet_address      AS "walletAddress"
+        FROM payment_intents pi
+        JOIN merchants m ON m.id = pi.merchant_id
+        WHERE pi.metadata->>'idempotencyKey' = ${idemKey}
+          AND pi.merchant_id = ${merchantId as string}
+        LIMIT 1
+      `.catch(() => []);
+
+      if (existing.length) {
+        const ex = existing[0];
+        const solanaPayUri = `solana:${ex.walletAddress}?amount=${Number(ex.amount)}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(ex.verificationToken)}`;
+        return c.json({
+          success: true,
+          intentId: ex.id,
+          verificationToken: ex.verificationToken,
+          expiresAt: ex.expiresAt instanceof Date ? ex.expiresAt.toISOString() : ex.expiresAt,
+          idempotent: true,
+          instructions: {
+            crypto: {
+              network: 'solana',
+              token: 'USDC',
+              recipientAddress: ex.walletAddress,
+              amount: Number(ex.amount),
+              memo: ex.verificationToken,
+              solanaPayUri,
+            },
+          },
+        }, 200);
+      }
+    }
+
     // Validate merchant exists and fetch wallet address + Stripe account
     const merchantRows = await sql<
       Array<{
@@ -118,17 +205,28 @@ router.post('/', async (c) => {
     }
 
     const merchantRow = merchantRows[0];
-    const intentMetadata = { ...((metadata as Record<string, unknown>) ?? {}), agentId };
+    const intentMetadata = {
+      ...((metadata as Record<string, unknown>) ?? {}),
+      agentId,
+      ...(idemKey ? { idempotencyKey: idemKey } : {}),
+      ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
+      ...(resolvedSplits ? { splits: resolvedSplits } : {}),
+    };
     const intentId = crypto.randomUUID();
     const verificationToken = generateVerificationToken();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    // agent_id is a UUID FK to the agents table — only populate it when
+    // agentId is a valid UUID (registered agent). Plain string identifiers
+    // (e.g. "my-agent-01") are stored in metadata only.
+    const agentUuid = isUuid(agentId as string) ? (agentId as string) : null;
 
     await sql`
       INSERT INTO payment_intents
         (id, merchant_id, agent_id, amount, currency, status,
          verification_token, expires_at, metadata, created_at, updated_at)
       VALUES
-        (${intentId}, ${merchantId as string}, ${agentId as string},
+        (${intentId}, ${merchantId as string}, ${agentUuid},
          ${amount as number}, ${resolvedCurrency}, 'pending',
          ${verificationToken}, ${expiresAt},
          ${JSON.stringify(intentMetadata)}::jsonb,
@@ -185,6 +283,23 @@ router.post('/', async (c) => {
       };
     }
 
+    // ── Fee ledger outbox entry ────────────────────────────────────────────
+    // Record the fee obligation immediately at intent creation so we have an
+    // audit trail regardless of whether the payer completes the payment.
+    // Best-effort: failure here must never block intent creation.
+    const feeBps = c.env.PLATFORM_FEE_BPS ? parseInt(c.env.PLATFORM_FEE_BPS, 10) : DEFAULT_FEE_BPS;
+    const treasuryWallet = c.env.PLATFORM_TREASURY_WALLET ?? '';
+    if (treasuryWallet) {
+      await createFeeLedgerEntry(sql, {
+        intentId,
+        grossAmount: amount as number,
+        feeBps: isNaN(feeBps) ? DEFAULT_FEE_BPS : feeBps,
+        treasuryDestination: treasuryWallet,
+        recipientDestination: merchantRow.walletAddress,
+        settlementReference: verificationToken,
+      });
+    }
+
     // ── Phase 4: settlement identity + matching policy ─────────────────────
     // Agent-facing intents use Solana protocol (direct, non-custodial flow).
     // Both calls are best-effort: errors are caught internally and return
@@ -223,6 +338,8 @@ router.post('/', async (c) => {
         intentId,
         verificationToken,
         expiresAt: expiresAt.toISOString(),
+        ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
+        ...(resolvedSplits ? { splits: resolvedSplits } : {}),
         instructions,
         ...(settlement !== undefined ? { settlement } : {}),
       },

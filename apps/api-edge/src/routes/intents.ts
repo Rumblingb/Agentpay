@@ -23,6 +23,7 @@
  */
 
 import { Hono, type Context } from 'hono';
+import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
@@ -186,7 +187,7 @@ router.post('/', authenticateApiKey, async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { amount, currency, agentId, protocol, metadata } = body as Record<string, unknown>;
+  const { amount, currency, agentId, protocol, metadata, purpose } = body as Record<string, unknown>;
 
   // Validation — mirrors createIntentSchema (Joi)
   if (typeof amount !== 'number' || amount <= 0) {
@@ -202,6 +203,15 @@ router.post('/', authenticateApiKey, async (c) => {
   if (protocol !== undefined && !validProtocols.includes(protocol as string)) {
     return c.json({ error: 'Validation error', details: [`"protocol" must be one of: ${validProtocols.join(', ')}`] }, 400);
   }
+  if (purpose !== undefined && (typeof purpose !== 'string' || purpose.length > 500)) {
+    return c.json({ error: 'Validation error', details: ['"purpose" must be a string with max 500 characters'] }, 400);
+  }
+  const resolvedPurpose = typeof purpose === 'string' ? purpose.trim() : undefined;
+
+  const intentMetadata: Record<string, unknown> = {
+    ...((metadata as Record<string, unknown>) ?? {}),
+    ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
+  };
 
   const sql = createDb(c.env);
   try {
@@ -231,7 +241,7 @@ router.post('/', authenticateApiKey, async (c) => {
          ${amount as number}, ${currency as string}, 'pending',
          ${(protocol as string | undefined) ?? null},
          ${verificationToken}, ${expiresAt},
-         ${metadata ? JSON.stringify(metadata) : null}::jsonb,
+         ${Object.keys(intentMetadata).length ? JSON.stringify(intentMetadata) : null}::jsonb,
          NOW(), NOW())
     `;
 
@@ -275,6 +285,7 @@ router.post('/', authenticateApiKey, async (c) => {
         intentId,
         verificationToken,
         expiresAt: expiresAt.toISOString(),
+        ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
         instructions: {
           recipientAddress: walletAddress,
           memo: verificationToken,
@@ -438,15 +449,160 @@ router.patch('/:intentId/agent', authenticateApiKey, async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/intents/fiat
-// DEFERRED — requires Stripe SDK + Stripe Connect account lookup.
-// Will be implemented in Phase 10 alongside the Stripe webhook routes.
+// Auth required. Creates a Stripe Checkout Session for fiat card payments.
+//
+// Body: { amount, agentId?, purpose? }
+//   amount  — payment amount in USD (e.g. 10.00 = $10.00)
+//   agentId — optional agent UUID
+//   purpose — optional payment description shown to payer (max 500 chars)
+//
+// Requires:
+//   - STRIPE_SECRET_KEY env var
+//   - Merchant must have stripe_connected_account_id set
+//
+// Returns: { intentId, checkoutUrl, sessionId, expiresAt }
 // ---------------------------------------------------------------------------
 
-router.post('/fiat', authenticateApiKey, (c) =>
-  new Response(
-    JSON.stringify({ status: "beta" }),
-    { status: 200 }
-  ),
-);
+router.post('/fiat', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) {
+    return c.json({ error: 'Stripe is not configured on this server' }, 503);
+  }
+
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { amount, agentId, purpose } = body;
+
+  if (typeof amount !== 'number' || amount <= 0) {
+    return c.json({ error: 'Validation error', details: ['"amount" must be a positive number (USD)'] }, 400);
+  }
+  if (agentId !== undefined && !isUuid(agentId as string)) {
+    return c.json({ error: 'Validation error', details: ['"agentId" must be a valid UUID'] }, 400);
+  }
+  if (purpose !== undefined && (typeof purpose !== 'string' || purpose.length > 500)) {
+    return c.json({ error: 'Validation error', details: ['"purpose" must be a string with max 500 characters'] }, 400);
+  }
+  const resolvedPurpose = typeof purpose === 'string' ? purpose.trim() : undefined;
+
+  const sql = createDb(c.env);
+  try {
+    // Fetch merchant's Stripe Connect account ID
+    const merchantRows = await sql<Array<{
+      stripeConnectedAccountId: string | null;
+      walletAddress: string;
+    }>>`
+      SELECT stripe_connected_account_id AS "stripeConnectedAccountId",
+             wallet_address              AS "walletAddress"
+      FROM merchants
+      WHERE id = ${merchant.id} AND is_active = true
+      LIMIT 1
+    `;
+
+    if (!merchantRows.length) {
+      return c.json({ error: 'Merchant not found' }, 404);
+    }
+
+    const { stripeConnectedAccountId, walletAddress } = merchantRows[0];
+    if (!stripeConnectedAccountId) {
+      return c.json({
+        error: 'STRIPE_NOT_CONNECTED',
+        message: 'This merchant account does not have a Stripe Connect account linked. Contact support to enable fiat payments.',
+      }, 400);
+    }
+
+    // Create payment intent record first so we have an intentId for Stripe metadata
+    const intentId = crypto.randomUUID();
+    const verificationToken = generateVerificationToken();
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    const intentMetadata: Record<string, unknown> = {
+      ...(agentId ? { agentId } : {}),
+      ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
+      stripeFlow: true,
+    };
+
+    await sql`
+      INSERT INTO payment_intents
+        (id, merchant_id, agent_id, amount, currency, status, protocol,
+         verification_token, expires_at, metadata, created_at, updated_at)
+      VALUES
+        (${intentId}, ${merchant.id},
+         ${(agentId as string | undefined) ?? null},
+         ${amount as number}, 'USD', 'pending', 'stripe',
+         ${verificationToken}, ${expiresAt},
+         ${JSON.stringify(intentMetadata)}::jsonb,
+         NOW(), NOW())
+    `;
+
+    // Create Stripe Checkout Session via Connect
+    const stripe = new Stripe(c.env.STRIPE_SECRET_KEY, {
+      httpClient: Stripe.createFetchHttpClient(),
+    });
+
+    const lineItemName = resolvedPurpose
+      ? `AgentPay: ${resolvedPurpose.slice(0, 100)}`
+      : 'AgentPay Payment';
+
+    const frontendUrl = c.env.FRONTEND_URL || 'https://apay-delta.vercel.app';
+    const session = await stripe.checkout.sessions.create(
+      {
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: { name: lineItemName },
+              unit_amount: Math.round(amount * 100), // cents
+            },
+            quantity: 1,
+          },
+        ],
+        mode: 'payment',
+        success_url: `${frontendUrl}/payment/success?intentId=${intentId}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/payment/cancel?intentId=${intentId}`,
+        metadata: {
+          intentId,
+          agentId: (agentId as string | undefined) ?? '',
+          purpose: resolvedPurpose ?? '',
+          merchantId: merchant.id,
+        },
+      },
+      { stripeAccount: stripeConnectedAccountId },
+    );
+
+    console.info('[intents/fiat] Stripe checkout session created', {
+      intentId,
+      sessionId: session.id,
+      merchantId: merchant.id,
+      amount,
+    });
+
+    return c.json(
+      {
+        success: true,
+        intentId,
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        expiresAt: expiresAt.toISOString(),
+        ...(resolvedPurpose ? { purpose: resolvedPurpose } : {}),
+      },
+      201,
+    );
+  } catch (err: unknown) {
+    // Surface Stripe-specific errors with a clean message
+    if (err instanceof Stripe.errors.StripeError) {
+      console.error('[intents/fiat] Stripe error:', err.message, { code: err.code, type: err.type });
+      return c.json({ error: 'Stripe error', message: err.message }, 502);
+    }
+    console.error('[intents/fiat] error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create fiat payment intent' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
 
 export { router as intentsRouter };

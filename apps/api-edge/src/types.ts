@@ -91,6 +91,36 @@ export interface Env {
    * Mirrors the Node.js backend's AGENTPAY_TEST_MODE check in src/config/env.ts.
    */
   AGENTPAY_TEST_MODE?: string;
+
+  /**
+   * When "true", all non-GET, non-health requests are rejected with 503.
+   * Emergency circuit-breaker — set in Cloudflare dashboard.
+   */
+  AGENTPAY_GLOBAL_PAUSE?: string;
+
+  // ── Platform fee configuration ────────────────────────────────────────────
+  /**
+   * Platform treasury wallet address (Solana).
+   * Fee transfers go here. Set via `wrangler secret put PLATFORM_TREASURY_WALLET`.
+   * Value: 3gnAvryBAuZXCoY95mjwQYud4ep3J8f4KH6ZUPuQnajd
+   */
+  PLATFORM_TREASURY_WALLET?: string;
+
+  /**
+   * Platform fee in basis points (100 bps = 1%).
+   * Default: 50 (0.5%). Set in wrangler.toml [vars] or dashboard.
+   */
+  PLATFORM_FEE_BPS?: string;
+
+  // ── Solana / hosted payer ─────────────────────────────────────────────────
+  /** Solana RPC endpoint URL (mainnet). Used by cron reconciler. */
+  SOLANA_RPC_URL?: string;
+
+  /** Hosted payer agent ID — the platform-controlled wallet agent. */
+  HOSTED_PAYER_AGENT_ID?: string;
+
+  /** Low USDC balance threshold in dollars — triggers an alert log. Default: 5. */
+  LOW_BALANCE_ALERT_THRESHOLD_USDC?: string;
 }
 
 // ---------------------------------------------------------------------------

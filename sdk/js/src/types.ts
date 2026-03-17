@@ -61,6 +61,8 @@ export interface PaymentConfig {
   currency?: string;
   /** Optional recipient identifier or wallet address */
   recipient?: string;
+  /** Optional human-readable description of what this payment is for (max 500 chars) */
+  purpose?: string;
   /** Optional metadata to attach to the payment */
   metadata?: IntentMetadata;
 }

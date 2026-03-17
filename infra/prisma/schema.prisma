@@ -209,6 +209,7 @@ model PaymentIntent {
   agent                Agent?                @relation(fields: [agentId], references: [id])
   settlementIdentities SettlementIdentity[]
   resolution           IntentResolution?
+  feeLedgerEntry       FeeLedgerEntry?
 
   @@map("payment_intents")
 }
@@ -635,6 +636,7 @@ model IntentResolution {
   // onDelete: Restrict — a SettlementIdentity named as the winning proof cannot
   // be deleted while this resolution record exists, preserving the audit trail.
   settlementIdentity SettlementIdentity? @relation(fields: [settlementIdentityId], references: [id], onDelete: Restrict)
+  feeLedgerEntries   FeeLedgerEntry[]
 
   @@index([intentId])
   @@index([externalRef])
@@ -665,3 +667,49 @@ model TrustEdge {
 // (Keep identical to original schema; edits should be performed here.)
 
 // NOTE: Truncated for brevity — the full schema has been copied from prisma/schema.prisma
+
+/// Outbox table for platform fee collection.
+/// Every confirmed payment intent generates one row.
+/// The Workers cron reconciler processes rows until status = 'complete' or 'terminal'.
+model FeeLedgerEntry {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Intent this fee entry belongs to (1:1)
+  intentId             String    @map("intent_id") @db.Uuid
+
+  // Populated once intent_resolutions row exists
+  intentResolutionId   String?   @map("intent_resolution_id") @db.Uuid
+
+  // Amounts — all in USDC
+  grossAmount          Decimal   @map("gross_amount") @db.Decimal(20, 6)
+  platformFeeAmount    Decimal   @map("platform_fee_amount") @db.Decimal(20, 6)
+  railFeeAmount        Decimal   @default(0) @map("rail_fee_amount") @db.Decimal(20, 6)
+  netRecipientAmount   Decimal   @map("net_recipient_amount") @db.Decimal(20, 6)
+
+  // Wallet addresses at time of settlement (immutable snapshot)
+  treasuryDestination  String    @map("treasury_destination")
+  recipientDestination String    @map("recipient_destination")
+
+  // Verification token / Solana memo used for this intent
+  settlementReference  String?   @map("settlement_reference")
+
+  // Populated when treasury fee transfer succeeds
+  feeTransferSignature String?   @map("fee_transfer_signature")
+
+  // Lifecycle: pending → processing → complete | failed → terminal
+  status               String    @default("pending")
+  failureReason        String?   @map("failure_reason")
+  attemptCount         Int       @default(0) @map("attempt_count")
+  lastAttemptedAt      DateTime? @map("last_attempted_at") @db.Timestamptz(6)
+
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  settledAt            DateTime? @map("settled_at") @db.Timestamptz(6)
+
+  intent     PaymentIntent    @relation(fields: [intentId], references: [id])
+  resolution IntentResolution? @relation(fields: [intentResolutionId], references: [id])
+
+  @@unique([intentId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("fee_ledger_entries")
+}

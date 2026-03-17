@@ -15,6 +15,7 @@ import { corsMiddleware } from './middleware/cors';
 import { requestIdMiddleware } from './middleware/requestId';
 import { securityHeadersMiddleware } from './middleware/securityHeaders';
 import { globalPauseMiddleware } from './middleware/globalPause';
+import { rateLimitMiddleware } from './middleware/rateLimit';
 import { healthRouter } from './routes/health';
 import { merchantsRouter } from './routes/merchants';
 import { intentsRouter } from './routes/intents';
@@ -74,6 +75,13 @@ app.use('*', async (c, next) => {
 // ---------------------------------------------------------------------------
 
 app.use('*', globalPauseMiddleware);
+
+// ---------------------------------------------------------------------------
+// 6. Rate limiting — per-IP sliding window (best-effort; Cloudflare zone-level
+//    rules are the authoritative cap for production).
+// ---------------------------------------------------------------------------
+
+app.use('*', rateLimitMiddleware);
 
 // ---------------------------------------------------------------------------
 // Routes

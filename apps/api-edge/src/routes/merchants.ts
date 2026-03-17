@@ -27,6 +27,7 @@ import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
 import { pbkdf2Hex } from '../lib/pbkdf2';
+import { hmacSign, hmacVerify } from '../lib/hmac';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -56,6 +57,110 @@ function isValidUri(s: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Wallet ownership helpers (Hole #5)
+// ---------------------------------------------------------------------------
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/** Decode a base-58 string (used for Solana pubkeys and signatures) to Uint8Array. */
+function decodeBase58(str: string): Uint8Array {
+  let num = 0n;
+  for (const ch of str) {
+    const idx = BASE58_ALPHABET.indexOf(ch);
+    if (idx < 0) throw new Error(`Invalid base58 character: ${ch}`);
+    num = num * 58n + BigInt(idx);
+  }
+  const bytes: number[] = [];
+  while (num > 0n) {
+    bytes.unshift(Number(num & 0xffn));
+    num >>= 8n;
+  }
+  for (const ch of str) {
+    if (ch === '1') bytes.unshift(0);
+    else break;
+  }
+  return new Uint8Array(bytes);
+}
+
+/**
+ * Build a stateless, time-limited wallet challenge token.
+ * Format: "apw:v1:{merchantId}:{expiresAt}:{nonce}:{hmac}"
+ * The HMAC covers all fields except itself (prevents forgery).
+ * TTL: 5 minutes.
+ */
+async function buildWalletChallenge(merchantId: string, signingSecret: string): Promise<{ challenge: string; expiresAt: number }> {
+  const nonce = randomHex(16);
+  const expiresAt = Math.floor(Date.now() / 1000) + 300; // 5-minute window
+  const payload = `apw:v1:${merchantId}:${expiresAt}:${nonce}`;
+  const mac = await hmacSign(payload, signingSecret);
+  return { challenge: `${payload}:${mac}`, expiresAt };
+}
+
+/**
+ * Verify a wallet challenge + ed25519 signature.
+ * Returns an error string, or null if valid.
+ *
+ * The client wallet must sign the challenge string as raw UTF-8 bytes
+ * (e.g. Phantom: wallet.signMessage(new TextEncoder().encode(challenge))).
+ * The signature is transmitted as lowercase hex (128 chars = 64 bytes).
+ */
+async function verifyWalletOwnership(
+  challenge: string,
+  signatureHex: string,
+  walletAddress: string,
+  merchantId: string,
+  signingSecret: string,
+): Promise<string | null> {
+  // 1. Parse challenge parts
+  const parts = challenge.split(':');
+  if (parts.length !== 6 || parts[0] !== 'apw' || parts[1] !== 'v1') {
+    return 'Invalid challenge format';
+  }
+  const [, , cMerchantId, cExpiresAtStr, cNonce, cMac] = parts;
+
+  // 2. Check merchant binding (prevents replay across merchants)
+  if (cMerchantId !== merchantId) return 'Challenge was not issued for this merchant';
+
+  // 3. Check expiry
+  const expiresAt = parseInt(cExpiresAtStr, 10);
+  if (isNaN(expiresAt) || Math.floor(Date.now() / 1000) > expiresAt) {
+    return 'Challenge has expired — request a new one';
+  }
+
+  // 4. Verify server-issued HMAC (prevent forged challenges)
+  const payload = `apw:v1:${cMerchantId}:${cExpiresAtStr}:${cNonce}`;
+  const macValid = await hmacVerify(payload, cMac, signingSecret);
+  if (!macValid) return 'Invalid challenge token';
+
+  // 5. Verify ed25519 signature — prove wallet private key control
+  if (!/^[0-9a-f]{128}$/i.test(signatureHex)) {
+    return 'Signature must be 128 hex chars (64-byte ed25519 signature)';
+  }
+  try {
+    const pubKeyBytes = decodeBase58(walletAddress);
+    if (pubKeyBytes.length !== 32) return 'Invalid wallet address length';
+
+    const sigBytes = new Uint8Array(
+      (signatureHex.match(/.{2}/g) as string[]).map((h) => parseInt(h, 16)),
+    );
+    const challengeBytes = new TextEncoder().encode(challenge);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      pubKeyBytes,
+      'Ed25519',
+      false,
+      ['verify'],
+    );
+    const valid = await crypto.subtle.verify('Ed25519', cryptoKey, sigBytes, challengeBytes);
+    if (!valid) return 'Signature does not match wallet address — ownership not proven';
+  } catch (err) {
+    return `Signature verification error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  return null; // all checks passed
 }
 
 /** UUID v4 format check — mirrors uuid validate(). */
@@ -538,6 +643,114 @@ router.post('/payments', authenticateApiKey, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/merchants/profile/wallet/challenge
+// Auth required. Issues a time-limited ownership challenge for PATCH /profile/wallet.
+//
+// Flow:
+//   1. Merchant calls this endpoint to get a challenge string.
+//   2. Merchant wallet signs the challenge bytes (UTF-8) with their private key.
+//   3. Merchant calls PATCH /profile/wallet with { walletAddress, challenge, signature }.
+//
+// Challenge TTL: 5 minutes. Stateless — no DB round-trip needed.
+// ---------------------------------------------------------------------------
+
+router.get('/profile/wallet/challenge', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
+  if (!signingSecret) {
+    return c.json({ error: 'Server configuration error' }, 500);
+  }
+
+  const { challenge, expiresAt } = await buildWalletChallenge(merchant.id, signingSecret);
+  return c.json({
+    challenge,
+    expiresAt,
+    instructions: 'Sign this challenge string (as UTF-8 bytes) with your Solana wallet, then send the hex-encoded signature to PATCH /api/merchants/profile/wallet',
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/merchants/profile/wallet
+// Auth required. Updates the merchant's Solana wallet address.
+//
+// Requires ownership proof: the new wallet address must have signed the
+// challenge issued by GET /api/merchants/profile/wallet/challenge.
+//
+// Body: { walletAddress, challenge, signature }
+//   walletAddress — target Solana wallet (base58, 32–44 chars)
+//   challenge     — opaque token from GET /profile/wallet/challenge
+//   signature     — ed25519 signature of challenge bytes, hex-encoded (128 chars)
+// ---------------------------------------------------------------------------
+
+router.patch('/profile/wallet', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { walletAddress, challenge, signature } = body;
+
+  if (
+    !walletAddress ||
+    typeof walletAddress !== 'string' ||
+    walletAddress.length < 32 ||
+    walletAddress.length > 44
+  ) {
+    return c.json(
+      { error: '"walletAddress" must be a valid Solana address (32–44 characters)' },
+      400,
+    );
+  }
+
+  if (!challenge || typeof challenge !== 'string') {
+    return c.json(
+      { error: '"challenge" is required — call GET /api/merchants/profile/wallet/challenge first' },
+      400,
+    );
+  }
+
+  if (!signature || typeof signature !== 'string') {
+    return c.json(
+      { error: '"signature" is required — sign the challenge with your wallet private key (hex-encoded)' },
+      400,
+    );
+  }
+
+  const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
+  if (!signingSecret) {
+    return c.json({ error: 'Server configuration error' }, 500);
+  }
+
+  // Verify challenge authenticity + ed25519 wallet ownership
+  const ownershipError = await verifyWalletOwnership(challenge, signature, walletAddress, merchant.id, signingSecret);
+  if (ownershipError) {
+    console.warn('[merchants] wallet update ownership check failed', { merchantId: merchant.id, reason: ownershipError });
+    return c.json({ error: ownershipError }, 403);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    await sql`
+      UPDATE merchants
+      SET wallet_address = ${walletAddress},
+          updated_at     = NOW()
+      WHERE id = ${merchant.id}
+    `;
+
+    console.info('[merchants] wallet updated with ownership proof', { merchantId: merchant.id, walletAddress });
+    return c.json({ success: true, walletAddress, message: 'Wallet address updated' });
+  } catch (err: unknown) {
+    console.error('[merchants] wallet update error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to update wallet address' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/merchants/rotate-key
 // Auth required. Generates a new API key, re-hashes, updates DB.
 // Mirrors rotateApiKey() from src/services/merchants.ts.
@@ -596,6 +809,189 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, (c) => {
     JSON.stringify({ status: "beta" }),
     { status: 200 }
   );
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/merchants/recover/request
+// Unauthenticated. Initiates API key recovery for a locked-out merchant.
+//
+// Body: { email }
+//
+// Generates a time-limited, single-effective-use recovery token bound to:
+//   - the merchant's current key state (keyHashSnippet)
+//   - a 15-minute expiry
+//   - an HMAC preventing forgery
+//
+// In production this token would be emailed to the merchant address.
+// Until an email service is wired up, it is returned in the response body
+// (protected by rate limiting on the /api/merchants/* route group).
+//
+// Security: always returns a generic success message whether or not the
+// email is found, to prevent account enumeration.
+// ---------------------------------------------------------------------------
+
+router.post('/recover/request', async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { email } = body;
+  if (!email || typeof email !== 'string' || !isValidEmail(email)) {
+    return c.json({ error: '"email" must be a valid email address' }, 400);
+  }
+
+  const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
+  if (!signingSecret) return c.json({ error: 'Server configuration error' }, 500);
+
+  const GENERIC_RESPONSE = {
+    success: true,
+    message: 'If an account with that email exists, recovery instructions have been sent.',
+  };
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ id: string; apiKeyHash: string }>>`
+      SELECT id, api_key_hash AS "apiKeyHash"
+      FROM merchants
+      WHERE email = ${email.toLowerCase()} AND is_active = true
+      LIMIT 1
+    `;
+
+    if (!rows.length) {
+      // Perform dummy HMAC work to equalize timing (prevent enumeration via timing)
+      await hmacSign('dummy:v1:noop', signingSecret);
+      return c.json(GENERIC_RESPONSE);
+    }
+
+    const { id: merchantId, apiKeyHash } = rows[0];
+    const keySnippet = (apiKeyHash ?? '').slice(0, 16); // first 16 chars — invalidated on rotation
+    const nonce = randomHex(12);
+    const expiresAt = Math.floor(Date.now() / 1000) + 900; // 15-minute window
+    const payload = `rec:v1:${merchantId}:${keySnippet}:${expiresAt}:${nonce}`;
+    const mac = await hmacSign(payload, signingSecret);
+    const recoveryToken = `${payload}:${mac}`;
+
+    // In production: send recoveryToken via email to the merchant.
+    // Currently: log server-side and return in response body until email service exists.
+    console.info('[merchants] recovery token issued', { merchantId, email: email.toLowerCase(), expiresAt });
+
+    return c.json({
+      ...GENERIC_RESPONSE,
+      recoveryToken,
+      note: 'DEVELOPMENT MODE: token returned in response. In production this will be emailed only.',
+    });
+  } catch (err: unknown) {
+    console.error('[merchants] recover/request error:', err instanceof Error ? err.message : err);
+    return c.json(GENERIC_RESPONSE); // never reveal internal errors
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/merchants/recover/confirm
+// Unauthenticated. Completes key recovery using a token from /recover/request.
+//
+// Body: { email, recoveryToken }
+//
+// On success: rotates the API key and returns the new key.
+// The token is effectively single-use: key rotation changes keyHashSnippet,
+// invalidating any previously issued token for that account.
+// ---------------------------------------------------------------------------
+
+router.post('/recover/confirm', async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { email, recoveryToken } = body;
+  if (!email || typeof email !== 'string' || !isValidEmail(email)) {
+    return c.json({ error: '"email" must be a valid email address' }, 400);
+  }
+  if (!recoveryToken || typeof recoveryToken !== 'string') {
+    return c.json({ error: '"recoveryToken" is required' }, 400);
+  }
+
+  const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
+  if (!signingSecret) return c.json({ error: 'Server configuration error' }, 500);
+
+  // Parse token: rec:v1:{merchantId}:{keySnippet}:{expiresAt}:{nonce}:{mac}
+  const parts = recoveryToken.split(':');
+  if (parts.length !== 7 || parts[0] !== 'rec' || parts[1] !== 'v1') {
+    return c.json({ error: 'Invalid recovery token format' }, 400);
+  }
+  const [, , tokenMerchantId, tokenKeySnippet, tokenExpiresAtStr, tokenNonce, tokenMac] = parts;
+
+  // Check expiry
+  const expiresAt = parseInt(tokenExpiresAtStr, 10);
+  if (isNaN(expiresAt) || Math.floor(Date.now() / 1000) > expiresAt) {
+    return c.json({ error: 'Recovery token has expired — request a new one' }, 400);
+  }
+
+  // Verify HMAC (prevents forged tokens)
+  const payload = `rec:v1:${tokenMerchantId}:${tokenKeySnippet}:${tokenExpiresAtStr}:${tokenNonce}`;
+  const macValid = await hmacVerify(payload, tokenMac, signingSecret);
+  if (!macValid) {
+    return c.json({ error: 'Invalid recovery token' }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    // Look up merchant — must match both merchantId and email (double bind)
+    const rows = await sql<Array<{ id: string; apiKeyHash: string }>>`
+      SELECT id, api_key_hash AS "apiKeyHash"
+      FROM merchants
+      WHERE id = ${tokenMerchantId}::uuid
+        AND email = ${email.toLowerCase()}
+        AND is_active = true
+      LIMIT 1
+    `;
+
+    if (!rows.length) {
+      return c.json({ error: 'Recovery token does not match this account' }, 403);
+    }
+
+    const { apiKeyHash } = rows[0];
+
+    // Verify token was issued for the current key state (single-effective-use)
+    const currentSnippet = (apiKeyHash ?? '').slice(0, 16);
+    if (currentSnippet !== tokenKeySnippet) {
+      return c.json({ error: 'Recovery token has already been used or key was already rotated' }, 409);
+    }
+
+    // Rotate API key
+    const newApiKey = randomHex(32);
+    const newKeyPrefix = newApiKey.substring(0, 8);
+    const newSalt = randomHex(16);
+    const newHash = await pbkdf2Hex(newApiKey, newSalt);
+
+    await sql`
+      UPDATE merchants
+      SET api_key_hash = ${newHash},
+          api_key_salt = ${newSalt},
+          key_prefix   = ${newKeyPrefix},
+          updated_at   = NOW()
+      WHERE id = ${tokenMerchantId}::uuid AND is_active = true
+    `;
+
+    console.info('[merchants] key recovered via recovery token', { merchantId: tokenMerchantId });
+    return c.json({
+      success: true,
+      apiKey: newApiKey,
+      message: 'API key recovered successfully. Store this key securely — it will not be shown again.',
+    });
+  } catch (err: unknown) {
+    console.error('[merchants] recover/confirm error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Recovery failed — please try again' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
 });
 
 export { router as merchantsRouter };

@@ -70,11 +70,13 @@ export class AgentPay {
     amount: number,
     currency = 'USDC',
     metadata?: IntentMetadata,
+    purpose?: string,
   ): Promise<CreateIntentResponse> {
     return this.client.post<CreateIntentResponse>('/api/intents', {
       amount,
       currency,
       ...(metadata ? { metadata } : {}),
+      ...(purpose ? { purpose } : {}),
     });
   }
 
@@ -96,7 +98,7 @@ export class AgentPay {
    * @param config - Payment configuration (amount, currency, recipient, metadata)
    */
   async pay(config: PaymentConfig): Promise<PaymentResult> {
-    const { amount, currency = 'USDC', recipient, metadata } = config;
+    const { amount, currency = 'USDC', recipient, metadata, purpose } = config;
 
     const meta: IntentMetadata = {
       ...(metadata ?? {}),
@@ -107,6 +109,7 @@ export class AgentPay {
       amount,
       currency,
       Object.keys(meta).length > 0 ? meta : undefined,
+      purpose,
     );
 
     // Extract the Solana Pay URI from the instructions if present

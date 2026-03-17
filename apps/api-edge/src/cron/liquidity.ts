@@ -1,30 +1,125 @@
 /**
- * Liquidity cron handler for Workers.
+ * Liquidity & balance monitoring cron — runs every 5 minutes.
  *
- * Original: src/services/liquidityService.ts
- * Original interval: every 5 minutes
+ * Responsibilities:
+ *   1. LOW_BALANCE_USDC  — alert when hosted payer wallet USDC is below threshold
+ *   2. LOW_BALANCE_SOL   — alert when hosted payer SOL (for tx fees) is critically low
+ *   3. FEE_LEDGER_ALERT  — alert when critical/terminal fee ledger entries pile up
  *
- * Status: STUB — the liquidity bot is a demo/market-maker feature that uses:
- *   - Prisma (Node.js)
- *   - In-memory escrow service (src/escrow/trust-escrow.ts)
- *   - setTimeout for auto-completion (not compatible with Workers stateless model)
- *   - Marketplace emitter (SSE/WebSocket, not applicable in Workers)
+ * The liquidity bot (market-maker) remains on Render until Durable Objects
+ * are introduced. This cron handles the monitoring-only surface that is safe
+ * for the stateless Workers runtime.
  *
- * Migration path:
- *   1. Replace Prisma with postgres.js (createDb).
- *   2. Replace in-memory escrow with DB-persisted escrow_transactions table.
- *   3. Replace setTimeout auto-complete with a follow-up Cron Trigger.
- *   4. Remove SSE/WebSocket emitter calls (not needed for backend cron work).
- *
- * This stub logs a no-op so the cron fires without crashing until the real
- * implementation is ready.
+ * Alerts are emitted as structured Workers log lines (visible in wrangler tail
+ * and forwarded to any log drain attached to the Cloudflare account).
  */
 
 import type { Env } from '../types';
+import { createDb } from '../lib/db';
+
+/** Default USDC threshold below which we emit a LOW_BALANCE alert. */
+const DEFAULT_LOW_USDC_THRESHOLD = 5; // $5 USDC
 
 export async function runLiquidityCron(env: Env): Promise<void> {
-  console.info('[cron/liquidity] tick — TODO: implement (deferred, see RENDER_RETIREMENT.md)');
-  // No-op stub. The liquidity bot currently runs on Render (src/services/liquidityService.ts).
-  // Migration requires: postgres.js + DB-persisted escrow + no setTimeout.
-  void env; // suppress unused-var lint
+  const sql = createDb(env);
+  try {
+    await checkHostedPayerBalance(env, sql);
+    await checkCriticalFeeLedger(sql);
+  } catch (err: unknown) {
+    console.error('[cron/liquidity] error', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    sql.end().catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Check 1: Hosted payer wallet balance
+// ---------------------------------------------------------------------------
+
+async function checkHostedPayerBalance(
+  env: Env,
+  sql: ReturnType<typeof createDb>,
+): Promise<void> {
+  const hostedPayerAgentId = env.HOSTED_PAYER_AGENT_ID;
+  if (!hostedPayerAgentId) return; // not configured — skip
+
+  const thresholdUsdc = env.LOW_BALANCE_ALERT_THRESHOLD_USDC
+    ? parseFloat(env.LOW_BALANCE_ALERT_THRESHOLD_USDC)
+    : DEFAULT_LOW_USDC_THRESHOLD;
+
+  const rows = await sql<Array<{ balanceUsdc: number; publicKey: string }>>`
+    SELECT balance_usdc AS "balanceUsdc",
+           public_key   AS "publicKey"
+    FROM agent_wallets
+    WHERE agent_id  = ${hostedPayerAgentId}
+      AND is_active = true
+    LIMIT 1
+  `.catch(() => [] as Array<{ balanceUsdc: number; publicKey: string }>);
+
+  if (!rows.length) {
+    console.warn('[cron/liquidity] hosted payer wallet not found in DB', {
+      hostedPayerAgentId,
+      action: 'CHECK_WALLET_SETUP',
+    });
+    return;
+  }
+
+  const { balanceUsdc, publicKey } = rows[0];
+  const balance = Number(balanceUsdc);
+
+  if (balance < thresholdUsdc) {
+    console.error('[cron/liquidity] LOW_BALANCE_USDC', {
+      alertType: 'LOW_BALANCE_USDC',
+      severity: balance === 0 ? 'critical' : 'high',
+      publicKey,
+      balanceUsdc: balance,
+      thresholdUsdc,
+      action: 'FUND_HOSTED_PAYER_WALLET',
+    });
+  } else {
+    console.info('[cron/liquidity] hosted payer balance OK', {
+      balanceUsdc: balance,
+      thresholdUsdc,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Check 2: Critical + terminal fee ledger entries
+// ---------------------------------------------------------------------------
+
+async function checkCriticalFeeLedger(
+  sql: ReturnType<typeof createDb>,
+): Promise<void> {
+  const counts = await sql<Array<{ status: string; count: number }>>`
+    SELECT status, COUNT(*) AS count
+    FROM fee_ledger_entries
+    WHERE status IN ('failed', 'terminal', 'processing')
+    GROUP BY status
+  `.catch(() => [] as Array<{ status: string; count: number }>);
+
+  if (!counts.length) return;
+
+  for (const row of counts) {
+    const count = Number(row.count);
+    if (count === 0) continue;
+
+    const severity = row.status === 'terminal' ? 'critical' : row.status === 'failed' ? 'high' : 'medium';
+    const action =
+      row.status === 'terminal'
+        ? 'MANUAL_INTERVENTION_REQUIRED'
+        : row.status === 'failed'
+        ? 'CRON_WILL_RETRY — check SOLANA_RPC_URL and PLATFORM_TREASURY_WALLET'
+        : 'PROCESSING — treasury transfer pending';
+
+    console.error('[cron/liquidity] FEE_LEDGER_ALERT', {
+      alertType: 'FEE_LEDGER_ALERT',
+      severity,
+      status: row.status,
+      count,
+      action,
+    });
+  }
 }

@@ -17,7 +17,7 @@ info:
     - **Solana Pay** — Solana USDC native
     - **Stripe** — Fiat card / bank payments
 
-    Get your API key at [https://dashboard.agentpay.gg](https://dashboard.agentpay.gg)
+    Get your API key: `POST /api/merchants/register`
   version: 1.0.0
   contact:
     name: AgentPay Support
@@ -28,10 +28,12 @@ info:
     url: https://github.com/Rumblingb/Agentpay/blob/main/LICENSE
 
 servers:
-  - url: https://api.agentpay.gg
-    description: Production
+  - url: https://agentpay-api.apaybeta.workers.dev
+    description: Production (Cloudflare Workers)
+  - url: http://localhost:8787
+    description: Local Workers dev (wrangler dev)
   - url: http://localhost:3001
-    description: Local development
+    description: Local Node.js dev
 
 tags:
   - name: Health
@@ -80,11 +82,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
 
-  /api/merchants:
+  /api/merchants/register:
     post:
       tags: [Merchants]
       summary: Register a merchant
-      description: Register a new merchant and receive an API key
+      description: Register a new merchant account and receive an API key. No auth required.
       operationId: registerMerchant
       requestBody:
         required: true
@@ -101,15 +103,37 @@ paths:
                 $ref: '#/components/schemas/MerchantRegisterResponse'
         '400':
           $ref: '#/components/responses/ValidationError'
-        '409':
-          $ref: '#/components/responses/ConflictError'
 
-  /api/v1/payment-intents:
-    post:
-      tags: [Payments]
-      summary: Create payment intent
-      description: Create a new payment intent for Solana USDC or Stripe
-      operationId: createPaymentIntent
+  /api/merchants/profile:
+    get:
+      tags: [Merchants]
+      summary: Get merchant profile
+      operationId: getMerchantProfile
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Merchant profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  email: { type: string }
+                  walletAddress: { type: string }
+                  webhookUrl: { type: string, nullable: true }
+                  createdAt: { type: string, format: date-time }
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/merchants/profile/wallet:
+    patch:
+      tags: [Merchants]
+      summary: Update payout wallet address
+      description: Change the Solana wallet address where the merchant receives payments.
+      operationId: updateMerchantWallet
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -117,7 +141,118 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PaymentIntentRequest'
+              type: object
+              required: [walletAddress]
+              properties:
+                walletAddress:
+                  type: string
+                  description: Valid Solana wallet address (32–44 chars)
+                  example: EizgAusPxbmJR4H6yoc1zcSCLdkdfM5r57gCpiAzdaNE
+      responses:
+        '200':
+          description: Wallet updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  walletAddress: { type: string }
+                  message: { type: string }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/merchants/profile/webhook:
+    patch:
+      tags: [Merchants]
+      summary: Set webhook URL
+      description: Set or clear the outgoing webhook URL for payment events.
+      operationId: updateMerchantWebhook
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhookUrl:
+                  type: string
+                  nullable: true
+                  description: HTTPS URL to receive events, or null to clear
+      responses:
+        '200':
+          description: Webhook URL updated
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/merchants/rotate-key:
+    post:
+      tags: [Merchants]
+      summary: Rotate API key
+      description: Invalidates the current API key and returns a new one.
+      operationId: rotateApiKey
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: New API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  apiKey: { type: string }
+                  message: { type: string }
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/merchants/stats:
+    get:
+      tags: [Merchants]
+      summary: Payment statistics
+      operationId: getMerchantStats
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Aggregate payment stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  totalTransactions: { type: integer }
+                  confirmedCount: { type: integer }
+                  pendingCount: { type: integer }
+                  failedCount: { type: integer }
+                  totalConfirmedUsdc: { type: number }
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/payment-intents:
+    post:
+      tags: [Payments]
+      summary: Create payment intent (agent-facing)
+      description: |
+        Agent-initiated payment intent. No API key required — agents call this directly.
+
+        The policy engine (AgentPassport) evaluates the request against the merchant's
+        spending policy before confirming. Returns `403` if rejected, `202` if approval required.
+
+        **Platform fee**: 0.5% (50 bps) of gross amount, recorded in `fee_ledger_entries`.
+      operationId: createAgentPaymentIntent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentPaymentIntentRequest'
       responses:
         '201':
           description: Payment intent created
@@ -125,34 +260,192 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentIntentResponse'
+        '202':
+          description: Policy requires manual approval before payment can proceed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: approval_required }
+                  reason: { type: string }
+                  intentId: { type: string, format: uuid }
         '400':
           $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '402':
-          $ref: '#/components/responses/SpendingPolicyViolation'
+        '403':
+          description: Payment rejected by spending policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: false }
+                  status: { type: string, example: rejected }
+                  reason: { type: string }
 
-  /api/verify/{paymentId}:
+  /api/v1/payment-intents/{intentId}:
     get:
       tags: [Payments]
-      summary: Verify payment
-      description: Verify the status of a payment intent
-      operationId: verifyPayment
+      summary: Poll intent status
+      description: Public status check. Agents poll this after submitting a tx hash.
+      operationId: getPaymentIntentStatus
       parameters:
-        - name: paymentId
+        - name: intentId
           in: path
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '200':
-          description: Payment status
+          description: Intent status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  intentId: { type: string, format: uuid }
+                  merchantId: { type: string, format: uuid }
+                  amount: { type: number }
+                  currency: { type: string }
+                  status:
+                    type: string
+                    enum: [pending, confirmed, expired, rejected, requires_approval]
+                  expiresAt: { type: string, format: date-time }
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/payment-intents/{intentId}/verify:
+    post:
+      tags: [Payments]
+      summary: Submit on-chain transaction hash
+      description: |
+        Agents submit the Solana transaction signature after paying on-chain.
+        The hash is stored and the Solana listener confirms it within ~30 seconds.
+        Returns immediately with `queued: true` — poll the intent status to confirm.
+      operationId: submitTxHash
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [txHash]
+              properties:
+                txHash:
+                  type: string
+                  description: Base58-encoded Solana transaction signature (88 chars)
+                  example: 5LpZLGzVXc...
+      responses:
+        '200':
+          description: Transaction hash queued for verification
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  queued: { type: boolean }
+                  intentId: { type: string }
+                  txHash: { type: string }
+                  message: { type: string }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Intent is not in pending state
+        '410':
+          description: Intent has expired
+
+  /api/receipt/{intentId}:
+    get:
+      tags: [Payments]
+      summary: Get settlement receipt
+      description: |
+        Returns the full receipt for a payment intent including the intent details,
+        resolution status (once the settlement engine has run), and settlement identity.
+        Use this as your founder-proof artifact.
+      operationId: getReceipt
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Payment receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  intent:
+                    type: object
+                    description: Sanitized intent (no verificationToken)
+                  resolution:
+                    type: object
+                    nullable: true
+                    description: Resolution engine output — null until confirmed
+                    properties:
+                      status: { type: string }
+                      decisionCode: { type: string, nullable: true }
+                      reasonCode: { type: string, nullable: true }
+                      confidenceScore: { type: number, nullable: true }
+                      resolvedAt: { type: string, format: date-time }
+                      protocol: { type: string }
+                      externalRef: { type: string, nullable: true }
+                  settlement:
+                    type: object
+                    nullable: true
+                    description: Settlement identity — null until proof submitted
+                    properties:
+                      status: { type: string }
+                      protocol: { type: string }
+                      externalRef: { type: string, nullable: true }
+                      settledAt: { type: string, format: date-time, nullable: true }
+                  escrow: { type: object, nullable: true }
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/verify/{txHash}:
+    get:
+      tags: [Payments]
+      summary: Verify by transaction hash
+      description: |
+        Settlement-aware lookup by Solana transaction signature or external ref.
+        Response is HMAC-SHA256 signed via the `signature` field — use this to
+        verify authenticity of receipts in your integration.
+
+        Lookup chain: settlement_events → intent_resolutions → payment_intents → transactions (legacy)
+      operationId: verifyByTxHash
+      parameters:
+        - name: txHash
+          in: path
+          required: true
+          schema:
+            type: string
+            description: Base58-encoded Solana tx signature or external reference
+      responses:
+        '200':
+          description: Verification result (always 200 — check `verified` field)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentVerifyResponse'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
+        '400':
+          $ref: '#/components/responses/ValidationError'
 
   /api/agentrank/{agentId}:
     get:
@@ -847,50 +1140,118 @@ components:
         merchant:
           type: object
 
+    AgentPaymentIntentRequest:
+      type: object
+      required: [merchantId, agentId, amount]
+      properties:
+        merchantId:
+          type: string
+          format: uuid
+          description: UUID of the merchant to pay
+        agentId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Identifier for the paying agent (any string; UUID if registered)
+          example: my-agent-01
+        amount:
+          type: number
+          description: Amount in USDC (e.g. 0.10 = $0.10)
+          example: 0.10
+        currency:
+          type: string
+          enum: [USDC]
+          default: USDC
+        metadata:
+          type: object
+          description: Optional key-value metadata attached to the intent
+
     PaymentIntentRequest:
       type: object
-      required: [amount, recipient]
+      required: [amount, currency]
+      description: Merchant-authenticated intent creation (POST /api/intents)
       properties:
         amount:
-          type: integer
-          description: Amount in USD cents (e.g. 500 = $5.00)
-        recipient:
+          type: number
+          description: Amount in USDC
+        currency:
           type: string
-          description: Recipient wallet address or agent ID
-        memo:
+          enum: [USDC]
+          default: USDC
+        agentId:
           type: string
-        method:
+          format: uuid
+          description: Optional — UUID of a registered agent
+        protocol:
           type: string
-          enum: [solana, stripe]
-          default: solana
+          enum: [solana, x402, ap2, acp]
         metadata:
           type: object
 
     PaymentIntentResponse:
       type: object
       properties:
-        id:
+        success:
+          type: boolean
+        intentId:
           type: string
-        status:
+          format: uuid
+        verificationToken:
           type: string
-          enum: [pending, completed, failed, expired]
-        amount:
-          type: integer
-        payment_url:
-          type: string
+          description: Must be set as the Solana Pay memo field
         expiresAt:
           type: string
           format: date-time
+        instructions:
+          type: object
+          properties:
+            crypto:
+              type: object
+              properties:
+                network: { type: string, example: solana }
+                token: { type: string, example: USDC }
+                recipientAddress: { type: string }
+                amount: { type: number }
+                memo: { type: string }
+                solanaPayUri: { type: string }
+        settlement:
+          type: object
+          description: Settlement identity and matching policy (present if DB tables exist)
+          nullable: true
 
     PaymentVerifyResponse:
       type: object
       properties:
-        id:
-          type: string
+        verified:
+          type: boolean
         status:
           type: string
-        amount:
-          type: integer
+          enum: [unseen, observed, matched, confirmed, unmatched]
+          description: |
+            - unseen: tx hash not found anywhere
+            - observed: settlement event found, not yet confirmed
+            - matched: on-chain confirmed, resolution engine pending
+            - confirmed: fully resolved and verified
+            - unmatched: resolution engine rejected or policy mismatch
+        intentId:
+          type: string
+          nullable: true
+        agentId:
+          type: string
+          nullable: true
+        merchantId:
+          type: string
+          nullable: true
+        settlementTimestamp:
+          type: string
+          format: date-time
+          nullable: true
+        reasonCode:
+          type: string
+          nullable: true
+        signature:
+          type: string
+          description: HMAC-SHA256 of the payload — verify using your WEBHOOK_SECRET
         verifiedAt:
           type: string
           format: date-time

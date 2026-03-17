@@ -1,41 +1,61 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 
 // Configuration from environment variables
-const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const CONFIRMATION_DEPTH = parseInt(process.env.CONFIRMATION_DEPTH || '2', 10);
 
-// ============ CIRCUIT BREAKER ============
-// Prevents cascading failures when the Solana RPC node is down.
+// ── RPC endpoint list (primary + fallbacks) ──────────────────────────────
+// SOLANA_RPC_URL          — primary endpoint (required, defaults to devnet)
+// SOLANA_RPC_FALLBACKS    — comma-separated list tried in order on primary failure
 //
-// Implementation uses module-level state (single-threaded Node.js event loop
-// guarantees no concurrent mutation within a single process). In multi-worker
-// / cluster deployments, move this state to Redis for shared circuit status.
-const CB_FAILURE_THRESHOLD = 3;         // open after 3 consecutive failures
-const CB_RESET_TIMEOUT_MS = 30_000;     // try again after 30 s (half-open)
+// On each call, endpoints are tried left-to-right until one succeeds.
+// A per-endpoint circuit breaker prevents hammering a downed node.
+const PRIMARY_RPC = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+const FALLBACK_RPCS: string[] = (process.env.SOLANA_RPC_FALLBACKS || '')
+  .split(',')
+  .map((u) => u.trim())
+  .filter(Boolean);
+const ALL_RPC_URLS: string[] = [PRIMARY_RPC, ...FALLBACK_RPCS];
 
-let cbFailureCount = 0;
-let cbLastFailureAt = 0;
+// ── Per-endpoint circuit breakers ────────────────────────────────────────
+const CB_FAILURE_THRESHOLD = 3;   // open after 3 consecutive failures
+const CB_RESET_TIMEOUT_MS = 30_000; // half-open after 30 s
 
-function circuitIsOpen(): boolean {
-  if (cbFailureCount >= CB_FAILURE_THRESHOLD) {
-    const elapsed = Date.now() - cbLastFailureAt;
-    if (elapsed < CB_RESET_TIMEOUT_MS) {
-      return true; // still open
-    }
-    // Half-open: allow one probe through and reset counter
-    cbFailureCount = 0;
+interface CbState {
+  failures: number;
+  lastFailureAt: number;
+}
+const cbState = new Map<string, CbState>();
+
+function getCb(url: string): CbState {
+  let s = cbState.get(url);
+  if (!s) { s = { failures: 0, lastFailureAt: 0 }; cbState.set(url, s); }
+  return s;
+}
+
+function isOpen(url: string): boolean {
+  const s = getCb(url);
+  if (s.failures >= CB_FAILURE_THRESHOLD) {
+    if (Date.now() - s.lastFailureAt < CB_RESET_TIMEOUT_MS) return true;
+    s.failures = 0; // half-open: let one probe through
   }
   return false;
 }
 
-function recordRpcSuccess(): void {
-  cbFailureCount = 0;
+function recordSuccess(url: string): void { getCb(url).failures = 0; }
+function recordFailure(url: string): void {
+  const s = getCb(url);
+  s.failures += 1;
+  s.lastFailureAt = Date.now();
 }
 
-function recordRpcFailure(): void {
-  cbFailureCount += 1;
-  cbLastFailureAt = Date.now();
+// Cache Connection objects so we don't re-construct on every call
+const connectionCache = new Map<string, Connection>();
+function getConnection(url: string): Connection {
+  let conn = connectionCache.get(url);
+  if (!conn) { conn = new Connection(url, 'confirmed'); connectionCache.set(url, conn); }
+  return conn;
 }
+
 // =========================================
 
 export interface PaymentVerification {
@@ -57,104 +77,87 @@ export interface ConfirmationCheck {
   error?: string;
 }
 
-// Layer 3: Settlement & Verification - Establishing Connection [cite: 63, 64]
-const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
-
 function isParsedInstruction(ix: any): ix is any {
   return ix && ix.parsed !== undefined;
 }
 
 /**
- * Layer 3: Settlement & Verification 
+ * Layer 3: Settlement & Verification
  * Verifies on-chain payment against the expected recipient.
- * Protected by a circuit breaker: if the Solana RPC fails repeatedly,
- * returns "System congested" instead of making the caller wait.
+ *
+ * Tries ALL_RPC_URLS (primary + fallbacks) in order, skipping endpoints
+ * whose per-endpoint circuit breaker is open.  Falls back to the next
+ * endpoint on any network/timeout error.  Only returns an error if every
+ * endpoint is unavailable or all return a definitive negative result.
  */
 export async function verifyPaymentRecipient(
   txHash: string,
   expectedRecipient: string
 ): Promise<PaymentVerification> {
-  // Circuit breaker check — fast-fail when RPC is consistently unreachable
-  if (circuitIsOpen()) {
-    return {
-      valid: false,
-      error: 'System congested — Solana RPC unavailable, please retry shortly',
-    };
-  }
+  let lastError = 'All Solana RPC endpoints are unavailable — please retry shortly';
 
-  try {
-    // Fetch transaction with support for versioned transactions (Protocol Agnosticism)
-    const tx = await connection.getParsedTransaction(txHash, {
-      commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0
-    });
-
-    if (!tx) {
-      recordRpcSuccess(); // RPC responded (even if tx not found)
-      return { valid: false, error: 'Transaction not found' };
+  for (const rpcUrl of ALL_RPC_URLS) {
+    if (isOpen(rpcUrl)) {
+      lastError = `RPC circuit open: ${rpcUrl}`;
+      continue;
     }
 
-    if (tx.meta?.err) {
-      recordRpcSuccess();
-      return { valid: false, error: 'Transaction failed on-chain' };
-    }
+    try {
+      const conn = getConnection(rpcUrl);
 
-    const instructions = tx.transaction.message.instructions;
-    let foundValidTransfer = false;
-    let transferDetails: any = null;
+      // Fetch transaction with support for versioned transactions
+      const tx = await conn.getParsedTransaction(txHash, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      });
 
-    // Layer 1: Protocol Translation - Normalizing SPL-Token instructions
-    for (const ix of instructions) {
-      if (!isParsedInstruction(ix)) continue;
+      // RPC responded — mark success regardless of tx content
+      recordSuccess(rpcUrl);
 
-      const ixAny = ix as any;
-      if (ixAny.program === 'spl-token' && ixAny.parsed.type === 'transfer') {
-        const { destination, tokenAmount, authority } = ixAny.parsed.info;
+      if (!tx) return { valid: false, error: 'Transaction not found' };
+      if (tx.meta?.err) return { valid: false, error: 'Transaction failed on-chain' };
 
-        // CRITICAL SECURITY: verify destination matches expected recipient
-        if (destination !== expectedRecipient) {
-          continue;
+      const instructions = tx.transaction.message.instructions;
+      let foundValidTransfer = false;
+      let transferDetails: any = null;
+
+      for (const ix of instructions) {
+        if (!isParsedInstruction(ix)) continue;
+        const ixAny = ix as any;
+        if (ixAny.program === 'spl-token' && ixAny.parsed.type === 'transfer') {
+          const { destination, tokenAmount, authority } = ixAny.parsed.info;
+          if (destination !== expectedRecipient) continue;
+          transferDetails = { from: authority, to: destination, amount: tokenAmount.amount, decimals: tokenAmount.decimals };
+          foundValidTransfer = true;
+          break;
         }
-
-        transferDetails = {
-          from: authority,
-          to: destination,
-          amount: tokenAmount.amount,
-          decimals: tokenAmount.decimals,
-        };
-
-        foundValidTransfer = true;
-        break;
       }
-    }
 
-    if (!foundValidTransfer) {
-      recordRpcSuccess();
+      if (!foundValidTransfer) {
+        return { valid: false, error: `No payment to ${expectedRecipient} found in transaction` };
+      }
+
+      const blockHeight = await conn.getBlockHeight('confirmed');
+      const confirmationDepth = blockHeight - tx.slot;
+
       return {
-        valid: false,
-        error: `No payment to ${expectedRecipient} found in transaction`,
+        valid: true,
+        recipient: transferDetails.to,
+        payer: transferDetails.from,
+        amount: transferDetails.amount,
+        decimals: transferDetails.decimals,
+        confirmationDepth,
+        transaction: txHash,
+        verified: confirmationDepth >= CONFIRMATION_DEPTH,
       };
+    } catch (error) {
+      recordFailure(rpcUrl);
+      lastError = error instanceof Error ? error.message : String(error);
+      // Try next endpoint
     }
-
-    const blockHeight = await connection.getBlockHeight('confirmed');
-    const confirmationDepth = blockHeight - tx.slot;
-
-    recordRpcSuccess();
-    return {
-      valid: true,
-      recipient: transferDetails.to,
-      payer: transferDetails.from,
-      amount: transferDetails.amount,
-      decimals: transferDetails.decimals,
-      confirmationDepth,
-      transaction: txHash,
-      verified: confirmationDepth >= CONFIRMATION_DEPTH,
-    };
-  } catch (error) {
-    recordRpcFailure();
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return { valid: false, error: errorMessage };
   }
+
+  return { valid: false, error: lastError };
 }
 
 /**
@@ -162,7 +165,8 @@ export async function verifyPaymentRecipient(
  */
 export async function checkConfirmationDepth(txHash: string): Promise<ConfirmationCheck> {
   try {
-    const tx = await connection.getParsedTransaction(txHash, 'confirmed');
+    const conn = getConnection(PRIMARY_RPC);
+    const tx = await conn.getParsedTransaction(txHash, 'confirmed');
 
     if (!tx) {
       return {
@@ -173,7 +177,7 @@ export async function checkConfirmationDepth(txHash: string): Promise<Confirmati
       };
     }
 
-    const blockHeight = await connection.getBlockHeight('confirmed');
+    const blockHeight = await conn.getBlockHeight('confirmed');
     const confirmationDepth = blockHeight - tx.slot;
 
     return {
