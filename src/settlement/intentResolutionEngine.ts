@@ -223,9 +223,7 @@ function matchSolanaIdentity(
 ): IdentityStepResult {
   if (strategy === 'by_recipient') {
     if (!ctx.merchantWallet) {
-      logger.warn('[ResolutionEngine] merchantWallet missing for by_recipient match', {
-        intentId: ctx.intentId,
-      });
+      logger.warn({ intentId: ctx.intentId }, '[ResolutionEngine] merchantWallet missing for by_recipient match');
       return { matched: false, reasonCode: 'recipient_mismatch' };
     }
     const matched = proof.recipient === ctx.merchantWallet;
@@ -702,15 +700,11 @@ async function updateIntentStatus(intentId: string, status: string): Promise<voi
       where: { id: intentId },
       data: { status, updatedAt: new Date() },
     });
-    logger.debug('[ResolutionEngine] intent status updated', { intentId, status });
+    logger.debug({ intentId, status }, '[ResolutionEngine] intent status updated');
   } catch (err: unknown) {
     // Non-fatal: the resolution record write is more important than the status
     // update, and the intent will be reconciled on the next polling cycle.
-    logger.warn('[ResolutionEngine] could not update intent status', {
-      intentId,
-      status,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.warn({ intentId, status, error: err instanceof Error ? err.message : String(err) }, '[ResolutionEngine] could not update intent status');
   }
 }
 
@@ -749,10 +743,7 @@ export async function runResolutionEngine(
   // ── Step 0: idempotency guard ─────────────────────────────────────────────
   const existingResolution = await getResolution(intentId);
   if (existingResolution) {
-    logger.debug('[ResolutionEngine] already resolved — returning existing record', {
-      intentId,
-      resolutionId: existingResolution.id,
-    });
+    logger.debug({ intentId, resolutionId: existingResolution.id }, '[ResolutionEngine] already resolved — returning existing record');
     // Reconstruct a minimal EvaluationResult from the stored record so callers
     // always receive a consistent EngineRunResult shape.
     const evaluation: EvaluationResult = {
@@ -839,14 +830,7 @@ export async function runResolutionEngine(
     },
   });
 
-  logger.info('[ResolutionEngine] resolved', {
-    intentId,
-    decision:        evaluation.decision,
-    reasonCode:      evaluation.reasonCode,
-    resolutionStatus: evaluation.resolutionStatus,
-    confidenceScore: evaluation.confidenceScore,
-    delta:           evaluation.delta,
-  });
+  logger.info({ intentId, decision: evaluation.decision, reasonCode: evaluation.reasonCode, resolutionStatus: evaluation.resolutionStatus, confidenceScore: evaluation.confidenceScore, delta: evaluation.delta }, '[ResolutionEngine] resolved');
 
   return { resolution, evaluation, wasAlreadyResolved: false };
 }

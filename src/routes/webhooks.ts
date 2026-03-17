@@ -58,7 +58,7 @@ router.post('/subscribe', authenticateApiKey, async (req: Request, res: Response
   if (!parsed.success) {
     res.status(400).json({
       error: 'Validation error',
-      details: parsed.error.issues.map((e) => e.message),
+      details: parsed.error.issues.map((e: any) => e.message),
     });
     return;
   }

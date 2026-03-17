@@ -8,6 +8,7 @@
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
@@ -16,8 +17,16 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["infra/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "src", "Agentpay", "backups"],
+  "include": ["src/**/*", "infra/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "Agentpay",
+    "backups",
+    "docs/**/backups/**",
+    "docs/archive/**"
+  ],
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"

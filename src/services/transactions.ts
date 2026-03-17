@@ -44,10 +44,10 @@ export async function createPaymentRequest(
       [transactionId, merchantId, paymentId, amountUsdc, recipientAddress, 'pending', 0, 2, expiresAt, new Date()]
     );
 
-    logger.info('Payment request created', { transactionId, paymentId, merchantId, amountUsdc });
+    logger.info({ transactionId, paymentId, merchantId, amountUsdc }, 'Payment request created');
     return { transactionId, paymentId };
   } catch (error) {
-    logger.error('Error creating payment request', { error, merchantId });
+    logger.error({ error, merchantId }, 'Error creating payment request');
     throw error;
   }
 }
@@ -76,7 +76,7 @@ export async function getTransaction(transactionId: string): Promise<Transaction
 
     return result.rows[0] as Transaction;
   } catch (error) {
-    logger.error('Error getting transaction', { error, transactionId });
+    logger.error({ error, transactionId }, 'Error getting transaction');
     throw error;
   }
 }
@@ -101,7 +101,7 @@ export async function getMerchantTransactions(
 
     return result.rows as Transaction[];
   } catch (error) {
-    logger.error('Error getting merchant transactions', { error, merchantId });
+    logger.error({ error, merchantId }, 'Error getting merchant transactions');
     throw error;
   }
 }
@@ -136,7 +136,7 @@ export async function getMerchantStats(merchantId: string): Promise<{
       totalConfirmedUsdc: parseFloat(row.totalConfirmedUsdc) || 0,
     };
   } catch (error) {
-    logger.error('Error getting merchant stats', { error, merchantId });
+    logger.error({ error, merchantId }, 'Error getting merchant stats');
     throw error;
   }
 }
@@ -159,10 +159,7 @@ export async function verifyAndUpdatePayment(
         ['failed', new Date(), transactionId]
       );
 
-      logger.warn('[SECURITY] Payment verification failed', {
-        transactionId,
-        error: verification.error,
-      });
+      logger.warn({ transactionId, error: verification.error }, '[SECURITY] Payment verification failed');
 
       return { success: false, error: verification.error };
     }
@@ -174,16 +171,12 @@ export async function verifyAndUpdatePayment(
       [newStatus, transactionHash, verification.payer, verification.confirmationDepth, new Date(), transactionId]
     );
 
-    logger.info('Payment verified', {
-      transactionId,
-      verified: verification.verified,
-      payer: verification.payer,
-    });
+    logger.info({ transactionId, verified: verification.verified, payer: verification.payer }, 'Payment verified');
 
     if (verification.payer) {
       reputationService
         .updateReputationOnVerification(verification.payer, true)
-        .catch((err) => logger.error('Reputation update error', { err, payer: verification.payer }));
+        .catch((err) => logger.error({ err, payer: verification.payer }, 'Reputation update error'));
     }
 
     return {
@@ -192,7 +185,7 @@ export async function verifyAndUpdatePayment(
       payer: verification.payer,
     };
   } catch (error) {
-    logger.error('Error verifying payment', { error, transactionId });
+    logger.error({ error, transactionId }, 'Error verifying payment');
     throw error;
   }
 }

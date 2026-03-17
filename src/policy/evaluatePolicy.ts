@@ -1,5 +1,5 @@
-import { PolicyContext, PolicyConfig, PolicyEvaluationResult } from './types';
-import { evaluatePolicyConfig } from './policyEngine';
+import { PolicyContext, PolicyConfig, PolicyEvaluationResult } from './types.js';
+import { evaluatePolicyConfig } from './policyEngine.js';
 
 // `sql` is the per-request Postgres.js tagged template function used in this
 // codebase. We accept `any` here for portability in the demo environment.

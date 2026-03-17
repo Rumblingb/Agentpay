@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import type { RequestHandler } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
@@ -126,8 +127,11 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: false,
 }));
-app.use(cors({
-  origin: (incomingOrigin, callback) => {
+const corsOptions: cors.CorsOptions = {
+  origin: (
+    incomingOrigin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void
+  ) => {
     // Always allow same-origin / non-browser requests (no Origin header)
     if (!incomingOrigin) {
       callback(null, true);
@@ -161,10 +165,12 @@ app.use(cors({
     callback(new Error(`CORS: origin '${incomingOrigin}' not allowed`));
   },
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
 
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined'));
+  app.use(morgan('combined') as unknown as RequestHandler);
 }
 
 // --- STRIPE WEBHOOKS (Must be before express.json) ---
@@ -255,7 +261,7 @@ app.use('/api/interactions', interactionsRouter);
 import('./routes/endorsements.js')
   .then((m) => app.use('/api/endorse', m.default))
   .catch((err) => {
-    logger.warn('Failed to load endorsements routes', { err: err?.message ?? err });
+    logger.warn({ err: err?.message ?? err }, 'Failed to load endorsements routes');
   });
 
 // Agent API Routes
@@ -349,7 +355,7 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
   
   // Log specific DB relation errors
   if (error.message && error.message.includes('relation') && error.message.includes('does not exist')) {
-    logger.error('Database Schema Error: Missing Table', { message: error.message });
+    logger.error({ message: error.message }, 'Database Schema Error: Missing Table');
   }
 
   // Capture unhandled errors in Sentry (non-operational errors only)
@@ -370,7 +376,7 @@ app.use((error: any, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(403).json({ error: 'FORBIDDEN', message: error.message });
   }
 
-  logger.error('Unhandled error', { code, message: error.message });
+  logger.error({ code, message: error.message }, 'Unhandled error');
   res.status(error.status || 500).json({
     error: code,
     message: error.message || 'An unexpected error occurred.',

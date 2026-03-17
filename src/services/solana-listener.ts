@@ -122,29 +122,19 @@ async function processTransaction(tx: PendingTx): Promise<void> {
   });
 
   if (!merchant || tx.recipientAddress !== merchant.walletAddress) {
-    logger.warn('Listener: transaction destination mismatch — skipping', {
-      id: tx.id,
-      storedRecipient: tx.recipientAddress,
-      currentWallet: merchant?.walletAddress ?? 'not found',
-    });
+    logger.warn({ id: tx.id, storedRecipient: tx.recipientAddress, currentWallet: merchant?.walletAddress ?? 'not found' }, 'Listener: transaction destination mismatch — skipping');
     throw new Error('Transaction destination mismatch');
   }
 
   const verification = await verifyPaymentRecipient(tx.transactionHash, tx.recipientAddress);
 
   if (!verification.valid) {
-    logger.debug('Listener: transaction not yet valid on-chain', {
-      id: tx.id,
-      reason: verification.error,
-    });
+    logger.debug({ id: tx.id, reason: verification.error }, 'Listener: transaction not yet valid on-chain');
     return;
   }
 
   if (!verification.verified) {
-    logger.debug('Listener: awaiting more confirmations', {
-      id: tx.id,
-      depth: verification.confirmationDepth,
-    });
+    logger.debug({ id: tx.id, depth: verification.confirmationDepth }, 'Listener: awaiting more confirmations');
     return;
   }
 
@@ -161,11 +151,7 @@ async function processTransaction(tx: PendingTx): Promise<void> {
     return; // Already updated by a concurrent poll or manual verify
   }
 
-  logger.info('Listener: payment confirmed', {
-    transactionId: tx.id,
-    payer: verification.payer,
-    confirmationDepth: verification.confirmationDepth,
-  });
+  logger.info({ transactionId: tx.id, payer: verification.payer, confirmationDepth: verification.confirmationDepth }, 'Listener: payment confirmed');
 
   // Also mark the linked payment intent as completed (best-effort)
   prisma.paymentIntent
@@ -174,10 +160,7 @@ async function processTransaction(tx: PendingTx): Promise<void> {
       data: { status: 'completed' },
     })
     .catch((err: any) =>
-      logger.debug('Listener: could not update payment_intents status', {
-        paymentId: tx.paymentId,
-        error: err?.message,
-      }),
+      logger.debug({ paymentId: tx.paymentId, error: err?.message }, 'Listener: could not update payment_intents status'),
     );
 
   // Fire webhook asynchronously — non-blocking
@@ -196,7 +179,7 @@ async function processTransaction(tx: PendingTx): Promise<void> {
     };
     webhooksService
       .scheduleWebhook(tx.webhookUrl, payload, tx.merchantId, tx.id)
-      .catch((err) => logger.error('Listener: webhook scheduling error', { err }));
+      .catch((err) => logger.error({ err }, 'Listener: webhook scheduling error'));
   }
 }
 
@@ -250,18 +233,12 @@ async function processIntent(intent: PendingIntent): Promise<void> {
   const verification = await verifyPaymentRecipient(intent.txHash, intent.recipientAddress);
 
   if (!verification.valid) {
-    logger.debug('Listener: intent tx not yet valid on-chain', {
-      intentId: intent.intentId,
-      reason: verification.error,
-    });
+    logger.debug({ intentId: intent.intentId, reason: verification.error }, 'Listener: intent tx not yet valid on-chain');
     return;
   }
 
   if (!verification.verified) {
-    logger.debug('Listener: intent awaiting more confirmations', {
-      intentId: intent.intentId,
-      depth: verification.confirmationDepth,
-    });
+    logger.debug({ intentId: intent.intentId, depth: verification.confirmationDepth }, 'Listener: intent awaiting more confirmations');
     return;
   }
 
@@ -305,19 +282,10 @@ async function processIntent(intent: PendingIntent): Promise<void> {
 
     const engineResult = await runResolutionEngine(engineParams);
 
-    logger.info('Listener: resolution engine result', {
-      intentId: intent.intentId,
-      decision: engineResult.evaluation.decision,
-      reasonCode: engineResult.evaluation.reasonCode,
-      resolutionStatus: engineResult.evaluation.resolutionStatus,
-      wasAlreadyResolved: engineResult.wasAlreadyResolved,
-    });
+    logger.info({ intentId: intent.intentId, decision: engineResult.evaluation.decision, reasonCode: engineResult.evaluation.reasonCode, resolutionStatus: engineResult.evaluation.resolutionStatus, wasAlreadyResolved: engineResult.wasAlreadyResolved }, 'Listener: resolution engine result');
   } catch (engineErr: unknown) {
     // Non-fatal — log and fall through to the legacy path.
-    logger.warn('Listener: resolution engine failed (continuing with legacy path)', {
-      intentId: intent.intentId,
-      error: engineErr instanceof Error ? engineErr.message : String(engineErr),
-    });
+    logger.warn({ intentId: intent.intentId, error: engineErr instanceof Error ? engineErr.message : String(engineErr) }, 'Listener: resolution engine failed (continuing with legacy path)');
   }
 
   // ── Legacy path ───────────────────────────────────────────────────────────
@@ -361,20 +329,13 @@ async function processIntent(intent: PendingIntent): Promise<void> {
   } catch (err: any) {
     // P2002 = unique_violation on payment_id — already processed by concurrent poll or trigger
     if (err?.code === 'P2002') {
-      logger.debug('Listener: intent transactions row already exists, skipping', {
-        intentId: intent.intentId,
-      });
+      logger.debug({ intentId: intent.intentId }, 'Listener: intent transactions row already exists, skipping');
       return;
     }
     throw err;
   }
 
-  logger.info('Listener: intent payment released', {
-    intentId: intent.intentId,
-    merchantId: intent.merchantId,
-    amountUsdc: intent.amountUsdc,
-    confirmationDepth: verification.confirmationDepth,
-  });
+  logger.info({ intentId: intent.intentId, merchantId: intent.merchantId, amountUsdc: intent.amountUsdc, confirmationDepth: verification.confirmationDepth }, 'Listener: intent payment released');
 
   // Fire webhook asynchronously — non-blocking
   if (intent.webhookUrl) {
@@ -392,7 +353,7 @@ async function processIntent(intent: PendingIntent): Promise<void> {
     };
     webhooksService
       .scheduleWebhook(intent.webhookUrl, payload, intent.merchantId, intent.intentId)
-      .catch((err) => logger.error('Listener: intent webhook scheduling error', { err }));
+      .catch((err) => logger.error({ err }, 'Listener: intent webhook scheduling error'));
   }
 }
 
@@ -409,9 +370,7 @@ async function poll(): Promise<void> {
     }
 
     for (const tx of pending) {
-      await processTransaction(tx).catch((err) =>
-        logger.error('Listener: error processing transaction', { id: tx.id, err })
-      );
+      await processTransaction(tx).catch((err) => logger.error({ id: tx.id, err }, 'Listener: error processing transaction'));
     }
 
     const pendingIntents = await fetchPendingIntentsWithHash();
@@ -420,12 +379,10 @@ async function poll(): Promise<void> {
     }
 
     for (const intent of pendingIntents) {
-      await processIntent(intent).catch((err) =>
-        logger.error('Listener: error processing intent', { intentId: intent.intentId, err })
-      );
+      await processIntent(intent).catch((err) => logger.error({ intentId: intent.intentId, err }, 'Listener: error processing intent'));
     }
   } catch (err) {
-    logger.error('Listener: poll error', { err });
+    logger.error({ err }, 'Listener: poll error');
   }
 }
 

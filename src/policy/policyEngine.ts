@@ -4,7 +4,7 @@ import {
   PolicyDecision,
   POLICY_DECISIONS,
   PolicyEvaluationResult,
-} from './types';
+} from './types.js';
 
 type GetDailySpendFn = (merchantId?: string) => Promise<number>;
 
@@ -30,7 +30,7 @@ export async function evaluatePolicyConfig(
   // blocklistRecipients: immediate reject
   if (Array.isArray(cfg.blocklistRecipients) && cfg.blocklistRecipients.length > 0 && context.recipientAddress) {
     const recipient = context.recipientAddress.toLowerCase();
-    if (cfg.blocklistRecipients.map((r) => r.toLowerCase()).includes(recipient)) {
+    if (cfg.blocklistRecipients.map((r: string) => r.toLowerCase()).includes(recipient)) {
       return { decision: 'REJECT', reason: 'recipient_blocked', policyVersion };
     }
   }
@@ -60,7 +60,7 @@ export async function evaluatePolicyConfig(
   // allowlistRecipients: require approval if recipient not listed
   if (Array.isArray(cfg.allowlistRecipients) && cfg.allowlistRecipients.length > 0 && context.recipientAddress) {
     const recipient = context.recipientAddress.toLowerCase();
-    if (!cfg.allowlistRecipients.map((r) => r.toLowerCase()).includes(recipient)) {
+    if (!cfg.allowlistRecipients.map((r: string) => r.toLowerCase()).includes(recipient)) {
       return { decision: 'REQUIRES_APPROVAL', reason: 'recipient_not_allowed', policyVersion };
     }
   }

@@ -20,15 +20,13 @@ interface AuthRequest extends Request {
   body: any;
   params: Record<string, string>;
   query: Record<string, string | undefined>;
-  ip: string;
-  socket: { remoteAddress?: string | null };
   path: string;
   method: string;
   merchant?: {
     id: string;
-    name: string;
-    email: string;
-    walletAddress: string;
+    name?: string;
+    email?: string;
+    walletAddress?: string | null;
     webhookUrl?: string | null;
   };
 }
@@ -119,7 +117,7 @@ router.post('/register', async (req: Request, res: Response) => {
       value.webhookUrl
     );
 
-    logger.info('New merchant registered', { merchantId, email: value.email });
+    logger.info({ merchantId, email: value.email }, 'New merchant registered');
 
     res.status(201).json({
       success: true,
@@ -128,7 +126,7 @@ router.post('/register', async (req: Request, res: Response) => {
       message: 'Store your API key securely. You will not be able to view it again.',
     });
   } catch (error: any) {
-    logger.error('Registration error:', error);
+    logger.error({ error }, 'Registration error:');
     res.status(400).json({ error: error.message });
   }
 });
@@ -161,7 +159,7 @@ const handleGetProfile = async (req: AuthRequest, res: Response) => {
       createdAt: merchant.createdAt,
     });
   } catch (error: any) {
-    logger.error('Profile fetch error:', error);
+    logger.error({ error }, 'Profile fetch error:');
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
 };
@@ -242,7 +240,7 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
         return res.status(202).json({ status: 'approval_required', reason: evalRes.reason, policyVersion: evalRes.policyVersion, evaluatedAt: evalRes.evaluatedAt });
       }
     } catch (err) {
-      logger.warn('Policy evaluation failed; proceeding with payment creation', { error: err instanceof Error ? err.message : String(err) });
+      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Policy evaluation failed; proceeding with payment creation');
     }
 
     const { transactionId, paymentId } = await transactionsService.createPaymentRequest(
@@ -253,13 +251,7 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
       value.expiryMinutes || 30
     );
 
-    logger.info('Payment request created', {
-      merchantId: req.merchant!.id,
-      paymentId,
-      amount: value.amountUsdc,
-      agentId: value.agentId ?? null,
-      protocol: value.protocol ?? null,
-    });
+    logger.info({ merchantId: req.merchant!.id, paymentId, amount: value.amountUsdc, agentId: value.agentId ?? null, protocol: value.protocol ?? null }, 'Payment request created');
 
     res.status(201).json({
       success: true,
@@ -270,7 +262,7 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
       instructions: 'Send USDC to the recipient address within the expiry time',
     });
   } catch (error: any) {
-    logger.error('Payment creation error:', error);
+    logger.error({ error }, 'Payment creation error:');
     res.status(400).json({ error: error.message });
   }
 });
@@ -334,10 +326,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
     });
 
     if (!verification.success) {
-      logger.warn('[SECURITY] Payment verification failed', {
-        transactionId: req.params.transactionId,
-        error: verification.error,
-      });
+      logger.warn({ transactionId: req.params.transactionId, error: verification.error }, '[SECURITY] Payment verification failed');
       return res.status(400).json({
         success: false,
         error: verification.error,
@@ -360,16 +349,16 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
           `INSERT INTO verification_certificates (id, intent_id, payload, signature, encoded)
            VALUES (gen_random_uuid(), NULL, $1, $2, $3)`,
           [JSON.stringify({ transactionId: req.params.transactionId }), certificate.slice(0, 64), certificate]
-        ).catch((err) => logger.error('Certificate persist error', { err }));
+        ).catch((err) => logger.error({ err }, 'Certificate persist error'));
       } catch (certErr: any) {
-        logger.warn('Certificate signing skipped', { error: certErr.message });
+        logger.warn({ error: certErr.message }, 'Certificate signing skipped');
       }
 
       billMerchant({
         merchantId: merchant.id,
         transactionId: req.params.transactionId,
         amount: tx.amountUsdc ?? 0,
-      }).catch((err) => logger.error('Billing error', { err }));
+      }).catch((err) => logger.error({ err }, 'Billing error'));
 
       const currentMerchant = await merchantsService.getMerchant(merchant.id);
       if (currentMerchant?.webhookUrl) {
@@ -385,7 +374,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
           payload,
           merchant.id,
           req.params.transactionId
-        ).catch((err) => logger.error('Webhook scheduling error', { err }));
+        ).catch((err) => logger.error({ err }, 'Webhook scheduling error'));
       }
 
       webhookEmitter.emitPaymentVerified(merchant.id, {
@@ -394,7 +383,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
         txHash: value.transactionHash,
         amount: tx.amountUsdc ?? 0,
         certificate,
-      }).catch((err) => logger.error('V2 webhook emitter error', { err }));
+      }).catch((err) => logger.error({ err }, 'V2 webhook emitter error'));
     }
 
     res.json({
@@ -405,7 +394,7 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, async (req: A
       message: verification.verified ? 'Payment confirmed!' : 'Payment detected but pending confirmations',
     });
   } catch (error: any) {
-    logger.error('Payment verification error:', error);
+    logger.error({ error }, 'Payment verification error:');
     res.status(500).json({ error: error.message });
   }
 });
@@ -429,11 +418,7 @@ router.get('/payments/:transactionId', authenticateApiKey, async (req: AuthReque
 
     // 2. Check ownership - Must return 403 if it exists but belongs to another merchant
     if (tx.merchantId !== req.merchant!.id) {
-      logger.warn('[Security] Unauthorized transaction access attempt', {
-        transactionId: req.params.transactionId,
-        requestingMerchant: req.merchant!.id,
-        actualOwner: tx.merchantId
-      });
+      logger.warn({ transactionId: req.params.transactionId, requestingMerchant: req.merchant!.id, actualOwner: tx.merchantId }, '[Security] Unauthorized transaction access attempt');
       return res.status(403).json({ error: 'Unauthorized access to this transaction' });
     }
 
