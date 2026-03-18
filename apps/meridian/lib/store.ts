@@ -7,14 +7,15 @@
 
 import { create } from 'zustand';
 import type { Agent, CoordinationPlan, HireResult, WalletInfo } from './api';
-import type { ConciergeNeedsConfirm } from './concierge';
+import type { ConciergeNeedsConfirm, TieredOptions } from './concierge';
 import type { HistoryTurn } from './storage';
 
 export type AppPhase =
   | 'idle'          // waiting for voice input
   | 'listening'     // recording
   | 'thinking'      // STT done, concierge running
-  | 'confirming'    // above auto-confirm limit — waiting for voice yes/no
+  | 'choosing'      // tiered options presented — waiting for budget/middle/premium voice
+  | 'confirming'    // single agent above auto-confirm limit — waiting for voice yes/no
   | 'hiring'        // hire in flight
   | 'executing'     // job in progress, polling status
   | 'done'          // job complete
@@ -35,7 +36,8 @@ interface MeridianState {
   phase: AppPhase;
   transcript: string;
   coordinationId: string | null;
-  pendingConfirm: ConciergeNeedsConfirm | null; // set when needs voice confirm
+  pendingChoice: TieredOptions | null;          // set when 3 tiered options presented
+  pendingConfirm: ConciergeNeedsConfirm | null; // set when single agent needs confirm
   currentAgent: Agent | null;
   currentJob: (HireResult & { jobId: string }) | null;
   error: string | null;
@@ -61,6 +63,7 @@ interface MeridianState {
   setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean }) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
+  setPendingChoice: (choice: TieredOptions | null) => void;
   setPendingConfirm: (confirm: ConciergeNeedsConfirm | null) => void;
   setCurrentAgent: (agent: Agent | null) => void;
   setCurrentJob: (job: (HireResult & { jobId: string }) | null) => void;
@@ -74,6 +77,7 @@ const SESSION_INITIAL = {
   phase: 'idle' as AppPhase,
   transcript: '',
   coordinationId: null,
+  pendingChoice: null,
   pendingConfirm: null,
   currentAgent: null,
   currentJob: null,
@@ -113,6 +117,8 @@ export const useStore = create<MeridianState>((set) => ({
   setPhase: (phase) => set({ phase }),
 
   setTranscript: (transcript) => set({ transcript }),
+
+  setPendingChoice: (pendingChoice) => set({ pendingChoice }),
 
   setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
 

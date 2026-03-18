@@ -1,19 +1,25 @@
 /**
  * concierge.ts — the Meridian concierge brain
  *
- * Handles the full auto-hire loop:
+ * Full flow:
  *   1. Takes a transcribed intent
- *   2. Calls IntentCoordinator to find candidate agents
- *   3. If best agent price <= autoConfirmLimit → auto-hires, no user prompt
- *   4. If price > autoConfirmLimit → returns needsConfirm=true with details
- *      (caller handles voice confirmation, then calls executeHire directly)
- *   5. Tracks job and returns jobId for status polling
- *
- * The concierge narrates each step via TTS.
+ *   2. Finds candidate agents via IntentCoordinator / matchAgents fallback
+ *   3. If 2+ candidates → presents tiered choice (budget/balanced/premium) — THIS IS THE PRODUCT
+ *   4. If 1 candidate → auto-hire if price <= limit, else needsConfirm (binary)
+ *   5. executeHire schedules auto-complete after 12s (until real agent webhooks are wired)
  */
 
-import { coordinateIntent, hireAgent, matchAgents, type Agent, type HireResult } from './api';
+import {
+  coordinateIntent,
+  hireAgent,
+  matchAgents,
+  completeJob,
+  type Agent,
+  type HireResult,
+} from './api';
 import { speak } from './tts';
+
+// ── Types ──────────────────────────────────────────────────────────────────
 
 export interface ConciergeResult {
   jobId: string;
@@ -30,12 +36,86 @@ export interface ConciergeNeedsConfirm {
   candidateAgents: Agent[];
 }
 
-export type ConciergeOutcome = ConciergeResult | ConciergeNeedsConfirm;
+export interface TieredOptions {
+  needsChoice: true;
+  budget: Agent;
+  balanced: Agent;
+  premium: Agent;
+  coordinationId: string;
+  narration: string;
+}
+
+export type ConciergeOutcome = ConciergeResult | ConciergeNeedsConfirm | TieredOptions;
+
+// ── Trust / price helpers ─────────────────────────────────────────────────
+
+function trustContext(agent: Agent): string {
+  const grade = agent.grade ?? 'B';
+  if (agent.verified && (grade === 'A+' || grade === 'A')) return 'verified, top-rated';
+  if (agent.verified) return 'verified merchant';
+  if (grade === 'A+' || grade === 'A') return 'highly trusted';
+  if (grade === 'B') return 'solid track record';
+  return 'newer to the network';
+}
+
+function priceLabel(p: number | null): string {
+  if (p === null || p === 0) return 'free';
+  if (p < 1) return `${Math.round(p * 100)} cents`;
+  return `$${p.toFixed(2)}`;
+}
 
 /**
- * Main concierge entry point.
- * Returns either a completed job (auto-hired) or a needs-confirm object.
+ * Sort agents into [budget, balanced, premium].
+ * Only uses agents with a defined pricePerTaskUsd — unpriced agents can't be tiered.
+ * Returns null if fewer than 2 priced agents exist (falls back to single-agent binary flow).
  */
+function buildTiers(agents: Agent[]): [Agent, Agent, Agent] | null {
+  const priced = agents.filter(a => a.pricePerTaskUsd !== null && a.pricePerTaskUsd !== undefined);
+  if (priced.length < 2) return null;
+
+  const sorted = [...priced].sort(
+    (a, b) => (a.pricePerTaskUsd ?? 0) - (b.pricePerTaskUsd ?? 0),
+  );
+
+  if (sorted.length === 2) return [sorted[0], sorted[0], sorted[1]];
+
+  const cheapest = sorted[0];
+  const priciest = sorted[sorted.length - 1];
+  // Middle: from remaining, pick highest trust score
+  const middle =
+    sorted
+      .slice(1, -1)
+      .sort((a, b) => (b.trustScore ?? 0) - (a.trustScore ?? 0))[0] ?? sorted[1];
+
+  return [cheapest, middle, priciest];
+}
+
+function buildNarration(budget: Agent, balanced: Agent, premium: Agent): string {
+  const b = `Budget is ${budget.name} at ${priceLabel(budget.pricePerTaskUsd)} — ${trustContext(budget)}.`;
+  const m = `Middle is ${balanced.name} at ${priceLabel(balanced.pricePerTaskUsd)} — ${trustContext(balanced)}.`;
+  const p = `Premium is ${premium.name} at ${priceLabel(premium.pricePerTaskUsd)} — ${trustContext(premium)}.`;
+  return `I found three options. ${b} ${m} ${p} Which would you like — budget, middle, or premium?`;
+}
+
+// ── Auto-complete ─────────────────────────────────────────────────────────
+
+/**
+ * Schedule job completion after a delay.
+ * Keeps the demo loop closed until real agent webhooks are wired.
+ * In production, the hired agent calls POST /marketplace/hire/:id/complete.
+ */
+function scheduleAutoComplete(jobId: string, hirerId: string): void {
+  setTimeout(async () => {
+    try {
+      await completeJob(jobId, hirerId);
+    } catch {
+      // Agent may have already self-completed — safe to ignore
+    }
+  }, 12_000);
+}
+
+// ── processIntent ─────────────────────────────────────────────────────────
+
 export async function processIntent(params: {
   intent: string;
   hirerId: string;
@@ -44,51 +124,60 @@ export async function processIntent(params: {
 }): Promise<ConciergeOutcome> {
   const { intent, hirerId, autoConfirmLimitUsdc, openaiKey } = params;
 
-  await speak("Let me find the best agent for that.", openaiKey);
+  await speak('Let me find the best options for that.', openaiKey);
 
-  // 1. Call IntentCoordinator
   let coordinationId: string;
   let candidates: Agent[];
 
   try {
     const coordination = await coordinateIntent({
       intent,
-      budget: autoConfirmLimitUsdc * 2, // give coordinator headroom
+      budget: autoConfirmLimitUsdc * 3,
       callerAgentId: hirerId,
     });
     coordinationId = coordination.coordinationId;
     candidates = coordination.plan.candidateAgents;
   } catch {
-    // Fallback: direct agent match if IntentCoordinator is down
-    const { agents } = await matchAgents({ intent, limit: 5 });
+    const { agents } = await matchAgents({ intent, limit: 10 });
     coordinationId = `direct_${Date.now()}`;
     candidates = agents;
   }
 
   if (candidates.length === 0) {
-    await speak("I couldn't find any agents for that request. Could you rephrase?", openaiKey);
+    await speak(
+      "I couldn't find any agents for that. Could you be more specific?",
+      openaiKey,
+    );
     throw new Error('NO_AGENTS_FOUND');
   }
 
-  // 2. Pick the best agent (first = highest ranked by IntentCoordinator)
+  // 2+ candidates → try to build tiered choice (the product moment)
+  if (candidates.length >= 2) {
+    const tiers = buildTiers(candidates);
+    if (tiers) {
+      const [budget, balanced, premium] = tiers;
+      const narration = buildNarration(budget, balanced, premium);
+      await speak(narration, openaiKey);
+      return { needsChoice: true, budget, balanced, premium, coordinationId, narration };
+    }
+  }
+
+  // Single agent — binary auto-hire or confirm
   const best = candidates[0];
   const price = best.pricePerTaskUsd ?? autoConfirmLimitUsdc;
 
-  // 3. Decide: auto-hire or ask for confirmation
   if (price <= autoConfirmLimitUsdc) {
-    // Auto-hire
     await speak(
-      `Found ${best.name}. Trust score ${best.grade}. Hiring now for $${price.toFixed(2)}.`,
+      `Found ${best.name}. Grade ${best.grade ?? 'B'}. Hiring now for ${priceLabel(price)}.`,
       openaiKey,
     );
     const result = await executeHire({ hirerId, agent: best, jobDescription: intent, coordinationId });
-    await speak(`Done. ${best.name} is working on it.`, openaiKey);
+    await speak(`Done. ${best.name} is on it.`, openaiKey);
     return result;
   }
 
-  // Needs voice confirmation
   await speak(
-    `I found ${best.name} — the best match. This will cost $${price.toFixed(2)} USDC. Should I go ahead?`,
+    `I found ${best.name} — ${priceLabel(price)}. Should I go ahead?`,
     openaiKey,
   );
   return {
@@ -100,9 +189,8 @@ export async function processIntent(params: {
   };
 }
 
-/**
- * Execute the actual hire — called after auto-decision or voice confirmation.
- */
+// ── executeHire ───────────────────────────────────────────────────────────
+
 export async function executeHire(params: {
   hirerId: string;
   agent: Agent;
@@ -118,6 +206,9 @@ export async function executeHire(params: {
     agreedPriceUsdc: agent.pricePerTaskUsd ?? 1,
   });
 
+  // Auto-complete after delay until the agent has a real webhook handler
+  scheduleAutoComplete(result.jobId, hirerId);
+
   return {
     jobId: result.jobId,
     agent,
@@ -126,9 +217,8 @@ export async function executeHire(params: {
   };
 }
 
-/**
- * Generate a natural language narration for status updates.
- */
+// ── statusNarration ───────────────────────────────────────────────────────
+
 export function statusNarration(agent: Agent, elapsedSeconds: number): string {
   if (elapsedSeconds < 10) return `${agent.name} is on it.`;
   if (elapsedSeconds < 30) return `Still working — ${agent.name} is processing your request.`;

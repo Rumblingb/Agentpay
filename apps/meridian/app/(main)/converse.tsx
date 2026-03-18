@@ -8,13 +8,14 @@
  *   idle       → orb glows, "Hold to talk"
  *   listening  → orb pulses with rings, "Listening…"
  *   thinking   → orb spins, Meridian narrates via TTS
- *   confirming → orb amber, single voice yes/no (for amounts above auto-limit)
+ *   choosing   → orb amber, three-tier card shown, user says budget/middle/premium
+ *   confirming → orb amber, single voice yes/no (single-agent fallback)
  *   hiring     → orb spins, "Hiring [agent]…"
  *   executing  → orb spins, routes to /status/:jobId
  *   error      → orb red, error message, tap to retry
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -32,14 +33,21 @@ import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speak, stopSpeaking } from '../../lib/tts';
 import { appendHistory } from '../../lib/storage';
-import { processIntent, executeHire, type ConciergeNeedsConfirm } from '../../lib/concierge';
+import {
+  processIntent,
+  executeHire,
+  type ConciergeNeedsConfirm,
+  type TieredOptions,
+} from '../../lib/concierge';
+import type { Agent } from '../../lib/api';
 
-// ── Narration for each phase label ────────────────────────────────────────────
+// ── Phase labels ───────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<string, string> = {
   idle:       'Hold to talk',
   listening:  'Listening…',
-  thinking:   'Finding the best agent…',
+  thinking:   'Finding the best options…',
+  choosing:   'Say: budget, middle, or premium',
   confirming: 'Say yes to confirm, or no to cancel',
   hiring:     'Hiring…',
   executing:  'Agent working…',
@@ -47,13 +55,16 @@ const PHASE_LABEL: Record<string, string> = {
   error:      'Tap to try again',
 };
 
+// ── Main screen ────────────────────────────────────────────────────────────
+
 export default function ConverseScreen() {
   const {
     phase, setPhase,
     transcript, setTranscript,
+    pendingChoice, setPendingChoice,
     pendingConfirm, setPendingConfirm,
     currentAgent, setCurrentAgent,
-    currentJob, setCurrentJob,
+    setCurrentJob,
     turns, addTurn,
     error, setError,
     agentId, openaiKey,
@@ -63,18 +74,47 @@ export default function ConverseScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
 
-  // Auto-scroll conversation when new turns arrive
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
 
-  // ── Hold-to-talk handlers ──────────────────────────────────────────────────
+  const say = (text: string) => speak(text, openaiKey);
+
+  // ── Hire chosen agent tier ───────────────────────────────────────────────
+
+  const hireTier = useCallback(async (agent: Agent, label: string) => {
+    setPhase('hiring');
+    await say(`Hiring ${agent.name}. ${label} option selected.`);
+    try {
+      const result = await executeHire({
+        hirerId: agentId!,
+        agent,
+        jobDescription: transcript,
+        coordinationId: pendingChoice?.coordinationId ?? `direct_${Date.now()}`,
+      });
+      const meridianTurn = {
+        role: 'meridian' as const,
+        text: `Hired ${agent.name} for $${result.agreedPriceUsdc.toFixed(2)}. Tracking your job.`,
+        ts: Date.now(),
+      };
+      addTurn(meridianTurn);
+      await appendHistory(meridianTurn);
+      setCurrentAgent(agent);
+      setCurrentJob({ jobId: result.jobId, agreedPriceUsdc: result.agreedPriceUsdc, agentId: agent.agentId } as any);
+      setPendingChoice(null);
+      setPhase('executing');
+      router.push(`/status/${result.jobId}`);
+    } catch (e: any) {
+      setError(e.message ?? 'Hire failed. Try again.');
+    }
+  }, [agentId, transcript, pendingChoice]);
+
+  // ── Hold-to-talk ──────────────────────────────────────────────────────────
 
   const handlePressIn = useCallback(async () => {
-    if (phase !== 'idle' && phase !== 'error' && phase !== 'confirming') return;
+    if (phase !== 'idle' && phase !== 'error' && phase !== 'confirming' && phase !== 'choosing') return;
 
-    if (phase === 'confirming') {
-      // Treat hold-to-talk as the voice reply during confirm phase
+    if (phase === 'confirming' || phase === 'choosing') {
       await startRecording().catch(() => {});
       setPhase('listening');
       return;
@@ -83,7 +123,7 @@ export default function ConverseScreen() {
     await stopSpeaking();
     reset();
     setPhase('listening');
-    await startRecording().catch((e: Error) => {
+    await startRecording().catch(() => {
       setError('Microphone access denied. Enable it in Settings.');
     });
   }, [phase]);
@@ -95,7 +135,6 @@ export default function ConverseScreen() {
     try {
       const uri = await stopRecording();
       if (!uri) throw new Error('No audio recorded.');
-
       if (!openaiKey) throw new Error('OpenAI key not set. Go to Settings.');
 
       const text = await transcribeAudio(uri, openaiKey);
@@ -106,7 +145,32 @@ export default function ConverseScreen() {
       addTurn(userTurn);
       await appendHistory(userTurn);
 
-      // ── If we're in confirming phase — handle yes/no ─────────────────────
+      // ── Tiered choice voice handling ──────────────────────────────────
+      if (pendingChoice) {
+        const lower = text.toLowerCase();
+        const isBudget   = /\b(budget|cheap|cheapest|first|one|basic|low)\b/.test(lower);
+        const isBalanced = /\b(middle|mid|second|two|balanced|moderate|mid|center)\b/.test(lower);
+        const isPremium  = /\b(premium|top|best|third|three|last|high|expensive|luxury|most)\b/.test(lower);
+
+        if (isBudget) {
+          await hireTier(pendingChoice.budget, 'Budget');
+          return;
+        }
+        if (isBalanced) {
+          await hireTier(pendingChoice.balanced, 'Middle');
+          return;
+        }
+        if (isPremium) {
+          await hireTier(pendingChoice.premium, 'Premium');
+          return;
+        }
+
+        await say("Sorry — say budget, middle, or premium to pick your option.");
+        setPhase('choosing');
+        return;
+      }
+
+      // ── Single-agent confirm voice handling ───────────────────────────
       if (pendingConfirm) {
         const lower = text.toLowerCase();
         const isYes = /\b(yes|yeah|sure|ok|okay|go|do it|confirm|proceed)\b/.test(lower);
@@ -129,7 +193,7 @@ export default function ConverseScreen() {
           addTurn(agentTurn);
           await appendHistory(agentTurn);
           setCurrentAgent(pendingConfirm.agent);
-          setCurrentJob({ ...({} as any), jobId: result.jobId, agreedPriceUsdc: result.agreedPriceUsdc, agentId: result.agent.agentId } as any);
+          setCurrentJob({ jobId: result.jobId, agreedPriceUsdc: result.agreedPriceUsdc, agentId: result.agent.agentId } as any);
           setPendingConfirm(null);
           setPhase('executing');
           router.push(`/status/${result.jobId}`);
@@ -146,24 +210,34 @@ export default function ConverseScreen() {
           return;
         }
 
-        // Unclear — ask again
         await say("Sorry, I didn't catch that. Say yes to confirm, or no to cancel.");
         setPhase('confirming');
         return;
       }
 
-      // ── Normal intent flow ───────────────────────────────────────────────
+      // ── Normal intent flow ────────────────────────────────────────────
       if (!agentId) throw new Error('No agent identity. Please restart the app.');
 
       const outcome = await processIntent({
-        intent:               text,
-        hirerId:              agentId,
+        intent: text,
+        hirerId: agentId,
         autoConfirmLimitUsdc,
         openaiKey,
       });
 
-      if ('needsConfirm' in outcome) {
-        // Voice confirm required
+      if ('needsChoice' in outcome) {
+        const choice = outcome as TieredOptions;
+        setPendingChoice(choice);
+        const meridianTurn = {
+          role: 'meridian' as const,
+          text: `Found 3 options — budget ${choice.budget.name} ($${(choice.budget.pricePerTaskUsd ?? 0).toFixed(2)}), middle ${choice.balanced.name} ($${(choice.balanced.pricePerTaskUsd ?? 0).toFixed(2)}), premium ${choice.premium.name} ($${(choice.premium.pricePerTaskUsd ?? 0).toFixed(2)}). Which would you like?`,
+          ts: Date.now(),
+        };
+        addTurn(meridianTurn);
+        await appendHistory(meridianTurn);
+        setPhase('choosing');
+
+      } else if ('needsConfirm' in outcome) {
         const confirm = outcome as ConciergeNeedsConfirm;
         setPendingConfirm(confirm);
         const meridianTurn = {
@@ -174,6 +248,7 @@ export default function ConverseScreen() {
         addTurn(meridianTurn);
         await appendHistory(meridianTurn);
         setPhase('confirming');
+
       } else {
         // Auto-hired
         setPhase('hiring');
@@ -194,15 +269,12 @@ export default function ConverseScreen() {
       setError(msg);
       await say(`Sorry — ${msg}`);
     }
-  }, [phase, pendingConfirm, agentId, openaiKey, transcript, autoConfirmLimitUsdc]);
+  }, [phase, pendingChoice, pendingConfirm, agentId, openaiKey, transcript, autoConfirmLimitUsdc, hireTier]);
 
-  // ── TTS shorthand ──────────────────────────────────────────────────────────
-  const say = (text: string) => speak(text, openaiKey);
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
   const phaseLabel = PHASE_LABEL[phase] ?? '';
-  const isIdle = phase === 'idle';
+  const isIdle  = phase === 'idle';
   const isError = phase === 'error';
 
   return (
@@ -211,15 +283,12 @@ export default function ConverseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Meridian</Text>
-        <Pressable
-          onPress={() => router.push('/settings')}
-          hitSlop={12}
-        >
+        <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
           <Ionicons name="settings-outline" size={20} color="#4b5563" />
         </Pressable>
       </View>
 
-      {/* Conversation history */}
+      {/* Conversation + choices */}
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -231,12 +300,10 @@ export default function ConverseScreen() {
             <Text style={styles.emptyGreeting}>
               {`Hello${useStore.getState().userName !== 'there' ? `, ${useStore.getState().userName}` : ''}.`}
             </Text>
-            <Text style={styles.emptyHint}>
-              {'What can I help you with today?'}
-            </Text>
+            <Text style={styles.emptyHint}>What can I help you with today?</Text>
             <View style={styles.suggestions}>
-              <Suggestion text="Book a flight to New York" />
-              <Suggestion text="Find me a hotel in London" />
+              <Suggestion text="Book a train to London" />
+              <Suggestion text="Find me a hotel in Paris" />
               <Suggestion text="Arrange airport transport" />
             </View>
           </View>
@@ -264,7 +331,12 @@ export default function ConverseScreen() {
           </View>
         ))}
 
-        {/* Pending confirm indicator */}
+        {/* Tiered choice card */}
+        {phase === 'choosing' && pendingChoice && (
+          <ChoiceCard choice={pendingChoice} onPick={hireTier} />
+        )}
+
+        {/* Single-agent confirm indicator */}
         {phase === 'confirming' && pendingConfirm && (
           <View style={styles.confirmCard}>
             <Ionicons name="alert-circle-outline" size={16} color="#fcd34d" />
@@ -284,7 +356,7 @@ export default function ConverseScreen() {
         <View style={{ height: 260 }} />
       </ScrollView>
 
-      {/* Orb + label — fixed bottom */}
+      {/* Orb + label */}
       <View style={styles.orbArea}>
         <Text style={styles.phaseLabel}>{phaseLabel}</Text>
 
@@ -296,11 +368,7 @@ export default function ConverseScreen() {
         />
 
         {(isIdle || isError) && turns.length > 0 && (
-          <Pressable
-            onPress={() => { reset(); }}
-            style={styles.clearBtn}
-            hitSlop={12}
-          >
+          <Pressable onPress={() => { reset(); }} style={styles.clearBtn} hitSlop={12}>
             <Text style={styles.clearBtnText}>Clear</Text>
           </Pressable>
         )}
@@ -309,6 +377,150 @@ export default function ConverseScreen() {
     </SafeAreaView>
   );
 }
+
+// ── ChoiceCard ────────────────────────────────────────────────────────────
+
+function ChoiceCard({
+  choice,
+  onPick,
+}: {
+  choice: TieredOptions;
+  onPick: (agent: Agent, label: string) => void;
+}) {
+  return (
+    <View style={choiceStyles.card}>
+      <Text style={choiceStyles.header}>Choose your option</Text>
+
+      <ChoiceRow
+        badge="Budget"
+        badgeColor="#065f46"
+        badgeText="#34d399"
+        agent={choice.budget}
+        onPress={() => onPick(choice.budget, 'Budget')}
+      />
+      <ChoiceRow
+        badge="Middle"
+        badgeColor="#1e1b4b"
+        badgeText="#818cf8"
+        agent={choice.balanced}
+        onPress={() => onPick(choice.balanced, 'Middle')}
+      />
+      <ChoiceRow
+        badge="Premium"
+        badgeColor="#3b0764"
+        badgeText="#c084fc"
+        agent={choice.premium}
+        onPress={() => onPick(choice.premium, 'Premium')}
+        last
+      />
+
+      <Text style={choiceStyles.hint}>Say "budget", "middle", or "premium" — or tap above</Text>
+    </View>
+  );
+}
+
+function ChoiceRow({
+  badge, badgeColor, badgeText, agent, onPress, last,
+}: {
+  badge: string;
+  badgeColor: string;
+  badgeText: string;
+  agent: Agent;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  const price = agent.pricePerTaskUsd;
+  const priceStr = price == null || price === 0 ? 'Free'
+    : price < 1 ? `${Math.round(price * 100)}¢`
+    : `$${price.toFixed(2)}`;
+
+  const grade = agent.grade ?? 'B';
+  const context = agent.verified ? 'Verified' : grade === 'A+' || grade === 'A' ? 'Top rated' : grade === 'B' ? 'Trusted' : 'New';
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[choiceStyles.row, !last && choiceStyles.rowBorder]}
+    >
+      <View style={[choiceStyles.badge, { backgroundColor: badgeColor }]}>
+        <Text style={[choiceStyles.badgeText, { color: badgeText }]}>{badge}</Text>
+      </View>
+      <View style={choiceStyles.rowInfo}>
+        <Text style={choiceStyles.agentName} numberOfLines={1}>{agent.name}</Text>
+        <Text style={choiceStyles.agentMeta}>{context} · Grade {grade}</Text>
+      </View>
+      <Text style={choiceStyles.price}>{priceStr}</Text>
+    </Pressable>
+  );
+}
+
+const choiceStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#0d0d0d',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    padding: 16,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
+    width: '100%',
+  },
+  header: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4b5563',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 12,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 12,
+  },
+  rowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#1f2937',
+  },
+  badge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minWidth: 68,
+    alignItems: 'center',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rowInfo: {
+    flex: 1,
+  },
+  agentName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e5e7eb',
+    marginBottom: 2,
+  },
+  agentMeta: {
+    fontSize: 11,
+    color: '#6b7280',
+  },
+  price: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#f9fafb',
+  },
+  hint: {
+    fontSize: 11,
+    color: '#374151',
+    textAlign: 'center',
+    marginTop: 12,
+  },
+});
+
+// ── Suggestion chip ───────────────────────────────────────────────────────
 
 function Suggestion({ text }: { text: string }) {
   return (
@@ -332,8 +544,10 @@ const suggStyles = StyleSheet.create({
   text: { fontSize: 13, color: '#6b7280' },
 });
 
+// ── Styles ────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe:  { flex: 1, backgroundColor: '#080808' },
+  safe: { flex: 1, backgroundColor: '#080808' },
 
   header: {
     flexDirection: 'row',
@@ -355,10 +569,10 @@ const styles = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 16 },
 
-  emptyState:   { paddingTop: 32, paddingBottom: 20 },
-  emptyGreeting:{ fontSize: 26, fontWeight: '700', color: '#f9fafb', marginBottom: 8 },
-  emptyHint:    { fontSize: 16, color: '#6b7280', marginBottom: 24, lineHeight: 24 },
-  suggestions:  { gap: 0 },
+  emptyState:    { paddingTop: 32, paddingBottom: 20 },
+  emptyGreeting: { fontSize: 26, fontWeight: '700', color: '#f9fafb', marginBottom: 8 },
+  emptyHint:     { fontSize: 16, color: '#6b7280', marginBottom: 24, lineHeight: 24 },
+  suggestions:   { gap: 0 },
 
   bubble: {
     maxWidth: '85%',
@@ -367,7 +581,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 6,
   },
-  bubbleUser: { alignSelf: 'flex-end' },
+  bubbleUser:     { alignSelf: 'flex-end' },
   bubbleMeridian: { alignSelf: 'flex-start' },
   bubbleAvatar: {
     width: 22,
