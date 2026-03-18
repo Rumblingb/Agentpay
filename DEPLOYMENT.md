@@ -32,7 +32,10 @@ wrangler secret put VERIFICATION_SECRET
 wrangler secret put ADMIN_SECRET_KEY
 wrangler secret put STRIPE_SECRET_KEY      # optional
 wrangler secret put STRIPE_WEBHOOK_SECRET  # optional
+wrangler secret put RESEND_API_KEY         # optional — enables train booking confirmation emails
 ```
+
+> **Note:** `RESEND_API_KEY` is required for the end-to-end mock booking demo (Bro app → rail agent → email). Without it the booking reference is still generated and returned; the confirmation email step is silently skipped. Sign up at [resend.com](https://resend.com) and verify `bookings@agentpay.so` as a sender domain before setting this secret.
 
 ### 3 — Configure non-secret vars
 

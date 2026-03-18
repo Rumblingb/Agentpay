@@ -306,8 +306,13 @@ router.post('/hire/:jobId/complete', async (c) => {
   let body: any = {};
   try { body = await c.req.json(); } catch {}
 
-  const { hirerId, completionProof } = body;
-  if (!hirerId) return c.json({ error: 'hirerId required to confirm completion' }, 400);
+  const { hirerId, agentKey, completionProof } = body;
+  // Either the hirer (to confirm receipt) OR the hired agent (to self-report delivery)
+  // must authenticate. Requiring at least one prevents anonymous job completion by
+  // parties who merely observed the jobId.
+  if (!hirerId && !agentKey) {
+    return c.json({ error: 'hirerId or agentKey required' }, 400);
+  }
 
   const sql = createDb(c.env);
   try {
@@ -320,8 +325,26 @@ router.post('/hire/:jobId/complete', async (c) => {
     if (!rows.length) return c.json({ error: 'Job not found', jobId }, 404);
 
     const job = rows[0];
-    if (job.metadata?.hirerId !== hirerId) {
-      return c.json({ error: 'Only the hirer can confirm completion' }, 403);
+
+    // Verify caller is either the hirer or the hired agent
+    const callerIsHirer = hirerId && job.metadata?.hirerId === hirerId;
+    let callerIsAgent = false;
+    if (agentKey && job.metadata?.agentId) {
+      const agentRows = await sql<any[]>`
+        SELECT agent_key_hash FROM agent_identities
+        WHERE agent_id = ${job.metadata.agentId} LIMIT 1
+      `.catch(() => []);
+      if (agentRows.length) {
+        const keyHash = await (async () => {
+          const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(agentKey));
+          return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        })();
+        callerIsAgent = agentRows[0].agent_key_hash === keyHash;
+      }
+    }
+
+    if (!callerIsHirer && !callerIsAgent) {
+      return c.json({ error: 'Unauthorized: must be the hirer or the hired agent' }, 403);
     }
     if (job.status !== 'escrow_pending') {
       return c.json({ error: `Job is already in status: ${job.status}` }, 409);

@@ -66,6 +66,12 @@ FRONTEND_URL=http://localhost:3000
 # RATE_LIMIT_KEY_ROTATE=5
 # RATE_LIMIT_DEFAULT=120
 
+# ── Resend (email confirmation — required for mock booking demo) ──────────
+# Sign up at https://resend.com, create an API key, and verify bookings@agentpay.so
+# as a sender domain. Without this, train booking confirmations complete silently
+# (the booking ref is still returned; email is just skipped).
+# RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 # ── Solana RPC fallback (optional) ────────────────────────────────────────
 # Comma-separated list of Solana RPC endpoints tried in order when the
 # primary SOLANA_RPC_URL is unreachable.  Used by the Node.js solana-listener.

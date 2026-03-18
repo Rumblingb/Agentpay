@@ -201,6 +201,32 @@ router.post('/intent', async (c) => {
     const primaryCapability = detectedCapabilities[0] ?? null;
     const budgetNum = typeof budget === 'number' ? budget : null;
 
+    // Build parameterized query — never interpolate user-derived values into SQL strings.
+    // primaryCapability is always a hardcoded enum string from CAPABILITY_SIGNALS, but we
+    // parameterize it anyway so the pattern stays safe if the derivation ever changes.
+    const sqlParams: (string | number)[] = [];
+
+    const capCondition = primaryCapability
+      ? (() => {
+          const likePat      = `%${primaryCapability}%`;
+          const shortLikePat = `%${primaryCapability.split('_')[0]}%`;
+          sqlParams.push(likePat, primaryCapability, shortLikePat);
+          const i = sqlParams.length;
+          return `AND (
+            LOWER(ai.metadata->>'category') LIKE $${i - 2}
+            OR ai.metadata->'capabilities' @> to_jsonb($${i - 1}::text)
+            OR LOWER(ai.metadata->>'description') LIKE $${i}
+          )`;
+        })()
+      : '';
+
+    const budgetCondition = budgetNum !== null
+      ? (() => {
+          sqlParams.push(budgetNum);
+          return `AND COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 0) <= $${sqlParams.length}`;
+        })()
+      : '';
+
     const agentRows = await sql.unsafe<any[]>(
       `SELECT ai.agent_id, ai.metadata, ai.verified, ai.kyc_status,
               COALESCE(ar.score, 100) AS agentrank_score,
@@ -208,15 +234,11 @@ router.post('/intent', async (c) => {
        FROM agent_identities ai
        LEFT JOIN agentrank_scores ar ON ar.agent_id = ai.agent_id
        WHERE (ai.verified = true OR ai.kyc_status = 'programmatic')
-         ${primaryCapability ? `AND (
-           LOWER(ai.metadata->>'category') LIKE '%${primaryCapability.replace(/'/g, '')}%'
-           OR ai.metadata->'capabilities' @> to_jsonb('${primaryCapability.replace(/'/g, '')}'::text)
-           OR LOWER(ai.metadata->>'description') LIKE '%${primaryCapability.split('_')[0].replace(/'/g, '')}%'
-         )` : ''}
-         ${budgetNum !== null ? `AND COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 0) <= ${budgetNum}` : ''}
+         ${capCondition}
+         ${budgetCondition}
        ORDER BY COALESCE(ar.score, 0) DESC
        LIMIT 5`,
-      [],
+      sqlParams,
     ).catch(() => []);
 
     const candidates = agentRows.map((r: any) => ({

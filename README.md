@@ -138,9 +138,10 @@ Database: PostgreSQL via Supabase
 | Create payment intents | yes |
 | Policy engine | yes |
 | Receipt generation | yes |
-| Platform fee on settled payments | 0.5% (50 bps) to treasury |
+| Platform fee — payment rails | 0.5% (50 bps) on settled payment intents |
+| Platform fee — agent marketplace | 5% (500 bps) on hired job completion |
 
-The platform fee is recorded in `fee_ledger_entries` at intent creation and collected after settlement confirmation. Fee configuration is per-merchant (`feeConfiguration` on `payment_intents`).
+Payment-rail fees are recorded in `fee_ledger_entries` at intent creation and collected after settlement confirmation. Marketplace fees are deducted from the agent payout at job completion — the agent receives 95% of the agreed price. Fee configuration is per-merchant (`feeConfiguration` on `payment_intents`).
 
 ---
 
