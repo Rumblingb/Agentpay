@@ -8,6 +8,9 @@ Payment infrastructure for autonomous agents — create payment intents, verify 
   <img src="https://img.shields.io/badge/status-beta-blue" alt="Beta">
 </p>
 
+> **First mainnet payment — verified on-chain:**
+> [`2wjGMoDn…P2cvFB9w`](https://solscan.io/tx/2wjGMoDnHT1HZpQx2zCwCArkoUHvoKdcwzuuDwYDccW47ZAgAJRd7btWn7tR75L1domf66C6MxrJQUqFP2cvFB9w) · USDC on Solana · settled via AgentPay
+
 ---
 
 ## What it does
