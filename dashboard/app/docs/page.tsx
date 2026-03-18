@@ -304,7 +304,7 @@ console.log(passport.profileUrl);   // shareable URL`}</CodeBlock>
 
         {/* Footer */}
         <footer className="border-t border-[#141414] pt-8 flex items-center justify-between text-xs text-[#333]">
-          <span>AgentPay · BSL-1.1 · AGPL-3.0 after 2029</span>
+          <span>AgentPay · BSL-1.1 until 2029 · AGPL-3.0 thereafter</span>
           <a
             href="https://github.com/Rumblingb/Agentpay/issues"
             className="hover:text-[#555] transition"

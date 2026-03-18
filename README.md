@@ -185,4 +185,6 @@ npx @agentpayxyz/mcp-server         # MCP server for Claude Desktop
 
 ## License
 
-MIT
+Business Source License 1.1 (BSL-1.1) — converts to AGPL-3.0 on 2029-01-01.
+
+You may use, modify, and distribute this software for any non-commercial purpose. You may not use it to provide a competing hosted payment service. See [LICENSE](LICENSE) for full terms.

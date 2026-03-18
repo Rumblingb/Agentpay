@@ -1,0 +1,68 @@
+Business Source License 1.1
+
+Licensor: AgentPay Ltd.
+Licensed Work: AgentPay
+Change Date: 2029-01-01
+Change License: GNU Affero General Public License v3.0 (AGPL-3.0)
+
+-----------------------------------------------------------------------------
+
+Parameters
+
+Licensor: AgentPay Ltd.
+Licensed Work: AgentPay (https://github.com/Rumblingb/Agentpay)
+Additional Use Grant: You may use the Licensed Work in production for any
+  purpose other than a Commercial Payment Infrastructure Service.
+  A "Commercial Payment Infrastructure Service" is a product or service that:
+  (a) provides payment routing, settlement, or escrow functionality to third
+      parties, and
+  (b) competes directly with the Licensed Work's hosted service offering at
+      agentpay.so.
+Change Date: 2029-01-01
+Change License: AGPL-3.0
+
+-----------------------------------------------------------------------------
+
+Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, above, permitting limited
+production use.
+
+Effective on the Change Date, or the fourth anniversary of the first publicly
+available distribution of a specific version of the Licensed Work under this
+License, whichever comes first, the Licensor hereby grants you rights under
+the terms of the Change License, and these rights will not be otherwise
+restricted by this License.
+
+-----------------------------------------------------------------------------
+
+Covenants of Licensor
+
+In consideration of the right to use this License's text, and without any
+other consideration, Licensor agrees that:
+  (a) to specify as the Change License the AGPL-3.0 or a more permissive
+      license;
+  (b) to either (i) include the Additional Use Grant or (ii) make the Change
+      Date no later than four years from the date of the first publicly
+      available distribution of the Licensed Work.
+
+-----------------------------------------------------------------------------
+
+Notice
+
+The Business Source License (this document, or the "License") is not an Open
+Source license. However, the Licensed Work will eventually be made available
+under an Open Source License, as stated in this License.
+
+For more information on the use of the Business Source License, see
+https://mariadb.com/bsl11/.
+
+-----------------------------------------------------------------------------
+
+Business Source License 1.1 — Full Text
+
+Copyright (C) 2026 AgentPay Ltd. All rights reserved.
+
+"Business Source License" is a trademark of MariaDB Corporation Ab.
