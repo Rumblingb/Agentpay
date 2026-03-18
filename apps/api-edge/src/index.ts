@@ -34,6 +34,7 @@ import { ap2Router } from './routes/ap2';
 import { acpRouter } from './routes/acp';
 import { marketplaceRouter } from './routes/marketplace';
 import { agentMatchRouter } from './routes/agentMatch';
+import { mockAgentsRouter } from './routes/mockAgents';
 import { agentWalletRouter } from './routes/agentWallet';
 import { spendingPoliciesRouter } from './routes/spendingPolicies';
 import { foundationAgentsRouter } from './routes/foundationAgents';
@@ -165,6 +166,9 @@ app.route('/', stubsRouter);
 
 // Demo routes — /api/demo/*
 app.route('/api/demo', demoRouter);
+
+// Mock agents — /api/mock/* (demo booking webhooks)
+app.route('/api/mock', mockAgentsRouter);
 
 // Solana listener admin — POST /api/_admin/solana-listener/start  (admin-key protected)
 // This kicks the Durable Object to start its alarm chain.

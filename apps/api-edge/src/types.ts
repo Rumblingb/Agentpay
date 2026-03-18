@@ -131,6 +131,10 @@ export interface Env {
 
   /** Low USDC balance threshold in dollars — triggers an alert log. Default: 5. */
   LOW_BALANCE_ALERT_THRESHOLD_USDC?: string;
+
+  // ── Email ─────────────────────────────────────────────────────────────────
+  /** Resend API key — enables booking confirmation emails from mock agents. */
+  RESEND_API_KEY?: string;
 }
 
 // ---------------------------------------------------------------------------

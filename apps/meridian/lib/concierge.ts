@@ -111,7 +111,7 @@ function scheduleAutoComplete(jobId: string, hirerId: string): void {
     } catch {
       // Agent may have already self-completed — safe to ignore
     }
-  }, 12_000);
+  }, 30_000); // 30s fallback — real agent webhook fires within ~2s
 }
 
 // ── processIntent ─────────────────────────────────────────────────────────

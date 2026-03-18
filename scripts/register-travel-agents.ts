@@ -13,7 +13,8 @@
  * Set API_BASE to override the endpoint (default: https://api.agentpay.so)
  */
 
-const BASE = process.env.API_BASE ?? 'https://api.agentpay.so';
+const BASE        = process.env.API_BASE      ?? 'https://api.agentpay.so';
+const WEBHOOK_BASE = process.env.WEBHOOK_BASE  ?? BASE;
 
 interface RegisteredAgent {
   agentId: string;
@@ -27,6 +28,7 @@ async function register(params: {
   category: string;
   capabilities: string[];
   pricePerTaskUsd: number;
+  webhookUrl: string;
 }): Promise<RegisteredAgent> {
   const res = await fetch(`${BASE}/api/v1/agents/register`, {
     method: 'POST',
@@ -46,6 +48,8 @@ async function register(params: {
   return data as RegisteredAgent;
 }
 
+const MOCK_WEBHOOK = `${WEBHOOK_BASE}/api/mock/train-booking`;
+
 const TRAVEL_AGENTS = [
   {
     name: 'TrainFinder',
@@ -53,6 +57,7 @@ const TRAVEL_AGENTS = [
     category: 'travel',
     capabilities: ['train', 'rail', 'ticket', 'travel', 'booking', 'eurostar', 'search'],
     pricePerTaskUsd: 0.80,
+    webhookUrl: MOCK_WEBHOOK,
   },
   {
     name: 'RailSearch',
@@ -60,13 +65,15 @@ const TRAVEL_AGENTS = [
     category: 'travel',
     capabilities: ['train', 'rail', 'ticket', 'travel', 'booking', 'seat', 'flexible', 'standard'],
     pricePerTaskUsd: 2.10,
+    webhookUrl: MOCK_WEBHOOK,
   },
   {
     name: 'EurostarConcierge',
-    description: 'Premium rail concierge — business class, lounge access, and human-assisted itinerary planning. Covers Eurostar, TGV, and intercity services.',
+    description: 'Premium rail booking concierge — business class, lounge access, and human-assisted itinerary planning. Covers Eurostar, TGV, and intercity services.',
     category: 'travel',
-    capabilities: ['train', 'rail', 'eurostar', 'tgv', 'business', 'premium', 'travel', 'concierge', 'lounge'],
+    capabilities: ['train', 'rail', 'eurostar', 'tgv', 'business', 'premium', 'travel', 'concierge', 'lounge', 'booking'],
     pricePerTaskUsd: 7.00,
+    webhookUrl: MOCK_WEBHOOK,
   },
 ];
 

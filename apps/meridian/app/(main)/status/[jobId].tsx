@@ -36,6 +36,7 @@ export default function StatusScreen() {
   const [statusPhase, setStatusPhase] = useState<StatusPhase>('executing');
   const [elapsed, setElapsed]         = useState(0);
   const [errorMsg, setErrorMsg]       = useState<string | null>(null);
+  const [bookingRef, setBookingRef]   = useState<string | null>(null);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const fadeSuccess = useRef(new Animated.Value(0)).current;
@@ -60,10 +61,16 @@ export default function StatusScreen() {
           clearInterval(t);
           if (!checkRef.current) {
             checkRef.current = true;
+            // Extract booking reference from completion proof
+            const ref = data.metadata?.completionProof?.bookingRef ?? null;
+            if (ref) setBookingRef(ref);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            await speak('Done! Your receipt is ready.', openaiKey);
+            const doneMsg = ref
+              ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}.`
+              : 'Done! Your receipt is ready.';
+            await speak(doneMsg, openaiKey);
             // Animate success
             Animated.parallel([
               Animated.spring(orbScale, { toValue: 1.2, useNativeDriver: true, speed: 30 }),
@@ -139,11 +146,19 @@ export default function StatusScreen() {
 
         <Text style={styles.statusSub}>
           {isDone
-            ? 'Your task has been completed successfully.'
+            ? (bookingRef ? `Confirmation sent to your email.` : 'Your task has been completed successfully.')
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Agent'} is on it · ${elapsed}s`}
         </Text>
+
+        {/* Booking reference pill */}
+        {isDone && bookingRef && (
+          <View style={styles.bookingRefWrap}>
+            <Text style={styles.bookingRefLabel}>Booking Reference</Text>
+            <Text style={styles.bookingRef}>{bookingRef}</Text>
+          </View>
+        )}
 
         {/* CTA */}
         {isDone && (
@@ -271,6 +286,33 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 40,
     paddingHorizontal: 20,
+  },
+
+  bookingRefWrap: {
+    backgroundColor: '#0a1a0a',
+    borderWidth: 1,
+    borderColor: '#14532d',
+    borderRadius: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 32,
+    width: '100%',
+  },
+  bookingRefLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4b5563',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  bookingRef: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#4ade80',
+    letterSpacing: 3,
+    fontFamily: 'monospace',
   },
 
   ctaWrap: { width: '100%', alignItems: 'center' },

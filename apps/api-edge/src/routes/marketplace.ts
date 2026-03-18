@@ -243,6 +243,40 @@ router.post('/hire', async (c) => {
     await sql2.end().catch(() => {});
   }
 
+  // ── Dispatch to agent's webhookUrl (fire-and-forget) ──────────────────────
+  // Look up the agent's webhookUrl from agent_identities and POST the job
+  // payload. The agent processes the job and calls /complete when done.
+  const dispatchSql = createDb(c.env);
+  c.executionCtx.waitUntil((async () => {
+    try {
+      const agentRows = await dispatchSql<any[]>`
+        SELECT metadata FROM agent_identities WHERE agent_id = ${agentId} LIMIT 1
+      `.catch(() => []);
+      const agentMeta = parseJsonb(agentRows[0]?.metadata ?? '{}', {} as Record<string, unknown>);
+      const webhookUrl = agentMeta.webhookUrl as string | undefined;
+      if (webhookUrl) {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId,
+            hirerId,
+            agentId,
+            jobDescription,
+            agreedPriceUsdc,
+            agentName: agentMeta.name ?? agentId,
+            callbackUrl: `${c.env.API_BASE_URL}/api/marketplace/hire/${jobId}/complete`,
+          }),
+        });
+        console.info('[marketplace/hire] dispatched to agent', { jobId, agentId, webhookUrl });
+      }
+    } catch (e) {
+      console.error('[marketplace/hire] dispatch failed', e instanceof Error ? e.message : e);
+    } finally {
+      await dispatchSql.end().catch(() => {});
+    }
+  })());
+
   return c.json({
     success: true,
     jobId,
