@@ -29,6 +29,10 @@ import { stubsRouter } from './routes/stubs';
 import { demoRouter } from './routes/demo';
 import { passportRouter } from './routes/passport';
 import { v1AgentsRouter } from './routes/v1Agents';
+import { x402Router } from './routes/x402';
+import { ap2Router } from './routes/ap2';
+import { acpRouter } from './routes/acp';
+import { marketplaceRouter } from './routes/marketplace';
 
 import { scheduledHandler } from './cron';
 
@@ -92,7 +96,6 @@ app.use('*', rateLimitMiddleware);
 // Health checks — mounted first; exempt from env validation above.
 app.route('/', healthRouter);
 
-// Temporary DB diagnostic route — /api/_debug/db
 
 
 // Merchant / account routes — /api/merchants/*
@@ -104,8 +107,16 @@ app.route('/api/intents', intentsRouter);
 // Agent-facing payment intents — /api/v1/payment-intents/*
 app.route('/api/v1/payment-intents', v1IntentsRouter);
 
-// Agent self-registration — /api/v1/agents/*
+// Agent self-registration + agent-native payments — /api/v1/agents/*
 app.route('/api/v1/agents', v1AgentsRouter);
+
+// Protocol routes
+app.route('/api/x402', x402Router);
+app.route('/api/ap2', ap2Router);
+app.route('/api/acp', acpRouter);
+
+// Marketplace discovery — /api/marketplace/*
+app.route('/api/marketplace', marketplaceRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

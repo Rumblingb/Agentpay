@@ -23,6 +23,8 @@ const DEFAULT_LOW_USDC_THRESHOLD = 5; // $5 USDC
 export async function runLiquidityCron(env: Env): Promise<void> {
   const sql = createDb(env);
   try {
+    // Keep-alive ping — prevents Supabase from pausing idle projects
+    await sql`SELECT 1`.catch(() => {});
     await checkHostedPayerBalance(env, sql);
     await checkCriticalFeeLedger(sql);
   } catch (err: unknown) {

@@ -1,0 +1,29 @@
+{
+  "name": "@agentpayxyz/moltclaw",
+  "version": "0.1.0",
+  "description": "AgentPay plugin for MoltClaw — pay, verify, and discover agents inside any MoltClaw runtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["agentpay", "moltclaw", "ai-payments", "agent", "a2a", "x402", "ap2"],
+  "author": "AgentPay <dev@agentpay.so>",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentpayxyz/agentpay"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -73,31 +73,28 @@ router.post('/register', async (c) => {
   const sql = createDb(c.env);
   try {
     await sql`
-      INSERT INTO agent_identities (
-        agent_id,
-        owner_email,
-        verified,
-        kyc_status,
-        metadata,
-        created_at,
-        updated_at
-      ) VALUES (
-        ${agentId},
-        ${systemEmail},
-        false,
-        'programmatic',
-        ${JSON.stringify({
-          name: name ?? agentId,
-          description,
-          category,
-          capabilities,
-          agentKeyHash: keyHash,
-          registeredAt: new Date().toISOString(),
-          registrationMode: 'self_registered',
-        })}::jsonb,
-        NOW(),
-        NOW()
-      )
+      INSERT INTO agent_identities
+        (agent_id, owner_email, verified, kyc_status, created_at, updated_at)
+      VALUES
+        (${agentId}, ${systemEmail}, false, 'programmatic', NOW(), NOW())
+    `;
+
+    // Metadata stored via a second targeted update — avoids jsonb cast
+    // complications in the initial INSERT on Hyperdrive connections.
+    const metaStr = JSON.stringify({
+      name: name ?? agentId,
+      description,
+      category,
+      capabilities,
+      agentKeyHash: keyHash,
+      registeredAt: new Date().toISOString(),
+      registrationMode: 'self_registered',
+    });
+    await sql`
+      UPDATE agent_identities
+      SET    metadata   = ${metaStr}::jsonb,
+             updated_at = NOW()
+      WHERE  agent_id   = ${agentId}
     `;
 
     return c.json(
@@ -178,6 +175,93 @@ router.get('/:agentId', async (c) => {
       passportUrl: `https://app.agentpay.so/agent/${r.agentId}`,
       _schema: 'AgentIdentity/1.0',
     });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/agents/pay  — agent-native payment (no merchantId required)
+//
+// Agent authenticates with agentId + agentKey, specifies recipientAddress,
+// amount, and purpose. Returns a Solana Pay URI + intentId.
+// ---------------------------------------------------------------------------
+
+router.post('/pay', async (c) => {
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { agentId, agentKey, recipientAddress, amount, purpose } = body as Record<string, string | number>;
+
+  if (!agentId || typeof agentId !== 'string') return c.json({ error: 'agentId required' }, 400);
+  if (!agentKey || typeof agentKey !== 'string') return c.json({ error: 'agentKey required' }, 400);
+  if (!recipientAddress || typeof recipientAddress !== 'string' || recipientAddress.length < 32) {
+    return c.json({ error: 'recipientAddress must be a valid Solana address' }, 400);
+  }
+  if (typeof amount !== 'number' || amount <= 0 || amount > 100000) {
+    return c.json({ error: 'amount must be a positive number ≤ 100,000 USDC' }, 400);
+  }
+
+  // Verify agentKey against stored hash
+  const keyHash = await hashKey(agentKey as string);
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<any[]>`
+      SELECT agent_id, metadata FROM agent_identities
+      WHERE agent_id = ${agentId} LIMIT 1
+    `.catch(() => []);
+
+    if (!rows.length) return c.json({ error: 'AGENT_NOT_FOUND' }, 404);
+
+    const storedHash = rows[0]?.metadata?.agentKeyHash;
+    if (!storedHash || storedHash !== keyHash) {
+      return c.json({ error: 'INVALID_AGENT_KEY', message: 'agentKey does not match.' }, 401);
+    }
+
+    // Create intent record (merchant_id = null for agent-native)
+    const intentId = crypto.randomUUID();
+    const verificationToken = `APV_${Date.now()}_${Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2,'0')).join('')}`;
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    await sql`
+      INSERT INTO payment_intents
+        (id, merchant_id, amount, currency, status, verification_token, expires_at, metadata)
+      VALUES
+        (${intentId},
+         ${'system'},
+         ${amount as number},
+         ${'USDC'},
+         ${'pending'},
+         ${verificationToken},
+         ${expiresAt}::timestamptz,
+         ${JSON.stringify({
+           agentId,
+           recipientAddress,
+           purpose: purpose ?? null,
+           protocol: 'agent_native',
+         })}::jsonb)
+    `.catch(() => {});
+
+    const solanaPayUri = `solana:${recipientAddress}?amount=${amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(verificationToken)}`;
+
+    return c.json({
+      success: true,
+      intentId,
+      verificationToken,
+      expiresAt,
+      instructions: {
+        crypto: {
+          network: 'solana',
+          token: 'USDC',
+          recipientAddress,
+          amount,
+          memo: verificationToken,
+          solanaPayUri,
+        },
+      },
+      verifyUrl: `https://api.agentpay.so/api/verify/${intentId}`,
+      _schema: 'AgentNativePayment/1.0',
+    }, 201);
   } finally {
     await sql.end().catch(() => {});
   }
