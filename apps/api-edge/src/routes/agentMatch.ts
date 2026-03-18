@@ -21,7 +21,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { createDb } from '../lib/db';
+import { createDb, parseJsonb } from '../lib/db';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -44,7 +44,7 @@ function extractKeywords(intent: string): string[] {
 /** Score a row against search terms — higher = better match */
 function rankRow(r: any, keywords: string[], capability?: string): number {
   let score = Number(r.agentrank_score ?? 0);
-  const meta = r.metadata ?? {};
+  const meta = r._parsedMeta ?? {};
   const caps: string[] = Array.isArray(meta.capabilities) ? meta.capabilities : [];
   const cat: string = (meta.category ?? '').toLowerCase();
   const name: string = (meta.name ?? '').toLowerCase();
@@ -103,25 +103,21 @@ async function matchAgents(
     conditions.push(`COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 0) <= $${params.length}`);
   }
 
-  // If we have a capability hint, pre-filter by category or capability keyword
+  // If we have a capability hint, pre-filter by category, capabilities text, or description
   if (capLow) {
     params.push(`%${capLow}%`);
     const pIdx = params.length;
     conditions.push(
       `(LOWER(ai.metadata->>'category') LIKE $${pIdx}` +
-      ` OR ai.metadata->'capabilities' @> to_jsonb($${pIdx}::text)` +
+      ` OR LOWER(ai.metadata::text) LIKE $${pIdx}` +
       ` OR LOWER(ai.metadata->>'description') LIKE $${pIdx})`,
     );
   } else if (keywords.length) {
-    // General keyword pre-filter — at least one keyword must appear somewhere
+    // General keyword pre-filter — cast whole metadata to text and search
     const kwPattern = `%${keywords[0]}%`;
     params.push(kwPattern);
     const pIdx = params.length;
-    conditions.push(
-      `(LOWER(ai.metadata->>'name') LIKE $${pIdx}` +
-      ` OR LOWER(ai.metadata->>'description') LIKE $${pIdx}` +
-      ` OR LOWER(ai.metadata->>'category') LIKE $${pIdx})`,
-    );
+    conditions.push(`LOWER(ai.metadata::text) LIKE $${pIdx}`);
   }
 
   const where = conditions.join(' AND ');
@@ -142,20 +138,25 @@ async function matchAgents(
     params,
   ).catch(() => []);
 
+  // Parse jsonb metadata (Hyperdrive returns it as a raw string with fetch_types:false)
+  const parsedRows = rows.map(r => ({ ...r, _parsedMeta: parseJsonb(r.metadata, {} as Record<string, unknown>) }));
+
   // In-memory ranking
-  const scored = rows.map(r => ({
+  const scored = parsedRows.map(r => ({
     row: r,
     matchScore: rankRow(r, keywords, capability),
   }));
   scored.sort((a, b) => b.matchScore - a.matchScore);
 
-  return scored.slice(0, limit).map(({ row: r, matchScore }) => ({
+  return scored.slice(0, limit).map(({ row: r, matchScore }) => {
+    const m = r._parsedMeta;
+    return {
     agentId:        r.agent_id,
-    name:           r.metadata?.name        ?? r.agent_id,
-    category:       r.metadata?.category    ?? 'general',
-    description:    r.metadata?.description ?? '',
-    capabilities:   r.metadata?.capabilities  ?? [],
-    pricePerTaskUsd:r.metadata?.pricePerTaskUsd ?? null,
+    name:           (m.name        as string)   ?? r.agent_id,
+    category:       (m.category    as string)   ?? 'general',
+    description:    (m.description as string)   ?? '',
+    capabilities:   (m.capabilities as string[]) ?? [],
+    pricePerTaskUsd:(m.pricePerTaskUsd as number) ?? null,
     trustScore:     Number(r.agentrank_score),
     grade:          r.agentrank_grade,
     txVolume:       Number(r.tx_volume),
@@ -164,7 +165,8 @@ async function matchAgents(
     matchScore,
     passportUrl:    `https://agentpay.so/agent/${r.agent_id}`,
     registeredAt:   r.created_at,
-  }));
+  };
+  });
 }
 
 // ---------------------------------------------------------------------------

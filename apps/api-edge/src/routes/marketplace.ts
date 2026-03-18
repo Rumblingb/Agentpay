@@ -16,7 +16,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { createDb } from '../lib/db';
+import { createDb, parseJsonb } from '../lib/db';
 import { MARKETPLACE_TAKE_RATE_BPS } from '../lib/feeLedger';
 import { recordFloatAccrual } from '../lib/floatYield';
 
@@ -104,18 +104,21 @@ router.get('/discover', async (c) => {
       params.slice(0, params.length - 2),
     ).catch(() => [{ n: 0 }]);
 
-    const agents = rows.map((r: any) => ({
-      agentId:        r.agent_id,
-      name:           r.metadata?.name        ?? r.agent_id,
-      category:       r.metadata?.category    ?? 'general',
-      description:    r.metadata?.description ?? '',
-      agentRankScore: r.metadata?.agentRankScore ?? 0,
-      pricePerTaskUsd:r.metadata?.pricePerTaskUsd ?? null,
-      capabilities:   r.metadata?.capabilities  ?? [],
-      verified:       r.verified ?? false,
-      passportUrl:    `https://app.agentpay.so/agent/${r.agent_id}`,
-      registeredAt:   r.created_at,
-    }));
+    const agents = rows.map((r: any) => {
+      const m = parseJsonb(r.metadata, {} as Record<string, unknown>);
+      return {
+        agentId:        r.agent_id,
+        name:           (m.name        as string)   ?? r.agent_id,
+        category:       (m.category    as string)   ?? 'general',
+        description:    (m.description as string)   ?? '',
+        agentRankScore: (m.agentRankScore as number) ?? 0,
+        pricePerTaskUsd:(m.pricePerTaskUsd as number) ?? null,
+        capabilities:   (m.capabilities as string[]) ?? [],
+        verified:       r.verified ?? false,
+        passportUrl:    `https://app.agentpay.so/agent/${r.agent_id}`,
+        registeredAt:   r.created_at,
+      };
+    });
 
     return c.json({
       success: true,
@@ -149,18 +152,19 @@ router.get('/agent/:agentId', async (c) => {
     if (!rows.length) return c.json({ error: 'Agent not found', agentId }, 404);
 
     const r = rows[0];
+    const m = parseJsonb(r.metadata, {} as Record<string, unknown>);
     return c.json({
       success: true,
       agent: {
         agentId:        r.agent_id,
-        name:           r.metadata?.name        ?? r.agent_id,
-        category:       r.metadata?.category    ?? 'general',
-        description:    r.metadata?.description ?? '',
+        name:           (m.name        as string)   ?? r.agent_id,
+        category:       (m.category    as string)   ?? 'general',
+        description:    (m.description as string)   ?? '',
         verified:       r.verified,
         kycStatus:      r.kyc_status,
-        agentRankScore: r.metadata?.agentRankScore ?? 0,
-        pricePerTaskUsd:r.metadata?.pricePerTaskUsd ?? null,
-        capabilities:   r.metadata?.capabilities  ?? [],
+        agentRankScore: (m.agentRankScore as number) ?? 0,
+        pricePerTaskUsd:(m.pricePerTaskUsd as number) ?? null,
+        capabilities:   (m.capabilities as string[]) ?? [],
         passportUrl:    `https://app.agentpay.so/agent/${r.agent_id}`,
         registeredAt:   r.created_at,
       },

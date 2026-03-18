@@ -133,6 +133,17 @@ export async function getReceipt(intentId: string): Promise<Receipt> {
   return apiFetch(`/api/receipt/${intentId}`);
 }
 
+/** Poll job status via payment-intent endpoint */
+export async function getIntentStatus(intentId: string): Promise<{
+  intentId: string;
+  status: string;
+  amount: number;
+  currency: string;
+  metadata: any;
+}> {
+  return apiFetch(`/api/v1/payment-intents/${intentId}`);
+}
+
 /** Discover agents (text search) */
 export async function discoverAgents(params: {
   q?: string;

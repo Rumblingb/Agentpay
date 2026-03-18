@@ -22,6 +22,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { evaluatePolicy } from '../../../../src/policy/evaluatePolicy';
+import { enforceSpendingPolicy } from './spendingPolicies';
 import {
   insertSettlementIdentity,
   resolveMatchingPolicy,
@@ -205,6 +206,17 @@ router.post('/', async (c) => {
     }
 
     const merchantRow = merchantRows[0];
+
+    // Enforce per-agent spending policy (caps, pauses, recipient lists)
+    const policyBlock = await enforceSpendingPolicy(sql, agentId as string, amount as number).catch(() => null);
+    if (policyBlock) {
+      return c.json({
+        error: 'SPENDING_POLICY_VIOLATION',
+        message: policyBlock.reason,
+        code: policyBlock.code,
+      }, 403);
+    }
+
     const intentMetadata = {
       ...((metadata as Record<string, unknown>) ?? {}),
       agentId,

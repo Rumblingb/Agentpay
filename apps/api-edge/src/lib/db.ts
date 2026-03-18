@@ -66,3 +66,17 @@ export function createDb(env: Env): Sql {
         ssl: "require",
       });
 }
+
+/**
+ * Safely parse a JSONB value returned by postgres.js.
+ * With fetch_types: false (Hyperdrive), postgres.js returns JSONB columns as
+ * raw strings instead of parsed objects. This helper handles both cases.
+ */
+export function parseJsonb<T = Record<string, unknown>>(val: unknown, fallback: T): T {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val) as T; } catch { return fallback; }
+  }
+  if (typeof val === 'object') return val as T;
+  return fallback;
+}

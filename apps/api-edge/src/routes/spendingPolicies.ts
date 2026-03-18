@@ -28,7 +28,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { createDb } from '../lib/db';
+import { createDb, parseJsonb } from '../lib/db';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -54,7 +54,8 @@ async function isAuthorized(
   const rows = await sql<any[]>`
     SELECT metadata FROM agent_identities WHERE agent_id = ${agentId} LIMIT 1
   `.catch(() => []);
-  return rows.length > 0 && rows[0].metadata?.agentKeyHash === keyHash;
+  const meta = parseJsonb(rows[0]?.metadata, {} as Record<string, unknown>);
+  return rows.length > 0 && meta.agentKeyHash === keyHash;
 }
 
 const POLICY_DEFAULTS = {
@@ -119,7 +120,7 @@ router.get('/', async (c) => {
     return c.json({
       success: true,
       agentId,
-      policy: rows[0].policy ?? POLICY_DEFAULTS,
+      policy: parseJsonb(rows[0].policy, POLICY_DEFAULTS),
       _schema: 'SpendingPolicy/1.0',
     });
   } finally {
@@ -215,7 +216,8 @@ export async function enforceSpendingPolicy(
   `.catch(() => []);
 
   if (!rows.length || !rows[0].policy) return null;
-  const p = rows[0].policy;
+  const p = parseJsonb(rows[0].policy, null as any);
+  if (!p) return null;
 
   if (p.enabled === false) {
     return { blocked: true, reason: 'Agent spending is disabled by policy.', code: 'POLICY_DISABLED' };

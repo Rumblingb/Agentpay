@@ -20,7 +20,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { createDb } from '../lib/db';
+import { createDb, parseJsonb } from '../lib/db';
 import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -71,31 +71,36 @@ router.post('/register', async (c) => {
   // System email placeholder — makes the DB constraint happy without human input.
   const systemEmail = `agent.${agentId}@agents.agentpay.so`;
 
+  const pricePerTaskUsd = typeof body.pricePerTaskUsd === 'number' && body.pricePerTaskUsd >= 0
+    ? body.pricePerTaskUsd
+    : null;
+  const webhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl.slice(0, 500) : null;
+  const extraMeta = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+    ? body.metadata as Record<string, unknown>
+    : {};
+
+  const metaObj = {
+    name: name ?? agentId,
+    description,
+    category,
+    capabilities,
+    pricePerTaskUsd,
+    webhookUrl,
+    agentKeyHash: keyHash,
+    registeredAt: new Date().toISOString(),
+    registrationMode: 'self_registered',
+    ...extraMeta,
+  };
+
   const sql = createDb(c.env);
   try {
     await sql`
       INSERT INTO agent_identities
-        (agent_id, owner_email, verified, kyc_status, created_at, updated_at)
+        (agent_id, owner_email, verified, kyc_status, metadata, created_at, updated_at)
       VALUES
-        (${agentId}, ${systemEmail}, false, 'programmatic', NOW(), NOW())
-    `;
-
-    // Metadata stored via a second targeted update — avoids jsonb cast
-    // complications in the initial INSERT on Hyperdrive connections.
-    const metaStr = JSON.stringify({
-      name: name ?? agentId,
-      description,
-      category,
-      capabilities,
-      agentKeyHash: keyHash,
-      registeredAt: new Date().toISOString(),
-      registrationMode: 'self_registered',
-    });
-    await sql`
-      UPDATE agent_identities
-      SET    metadata   = ${metaStr}::jsonb,
-             updated_at = NOW()
-      WHERE  agent_id   = ${agentId}
+        (${agentId}, ${systemEmail}, false, 'programmatic',
+         ${JSON.stringify(metaObj)},
+         NOW(), NOW())
     `;
 
     // Seed starter AgentRank score so passport returns real data from day one.
@@ -177,7 +182,7 @@ router.get('/:agentId', async (c) => {
     }
 
     const r = rows[0];
-    const meta = (r.metadata ?? {}) as Record<string, unknown>;
+    const meta = parseJsonb(r.metadata, {} as Record<string, unknown>);
 
     return c.json({
       agentId: r.agentId,
@@ -226,11 +231,10 @@ router.patch('/:agentId', async (c) => {
     `.catch(() => []);
 
     if (!rows.length) return c.json({ error: 'AGENT_NOT_FOUND' }, 404);
-    if (rows[0].metadata?.agentKeyHash !== keyHash) {
+    const existing = parseJsonb(rows[0].metadata, {} as Record<string, unknown>);
+    if (existing.agentKeyHash !== keyHash) {
       return c.json({ error: 'INVALID_AGENT_KEY' }, 401);
     }
-
-    const existing = (rows[0].metadata ?? {}) as Record<string, unknown>;
     const name = typeof body.name === 'string' ? body.name.slice(0, 80) : existing.name;
     const description = typeof body.description === 'string' ? body.description.slice(0, 500) : existing.description;
     const category = typeof body.category === 'string' ? body.category.slice(0, 50) : existing.category;
@@ -249,19 +253,15 @@ router.patch('/:agentId', async (c) => {
       updatedAt: new Date().toISOString(),
     });
 
-    await sql`
-      UPDATE agent_identities
-      SET metadata = ${updatedMeta}::jsonb, updated_at = NOW()
-      WHERE agent_id = ${agentId}
-    `;
+    await sql.unsafe(
+      `UPDATE agent_identities SET metadata = $1::jsonb, updated_at = NOW() WHERE agent_id = $2`,
+      [updatedMeta, agentId],
+    );
 
-    // Also update agentrank_scores factors so marketplace discovery reflects new category/price
-    await sql`
-      UPDATE agentrank_scores
-      SET factors = factors || ${JSON.stringify({ category, pricePerTaskUsd })}::jsonb,
-          updated_at = NOW()
-      WHERE agent_id = ${agentId}
-    `.catch(() => {});
+    await sql.unsafe(
+      `UPDATE agentrank_scores SET factors = factors || $1::jsonb, updated_at = NOW() WHERE agent_id = $2`,
+      [JSON.stringify({ category, pricePerTaskUsd }), agentId],
+    ).catch(() => {});
 
     return c.json({
       success: true,

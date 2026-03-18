@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { completeJob } from '../../../lib/api';
+import { completeJob, getIntentStatus } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/speech';
 
@@ -34,18 +34,30 @@ export default function StatusScreen() {
     return () => clearInterval(t);
   }, []);
 
-  // In a real deployment the agent calls back via webhook.
-  // Here we simulate completion after a short wait (replace with real polling).
+  // Poll the payment intent status until terminal state
   useEffect(() => {
-    if (statusPhase !== 'executing') return;
-    const t = setTimeout(async () => {
-      // In production: poll GET /api/v1/payment-intents/:jobId until status=completed
-      setStatusPhase('done');
-      setPhase('done');
-      speak('Job complete! Your receipt is ready.');
-    }, 6000);
-    return () => clearTimeout(t);
-  }, [statusPhase]);
+    if (statusPhase !== 'executing' || !jobId) return;
+    const t = setInterval(async () => {
+      try {
+        const data = await getIntentStatus(jobId);
+        const s = data.status;
+        if (s === 'completed' || s === 'confirmed' || s === 'verified') {
+          clearInterval(t);
+          setStatusPhase('done');
+          setPhase('done');
+          speak('Job complete! Your receipt is ready.');
+        } else if (s === 'failed' || s === 'expired' || s === 'rejected') {
+          clearInterval(t);
+          setStatusPhase('error');
+          setError(`Job ${s}.`);
+          setPhase('error');
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [statusPhase, jobId]);
 
   const handleComplete = useCallback(async () => {
     if (!jobId || !agentId) return;
