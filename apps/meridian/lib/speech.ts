@@ -1,30 +1,29 @@
 /**
- * Speech — STT via OpenAI Whisper + TTS via expo-speech
+ * speech.ts — STT via OpenAI Whisper
  *
- * STT flow:
- *   1. Record audio with expo-av (Recording)
- *   2. Send m4a blob to OpenAI Whisper API → transcript
- *
- * TTS flow:
- *   expo-speech.speak() — native on-device, zero latency
+ * TTS is handled by lib/tts.ts (OpenAI TTS-1-HD).
+ * Re-exported from here for convenience.
  */
 
 import { Audio } from 'expo-av';
-import * as Speech from 'expo-speech';
 import * as FileSystem from 'expo-file-system';
+export { speak, stopSpeaking } from './tts';
 
 const WHISPER_URL = 'https://api.openai.com/v1/audio/transcriptions';
 
-// ── Recording ────────────────────────────────────────────────────────────────
+// ── Recording ─────────────────────────────────────────────────────────────────
 
 let _recording: Audio.Recording | null = null;
 
 export async function startRecording(): Promise<void> {
-  await Audio.requestPermissionsAsync();
+  const { granted } = await Audio.requestPermissionsAsync();
+  if (!granted) throw new Error('Microphone permission denied.');
+
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: true,
     playsInSilentModeIOS: true,
   });
+
   const { recording } = await Audio.Recording.createAsync(
     Audio.RecordingOptionsPresets.HIGH_QUALITY,
   );
@@ -46,12 +45,10 @@ export async function transcribeAudio(
   uri: string,
   openaiKey: string,
 ): Promise<string> {
-  // Read file as base64 and build FormData
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
 
-  // Convert base64 to blob via fetch data URI
   const dataUri = `data:audio/m4a;base64,${base64}`;
   const blob = await fetch(dataUri).then(r => r.blob());
 
@@ -69,18 +66,4 @@ export async function transcribeAudio(
   if (!res.ok) throw new Error(`Whisper error ${res.status}`);
   const data = await res.json();
   return (data.text as string).trim();
-}
-
-// ── TTS ───────────────────────────────────────────────────────────────────────
-
-export function speak(text: string, rate = 1.0): void {
-  Speech.speak(text, {
-    rate,
-    pitch: 1.0,
-    language: 'en-US',
-  });
-}
-
-export function stopSpeaking(): void {
-  Speech.stop();
 }

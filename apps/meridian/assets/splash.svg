@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1242" height="2688">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#0d0b1e"/>
+      <stop offset="100%" stop-color="#080808"/>
+    </radialGradient>
+    <radialGradient id="orb" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="81.972" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1242" height="2688" fill="url(#bg)"/>
+  <circle cx="621" cy="1182.72" r="491.83200000000005" fill="#6366f1" opacity="0.05"/>
+  <circle cx="621" cy="1182.72" r="273.24" fill="url(#orb)" filter="url(#glow)"/>
+  <!-- mic -->
+  <rect x="571.32" y="1075.2" width="99.36" height="215.04" rx="49.68" fill="white" opacity="0.95"/>
+  <path d="M 521.64 1263.36 Q 621 1397.76 720.36 1263.36" stroke="white" stroke-width="18.63" fill="none" stroke-linecap="round" opacity="0.95"/>
+  <line x1="621" y1="1397.76" x2="621" y2="1478.4" stroke="white" stroke-width="18.63" stroke-linecap="round" opacity="0.95"/>
+  <!-- wordmark -->
+  <text x="621" y="1666.56" font-family="system-ui, -apple-system, sans-serif" font-size="124.2" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-2">Meridian</text>
+  <text x="621" y="1760.6399999999999" font-family="system-ui, -apple-system, sans-serif" font-size="47.196" fill="#6366f1" text-anchor="middle" letter-spacing="2">by AgentPay</text>
+</svg>

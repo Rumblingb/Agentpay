@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#080808"/>
+    </radialGradient>
+    <radialGradient id="orb" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="40.96" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)" rx="225.28"/>
+  <circle cx="512" cy="512" r="505.85600000000005" fill="#6366f1" opacity="0.08"/>
+  <circle cx="512" cy="512" r="389.12" fill="url(#orb)" filter="url(#glow)"/>
+  <!-- mic icon simplified -->
+  <rect x="450.56" y="358.4" width="122.88" height="204.8" rx="61.44" fill="white" opacity="0.95"/>
+  <path d="M 389.12 573.44 Q 512 696.3199999999999 634.88 573.44" stroke="white" stroke-width="25.6" fill="none" stroke-linecap="round" opacity="0.95"/>
+  <line x1="512" y1="696.3199999999999" x2="512" y2="757.76" stroke="white" stroke-width="25.6" stroke-linecap="round" opacity="0.95"/>
+  <line x1="440.32" y1="757.76" x2="583.6800000000001" y2="757.76" stroke="white" stroke-width="25.6" stroke-linecap="round" opacity="0.95"/>
+</svg>

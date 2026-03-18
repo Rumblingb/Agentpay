@@ -1,91 +1,122 @@
 /**
  * Zustand store — global app state
+ *
+ * Credentials + prefs are persisted via lib/storage.ts (SecureStore / AsyncStorage).
+ * The store is the in-memory runtime view; storage is the durable layer.
  */
 
 import { create } from 'zustand';
 import type { Agent, CoordinationPlan, HireResult, WalletInfo } from './api';
+import type { ConciergeNeedsConfirm } from './concierge';
+import type { HistoryTurn } from './storage';
 
 export type AppPhase =
-  | 'idle'        // waiting for voice input
-  | 'listening'   // recording
-  | 'thinking'    // STT done, calling IntentCoordinator
-  | 'confirming'  // showing intent + agent, waiting for user approval
-  | 'hiring'      // POST /marketplace/hire in flight
-  | 'executing'   // job in progress, polling status
-  | 'done'        // job complete
+  | 'idle'          // waiting for voice input
+  | 'listening'     // recording
+  | 'thinking'      // STT done, concierge running
+  | 'confirming'    // above auto-confirm limit — waiting for voice yes/no
+  | 'hiring'        // hire in flight
+  | 'executing'     // job in progress, polling status
+  | 'done'          // job complete
   | 'error';
 
-interface ConversationTurn {
-  role: 'user' | 'agent';
-  text: string;
-  timestamp: number;
-}
-
 interface MeridianState {
-  // Auth
+  // ── Auth (loaded from SecureStore at boot) ───────────────────────────────
   agentId: string | null;
   agentKey: string | null;
   openaiKey: string | null;
 
-  // Current session
+  // ── User prefs (loaded from AsyncStorage at boot) ────────────────────────
+  userName: string;
+  autoConfirmLimitUsdc: number;
+  onboarded: boolean;
+
+  // ── Current session ───────────────────────────────────────────────────────
   phase: AppPhase;
   transcript: string;
   coordinationId: string | null;
-  plan: CoordinationPlan | null;
-  selectedAgent: Agent | null;
+  pendingConfirm: ConciergeNeedsConfirm | null; // set when needs voice confirm
+  currentAgent: Agent | null;
   currentJob: (HireResult & { jobId: string }) | null;
   error: string | null;
 
-  // Conversation history
-  turns: ConversationTurn[];
+  // ── Conversation history (persisted to AsyncStorage) ──────────────────────
+  turns: HistoryTurn[];
 
-  // Wallet
+  // ── Wallet ────────────────────────────────────────────────────────────────
   wallet: WalletInfo | null;
 
-  // Actions
+  // ── Actions ───────────────────────────────────────────────────────────────
+  hydrate: (params: {
+    agentId: string;
+    agentKey: string;
+    openaiKey: string;
+    userName: string;
+    autoConfirmLimitUsdc: number;
+    onboarded: boolean;
+    turns: HistoryTurn[];
+  }) => void;
+
   setCredentials: (agentId: string, agentKey: string, openaiKey: string) => void;
+  setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean }) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
-  setPlan: (coordinationId: string, plan: CoordinationPlan) => void;
-  selectAgent: (agent: Agent) => void;
-  setCurrentJob: (job: HireResult & { jobId: string }) => void;
+  setPendingConfirm: (confirm: ConciergeNeedsConfirm | null) => void;
+  setCurrentAgent: (agent: Agent | null) => void;
+  setCurrentJob: (job: (HireResult & { jobId: string }) | null) => void;
   setWallet: (wallet: WalletInfo) => void;
   setError: (error: string | null) => void;
-  addTurn: (role: 'user' | 'agent', text: string) => void;
+  addTurn: (turn: HistoryTurn) => void;
   reset: () => void;
 }
 
-const INITIAL: Pick<
-  MeridianState,
-  'phase' | 'transcript' | 'coordinationId' | 'plan' | 'selectedAgent' | 'currentJob' | 'error' | 'turns'
-> = {
-  phase: 'idle',
+const SESSION_INITIAL = {
+  phase: 'idle' as AppPhase,
   transcript: '',
   coordinationId: null,
-  plan: null,
-  selectedAgent: null,
+  pendingConfirm: null,
+  currentAgent: null,
   currentJob: null,
   error: null,
-  turns: [],
 };
 
 export const useStore = create<MeridianState>((set) => ({
+  // Auth
   agentId: null,
   agentKey: null,
   openaiKey: null,
+
+  // Prefs
+  userName: 'there',
+  autoConfirmLimitUsdc: 5,
+  onboarded: false,
+
+  // Session
+  ...SESSION_INITIAL,
+
+  // History + wallet
+  turns: [],
   wallet: null,
-  ...INITIAL,
+
+  hydrate: ({ agentId, agentKey, openaiKey, userName, autoConfirmLimitUsdc, onboarded, turns }) =>
+    set({ agentId, agentKey, openaiKey, userName, autoConfirmLimitUsdc, onboarded, turns }),
 
   setCredentials: (agentId, agentKey, openaiKey) =>
     set({ agentId, agentKey, openaiKey }),
+
+  setPrefs: (prefs) => set((s) => ({
+    userName: prefs.userName ?? s.userName,
+    autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc ?? s.autoConfirmLimitUsdc,
+    onboarded: prefs.onboarded ?? s.onboarded,
+  })),
 
   setPhase: (phase) => set({ phase }),
 
   setTranscript: (transcript) => set({ transcript }),
 
-  setPlan: (coordinationId, plan) => set({ coordinationId, plan }),
+  setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
 
-  selectAgent: (selectedAgent) => set({ selectedAgent }),
+  setCurrentAgent: (currentAgent) => set({ currentAgent }),
 
   setCurrentJob: (currentJob) => set({ currentJob }),
 
@@ -93,10 +124,7 @@ export const useStore = create<MeridianState>((set) => ({
 
   setError: (error) => set({ error, phase: error ? 'error' : 'idle' }),
 
-  addTurn: (role, text) =>
-    set((s) => ({
-      turns: [...s.turns, { role, text, timestamp: Date.now() }],
-    })),
+  addTurn: (turn) => set((s) => ({ turns: [...s.turns, turn].slice(-50) })),
 
-  reset: () => set(INITIAL),
+  reset: () => set(SESSION_INITIAL),
 }));

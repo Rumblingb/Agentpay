@@ -20,7 +20,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface CoordinationPlan {
   coordinationId: string;
@@ -83,7 +83,30 @@ export interface Receipt {
   signature: string;
 }
 
-// ── API calls ────────────────────────────────────────────────────────────────
+export interface RegisteredAgent {
+  agentId: string;
+  agentKey: string;
+  passportUrl: string;
+}
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+
+/** Auto-register a new Meridian user as an AgentPay agent */
+export async function registerAgent(params: {
+  name: string;
+  category?: string;
+}): Promise<RegisteredAgent> {
+  return apiFetch('/api/v1/agents/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: params.name,
+      category: params.category ?? 'human_user',
+      description: 'Meridian user — voice-first agentic commerce',
+      capabilities: ['hire', 'commission'],
+      metadata: { source: 'meridian_app', version: '1.0.0' },
+    }),
+  });
+}
 
 /** Parse intent + find matching agents */
 export async function coordinateIntent(params: {
@@ -155,4 +178,17 @@ export async function discoverAgents(params: {
   if (params.category) qs.set('category', params.category);
   qs.set('limit', String(params.limit ?? 10));
   return apiFetch(`/api/marketplace/discover?${qs}`);
+}
+
+/** Match agents by intent (POST) */
+export async function matchAgents(params: {
+  intent: string;
+  capability?: string;
+  maxPriceUsd?: number;
+  limit?: number;
+}): Promise<{ agents: Agent[]; matched: number }> {
+  return apiFetch('/api/agents/match', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 }
