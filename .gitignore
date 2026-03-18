@@ -59,8 +59,20 @@ mock-api.err
 server.err
 server.log
 
-# Sensitive backup archives produced during investigation (explicit)
-backups/sensitive_backup_*
+# Sensitive backup archives — block at any depth
+backups/
+**/backups/
+sensitive_backup_*
+**/sensitive_backup_*
+docs/archive/
+
+# Additional secret file patterns
+.env.test
+.env.secret
+.env.*.secret
+**/.env.secret
+**/credentials*
+**/secrets*
 
 dist/
 *.err
