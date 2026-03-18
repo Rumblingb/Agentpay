@@ -108,13 +108,17 @@ router.get('/:agentId', async (c) => {
       // History snapshot (last 10 score events)
       history: Array.isArray(rank?.history) ? (rank.history as unknown[]).slice(-10) : [],
       // Public profile URL
-      profileUrl: `https://agentpay.xyz/agent/${agentId}`,
+      profileUrl: `https://agentpay.so/agent/${agentId}`,
       // Protocol metadata
       _schema: 'AgentPassport/1.0',
       _network: 'agentpay',
     };
 
-    return c.json({ success: true, passport });
+    return c.json({
+      success: true,
+      passport,
+      _rateLimit: 'Unauthenticated reads: 60/min per IP. Register a merchant account and include X-Api-Key for higher limits.',
+    });
   } finally {
     await sql.end().catch(() => {});
   }

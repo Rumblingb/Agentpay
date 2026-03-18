@@ -28,6 +28,7 @@ import { stripeWebhooksRouter } from './routes/stripeWebhooks';
 import { stubsRouter } from './routes/stubs';
 import { demoRouter } from './routes/demo';
 import { passportRouter } from './routes/passport';
+import { v1AgentsRouter } from './routes/v1Agents';
 
 import { scheduledHandler } from './cron';
 
@@ -102,6 +103,9 @@ app.route('/api/intents', intentsRouter);
 
 // Agent-facing payment intents — /api/v1/payment-intents/*
 app.route('/api/v1/payment-intents', v1IntentsRouter);
+
+// Agent self-registration — /api/v1/agents/*
+app.route('/api/v1/agents', v1AgentsRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

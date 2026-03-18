@@ -30,14 +30,18 @@ const LIMITS: Record<string, { max: number; windowMs: number }> = {
   intent_create:  { max: 60,  windowMs: 60_000 },
   intent_verify:  { max: 30,  windowMs: 60_000 },
   key_rotate:     { max: 5,   windowMs: 60_000 },
+  agent_register: { max: 5,   windowMs: 60_000 }, // self-registration: 5/min per IP
+  passport_read:  { max: 60,  windowMs: 60_000 }, // free trust reads: 60/min per IP
   default:        { max: 120, windowMs: 60_000 },
 };
 
 function getBucket(path: string, method: string): string {
-  if (method === 'POST' && path.includes('/merchants/register'))  return 'register';
+  if (method === 'POST' && path.includes('/merchants/register'))   return 'register';
   if (method === 'POST' && path.includes('/merchants/rotate-key')) return 'key_rotate';
-  if (method === 'POST' && /\/v1\/payment-intents$/.test(path))   return 'intent_create';
-  if (method === 'POST' && path.includes('/verify'))              return 'intent_verify';
+  if (method === 'POST' && /\/v1\/payment-intents$/.test(path))    return 'intent_create';
+  if (method === 'POST' && path.includes('/verify'))               return 'intent_verify';
+  if (method === 'POST' && path.includes('/v1/agents/register'))   return 'agent_register';
+  if (method === 'GET'  && path.startsWith('/api/passport'))       return 'passport_read';
   return 'default';
 }
 

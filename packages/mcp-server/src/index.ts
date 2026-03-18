@@ -196,6 +196,55 @@ const TOOLS: Tool[] = [
       required: [],
     },
   },
+
+  {
+    name: 'agentpay_register_agent',
+    description:
+      'Register an AI agent on the AgentPay network. Returns an agentId and agentKey that identify ' +
+      'the agent. No merchant account required — agents can self-register. ' +
+      'The agentKey is shown once; store it securely. Trust score builds automatically after confirmed transactions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Human-readable agent name (e.g. "ResearchAgent v2")',
+        },
+        description: {
+          type: 'string',
+          description: 'What this agent does (max 500 chars)',
+        },
+        category: {
+          type: 'string',
+          description: 'Agent capability category (e.g. "research", "data", "code", "travel")',
+        },
+        capabilities: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of specific capabilities (e.g. ["web_search", "summarisation"])',
+        },
+      },
+      required: [],
+    },
+  },
+
+  {
+    name: 'agentpay_get_agent',
+    description:
+      'Look up a registered agent\'s public identity record — name, category, capabilities, ' +
+      'and registration mode. Complements agentpay_get_passport which shows trust scores; ' +
+      'this shows the raw identity registration.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'The agent ID to look up (e.g. agt_a1b2c3d4)',
+        },
+      },
+      required: ['agentId'],
+    },
+  },
 ];
 
 // ─── Tool handlers ────────────────────────────────────────────────────────────
@@ -252,6 +301,24 @@ async function handleTool(
 
     case 'agentpay_get_merchant_stats': {
       const data = await apiFetch('/api/merchants/stats');
+      return json(data);
+    }
+
+    case 'agentpay_register_agent': {
+      const body: Record<string, unknown> = {};
+      if (args.name)         body.name = args.name;
+      if (args.description)  body.description = args.description;
+      if (args.category)     body.category = args.category;
+      if (args.capabilities) body.capabilities = args.capabilities;
+      const data = await apiFetch('/api/v1/agents/register', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return json(data);
+    }
+
+    case 'agentpay_get_agent': {
+      const data = await apiFetch(`/api/v1/agents/${encodeURIComponent(args.agentId as string)}`);
       return json(data);
     }
 

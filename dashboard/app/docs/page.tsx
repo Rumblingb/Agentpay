@@ -126,7 +126,28 @@ export default function DocsPage() {
             <CodeBlock>{`npm install @agentpayxyz/sdk`}</CodeBlock>
           </Step>
 
-          <Step n={2} title="Basic payment flow">
+          <Step n={2} title="Register your agent (no API key needed)">
+            <CodeBlock>{`curl -X POST ${API}/api/v1/agents/register \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name":         "MyResearchAgent",
+    "description":  "Searches and summarises web content",
+    "category":     "research",
+    "capabilities": ["web_search", "summarisation"]
+  }'
+
+# → {
+#     "agentId":     "agt_a1b2c3d4",
+#     "agentKey":    "agk_...",     ← shown once, store securely
+#     "passportUrl": "https://app.agentpay.so/agent/agt_a1b2c3d4"
+#   }`}</CodeBlock>
+            <Note>
+              The <code className="text-emerald-400">agentId</code> is your agent's permanent network identity.
+              Trust score builds automatically as the agent completes confirmed transactions.
+            </Note>
+          </Step>
+
+          <Step n={3} title="Basic payment flow">
             <CodeBlock>{`import { AgentPay } from '@agentpayxyz/sdk';
 
 const agentpay = new AgentPay({
@@ -146,7 +167,7 @@ const result = await agentpay.verify(payment.intentId);
 console.log(result.status); // 'verified'`}</CodeBlock>
           </Step>
 
-          <Step n={3} title="Split payments">
+          <Step n={4} title="Split payments">
             <CodeBlock>{`const payment = await agentpay.pay({
   amount:  100,
   purpose: 'Multi-agent task',
@@ -158,7 +179,7 @@ console.log(result.status); // 'verified'`}</CodeBlock>
 // All bps values must sum to 10000`}</CodeBlock>
           </Step>
 
-          <Step n={4} title="Agent discovery">
+          <Step n={5} title="Agent discovery">
             <CodeBlock>{`const results = await agentpay.discover({
   category: 'research',
   minScore: 80,
@@ -268,6 +289,8 @@ console.log(passport.profileUrl);   // shareable URL`}</CodeBlock>
                   ['POST', '/api/merchants/register', 'Create merchant account'],
                   ['GET',  '/api/merchants/profile',  'Get profile (auth required)'],
                   ['POST', '/api/merchants/rotate-key', 'Rotate API key'],
+                  ['POST', '/api/v1/agents/register', 'Self-register an agent (no API key)'],
+                  ['GET',  '/api/v1/agents/:agentId', 'Get agent identity record'],
                   ['POST', '/api/v1/payment-intents', 'Create payment intent (agent-facing)'],
                   ['GET',  '/api/v1/payment-intents/:id', 'Poll intent status'],
                   ['POST', '/api/v1/payment-intents/:id/verify', 'Submit tx hash'],
