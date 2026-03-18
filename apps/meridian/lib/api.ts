@@ -101,9 +101,9 @@ export async function registerAgent(params: {
     body: JSON.stringify({
       name: params.name,
       category: params.category ?? 'human_user',
-      description: 'Meridian user — voice-first agentic commerce',
+      description: 'Bro user — voice-first agentic commerce',
       capabilities: ['hire', 'commission'],
-      metadata: { source: 'meridian_app', version: '1.0.0' },
+      metadata: { source: 'bro_app', version: '1.0.0' },
     }),
   });
 }

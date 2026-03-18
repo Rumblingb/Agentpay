@@ -39,7 +39,7 @@ export default function ReceiptScreen() {
     if (!receipt) return;
     await Share.share({
       message: [
-        'Meridian Receipt',
+        'Bro Receipt',
         `Job: ${intentId}`,
         `Amount: $${receipt.amount} ${receipt.currency}`,
         `Status: ${receipt.status}`,

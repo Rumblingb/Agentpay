@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Meridian",
+    "name": "Bro",
     "slug": "meridian",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,9 +16,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "so.agentpay.meridian",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Meridian uses your microphone to capture voice requests.",
-        "NSSpeechRecognitionUsageDescription": "Meridian uses speech recognition to understand your requests.",
-        "NSFaceIDUsageDescription": "Meridian uses Face ID to protect your stored credentials."
+        "NSMicrophoneUsageDescription": "Bro uses your microphone to capture voice requests.",
+        "NSSpeechRecognitionUsageDescription": "Bro uses speech recognition to understand your requests.",
+        "NSFaceIDUsageDescription": "Bro uses Face ID to protect your stored credentials."
       }
     },
     "android": {
@@ -33,6 +33,7 @@
       "expo-router",
       "expo-av",
       "expo-secure-store",
+      "expo-local-authentication",
       [
         "expo-build-properties",
         {

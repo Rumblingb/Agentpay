@@ -216,7 +216,7 @@ export default function OnboardScreen() {
                     <Ionicons name="mic" size={44} color="#fff" />
                   </LinearGradient>
                 </View>
-                <Text style={styles.heroTitle}>Meridian</Text>
+                <Text style={styles.heroTitle}>Bro</Text>
                 <Text style={styles.heroSub}>
                   Your personal AI concierge.{'\n'}Speak. I handle the rest.
                 </Text>
@@ -548,7 +548,7 @@ export default function OnboardScreen() {
                     ) : (
                       <>
                         <Ionicons name="mic" size={20} color="#fff" />
-                        <Text style={styles.btnText}>Launch Meridian</Text>
+                        <Text style={styles.btnText}>Launch Bro</Text>
                       </>
                     )}
                   </LinearGradient>

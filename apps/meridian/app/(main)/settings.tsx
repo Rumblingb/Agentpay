@@ -41,7 +41,7 @@ export default function SettingsScreen() {
 
   const handleReset = () => {
     Alert.alert(
-      'Reset Meridian',
+      'Reset Bro',
       'This will clear your agent identity, history, and all credentials. You will need to set up again.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -195,13 +195,13 @@ export default function SettingsScreen() {
           </Pressable>
           <Pressable onPress={handleReset} style={[styles.dangerRow, { marginTop: 8 }]}>
             <Ionicons name="refresh-outline" size={16} color="#ef4444" />
-            <Text style={[styles.dangerText, { color: '#ef4444' }]}>Reset Meridian</Text>
+            <Text style={[styles.dangerText, { color: '#ef4444' }]}>Reset Bro</Text>
           </Pressable>
         </Section>
 
         {/* Footer */}
         <Text style={styles.footer}>
-          Meridian 1.0{'\n'}
+          Bro 1.0{'\n'}
           Powered by AgentPay · agentpay.so
         </Text>
 

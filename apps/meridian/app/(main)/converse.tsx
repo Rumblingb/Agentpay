@@ -317,7 +317,7 @@ export default function ConverseScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Meridian</Text>
+        <Text style={styles.headerTitle}>Bro</Text>
         <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
           <Ionicons name="settings-outline" size={20} color="#4b5563" />
         </Pressable>
