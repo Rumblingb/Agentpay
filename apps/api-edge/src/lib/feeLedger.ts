@@ -23,8 +23,27 @@
 
 import type { Sql } from './db';
 
-/** Default platform fee in basis points (50 bps = 0.5%). Override with env. */
-export const DEFAULT_FEE_BPS = 50;
+/** Default platform fee in basis points (100 bps = 1.0%). Override with env. */
+export const DEFAULT_FEE_BPS = 100;
+
+/**
+ * Tiered fee schedule — lower rates for higher volume merchants/enterprises.
+ * Enterprise API keys bypass this and use their negotiated rate (stored in DB).
+ *
+ *   Starter   (< $10k/mo)  : 100 bps (1.0%)
+ *   Growth    ($10k–$100k) :  75 bps (0.75%)
+ *   Scale     ($100k–$1M)  :  50 bps (0.50%)
+ *   Enterprise (> $1M)     :  negotiated (min 25 bps)
+ */
+export const FEE_TIERS: Record<string, number> = {
+  starter:    100,
+  growth:      75,
+  scale:       50,
+  enterprise:  25,
+};
+
+/** Marketplace take-rate on agent hire completions: 5% (500 bps) */
+export const MARKETPLACE_TAKE_RATE_BPS = 500;
 
 /** After this many failed attempts the entry moves to 'terminal'. */
 export const MAX_FEE_TRANSFER_ATTEMPTS = 5;

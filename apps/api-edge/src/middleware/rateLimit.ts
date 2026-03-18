@@ -25,13 +25,39 @@ interface Window {
 // Global map — lives for the duration of the isolate (minutes to hours)
 const windows = new Map<string, Window>();
 
-const LIMITS: Record<string, { max: number; windowMs: number }> = {
+/**
+ * Rate limit tiers by API key prefix.
+ * Enterprise keys (apk_ent_*) get 10× headroom.
+ * Growth keys (apk_grow_*) get 3× headroom.
+ * Starter / no key: base limits.
+ *
+ * Revenue implications:
+ *   - Hitting limits nudges users toward paid enterprise tier.
+ *   - Enterprise subscription: $500–$5,000/month (see docs/REVENUE.md).
+ */
+type Tier = 'enterprise' | 'growth' | 'starter';
+
+function getApiTier(req: Request): Tier {
+  const key = req.headers.get('X-Api-Key') ?? req.headers.get('Authorization') ?? '';
+  if (key.startsWith('apk_ent_')) return 'enterprise';
+  if (key.startsWith('apk_grow_')) return 'growth';
+  return 'starter';
+}
+
+const TIER_MULTIPLIER: Record<Tier, number> = {
+  enterprise: 10,
+  growth:      3,
+  starter:     1,
+};
+
+const BASE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   register:       { max: 10,  windowMs: 60_000 },
   intent_create:  { max: 60,  windowMs: 60_000 },
   intent_verify:  { max: 30,  windowMs: 60_000 },
   key_rotate:     { max: 5,   windowMs: 60_000 },
-  agent_register: { max: 5,   windowMs: 60_000 }, // self-registration: 5/min per IP
-  passport_read:  { max: 60,  windowMs: 60_000 }, // free trust reads: 60/min per IP
+  agent_register: { max: 5,   windowMs: 60_000 },
+  passport_read:  { max: 60,  windowMs: 60_000 }, // free for all tiers
+  agentrank_read: { max: 30,  windowMs: 60_000 }, // premium: growth/enterprise get more
   default:        { max: 120, windowMs: 60_000 },
 };
 
@@ -42,6 +68,7 @@ function getBucket(path: string, method: string): string {
   if (method === 'POST' && path.includes('/verify'))               return 'intent_verify';
   if (method === 'POST' && path.includes('/v1/agents/register'))   return 'agent_register';
   if (method === 'GET'  && path.startsWith('/api/passport'))       return 'passport_read';
+  if (method === 'GET'  && path.includes('/agentrank'))            return 'agentrank_read';
   return 'default';
 }
 
@@ -57,9 +84,17 @@ export const rateLimitMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: 
   c,
   next,
 ) => {
-  const ip = getClientIp(c.req.raw);
+  const ip     = getClientIp(c.req.raw);
+  const tier   = getApiTier(c.req.raw);
   const bucket = getBucket(c.req.path, c.req.method);
-  const { max, windowMs } = LIMITS[bucket];
+  const base   = BASE_LIMITS[bucket];
+  // passport_read stays the same across tiers (free product)
+  const multiplier = bucket === 'passport_read' ? 1 : TIER_MULTIPLIER[tier];
+  const max        = base.max * multiplier;
+  const { windowMs } = base;
+
+  // Expose tier in response for developer visibility
+  c.header('X-AgentPay-Tier', tier);
 
   const key = `${ip}:${bucket}`;
   const now = Date.now();

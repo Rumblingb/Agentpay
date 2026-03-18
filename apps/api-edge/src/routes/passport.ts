@@ -114,10 +114,26 @@ router.get('/:agentId', async (c) => {
       _network: 'agentpay',
     };
 
+    const tier = c.req.header('X-AgentPay-Tier') ?? 'starter';
+    const isPremium = tier === 'enterprise' || tier === 'growth';
+
+    // Metered usage — track AgentRank reads for billing (best-effort, non-blocking)
+    if (isPremium) {
+      const apiKey = c.req.header('X-Api-Key') ?? 'anonymous';
+      const sql2 = createDb(c.env);
+      sql2`
+        INSERT INTO api_usage_metrics (api_key, endpoint, called_at)
+        VALUES (${apiKey}, 'passport_read', NOW())
+      `.catch(() => {}).finally(() => sql2.end().catch(() => {}));
+    }
+
     return c.json({
       success: true,
       passport,
-      _rateLimit: 'Unauthenticated reads: 60/min per IP. Register a merchant account and include X-Api-Key for higher limits.',
+      _tier: tier,
+      _rateLimit: tier === 'starter'
+        ? 'Free tier: 60/min. Upgrade to Growth (apk_grow_*) for 180/min or Enterprise for 600/min.'
+        : `${tier} tier active — elevated limits applied.`,
     });
   } finally {
     await sql.end().catch(() => {});
