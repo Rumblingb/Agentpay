@@ -21,11 +21,22 @@ import { getReceipt, type Receipt } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 
 export default function ReceiptScreen() {
-  const { intentId } = useLocalSearchParams<{ intentId: string }>();
+  const params = useLocalSearchParams<{
+    intentId: string;
+    bookingRef?: string;
+    departureTime?: string;
+    platform?: string;
+    operator?: string;
+    fromStation?: string;
+    toStation?: string;
+  }>();
+  const { intentId, bookingRef, departureTime, platform, operator, fromStation, toStation } = params;
   const { reset, currentAgent } = useStore();
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+
+  const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
 
   useEffect(() => {
     if (!intentId) return;
@@ -40,6 +51,11 @@ export default function ReceiptScreen() {
     await Share.share({
       message: [
         'Bro Receipt',
+        bookingRef ? `Booking: ${bookingRef}` : null,
+        fromStation && toStation ? `Journey: ${fromStation} → ${toStation}` : null,
+        departureTime ? `Departs: ${departureTime}` : null,
+        platform ? `Platform: ${platform}` : null,
+        '',
         `Job: ${intentId}`,
         `Amount: $${receipt.amount} ${receipt.currency}`,
         `Status: ${receipt.status}`,
@@ -96,6 +112,28 @@ export default function ReceiptScreen() {
               )}
               <Row label="Intent ID" value={shortId(receipt.intentId)} mono />
             </View>
+
+            {/* Journey Details (train booking) */}
+            {hasJourneyDetails && (
+              <View style={styles.journeyCard}>
+                <View style={styles.journeyHeader}>
+                  <Text style={styles.journeyIcon}>🚂</Text>
+                  <Text style={styles.journeyTitle}>Journey Details</Text>
+                </View>
+                {bookingRef && (
+                  <View style={styles.journeyRefWrap}>
+                    <Text style={styles.journeyRefLabel}>Booking Reference</Text>
+                    <Text style={styles.journeyRef}>{bookingRef}</Text>
+                  </View>
+                )}
+                {fromStation && toStation && (
+                  <Row label="Route" value={`${fromStation} → ${toStation}`} />
+                )}
+                {departureTime && <Row label="Departs" value={departureTime} />}
+                {platform && <Row label="Platform" value={platform} />}
+                {operator && <Row label="Operator" value={operator} />}
+              </View>
+            )}
 
             {/* Signature */}
             <View style={styles.sigCard}>
@@ -191,6 +229,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1a1a1a',
     marginBottom: 12,
+  },
+
+  journeyCard: {
+    width: '100%',
+    backgroundColor: '#0a1a0a',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#14532d',
+    marginBottom: 12,
+  },
+  journeyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  journeyIcon: { fontSize: 18 },
+  journeyTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4ade80',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  journeyRefWrap: {
+    alignItems: 'center',
+    backgroundColor: '#052e16',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  journeyRefLabel: {
+    fontSize: 10,
+    color: '#4b5563',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  journeyRef: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#4ade80',
+    letterSpacing: 2.5,
+    fontFamily: 'monospace',
   },
 
   sigCard: {

@@ -183,7 +183,7 @@ async function sendConfirmationEmail(opts: {
 </body>
 </html>`;
 
-  await fetch('https://api.resend.com/emails', {
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${opts.resendKey}`,
@@ -196,6 +196,10 @@ async function sendConfirmationEmail(opts: {
       html,
     }),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Resend API error ${res.status}: ${body}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +210,7 @@ router.post('/train-booking', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { jobId, hirerId, jobDescription = '', agreedPriceUsdc = 0, agentName = 'TrainAgent' } = body;
+  const { jobId, hirerId, completionSecret, jobDescription = '', agreedPriceUsdc = 0, agentName = 'TrainAgent' } = body;
 
   if (!jobId || !hirerId) {
     return c.json({ error: 'jobId and hirerId required' }, 400);
@@ -255,19 +259,30 @@ router.post('/train-booking', async (c) => {
   };
 
   // ── Complete the job (mark escrow → completed) ────────────────────────────
+  let completionOk = false;
   try {
-    await fetch(`${c.env.API_BASE_URL}/api/marketplace/hire/${jobId}/complete`, {
+    const completeRes = await fetch(`${c.env.API_BASE_URL}/api/marketplace/hire/${jobId}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hirerId, completionProof }),
+      body: JSON.stringify({
+        // Use completionSecret (preferred) if provided; fall back to hirerId
+        ...(completionSecret ? { completionSecret } : { hirerId }),
+        completionProof,
+      }),
     });
-    console.info('[mock/train-booking] job completed', { jobId, bookingRef });
+    if (!completeRes.ok) {
+      const errBody = await completeRes.text().catch(() => '');
+      console.error('[mock/train-booking] complete rejected', { jobId, status: completeRes.status, errBody });
+    } else {
+      completionOk = true;
+      console.info('[mock/train-booking] job completed', { jobId, bookingRef });
+    }
   } catch (e) {
-    console.error('[mock/train-booking] complete failed', e instanceof Error ? e.message : e);
+    console.error('[mock/train-booking] complete network error', e instanceof Error ? e.message : e);
   }
 
-  // ── Send confirmation email (fire-and-forget) ─────────────────────────────
-  if (email && c.env.RESEND_API_KEY) {
+  // ── Send confirmation email (fire-and-forget, only if completion succeeded) ─
+  if (email && c.env.RESEND_API_KEY && completionOk) {
     c.executionCtx.waitUntil(
       sendConfirmationEmail({
         resendKey:     c.env.RESEND_API_KEY,
@@ -288,7 +303,7 @@ router.post('/train-booking', async (c) => {
   }
 
   return c.json({
-    success:       true,
+    success:       completionOk,
     bookingRef,
     fromStation,
     toStation,
@@ -297,8 +312,9 @@ router.post('/train-booking', async (c) => {
     operator,
     departure,
     passengerName: name,
-    status:        'booked',
-  });
+    status:        completionOk ? 'booked' : 'booking_recorded_completion_failed',
+    escrowStatus:  completionOk ? 'completed' : 'escrow_pending',
+  }, completionOk ? 200 : 207);
 });
 
 // ---------------------------------------------------------------------------

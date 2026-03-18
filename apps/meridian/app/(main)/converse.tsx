@@ -45,6 +45,8 @@ import {
   buildBookingContext,
   hasProfile,
 } from '../../lib/profile';
+import { createStripeSession } from '../../lib/api';
+import { showPaymentSheet } from '../../lib/stripe';
 
 // ── Phase labels ───────────────────────────────────────────────────────────
 
@@ -103,6 +105,25 @@ export default function ConverseScreen() {
       }
     } catch {
       // Auth cancelled or profile unavailable — proceed without profile
+    }
+
+    // ── Stripe payment gate ─────────────────────────────────────────────────
+    // Create a PaymentIntent server-side, then present the native PaymentSheet.
+    // If the user cancels or payment fails, we bail before hiring the agent.
+    const priceUsdc = agent.pricePerTaskUsd ?? 1;
+    try {
+      const session = await createStripeSession({
+        amountUsdc:  priceUsdc,
+        description: `Train booking · ${agent.name}`,
+      });
+      await showPaymentSheet(session.clientSecret);
+      // Payment authorised — proceed to hire
+    } catch (payErr: any) {
+      const msg = payErr.message ?? 'Payment failed';
+      setError(msg);
+      await say(msg === 'Payment cancelled' ? 'No problem. Let me know if you'd like to try again.' : `Payment failed — ${msg}`);
+      setPhase('error');
+      return;
     }
 
     try {

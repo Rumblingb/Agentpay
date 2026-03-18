@@ -46,6 +46,23 @@ function generateAgentKey(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Webhook URL validation — blocks SSRF vectors
+// ---------------------------------------------------------------------------
+
+const PRIVATE_IP_RE = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.0\.0\.0|::1|fc00:|fe80:|169\.254\.)/i;
+
+function validateWebhookUrl(raw: string): { ok: boolean; reason?: string } {
+  let url: URL;
+  try { url = new URL(raw); } catch { return { ok: false, reason: 'Invalid URL' }; }
+  if (url.protocol !== 'https:') return { ok: false, reason: 'webhookUrl must use https' };
+  const host = url.hostname;
+  if (PRIVATE_IP_RE.test(host)) return { ok: false, reason: 'webhookUrl must not point to a private/local address' };
+  // Block raw IPv4 unless it's a well-known public range (simple heuristic: no raw IP literals)
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return { ok: false, reason: 'webhookUrl must use a hostname, not a raw IP address' };
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/agents/register
 // ---------------------------------------------------------------------------
 
@@ -74,7 +91,12 @@ router.post('/register', async (c) => {
   const pricePerTaskUsd = typeof body.pricePerTaskUsd === 'number' && body.pricePerTaskUsd >= 0
     ? body.pricePerTaskUsd
     : null;
-  const webhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl.slice(0, 500) : null;
+  const rawWebhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl.slice(0, 500) : null;
+  if (rawWebhookUrl) {
+    const check = validateWebhookUrl(rawWebhookUrl);
+    if (!check.ok) return c.json({ error: 'INVALID_WEBHOOK_URL', message: check.reason }, 400);
+  }
+  const webhookUrl = rawWebhookUrl;
   const extraMeta = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
     ? body.metadata as Record<string, unknown>
     : {};
@@ -242,6 +264,11 @@ router.patch('/:agentId', async (c) => {
     const pricePerTaskUsd = typeof body.pricePerTaskUsd === 'number' && body.pricePerTaskUsd >= 0
       ? body.pricePerTaskUsd
       : existing.pricePerTaskUsd ?? null;
+    // Validate webhookUrl if being updated
+    if (typeof body.webhookUrl === 'string') {
+      const check = validateWebhookUrl(body.webhookUrl.slice(0, 500));
+      if (!check.ok) return c.json({ error: 'INVALID_WEBHOOK_URL', message: check.reason }, 400);
+    }
 
     const updatedMeta = JSON.stringify({
       ...existing,

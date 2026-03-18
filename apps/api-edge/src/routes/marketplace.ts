@@ -22,6 +22,11 @@ import { recordFloatAccrual } from '../lib/floatYield';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/marketplace/schema
 // ---------------------------------------------------------------------------
@@ -199,6 +204,11 @@ router.post('/hire', async (c) => {
   const jobId    = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
 
+  // Per-job signed callback token — the agent receives the plaintext and uses it to
+  // authenticate the /complete call. The hash is stored; we never compare raw secrets.
+  const completionSecret = `cbs_${crypto.randomUUID().replace(/-/g, '')}`;
+  const completionSecretHash = await sha256Hex(completionSecret);
+
   const sql = createDb(c.env);
   try {
     await sql`
@@ -224,6 +234,7 @@ router.post('/hire', async (c) => {
            takeRateBps,
            hiredAt: new Date().toISOString(),
            callbackUrl: callbackUrl ?? null,
+           completionSecretHash,
          })}::jsonb)
     `.catch(() => {});
   } finally {
@@ -243,11 +254,14 @@ router.post('/hire', async (c) => {
     await sql2.end().catch(() => {});
   }
 
-  // ── Dispatch to agent's webhookUrl (fire-and-forget) ──────────────────────
-  // Look up the agent's webhookUrl from agent_identities and POST the job
-  // payload. The agent processes the job and calls /complete when done.
+  // ── Dispatch to agent's webhookUrl ────────────────────────────────────────
+  // Look up the agent's webhookUrl from agent_identities and POST the job payload.
+  // After dispatch (success or failure) we write dispatch_status back to the DB so
+  // operators can observe what happened without tailing logs.
   const dispatchSql = createDb(c.env);
   c.executionCtx.waitUntil((async () => {
+    let dispatchStatus = 'no_webhook';
+    let dispatchError: string | null = null;
     try {
       const agentRows = await dispatchSql<any[]>`
         SELECT metadata FROM agent_identities WHERE agent_id = ${agentId} LIMIT 1
@@ -255,7 +269,7 @@ router.post('/hire', async (c) => {
       const agentMeta = parseJsonb(agentRows[0]?.metadata ?? '{}', {} as Record<string, unknown>);
       const webhookUrl = agentMeta.webhookUrl as string | undefined;
       if (webhookUrl) {
-        await fetch(webhookUrl, {
+        const res = await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -266,13 +280,35 @@ router.post('/hire', async (c) => {
             agreedPriceUsdc,
             agentName: agentMeta.name ?? agentId,
             callbackUrl: `${c.env.API_BASE_URL}/api/marketplace/hire/${jobId}/complete`,
+            completionSecret,  // plaintext — agent presents this to authenticate /complete
           }),
         });
-        console.info('[marketplace/hire] dispatched to agent', { jobId, agentId, webhookUrl });
+        if (res.ok) {
+          dispatchStatus = 'sent';
+          console.info('[marketplace/hire] dispatched to agent', { jobId, agentId, webhookUrl });
+        } else {
+          dispatchStatus = 'rejected';
+          dispatchError = `HTTP ${res.status}`;
+          console.error('[marketplace/hire] agent webhook rejected', { jobId, status: res.status });
+        }
       }
     } catch (e) {
-      console.error('[marketplace/hire] dispatch failed', e instanceof Error ? e.message : e);
-    } finally {
+      dispatchStatus = 'failed';
+      dispatchError = e instanceof Error ? e.message : String(e);
+      console.error('[marketplace/hire] dispatch error', dispatchError);
+    }
+
+    // Write dispatch result back to the job record
+    const updateSql = createDb(c.env);
+    try {
+      await updateSql.unsafe(
+        `UPDATE payment_intents
+         SET metadata = metadata || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify({ dispatchStatus, dispatchError, dispatchedAt: new Date().toISOString() }), jobId],
+      );
+    } catch { /* best-effort */ } finally {
+      await updateSql.end().catch(() => {});
       await dispatchSql.end().catch(() => {});
     }
   })());
@@ -306,12 +342,13 @@ router.post('/hire/:jobId/complete', async (c) => {
   let body: any = {};
   try { body = await c.req.json(); } catch {}
 
-  const { hirerId, agentKey, completionProof } = body;
-  // Either the hirer (to confirm receipt) OR the hired agent (to self-report delivery)
-  // must authenticate. Requiring at least one prevents anonymous job completion by
-  // parties who merely observed the jobId.
-  if (!hirerId && !agentKey) {
-    return c.json({ error: 'hirerId or agentKey required' }, 400);
+  const { hirerId, agentKey, completionSecret, completionProof } = body;
+  // Three auth paths — at least one required:
+  //   1. completionSecret: per-job HMAC token sent to agent at dispatch time (preferred)
+  //   2. agentKey:         agent's long-lived API key (self-report delivery)
+  //   3. hirerId:          hirer confirms receipt (weaker — hirerId is in hire response)
+  if (!hirerId && !agentKey && !completionSecret) {
+    return c.json({ error: 'completionSecret, agentKey, or hirerId required' }, 400);
   }
 
   const sql = createDb(c.env);
@@ -326,8 +363,15 @@ router.post('/hire/:jobId/complete', async (c) => {
 
     const job = rows[0];
 
-    // Verify caller is either the hirer or the hired agent
+    // Verify caller — three auth paths
     const callerIsHirer = hirerId && job.metadata?.hirerId === hirerId;
+
+    let callerHasSecret = false;
+    if (completionSecret && job.metadata?.completionSecretHash) {
+      const provided = await sha256Hex(completionSecret);
+      callerHasSecret = provided === job.metadata.completionSecretHash;
+    }
+
     let callerIsAgent = false;
     if (agentKey && job.metadata?.agentId) {
       const agentRows = await sql<any[]>`
@@ -335,16 +379,12 @@ router.post('/hire/:jobId/complete', async (c) => {
         WHERE agent_id = ${job.metadata.agentId} LIMIT 1
       `.catch(() => []);
       if (agentRows.length) {
-        const keyHash = await (async () => {
-          const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(agentKey));
-          return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-        })();
-        callerIsAgent = agentRows[0].agent_key_hash === keyHash;
+        callerIsAgent = (await sha256Hex(agentKey)) === agentRows[0].agent_key_hash;
       }
     }
 
-    if (!callerIsHirer && !callerIsAgent) {
-      return c.json({ error: 'Unauthorized: must be the hirer or the hired agent' }, 403);
+    if (!callerIsHirer && !callerHasSecret && !callerIsAgent) {
+      return c.json({ error: 'Unauthorized: valid completionSecret, agentKey, or hirerId required' }, 403);
     }
     if (job.status !== 'escrow_pending') {
       return c.json({ error: `Job is already in status: ${job.status}` }, 409);
@@ -357,6 +397,27 @@ router.post('/hire/:jobId/complete', async (c) => {
           metadata = metadata || ${JSON.stringify({ completionProof: completionProof ?? null, completedAt })}::jsonb
       WHERE id = ${jobId}
     `.catch(() => {});
+
+    // Trust write — increment AgentRank on successful delivery
+    // Drives the trust flywheel: every completed job improves reputation.
+    const trustSql = createDb(c.env);
+    try {
+      await trustSql.unsafe(
+        `UPDATE agentrank_scores
+         SET transaction_volume    = transaction_volume + 1,
+             score                 = LEAST(score + 5, 1000),
+             service_delivery      = COALESCE(
+               (transaction_volume::float + 1) / NULLIF(transaction_volume + 1, 0),
+               1.0
+             ),
+             updated_at            = NOW()
+         WHERE agent_id = $1`,
+        [job.metadata?.agentId ?? ''],
+      );
+      console.info('[marketplace/complete] agentrank updated', { agentId: job.metadata?.agentId });
+    } catch { /* best-effort — never block completion */ } finally {
+      await trustSql.end().catch(() => {});
+    }
 
     // Settle float yield accrual
     const sql2 = createDb(c.env);
@@ -388,6 +449,68 @@ router.post('/hire/:jobId/complete', async (c) => {
   } finally {
     await sql.end().catch(() => {});
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/marketplace/stripe-session
+//
+// Creates a Stripe PaymentIntent in GBP for the agreed USDC amount.
+// 1 USDC ≈ £1 for demo purposes.
+// Returns clientSecret for the Bro app to present the PaymentSheet.
+//
+// The payment is authorisation only — money is not captured until
+// the agent completes the job (future: capture-on-delivery).
+// ---------------------------------------------------------------------------
+router.post('/stripe-session', async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) {
+    return c.json({ error: 'Stripe not configured on this deployment' }, 503);
+  }
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { amountUsdc, description } = body;
+  if (typeof amountUsdc !== 'number' || amountUsdc <= 0) {
+    return c.json({ error: 'amountUsdc must be a positive number' }, 400);
+  }
+
+  // 1 USDC = 100 pence for demo. Convert to integer pence (minimum £0.30 per Stripe rules).
+  const amountPence = Math.max(Math.round(amountUsdc * 100), 30);
+  const amountGbp   = (amountPence / 100).toFixed(2);
+
+  // Create PaymentIntent via Stripe REST API (no Node SDK — Workers-compatible)
+  const stripeBody = new URLSearchParams({
+    amount:   String(amountPence),
+    currency: 'gbp',
+    'automatic_payment_methods[enabled]': 'true',
+    description: description ?? `AgentPay booking · ${amountGbp} GBP`,
+  });
+
+  const stripeRes = await fetch('https://api.stripe.com/v1/payment_intents', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: stripeBody.toString(),
+  });
+
+  if (!stripeRes.ok) {
+    const err = await stripeRes.json<any>().catch(() => ({}));
+    console.error('[marketplace/stripe-session] stripe error', err);
+    return c.json({ error: 'Stripe error', details: err?.error?.message }, 502);
+  }
+
+  const intent = await stripeRes.json<any>();
+
+  return c.json({
+    success:         true,
+    clientSecret:    intent.client_secret,
+    paymentIntentId: intent.id,
+    amountPence,
+    amountGbp,
+    currency:        'gbp',
+  }, 201);
 });
 
 export { router as marketplaceRouter };

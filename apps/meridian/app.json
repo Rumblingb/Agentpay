@@ -34,6 +34,7 @@
       "expo-av",
       "expo-secure-store",
       "expo-local-authentication",
+      "@stripe/stripe-react-native",
       [
         "expo-build-properties",
         {

@@ -192,3 +192,14 @@ export async function matchAgents(params: {
     body: JSON.stringify(params),
   });
 }
+
+/** Create a Stripe PaymentIntent for the given USDC amount (1 USDC ≈ £1) */
+export async function createStripeSession(params: {
+  amountUsdc: number;
+  description?: string;
+}): Promise<{ clientSecret: string; paymentIntentId: string; amountPence: number; amountGbp: string }> {
+  return apiFetch('/api/marketplace/stripe-session', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
