@@ -1,0 +1,188 @@
+/**
+ * Wallet screen — hosted agent wallet balance + deposit instructions
+ */
+
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+  Share,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { getWallet } from '../../lib/api';
+import { useStore } from '../../lib/store';
+
+export default function WalletScreen() {
+  const { agentId, wallet, setWallet } = useStore();
+  const [loading, setLoading] = useState(true);
+  const [depositAddress, setDepositAddress] = useState<string | null>(null);
+  const [depositMemo, setDepositMemo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!agentId) return;
+    getWallet(agentId)
+      .then((res) => {
+        setWallet(res.wallet);
+        setDepositAddress((res as any).depositAddress);
+        setDepositMemo((res as any).depositMemo);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [agentId]);
+
+  const handleShareDeposit = async () => {
+    if (!depositAddress) return;
+    await Share.share({
+      message: `Send USDC to: ${depositAddress}\nMemo (required): ${depositMemo}`,
+    });
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#6b7280" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Wallet</Text>
+          <View style={{ width: 20 }} />
+        </View>
+
+        {loading && <ActivityIndicator color="#6366f1" style={{ marginTop: 40 }} />}
+
+        {!loading && wallet && (
+          <>
+            {/* Balance card */}
+            <LinearGradient
+              colors={['#1e1b4b', '#312e81']}
+              style={styles.balanceCard}
+            >
+              <Text style={styles.balanceLabel}>Available Balance</Text>
+              <Text style={styles.balanceAmount}>
+                ${wallet.availableUsdc.toFixed(2)}
+                <Text style={styles.balanceCurrency}> USDC</Text>
+              </Text>
+              {wallet.reservedUsdc > 0 && (
+                <Text style={styles.reserved}>
+                  ${wallet.reservedUsdc.toFixed(2)} reserved
+                </Text>
+              )}
+              <Text style={styles.agentId}>{agentId}</Text>
+            </LinearGradient>
+
+            {/* Deposit instructions */}
+            {depositAddress && (
+              <View style={styles.depositCard}>
+                <View style={styles.depositHeader}>
+                  <Ionicons name="arrow-down-circle" size={18} color="#6366f1" />
+                  <Text style={styles.depositTitle}>Deposit USDC</Text>
+                </View>
+                <Text style={styles.depositNote}>
+                  Send USDC (Solana) to the address below. Include the memo so the platform credits your wallet.
+                </Text>
+
+                <View style={styles.depositField}>
+                  <Text style={styles.fieldLabel}>Address</Text>
+                  <Text style={styles.fieldValue} numberOfLines={1}>{depositAddress}</Text>
+                </View>
+                <View style={styles.depositField}>
+                  <Text style={styles.fieldLabel}>Memo (required)</Text>
+                  <Text style={styles.fieldValue}>{depositMemo}</Text>
+                </View>
+
+                <Pressable onPress={handleShareDeposit} style={styles.shareBtn}>
+                  <Ionicons name="share-outline" size={15} color="#6366f1" />
+                  <Text style={styles.shareBtnText}>Share deposit details</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Spending policy CTA */}
+            <Pressable style={styles.policyCard}>
+              <Ionicons name="shield-outline" size={18} color="#6b7280" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.policyTitle}>Spending Policy</Text>
+                <Text style={styles.policyNote}>Set daily/monthly limits, allowed agents, and more.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#374151" />
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe:       { flex: 1, backgroundColor: '#080808' },
+  container:  { padding: 20, paddingBottom: 40 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#f9fafb' },
+  balanceCard: {
+    borderRadius: 18,
+    padding: 24,
+    marginBottom: 16,
+  },
+  balanceLabel:    { fontSize: 13, color: '#a5b4fc', marginBottom: 8 },
+  balanceAmount:   { fontSize: 38, fontWeight: '700', color: '#fff' },
+  balanceCurrency: { fontSize: 18, fontWeight: '400', color: '#a5b4fc' },
+  reserved:        { fontSize: 12, color: '#818cf8', marginTop: 4 },
+  agentId: {
+    fontSize: 11,
+    color: '#4338ca',
+    marginTop: 12,
+    fontFamily: 'monospace',
+  },
+  depositCard: {
+    backgroundColor: '#111111',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    marginBottom: 12,
+  },
+  depositHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  depositTitle:  { fontSize: 15, fontWeight: '600', color: '#f9fafb' },
+  depositNote:   { fontSize: 13, color: '#6b7280', lineHeight: 18, marginBottom: 14 },
+  depositField: {
+    backgroundColor: '#0d0d0d',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  fieldLabel: { fontSize: 11, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.4 },
+  fieldValue: { fontSize: 13, color: '#d1d5db', fontFamily: 'monospace' },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingVertical: 8,
+  },
+  shareBtnText: { fontSize: 14, color: '#6366f1' },
+  policyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#111111',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  policyTitle: { fontSize: 14, fontWeight: '500', color: '#d1d5db', marginBottom: 2 },
+  policyNote:  { fontSize: 12, color: '#4b5563' },
+});

@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Meridian",
+    "slug": "meridian",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080808"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "so.agentpay.meridian",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Meridian needs your microphone to capture voice commands.",
+        "NSSpeechRecognitionUsageDescription": "Meridian uses speech recognition to understand your requests."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#080808"
+      },
+      "package": "so.agentpay.meridian",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-av",
+      [
+        "expo-build-properties",
+        {
+          "ios": { "newArchEnabled": true },
+          "android": { "newArchEnabled": true }
+        }
+      ]
+    ],
+    "scheme": "meridian",
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": { "projectId": "meridian-agentpay" }
+    }
+  }
+}
