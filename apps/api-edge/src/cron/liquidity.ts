@@ -34,6 +34,20 @@ export async function runLiquidityCron(env: Env): Promise<void> {
   } finally {
     sql.end().catch(() => {});
   }
+
+  // ── Self-heal: kick the Solana listener DO if its alarm chain broke ───────
+  // The DO maintains its own 30s alarm loop. If the loop breaks (deploy,
+  // DO eviction, crash), this 5-min cron restarts it without needing manual
+  // intervention. Idempotent — if alarm is already scheduled, DO ignores it.
+  try {
+    const doId = (env as any).SOLANA_LISTENER_DO?.idFromName?.('main');
+    if (doId) {
+      const stub = (env as any).SOLANA_LISTENER_DO.get(doId);
+      await stub.fetch(new Request('https://do-internal/start', { method: 'POST' }));
+    }
+  } catch (err) {
+    console.warn('[cron/liquidity] could not kick Solana listener DO:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -96,12 +96,8 @@ export async function runReconciliation(env: Env): Promise<void> {
       const feeBps = env.PLATFORM_FEE_BPS ? parseInt(env.PLATFORM_FEE_BPS, 10) : DEFAULT_FEE_BPS;
       const safeBps = isNaN(feeBps) ? DEFAULT_FEE_BPS : feeBps;
 
-      const untracked = await sql<Array<{
-        intentId: string;
-        amount: number;
-        verificationToken: string;
-        walletAddress: string;
-      }>>`
+      type UntrackedRow = { intentId: string; amount: number; verificationToken: string; walletAddress: string };
+      const untracked: UntrackedRow[] = await sql<UntrackedRow[]>`
         SELECT pi.id            AS "intentId",
                pi.amount,
                pi.verification_token AS "verificationToken",
@@ -114,7 +110,7 @@ export async function runReconciliation(env: Env): Promise<void> {
             WHERE fle.intent_id = pi.id
           )
         LIMIT 50
-      `.catch(() => [] as typeof untracked);
+      `.catch(() => [] as UntrackedRow[]);
 
       for (const row of untracked) {
         await createFeeLedgerEntry(sql, {
@@ -149,16 +145,8 @@ export async function runReconciliation(env: Env): Promise<void> {
     // Actual on-chain fee transfer requires the platform signing key.
     // When PLATFORM_SIGNING_KEY is present, the transfer would execute here.
     // Until then, 'processing' entries are logged for human/automated follow-up.
-    const pendingFees = await sql<Array<{
-      id: string;
-      intentId: string;
-      platformFeeAmount: number;
-      grossAmount: number;
-      treasuryDestination: string;
-      recipientDestination: string;
-      settlementReference: string | null;
-      intentResolutionId: string | null;
-    }>>`
+    type PendingFeeRow = { id: string; intentId: string; platformFeeAmount: number; grossAmount: number; treasuryDestination: string; recipientDestination: string; settlementReference: string | null; intentResolutionId: string | null };
+    const pendingFees: PendingFeeRow[] = await sql<PendingFeeRow[]>`
       SELECT fle.id,
              fle.intent_id             AS "intentId",
              fle.platform_fee_amount   AS "platformFeeAmount",
@@ -173,7 +161,7 @@ export async function runReconciliation(env: Env): Promise<void> {
       WHERE fle.status       = 'pending'
         AND pi.status IN ('confirmed', 'released')
       LIMIT 20
-    `.catch(() => [] as typeof pendingFees);
+    `.catch(() => [] as PendingFeeRow[]);
 
     for (const fee of pendingFees) {
       await markFeeLedgerProcessing(sql, fee.intentId, fee.intentResolutionId ?? undefined);
@@ -218,7 +206,8 @@ export async function runReconciliation(env: Env): Promise<void> {
     const staleProcessingCutoff = new Date(
       Date.now() - FEE_PROCESSING_WARN_HOURS * 60 * 60 * 1000,
     );
-    const staleProcessing = await sql<Array<{ id: string; intentId: string; attemptCount: number }>>`
+    type StaleProcessingRow = { id: string; intentId: string; attemptCount: number };
+    const staleProcessing: StaleProcessingRow[] = await sql<StaleProcessingRow[]>`
       SELECT id,
              intent_id     AS "intentId",
              attempt_count AS "attemptCount"
@@ -226,7 +215,7 @@ export async function runReconciliation(env: Env): Promise<void> {
       WHERE status            = 'processing'
         AND last_attempted_at < ${staleProcessingCutoff}
       LIMIT 20
-    `.catch(() => [] as typeof staleProcessing);
+    `.catch(() => [] as StaleProcessingRow[]);
 
     if (staleProcessing.length > 0) {
       anomaliesFound += staleProcessing.length;
@@ -253,7 +242,8 @@ export async function runReconciliation(env: Env): Promise<void> {
     }
 
     // ── CHECK 6: TERMINAL ENTRIES — alert and stop ────────────────────────────
-    const terminalEntries = await sql<Array<{ id: string; intentId: string; failureReason: string | null }>>`
+    type TerminalEntryRow = { id: string; intentId: string; failureReason: string | null };
+    const terminalEntries: TerminalEntryRow[] = await sql<TerminalEntryRow[]>`
       SELECT id,
              intent_id      AS "intentId",
              failure_reason AS "failureReason"
@@ -261,7 +251,7 @@ export async function runReconciliation(env: Env): Promise<void> {
       WHERE status = 'terminal'
         AND settled_at IS NULL
       LIMIT 20
-    `.catch(() => [] as typeof terminalEntries);
+    `.catch(() => [] as TerminalEntryRow[]);
 
     if (terminalEntries.length > 0) {
       anomaliesFound += terminalEntries.length;
@@ -286,7 +276,8 @@ export async function runReconciliation(env: Env): Promise<void> {
     const anomalyWindow = new Date(Date.now() - 60 * 60 * 1000); // last 1 hour
 
     // (a) High failure rate per merchant
-    const highFailure = await sql<Array<{ merchantId: string; failCount: number }>>`
+    type HighFailureRow = { merchantId: string; failCount: number };
+    const highFailure: HighFailureRow[] = await sql<HighFailureRow[]>`
       SELECT merchant_id AS "merchantId",
              COUNT(*)    AS "failCount"
       FROM payment_intents
@@ -294,7 +285,7 @@ export async function runReconciliation(env: Env): Promise<void> {
         AND created_at >= ${anomalyWindow}
       GROUP BY merchant_id
       HAVING COUNT(*) > 10
-    `.catch(() => [] as typeof highFailure);
+    `.catch(() => [] as HighFailureRow[]);
 
     for (const row of highFailure) {
       anomaliesFound += 1;
@@ -310,14 +301,15 @@ export async function runReconciliation(env: Env): Promise<void> {
     }
 
     // (b) High velocity per merchant
-    const highVelocity = await sql<Array<{ merchantId: string; intentCount: number }>>`
+    type HighVelocityRow = { merchantId: string; intentCount: number };
+    const highVelocity: HighVelocityRow[] = await sql<HighVelocityRow[]>`
       SELECT merchant_id AS "merchantId",
              COUNT(*)    AS "intentCount"
       FROM payment_intents
       WHERE created_at >= ${anomalyWindow}
       GROUP BY merchant_id
       HAVING COUNT(*) > 50
-    `.catch(() => [] as typeof highVelocity);
+    `.catch(() => [] as HighVelocityRow[]);
 
     for (const row of highVelocity) {
       anomaliesFound += 1;
@@ -334,14 +326,15 @@ export async function runReconciliation(env: Env): Promise<void> {
 
     // (c) Large single payment (>$10k USDC)
     const LARGE_PAYMENT_THRESHOLD = 10000;
-    const largePayments = await sql<Array<{ intentId: string; merchantId: string; amount: number }>>`
+    type LargePaymentRow = { intentId: string; merchantId: string; amount: number };
+    const largePayments: LargePaymentRow[] = await sql<LargePaymentRow[]>`
       SELECT id          AS "intentId",
              merchant_id AS "merchantId",
              amount
       FROM payment_intents
       WHERE amount > ${LARGE_PAYMENT_THRESHOLD}
         AND created_at >= ${anomalyWindow}
-    `.catch(() => [] as typeof largePayments);
+    `.catch(() => [] as LargePaymentRow[]);
 
     for (const row of largePayments) {
       anomaliesFound += 1;

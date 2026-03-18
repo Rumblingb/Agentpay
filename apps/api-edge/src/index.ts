@@ -35,6 +35,10 @@ import { acpRouter } from './routes/acp';
 import { marketplaceRouter } from './routes/marketplace';
 
 import { scheduledHandler } from './cron';
+import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
+
+// Re-export Durable Object class — required by Cloudflare Workers module format.
+export { SolanaListenerDO };
 
 // ---------------------------------------------------------------------------
 // Application
@@ -141,6 +145,33 @@ app.route('/', stubsRouter);
 
 // Demo routes — /api/demo/*
 app.route('/api/demo', demoRouter);
+
+// Solana listener admin — POST /api/_admin/solana-listener/start  (admin-key protected)
+// This kicks the Durable Object to start its alarm chain.
+// Also called by the 5-min cron to auto-restart if the chain breaks.
+app.post('/api/_admin/solana-listener/start', async (c) => {
+  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
+  if (!adminKey || adminKey !== c.env.ADMIN_SECRET_KEY) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+  const doId = c.env.SOLANA_LISTENER_DO.idFromName('main');
+  const stub = c.env.SOLANA_LISTENER_DO.get(doId);
+  const res = await stub.fetch(new Request('https://do-internal/start', { method: 'POST' }));
+  const body = await res.json();
+  return c.json({ success: true, ...body as object });
+});
+
+// Solana listener status — GET /api/_admin/solana-listener/status  (admin-key protected)
+app.get('/api/_admin/solana-listener/status', async (c) => {
+  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
+  if (!adminKey || adminKey !== c.env.ADMIN_SECRET_KEY) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+  const doId = c.env.SOLANA_LISTENER_DO.idFromName('main');
+  const stub = c.env.SOLANA_LISTENER_DO.get(doId);
+  const res = await stub.fetch(new Request('https://do-internal/status'));
+  return c.json(await res.json());
+});
 
 // Root splash (matches GET / in Express backend)
 app.get('/', (c) => c.text('AgentPay API is Live 🚀'));

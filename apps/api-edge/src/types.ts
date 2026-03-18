@@ -112,8 +112,12 @@ export interface Env {
    */
   PLATFORM_FEE_BPS?: string;
 
+  // ── Durable Objects ───────────────────────────────────────────────────────
+  /** Singleton Solana listener DO — replaces Render listener. */
+  SOLANA_LISTENER_DO: DurableObjectNamespace;
+
   // ── Solana / hosted payer ─────────────────────────────────────────────────
-  /** Solana RPC endpoint URL (mainnet). Used by cron reconciler. */
+  /** Solana RPC endpoint URL (mainnet). Used by cron reconciler and Solana listener DO. */
   SOLANA_RPC_URL?: string;
 
   /** Hosted payer agent ID — the platform-controlled wallet agent. */
