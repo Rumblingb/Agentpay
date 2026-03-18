@@ -111,17 +111,19 @@ export default function ConverseScreen() {
     // Create a PaymentIntent server-side, then present the native PaymentSheet.
     // If the user cancels or payment fails, we bail before hiring the agent.
     const priceUsdc = agent.pricePerTaskUsd ?? 1;
+    let stripePaymentIntentId: string | undefined;
     try {
       const session = await createStripeSession({
         amountUsdc:  priceUsdc,
         description: `Train booking · ${agent.name}`,
       });
+      stripePaymentIntentId = session.paymentIntentId;
       await showPaymentSheet(session.clientSecret);
       // Payment authorised — proceed to hire
     } catch (payErr: any) {
       const msg = payErr.message ?? 'Payment failed';
       setError(msg);
-      await say(msg === 'Payment cancelled' ? 'No problem. Let me know if you'd like to try again.' : `Payment failed — ${msg}`);
+      await say(msg === 'Payment cancelled' ? "No problem. Let me know if you'd like to try again." : `Payment failed — ${msg}`);
       setPhase('error');
       return;
     }
@@ -132,6 +134,7 @@ export default function ConverseScreen() {
         agent,
         jobDescription,
         coordinationId: pendingChoice?.coordinationId ?? `direct_${Date.now()}`,
+        stripePaymentIntentId,
       });
       const meridianTurn = {
         role: 'meridian' as const,

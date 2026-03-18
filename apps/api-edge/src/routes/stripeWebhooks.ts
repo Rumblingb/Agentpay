@@ -148,12 +148,41 @@ router.post('/', async (c) => {
         // ── CASE 2: Payment intent succeeded ─────────────────────────────────
         case 'payment_intent.succeeded': {
           const pi = event.data.object as Stripe.PaymentIntent;
+
+          // Legacy transactions table (Stripe Connect / checkout sessions)
           await sql`
             UPDATE transactions
             SET status = 'confirmed', updated_at = NOW()
             WHERE stripe_payment_reference = ${pi.id}
               AND status != 'confirmed'
-          `;
+          `.catch(() => {});
+
+          // Marketplace jobs — mark Stripe payment confirmed.
+          // The job status stays 'escrow_pending' until the agent calls /complete;
+          // stripePaymentConfirmed = true is the server-side proof that the card cleared.
+          const jobRows = await sql<any[]>`
+            SELECT id FROM payment_intents
+            WHERE metadata->>'stripePaymentIntentId' = ${pi.id}
+              AND metadata->>'protocol' = 'marketplace_hire'
+            LIMIT 1
+          `.catch(() => []);
+
+          if (jobRows.length) {
+            const confirmPatch = JSON.stringify({
+              stripePaymentConfirmed: true,
+              stripeConfirmedAt: new Date().toISOString(),
+            });
+            await sql`
+              UPDATE payment_intents
+              SET metadata = metadata || ${confirmPatch}::jsonb
+              WHERE id = ${jobRows[0].id}
+            `.catch(() => {});
+            console.info('[stripe-webhook] marketplace job stripe-confirmed', {
+              paymentIntentId: pi.id,
+              jobId: jobRows[0].id,
+            });
+          }
+
           console.info('[stripe-webhook] payment_intent.succeeded', { paymentIntentId: pi.id });
           break;
         }

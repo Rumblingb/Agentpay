@@ -196,14 +196,16 @@ export async function executeHire(params: {
   agent: Agent;
   jobDescription: string;
   coordinationId: string;
+  stripePaymentIntentId?: string;
 }): Promise<ConciergeResult> {
-  const { hirerId, agent, jobDescription, coordinationId } = params;
+  const { hirerId, agent, jobDescription, coordinationId, stripePaymentIntentId } = params;
 
   const result: { success: boolean } & HireResult = await hireAgent({
     hirerId,
     agentId: agent.agentId,
     jobDescription,
     agreedPriceUsdc: agent.pricePerTaskUsd ?? 1,
+    stripePaymentIntentId,
   });
 
   // Auto-complete after delay until the agent has a real webhook handler

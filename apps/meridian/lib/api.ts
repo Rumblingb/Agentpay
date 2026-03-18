@@ -126,6 +126,7 @@ export async function hireAgent(params: {
   agentId: string;
   jobDescription: string;
   agreedPriceUsdc: number;
+  stripePaymentIntentId?: string;
 }): Promise<{ success: boolean } & HireResult> {
   return apiFetch('/api/marketplace/hire', {
     method: 'POST',

@@ -189,7 +189,7 @@ router.post('/hire', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { hirerId, agentId, jobDescription, agreedPriceUsdc, callbackUrl } = body;
+  const { hirerId, agentId, jobDescription, agreedPriceUsdc, callbackUrl, stripePaymentIntentId } = body;
   if (!hirerId || !agentId || !jobDescription || !agreedPriceUsdc) {
     return c.json({ error: 'hirerId, agentId, jobDescription, agreedPriceUsdc required' }, 400);
   }
@@ -235,6 +235,8 @@ router.post('/hire', async (c) => {
            hiredAt: new Date().toISOString(),
            callbackUrl: callbackUrl ?? null,
            completionSecretHash,
+           stripePaymentIntentId: stripePaymentIntentId ?? null,
+           stripePaymentConfirmed: false,
          })}::jsonb)
     `.catch(() => {});
   } finally {
