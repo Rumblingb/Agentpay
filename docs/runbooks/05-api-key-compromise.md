@@ -21,19 +21,19 @@ Signs of compromise:
 
 The merchant can self-rotate:
 ```bash
-curl -X POST https://agentpay-api.apaybeta.workers.dev/api/merchants/rotate-key \
+curl -X POST https://api.agentpay.so/api/merchants/rotate-key \
   -H "Authorization: Bearer <current-key>"
 ```
 
 If the merchant can't authenticate (key lost), use the recovery flow:
 ```bash
 # Request recovery token
-curl -X POST https://agentpay-api.apaybeta.workers.dev/api/merchants/recover/request \
+curl -X POST https://api.agentpay.so/api/merchants/recover/request \
   -H "Content-Type: application/json" \
   -d '{"email": "<merchant-email>"}'
 
 # Confirm with token from email
-curl -X POST https://agentpay-api.apaybeta.workers.dev/api/merchants/recover/confirm \
+curl -X POST https://api.agentpay.so/api/merchants/recover/confirm \
   -H "Content-Type: application/json" \
   -d '{"email": "<merchant-email>", "recoveryToken": "<token>"}'
 ```

@@ -9,10 +9,15 @@ compatibility_flags = ["nodejs_compat"]
 # Add new origins here (no trailing slashes).  Vercel preview URLs
 # (https://<agentpay|apay>-*.vercel.app) are allowed automatically by the
 # cors middleware and do not need to be listed here.
-CORS_ORIGIN = "https://apay-delta.vercel.app,https://agentpay.xyz,https://app.agentpay.xyz"
-API_BASE_URL = "https://agentpay-api.apaybeta.workers.dev"
+CORS_ORIGIN = "https://apay-delta.vercel.app,https://agentpay.so,https://app.agentpay.so"
+API_BASE_URL = "https://api.agentpay.so"
 FRONTEND_URL = "https://apay-delta.vercel.app"
 NODE_ENV = "production"
+
+# Custom domain — api.agentpay.so
+[[routes]]
+pattern = "api.agentpay.so"
+custom_domain = true
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"

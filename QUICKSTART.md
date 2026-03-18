@@ -7,7 +7,7 @@ Get your first agent payment working in under 5 minutes.
 ## 1. Register a merchant
 
 ```bash
-curl -s -X POST https://agentpay-api.apaybeta.workers.dev/api/merchants/register \
+curl -s -X POST https://api.agentpay.so/api/merchants/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My Agent App",
@@ -34,7 +34,7 @@ Save `merchantId` and `apiKey`. You will not see the API key again.
 Agents call this endpoint — no API key required.
 
 ```bash
-curl -s -X POST https://agentpay-api.apaybeta.workers.dev/api/v1/payment-intents \
+curl -s -X POST https://api.agentpay.so/api/v1/payment-intents \
   -H "Content-Type: application/json" \
   -d '{
     "merchantId": "<merchant-id>",
@@ -77,7 +77,7 @@ Solana Pay URI can be scanned directly with Phantom or Solflare.
 ## 4. Submit the transaction hash
 
 ```bash
-curl -s -X POST https://agentpay-api.apaybeta.workers.dev/api/v1/payment-intents/<intentId>/verify \
+curl -s -X POST https://api.agentpay.so/api/v1/payment-intents/<intentId>/verify \
   -H "Content-Type: application/json" \
   -d '{ "txHash": "<solana-transaction-signature>" }'
 ```
@@ -89,7 +89,7 @@ This queues the hash for on-chain verification. The Solana listener confirms wit
 ## 5. Get the receipt
 
 ```bash
-curl -s https://agentpay-api.apaybeta.workers.dev/api/receipt/<intentId>
+curl -s https://api.agentpay.so/api/receipt/<intentId>
 ```
 
 Response includes `intent`, `resolution` (once confirmed), and `settlement`.
@@ -99,7 +99,7 @@ Response includes `intent`, `resolution` (once confirmed), and `settlement`.
 ## 6. Poll intent status
 
 ```bash
-curl -s https://agentpay-api.apaybeta.workers.dev/api/v1/payment-intents/<intentId>
+curl -s https://api.agentpay.so/api/v1/payment-intents/<intentId>
 ```
 
 `status` transitions: `pending` → `confirmed` (on success) or `expired` (if TTL exceeded).

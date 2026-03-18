@@ -1,5 +1,5 @@
 param(
-  [string] $BaseUrl = 'https://agentpay-api.apaybeta.workers.dev'
+  [string] $BaseUrl = 'https://api.agentpay.so'
 )
 
 function Fail($msg) {

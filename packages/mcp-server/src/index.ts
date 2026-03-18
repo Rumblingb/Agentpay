@@ -16,7 +16,7 @@
  *         "args": ["@agentpay/mcp-server"],
  *         "env": {
  *           "AGENTPAY_API_KEY": "apk_...",
- *           "AGENTPAY_API_URL": "https://agentpay-api.apaybeta.workers.dev"
+ *           "AGENTPAY_API_URL": "https://api.agentpay.so"
  *         }
  *       }
  *     }
@@ -34,7 +34,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
-const API_URL = process.env.AGENTPAY_API_URL ?? 'https://agentpay-api.apaybeta.workers.dev';
+const API_URL = process.env.AGENTPAY_API_URL ?? 'https://api.agentpay.so';
 const API_KEY = process.env.AGENTPAY_API_KEY ?? '';
 const MERCHANT_ID = process.env.AGENTPAY_MERCHANT_ID ?? '';
 

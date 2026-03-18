@@ -1,0 +1,147 @@
+# AgentPay — robots.txt
+
+# ── Search engines ────────────────────────────────────────────────────────────
+User-agent: Googlebot
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /marketplace
+Disallow: /agentrank
+Disallow: /api-keys
+Disallow: /settings
+Disallow: /escrow
+Disallow: /webhooks
+Disallow: /api/
+
+User-agent: bingbot
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /marketplace
+Disallow: /agentrank
+Disallow: /api-keys
+Disallow: /settings
+Disallow: /escrow
+Disallow: /webhooks
+Disallow: /api/
+
+# ── AI crawlers — allow public docs so assistants can recommend AgentPay ──────
+User-agent: GPTBot
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /marketplace
+Disallow: /agentrank
+Disallow: /api-keys
+Disallow: /settings
+Disallow: /escrow
+Disallow: /webhooks
+Disallow: /api/
+
+User-agent: Claude-Web
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /api/
+
+User-agent: anthropic-ai
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /api/
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /api/
+
+User-agent: Google-Extended
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /api/
+
+User-agent: Applebot-Extended
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /api/
+
+User-agent: YouBot
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /api/
+
+# ── Catch-all: allow public pages, protect dashboard ─────────────────────────
+User-agent: *
+Allow: /
+Allow: /docs
+Allow: /network
+Allow: /registry
+Allow: /trust
+Allow: /build
+Disallow: /overview
+Disallow: /intents
+Disallow: /billing
+Disallow: /marketplace
+Disallow: /agentrank
+Disallow: /api-keys
+Disallow: /settings
+Disallow: /escrow
+Disallow: /webhooks
+Disallow: /api/
+
+Sitemap: https://app.agentpay.so/sitemap.xml

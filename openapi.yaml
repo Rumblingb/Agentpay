@@ -28,7 +28,7 @@ info:
     url: https://github.com/Rumblingb/Agentpay/blob/main/LICENSE
 
 servers:
-  - url: https://agentpay-api.apaybeta.workers.dev
+  - url: https://api.agentpay.so
     description: Production (Cloudflare Workers)
   - url: http://localhost:8787
     description: Local Workers dev (wrangler dev)

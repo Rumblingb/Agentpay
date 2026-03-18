@@ -60,7 +60,7 @@ export { Agent } from './agent.js';
  * import { AgentPay } from '@agentpay/sdk';
  *
  * const agentpay = new AgentPay({
- *   baseUrl: 'https://agentpay-api.apaybeta.workers.dev',
+ *   baseUrl: 'https://api.agentpay.so',
  *   apiKey: process.env.AGENTPAY_API_KEY!,
  * });
  *

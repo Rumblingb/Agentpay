@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     'Register a merchant, create payment intents, verify Solana settlements, and build portable agent reputation with AgentPassport. 5-minute quickstart.',
 };
 
-const API = 'https://agentpay-api.apaybeta.workers.dev';
+const API = 'https://api.agentpay.so';
 
 export default function DocsPage() {
   return (
@@ -190,7 +190,7 @@ for (const agent of results.agents) {
 #     "interactionCount": 142,
 #     "successRate":      0.97,
 #     "verified":         true,
-#     "profileUrl":       "https://agentpay.xyz/agent/agent_001"
+#     "profileUrl":       "https://agentpay.so/agent/agent_001"
 #   }`}</CodeBlock>
           </Step>
 

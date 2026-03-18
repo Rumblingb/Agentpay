@@ -29,7 +29,7 @@ Alert signals:
 1. **Is the Solana RPC down?** → See [02-solana-rpc-outage.md](02-solana-rpc-outage.md)
 2. **Is the verify endpoint returning an error?**
    ```bash
-   curl https://agentpay-api.apaybeta.workers.dev/api/verify/<txHash>
+   curl https://api.agentpay.so/api/verify/<txHash>
    ```
 3. **Is the intent expired?** Check `expires_at` in DB — intents expire after 30 min.
 4. **Was the tx sent to the wrong wallet?** Verify `recipient_address` in DB matches merchant's `wallet_address`.
@@ -57,7 +57,7 @@ If the Solana listener (Render) is down:
 
 1. **Manual re-verification** for stuck intents with a known tx hash:
    ```bash
-   curl -X POST https://agentpay-api.apaybeta.workers.dev/api/verify/<txHash> \
+   curl -X POST https://api.agentpay.so/api/verify/<txHash> \
      -H "Content-Type: application/json" \
      -d '{"intentId": "<intentId>"}'
    ```

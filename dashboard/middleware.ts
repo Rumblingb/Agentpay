@@ -11,6 +11,7 @@ export async function middleware(request: NextRequest) {
   const isPublicPage =
     pathname === '/login' ||
     pathname === '/' ||
+    pathname === '/docs' ||
     pathname.startsWith('/network') ||
     pathname === '/registry' ||
     pathname === '/trust' ||

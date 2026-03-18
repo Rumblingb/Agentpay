@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # Non-sensitive defaults; override in Cloudflare dashboard or CI environment
 CORS_ORIGIN = "apay-delta.vercel.app"
-API_BASE_URL = "https://agentpay-api.apaybeta.workers.dev"
+API_BASE_URL = "https://api.agentpay.so"
 FRONTEND_URL = "apay-delta.vercel.app"
 NODE_ENV = "production"
 

@@ -54,7 +54,7 @@ These are non-sensitive and can be committed in `wrangler.toml`. Override them i
 |----------|---------|-------------|
 | `NODE_ENV` | `"production"` | Runtime environment name. **Must be `"production"` in the Cloudflare dashboard** to enforce production safety guards. |
 | `CORS_ORIGIN` | `"https://apay-delta.vercel.app,https://dashboard.agentpay.gg"` | Comma-separated list of allowed CORS origins. |
-| `API_BASE_URL` | `"https://agentpay-api.apaybeta.workers.dev"` | Public base URL of this Workers deployment. Used for absolute callback URLs. |
+| `API_BASE_URL` | `"https://api.agentpay.so"` | Public base URL of this Workers deployment. Used for absolute callback URLs. |
 | `FRONTEND_URL` | `"https://apay-delta.vercel.app"` | Dashboard URL for post-payment redirects. |
 
 ### Hyperdrive
@@ -148,7 +148,7 @@ The Next.js dashboard is deployed on Vercel. The primary variable that controls 
 
 | Variable | Description |
 |----------|-------------|
-| `AGENTPAY_API_BASE_URL` | Base URL of the API backend. Set to your Workers URL (`https://agentpay-api.apaybeta.workers.dev`) or Render URL depending on current cutover state. |
+| `AGENTPAY_API_BASE_URL` | Base URL of the API backend. Set to your Workers URL (`https://api.agentpay.so`) or Render URL depending on current cutover state. |
 
 Set this in the Vercel project dashboard under **Settings → Environment Variables**.
 

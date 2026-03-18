@@ -29,7 +29,7 @@ AgentPay gives agents a payment identity and the infrastructure to transact auto
 **1. Register a merchant and get an API key**
 
 ```bash
-POST https://agentpay-api.apaybeta.workers.dev/api/merchants/register
+POST https://api.agentpay.so/api/merchants/register
 {
   "name": "My Agent App",
   "email": "you@example.com",
@@ -42,7 +42,7 @@ Returns `{ merchantId, apiKey }`. Store both securely.
 **2. Create a payment intent (agent-initiated, no API key needed)**
 
 ```bash
-POST https://agentpay-api.apaybeta.workers.dev/api/v1/payment-intents
+POST https://api.agentpay.so/api/v1/payment-intents
 {
   "merchantId": "<merchant-id>",
   "agentId": "my-agent-01",
@@ -76,7 +76,7 @@ GET /api/receipt/:intentId
 
 Full spec: [`openapi.yaml`](openapi.yaml) — browsable at `/api/docs` on the Workers deployment.
 
-Base URL: `https://agentpay-api.apaybeta.workers.dev`
+Base URL: `https://api.agentpay.so`
 
 | Route | Auth | Description |
 |-------|------|-------------|
@@ -162,6 +162,17 @@ packages/          Shared libraries
 examples/          Integration examples
 scripts/           One-time ops scripts
 ```
+
+---
+
+## npm packages
+
+```bash
+npm install @agentpayxyz/sdk        # JavaScript / TypeScript SDK
+npx @agentpayxyz/mcp-server         # MCP server for Claude Desktop
+```
+
+> **Note:** The npm scope is `@agentpayxyz` while an `@agentpay` org claim is pending with npm. The package names and APIs will not change when the scope transfers.
 
 ---
 

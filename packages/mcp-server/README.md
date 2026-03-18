@@ -27,7 +27,7 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-Get your API key: register at `https://agentpay-api.apaybeta.workers.dev/api/merchants/register`
+Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 
 ## Tools Exposed
 
