@@ -9,6 +9,7 @@
  *   await showPaymentSheet(clientSecret);  // throws if user cancels or payment fails
  */
 
+import { Platform } from 'react-native';
 import { initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
 
 /**
@@ -20,6 +21,14 @@ export async function showPaymentSheet(clientSecret: string): Promise<void> {
     paymentIntentClientSecret: clientSecret,
     merchantDisplayName: 'AgentPay · Bro',
     style: 'alwaysDark',
+    googlePay: Platform.OS === 'android' ? {
+      merchantCountryCode: 'GB',
+      currencyCode: 'gbp',
+      testEnv: true,
+    } : undefined,
+    applePay: Platform.OS === 'ios' ? {
+      merchantCountryCode: 'GB',
+    } : undefined,
     appearance: {
       colors: {
         primary:          '#4ade80',
