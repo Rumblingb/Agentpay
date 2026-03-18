@@ -32,6 +32,7 @@ import {
   insertSettlementIdentity,
   resolveMatchingPolicy,
 } from '../lib/settlementDb';
+import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -276,6 +277,20 @@ router.post('/', authenticateApiKey, async (c) => {
           status: 'pending' as const,
         }
       : undefined;
+
+    // Fee ledger — 0.5% platform fee (best-effort, never blocks response)
+    const treasuryWallet = c.env.PLATFORM_TREASURY_WALLET ?? '';
+    if (treasuryWallet) {
+      const feeBps = c.env.PLATFORM_FEE_BPS ? parseInt(c.env.PLATFORM_FEE_BPS, 10) : DEFAULT_FEE_BPS;
+      await createFeeLedgerEntry(sql, {
+        intentId,
+        grossAmount: amount as number,
+        feeBps: isNaN(feeBps) ? DEFAULT_FEE_BPS : feeBps,
+        treasuryDestination: treasuryWallet,
+        recipientDestination: walletAddress,
+        settlementReference: verificationToken,
+      });
+    }
 
     console.info('[intents] created', { intentId, merchantId: merchant.id });
 

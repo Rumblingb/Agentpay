@@ -18,6 +18,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { hmacSign } from '../lib/hmac';
+import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -110,6 +111,25 @@ async function handleRequest(c: any) {
     createdAt: new Date().toISOString(),
     protocol: 'ap2',
   };
+
+  // Fee ledger — record 0.5% platform fee on AP2 requests (best-effort)
+  const treasuryWallet = c.env.PLATFORM_TREASURY_WALLET ?? '';
+  if (treasuryWallet) {
+    const sql3 = createDb(c.env);
+    try {
+      const feeBps = c.env.PLATFORM_FEE_BPS ? parseInt(c.env.PLATFORM_FEE_BPS, 10) : DEFAULT_FEE_BPS;
+      await createFeeLedgerEntry(sql3, {
+        intentId: requestId,
+        grossAmount: amountUsdc,
+        feeBps: isNaN(feeBps) ? DEFAULT_FEE_BPS : feeBps,
+        treasuryDestination: treasuryWallet,
+        recipientDestination: payeeId,
+        settlementReference: verificationToken,
+      });
+    } finally {
+      await sql3.end().catch(() => {});
+    }
+  }
 
   return c.json({
     success: true,
