@@ -33,6 +33,9 @@ import { x402Router } from './routes/x402';
 import { ap2Router } from './routes/ap2';
 import { acpRouter } from './routes/acp';
 import { marketplaceRouter } from './routes/marketplace';
+import { agentMatchRouter } from './routes/agentMatch';
+import { agentWalletRouter } from './routes/agentWallet';
+import { spendingPoliciesRouter } from './routes/spendingPolicies';
 import { foundationAgentsRouter } from './routes/foundationAgents';
 import { escrowRouter } from './routes/escrow';
 
@@ -123,6 +126,15 @@ app.route('/api/acp', acpRouter);
 
 // Marketplace discovery — /api/marketplace/*
 app.route('/api/marketplace', marketplaceRouter);
+
+// Agent runtime matching — /api/agents/match
+app.route('/api/agents/match', agentMatchRouter);
+
+// Hosted agent wallet — /api/v1/agents/:agentId/wallet/*
+app.route('/api/v1/agents/:agentId/wallet', agentWalletRouter);
+
+// Spending policies — /api/v1/agents/:agentId/policy
+app.route('/api/v1/agents/:agentId/policy', spendingPoliciesRouter);
 
 // Foundation agents — /api/foundation-agents/*
 app.route('/api/foundation-agents', foundationAgentsRouter);

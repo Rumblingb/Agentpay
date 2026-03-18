@@ -1,6 +1,6 @@
 {
   "name": "@agentpayxyz/adapters",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Framework adapters for AgentPay — MoltClaw, OpenGPT, and generic tool-calling wrappers",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,6 +13,18 @@
     "./moltclaw": {
       "import": "./dist/moltclaw/moltclawWrapper.js",
       "types": "./dist/moltclaw/moltclawWrapper.d.ts"
+    },
+    "./openai": {
+      "import": "./dist/openai/openaiTools.js",
+      "types": "./dist/openai/openaiTools.d.ts"
+    },
+    "./langchain": {
+      "import": "./dist/langchain/langchainTool.js",
+      "types": "./dist/langchain/langchainTool.d.ts"
+    },
+    "./vercelai": {
+      "import": "./dist/vercelai/vercelaiTools.js",
+      "types": "./dist/vercelai/vercelaiTools.d.ts"
     }
   },
   "files": [

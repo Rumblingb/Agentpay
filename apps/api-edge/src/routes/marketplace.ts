@@ -33,6 +33,7 @@ router.get('/schema', (c) =>
         method: 'GET',
         path: '/api/marketplace/discover',
         queryParams: {
+          q:          'string   — free-text search across name, description, category',
           category:   'string   — filter by category (e.g. research, writing, code)',
           minScore:   'number   — minimum AgentRank score (0–1000)',
           maxPriceUsd:'number   — max price per task in USD',
@@ -53,7 +54,7 @@ router.get('/schema', (c) =>
 // GET /api/marketplace/discover
 // ---------------------------------------------------------------------------
 router.get('/discover', async (c) => {
-  const { category, minScore, maxPriceUsd, limit = '20', offset = '0' } = c.req.query();
+  const { q, category, minScore, maxPriceUsd, limit = '20', offset = '0' } = c.req.query();
 
   const limitN  = Math.min(parseInt(limit,  10) || 20, 100);
   const offsetN = Math.max(parseInt(offset, 10) || 0, 0);
@@ -62,10 +63,15 @@ router.get('/discover', async (c) => {
 
   const sql = createDb(c.env);
   try {
-    // Build filter conditions
-    const conditions: string[] = ["verified = true"];
+    // Include self-registered agents (kyc_status='programmatic') + human-verified agents
+    const conditions: string[] = ["(verified = true OR kyc_status = 'programmatic')"];
     const params: any[] = [];
 
+    if (q) {
+      // Text search across name + description fields in metadata
+      params.push(`%${q.toLowerCase()}%`);
+      conditions.push(`(LOWER(metadata->>'name') LIKE $${params.length} OR LOWER(metadata->>'description') LIKE $${params.length} OR LOWER(metadata->>'category') LIKE $${params.length})`);
+    }
     if (category) {
       params.push(`%${category.toLowerCase()}%`);
       conditions.push(`LOWER(metadata->>'category') LIKE $${params.length}`);
@@ -85,7 +91,7 @@ router.get('/discover', async (c) => {
     const oIdx = params.length;
 
     const rows = await sql.unsafe<any[]>(
-      `SELECT agent_id, metadata, created_at
+      `SELECT agent_id, metadata, verified, kyc_status, created_at
        FROM agent_identities
        WHERE ${where}
        ORDER BY COALESCE((metadata->>'agentRankScore')::numeric, 0) DESC
@@ -105,6 +111,8 @@ router.get('/discover', async (c) => {
       description:    r.metadata?.description ?? '',
       agentRankScore: r.metadata?.agentRankScore ?? 0,
       pricePerTaskUsd:r.metadata?.pricePerTaskUsd ?? null,
+      capabilities:   r.metadata?.capabilities  ?? [],
+      verified:       r.verified ?? false,
       passportUrl:    `https://app.agentpay.so/agent/${r.agent_id}`,
       registeredAt:   r.created_at,
     }));
@@ -191,10 +199,11 @@ router.post('/hire', async (c) => {
   try {
     await sql`
       INSERT INTO payment_intents
-        (id, merchant_id, amount, currency, status, verification_token, expires_at, metadata)
+        (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
       VALUES
         (${jobId},
-         ${'system'},
+         NULL,
+         ${agentId},
          ${agreedPriceUsdc},
          ${'USDC'},
          ${'escrow_pending'},
@@ -209,6 +218,7 @@ router.post('/hire', async (c) => {
            platformFee,
            agentPayout,
            takeRateBps,
+           hiredAt: new Date().toISOString(),
            callbackUrl: callbackUrl ?? null,
          })}::jsonb)
     `.catch(() => {});

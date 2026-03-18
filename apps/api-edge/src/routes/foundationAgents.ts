@@ -151,9 +151,163 @@ router.post('/reputation', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/foundation-agents/intent — IntentCoordinatorAgent (LIVE)
+//
+// Orchestrates multi-agent task execution from a natural-language intent.
+// Finds the best agent(s), creates a hire plan, and returns an execution graph.
+//
+// Body: { intent, budget?, callerAgentId?, autoHire? }
+// ---------------------------------------------------------------------------
+
+router.post('/intent', async (c) => {
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { intent, budget, callerAgentId, autoHire = false } = body as Record<string, unknown>;
+
+  if (!intent || typeof intent !== 'string' || intent.trim().length < 5) {
+    return c.json({
+      error: 'intent required (min 5 chars)',
+      example: { intent: 'Book a flight from NYC to London on Friday', budget: 50 },
+    }, 400);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    // ── Step 1: extract capabilities from intent ───────────────────────────
+    const intentLow = intent.toLowerCase();
+    const CAPABILITY_SIGNALS: Array<{ keywords: string[]; capability: string; category: string }> = [
+      { keywords: ['flight','fly','airline','airport','plane'],       capability: 'flight_booking',  category: 'travel' },
+      { keywords: ['hotel','accommodation','stay','room','lodge'],    capability: 'hotel_booking',   category: 'travel' },
+      { keywords: ['car','taxi','uber','ride','transport'],           capability: 'transport',        category: 'travel' },
+      { keywords: ['research','find','look up','search','discover'],  capability: 'research',         category: 'research' },
+      { keywords: ['write','draft','compose','email','message'],      capability: 'writing',          category: 'writing' },
+      { keywords: ['code','build','implement','function','api'],      capability: 'code',             category: 'engineering' },
+      { keywords: ['image','photo','design','visual','generate'],     capability: 'image_generation', category: 'creative' },
+      { keywords: ['data','analyse','analyze','csv','database'],      capability: 'data_analysis',    category: 'data' },
+      { keywords: ['translate','translation','language'],             capability: 'translation',      category: 'language' },
+      { keywords: ['summarise','summarize','summary','tldr'],         capability: 'summarization',    category: 'writing' },
+    ];
+
+    const detectedCapabilities: string[] = [];
+    for (const sig of CAPABILITY_SIGNALS) {
+      if (sig.keywords.some(kw => intentLow.includes(kw))) {
+        detectedCapabilities.push(sig.capability);
+      }
+    }
+
+    // ── Step 2: find matching agents for each capability ───────────────────
+    const primaryCapability = detectedCapabilities[0] ?? null;
+    const budgetNum = typeof budget === 'number' ? budget : null;
+
+    const agentRows = await sql.unsafe<any[]>(
+      `SELECT ai.agent_id, ai.metadata, ai.verified, ai.kyc_status,
+              COALESCE(ar.score, 100) AS agentrank_score,
+              COALESCE(ar.grade, 'New') AS agentrank_grade
+       FROM agent_identities ai
+       LEFT JOIN agentrank_scores ar ON ar.agent_id = ai.agent_id
+       WHERE (ai.verified = true OR ai.kyc_status = 'programmatic')
+         ${primaryCapability ? `AND (
+           LOWER(ai.metadata->>'category') LIKE '%${primaryCapability.replace(/'/g, '')}%'
+           OR ai.metadata->'capabilities' @> to_jsonb('${primaryCapability.replace(/'/g, '')}'::text)
+           OR LOWER(ai.metadata->>'description') LIKE '%${primaryCapability.split('_')[0].replace(/'/g, '')}%'
+         )` : ''}
+         ${budgetNum !== null ? `AND COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 0) <= ${budgetNum}` : ''}
+       ORDER BY COALESCE(ar.score, 0) DESC
+       LIMIT 5`,
+      [],
+    ).catch(() => []);
+
+    const candidates = agentRows.map((r: any) => ({
+      agentId:        r.agent_id,
+      name:           r.metadata?.name        ?? r.agent_id,
+      category:       r.metadata?.category    ?? 'general',
+      capabilities:   r.metadata?.capabilities  ?? [],
+      pricePerTaskUsd:r.metadata?.pricePerTaskUsd ?? null,
+      trustScore:     Number(r.agentrank_score),
+      grade:          r.agentrank_grade,
+      verified:       r.verified,
+    }));
+
+    const bestAgent = candidates[0] ?? null;
+
+    // ── Step 3: build execution plan ──────────────────────────────────────
+    const coordinationId = `coord_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+    const plan = {
+      coordinationId,
+      intent,
+      detectedCapabilities,
+      primaryCapability,
+      budget: budgetNum,
+      callerAgentId: callerAgentId ?? null,
+      steps: detectedCapabilities.length > 0
+        ? detectedCapabilities.map((cap, i) => ({
+            step:       i + 1,
+            capability: cap,
+            status:     'pending',
+            assignedAgent: cap === primaryCapability ? bestAgent : null,
+          }))
+        : [{ step: 1, capability: 'general', status: 'pending', assignedAgent: bestAgent }],
+      candidateAgents: candidates,
+      createdAt: new Date().toISOString(),
+    };
+
+    // ── Step 4: auto-hire if requested and a best agent was found ──────────
+    let hireResult: Record<string, unknown> | null = null;
+    if (autoHire && bestAgent && budgetNum !== null && callerAgentId) {
+      const jobId = `job_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+      await sql`
+        INSERT INTO payment_intents
+          (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
+        VALUES
+          (${jobId}, NULL, ${bestAgent.agentId}, ${budgetNum ?? 0}, ${'USDC'}, ${'escrow_pending'},
+           ${`COORD_${coordinationId.slice(0, 8).toUpperCase()}`},
+           NOW() + INTERVAL '24 hours',
+           ${JSON.stringify({
+             protocol:        'intent_coordinator',
+             coordinationId,
+             intent,
+             hirerId:         callerAgentId,
+             agentId:         bestAgent.agentId,
+             primaryCapability,
+           })}::jsonb)
+      `.catch(() => {});
+
+      hireResult = {
+        jobId,
+        hiredAgentId:  bestAgent.agentId,
+        hiredAgentName: bestAgent.name,
+        agreedPriceUsdc: budgetNum,
+        status: 'escrow_pending',
+        completeUrl: `/api/marketplace/hire/${jobId}/complete`,
+      };
+    }
+
+    return c.json({
+      success: true,
+      coordinationId,
+      plan,
+      ...(hireResult ? { hire: hireResult } : {}),
+      nextSteps: autoHire && hireResult
+        ? [`Hired ${hireResult.hiredAgentName}. Call POST ${hireResult.completeUrl} when task is done.`]
+        : candidates.length > 0
+          ? [
+              `Recommended: hire ${bestAgent!.name} (${bestAgent!.agentId}) via POST /api/marketplace/hire`,
+              `Or retry with autoHire: true and a budget to auto-execute.`,
+            ]
+          : ['No matching agents found. Register agents at POST /api/v1/agents/register.'],
+      _agent: 'IntentCoordinatorAgent/1.0',
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/foundation-agents/identity — IdentityVerifierAgent (Phase 2 stub)
 // POST /api/foundation-agents/dispute  — DisputeResolverAgent (Phase 2 stub)
-// POST /api/foundation-agents/intent   — IntentCoordinatorAgent (Phase 2 stub)
 // ---------------------------------------------------------------------------
 
 const phase2Stub = (name: string) => (c: any) =>
@@ -172,6 +326,5 @@ const phase2Stub = (name: string) => (c: any) =>
 
 router.post('/identity', phase2Stub('IdentityVerifierAgent'));
 router.post('/dispute', phase2Stub('DisputeResolverAgent'));
-router.post('/intent', phase2Stub('IntentCoordinatorAgent'));
 
 export { router as foundationAgentsRouter };
