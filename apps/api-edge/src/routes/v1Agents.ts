@@ -98,6 +98,22 @@ router.post('/register', async (c) => {
       WHERE  agent_id   = ${agentId}
     `;
 
+    // Seed starter AgentRank score so passport returns real data from day one.
+    // Best-effort — never blocks registration if the table doesn't exist yet.
+    await sql`
+      INSERT INTO agentrank_scores
+        (agent_id, score, grade, payment_reliability, service_delivery,
+         transaction_volume, dispute_rate, unique_counterparties, stake_usdc,
+         factors, history, created_at, updated_at)
+      VALUES
+        (${agentId}, 100, 'New', NULL, NULL,
+         0, 0, 0, 0,
+         ${JSON.stringify({ registration: 'self_registered', category })}::jsonb,
+         ${JSON.stringify([])}::jsonb,
+         NOW(), NOW())
+      ON CONFLICT (agent_id) DO NOTHING
+    `.catch(() => {});
+
     return c.json(
       {
         success: true,
@@ -108,7 +124,7 @@ router.post('/register', async (c) => {
           'agentKey is shown once — store it securely.',
           'Use agentId when creating payment intents (agentId field).',
           'Trust score builds automatically after confirmed transactions.',
-          'Agent-native payment initiation without merchantId is coming in Phase 2.',
+          'Use PATCH /api/v1/agents/:agentId to update your profile and pricing.',
         ],
         _schema: 'AgentRegistration/1.0',
       },
@@ -182,6 +198,84 @@ router.get('/:agentId', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/v1/agents/:agentId — update agent profile + marketplace metadata
+//
+// Auth: agentId + agentKey in request body (same as /pay).
+// Updatable: name, description, category, capabilities, pricePerTaskUsd
+// ---------------------------------------------------------------------------
+
+router.patch('/:agentId', async (c) => {
+  const agentId = c.req.param('agentId');
+  if (!agentId || !/^[a-zA-Z0-9_-]{3,64}$/.test(agentId)) {
+    return c.json({ error: 'INVALID_AGENT_ID' }, 400);
+  }
+
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { agentKey } = body as Record<string, string>;
+  if (!agentKey || typeof agentKey !== 'string') {
+    return c.json({ error: 'agentKey required for profile updates' }, 401);
+  }
+
+  const keyHash = await hashKey(agentKey);
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<any[]>`
+      SELECT agent_id, metadata FROM agent_identities WHERE agent_id = ${agentId} LIMIT 1
+    `.catch(() => []);
+
+    if (!rows.length) return c.json({ error: 'AGENT_NOT_FOUND' }, 404);
+    if (rows[0].metadata?.agentKeyHash !== keyHash) {
+      return c.json({ error: 'INVALID_AGENT_KEY' }, 401);
+    }
+
+    const existing = (rows[0].metadata ?? {}) as Record<string, unknown>;
+    const name = typeof body.name === 'string' ? body.name.slice(0, 80) : existing.name;
+    const description = typeof body.description === 'string' ? body.description.slice(0, 500) : existing.description;
+    const category = typeof body.category === 'string' ? body.category.slice(0, 50) : existing.category;
+    const capabilities = Array.isArray(body.capabilities) ? body.capabilities.slice(0, 20) : existing.capabilities;
+    const pricePerTaskUsd = typeof body.pricePerTaskUsd === 'number' && body.pricePerTaskUsd >= 0
+      ? body.pricePerTaskUsd
+      : existing.pricePerTaskUsd ?? null;
+
+    const updatedMeta = JSON.stringify({
+      ...existing,
+      name,
+      description,
+      category,
+      capabilities,
+      pricePerTaskUsd,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await sql`
+      UPDATE agent_identities
+      SET metadata = ${updatedMeta}::jsonb, updated_at = NOW()
+      WHERE agent_id = ${agentId}
+    `;
+
+    // Also update agentrank_scores factors so marketplace discovery reflects new category/price
+    await sql`
+      UPDATE agentrank_scores
+      SET factors = factors || ${JSON.stringify({ category, pricePerTaskUsd })}::jsonb,
+          updated_at = NOW()
+      WHERE agent_id = ${agentId}
+    `.catch(() => {});
+
+    return c.json({
+      success: true,
+      agentId,
+      updated: { name, description, category, capabilities, pricePerTaskUsd },
+      passportUrl: `https://app.agentpay.so/agent/${agentId}`,
+      _schema: 'AgentProfileUpdate/1.0',
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/agents/pay  — agent-native payment (no merchantId required)
 //
 // Agent authenticates with agentId + agentKey, specifies recipientAddress,
@@ -226,10 +320,11 @@ router.post('/pay', async (c) => {
 
     await sql`
       INSERT INTO payment_intents
-        (id, merchant_id, amount, currency, status, verification_token, expires_at, metadata)
+        (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
       VALUES
         (${intentId},
-         ${'system'},
+         NULL,
+         ${agentId},
          ${amount as number},
          ${'USDC'},
          ${'pending'},

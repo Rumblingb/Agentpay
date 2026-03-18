@@ -76,10 +76,11 @@ async function handleRequest(c: any) {
   try {
     await sql`
       INSERT INTO payment_intents
-        (id, merchant_id, amount, currency, status, verification_token, expires_at, metadata)
+        (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
       VALUES
         (${requestId},
-         ${'system'},
+         NULL,
+         ${payerId},
          ${amountUsdc},
          ${'USDC'},
          ${'pending_receipt'},

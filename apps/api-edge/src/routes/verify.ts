@@ -54,6 +54,7 @@ import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { hmacSign } from '../lib/hmac';
 import { lookupByProofId, deriveVerification } from '../lib/verificationLookup';
+import { verifyEvmPayment, type EvmChain } from '../lib/evmRpc';
 
 const TX_HASH_PATTERN = /^[a-zA-Z0-9]{16,128}$/;
 
@@ -128,6 +129,67 @@ router.get('/:txHash', async (c) => {
   } finally {
     sql.end().catch(() => {});
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/verify/evm  — verify a USDC transfer on Base or Ethereum
+//
+// Body: { txHash, recipientAddress, chain, expectedAmountUsdc? }
+// chain: 'base' | 'ethereum'
+// ---------------------------------------------------------------------------
+
+router.post('/evm', async (c) => {
+  let body: Record<string, unknown> = {};
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { txHash, recipientAddress, chain, expectedAmountUsdc } = body as Record<string, string | number>;
+
+  if (!txHash || typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+    return c.json({ error: 'txHash must be a 0x-prefixed 64-char hex string' }, 400);
+  }
+  if (!recipientAddress || typeof recipientAddress !== 'string') {
+    return c.json({ error: 'recipientAddress required' }, 400);
+  }
+  const supportedChains: EvmChain[] = ['base', 'ethereum'];
+  if (!chain || !supportedChains.includes(chain as EvmChain)) {
+    return c.json({ error: `chain must be one of: ${supportedChains.join(', ')}` }, 400);
+  }
+
+  const rpcUrl = chain === 'base' ? c.env.BASE_RPC_URL : c.env.ETHEREUM_RPC_URL;
+  const result = await verifyEvmPayment(txHash, recipientAddress, chain as EvmChain, rpcUrl);
+
+  // Optional amount check
+  if (result.valid && expectedAmountUsdc !== undefined) {
+    const expected = Number(expectedAmountUsdc);
+    if (result.amountUsdc === null || Math.abs(result.amountUsdc - expected) > 0.01) {
+      const payload = {
+        verified: false,
+        status: 'amount_mismatch',
+        chain,
+        txHash,
+        expectedAmountUsdc: expected,
+        actualAmountUsdc: result.amountUsdc,
+        payer: result.payer,
+        confirmationDepth: result.confirmationDepth,
+      };
+      const signature = await hmacSign(JSON.stringify(payload), c.env.WEBHOOK_SECRET);
+      return c.json({ ...payload, signature });
+    }
+  }
+
+  const payload = {
+    verified: result.verified,
+    valid: result.valid,
+    status: result.verified ? 'confirmed' : (result.valid ? 'observed' : 'unseen'),
+    chain,
+    txHash,
+    payer: result.payer,
+    amountUsdc: result.amountUsdc,
+    confirmationDepth: result.confirmationDepth,
+    ...(result.error ? { error: result.error } : {}),
+  };
+  const signature = await hmacSign(JSON.stringify(payload), c.env.WEBHOOK_SECRET);
+  return c.json({ ...payload, signature });
 });
 
 export { router as verifyRouter };

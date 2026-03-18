@@ -1,10 +1,53 @@
 {
-  "name": "@agentpay/adapters",
+  "name": "@agentpayxyz/adapters",
   "version": "0.1.0",
-  "private": true,
+  "description": "Framework adapters for AgentPay — MoltClaw, OpenGPT, and generic tool-calling wrappers",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./moltclaw": {
+      "import": "./dist/moltclaw/moltclawWrapper.js",
+      "types": "./dist/moltclaw/moltclawWrapper.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.publish.json",
     "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "agentpay",
+    "ai-agents",
+    "moltclaw",
+    "adapter",
+    "tool-calling",
+    "agent-economy"
+  ],
+  "author": "AgentPay",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rumblingb/Agentpay.git",
+    "directory": "packages/adapters"
+  },
+  "homepage": "https://github.com/Rumblingb/Agentpay/tree/main/packages/adapters#readme",
+  "bugs": {
+    "url": "https://github.com/Rumblingb/Agentpay/issues"
+  },
+  "dependencies": {
+    "@agentpayxyz/sdk": "^0.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

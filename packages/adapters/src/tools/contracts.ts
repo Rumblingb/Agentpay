@@ -4,7 +4,7 @@ import type {
   AgentPassport,
   AgentPayCapabilityIntent,
 } from '../types.js';
-import type { Payment, PaymentVerificationResult } from '../../../sdk/src/index.js';
+import type { Payment, PaymentVerificationResult } from '../types.js';
 
 export type AgentPayToolName =
   | 'create_payment'

@@ -120,6 +120,12 @@ export interface Env {
   /** Solana RPC endpoint URL (mainnet). Used by cron reconciler and Solana listener DO. */
   SOLANA_RPC_URL?: string;
 
+  /** Base mainnet JSON-RPC URL. Used by /api/verify?chain=base. Default: public node. */
+  BASE_RPC_URL?: string;
+
+  /** Ethereum mainnet JSON-RPC URL. Used by /api/verify?chain=ethereum. Default: public node. */
+  ETHEREUM_RPC_URL?: string;
+
   /** Hosted payer agent ID — the platform-controlled wallet agent. */
   HOSTED_PAYER_AGENT_ID?: string;
 

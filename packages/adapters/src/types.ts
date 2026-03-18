@@ -1,10 +1,13 @@
 import type {
-  Payment,
-  PaymentCreateRequest,
-  PaymentVerificationResult,
-} from '../../sdk/src/index.js';
+  PaymentResult,
+  PaymentConfig,
+  IntentStatusResponse,
+} from '@agentpayxyz/sdk';
 
-export type AgentPayCapabilityIntent = PaymentCreateRequest;
+export type AgentPayCapabilityIntent = PaymentConfig;
+// Re-export SDK types under stable adapter names
+export type Payment = PaymentResult;
+export type PaymentVerificationResult = IntentStatusResponse;
 
 export type AdapterWebhookEvent = {
   type: string;

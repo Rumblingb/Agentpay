@@ -33,6 +33,8 @@ import { x402Router } from './routes/x402';
 import { ap2Router } from './routes/ap2';
 import { acpRouter } from './routes/acp';
 import { marketplaceRouter } from './routes/marketplace';
+import { foundationAgentsRouter } from './routes/foundationAgents';
+import { escrowRouter } from './routes/escrow';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -121,6 +123,12 @@ app.route('/api/acp', acpRouter);
 
 // Marketplace discovery — /api/marketplace/*
 app.route('/api/marketplace', marketplaceRouter);
+
+// Foundation agents — /api/foundation-agents/*
+app.route('/api/foundation-agents', foundationAgentsRouter);
+
+// On-chain escrow — /api/escrow/*
+app.route('/api/escrow', escrowRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

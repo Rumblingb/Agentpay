@@ -1,4 +1,4 @@
-import { AgentPayClient } from '../../sdk/src/index.js';
+import { AgentPay as AgentPayClient } from '@agentpayxyz/sdk';
 import type {
   AdapterWebhookEvent,
   AdapterWebhookHandler,
@@ -25,10 +25,10 @@ export class AgentPayCapabilityAdapter implements AgentPayCapability {
   constructor(opts: AgentPayCapabilityAdapterOptions) {
     if (opts.client) {
       this.client = opts.client;
-    } else if (opts.auth?.apiKey) {
-      this.client = new AgentPayClient({ auth: opts.auth, baseUrl: opts.baseUrl });
     } else {
-      this.client = AgentPayClient.fromEnv();
+      const baseUrl = opts.baseUrl ?? (typeof process !== 'undefined' ? process.env.AGENTPAY_BASE_URL ?? 'https://api.agentpay.so' : 'https://api.agentpay.so');
+      const apiKey = opts.auth?.apiKey ?? (typeof process !== 'undefined' ? process.env.AGENTPAY_API_KEY ?? '' : '');
+      this.client = new AgentPayClient({ baseUrl, apiKey });
     }
     this.webhookHandler = opts.webhookHandler;
     this.passportProvider = opts.passportProvider;
@@ -38,8 +38,8 @@ export class AgentPayCapabilityAdapter implements AgentPayCapability {
     return this.client.pay(intent);
   }
 
-  async verifyPayment(paymentId: string, txHash: string) {
-    return this.client.verifyPayment(paymentId, txHash);
+  async verifyPayment(intentId: string, _txHash: string) {
+    return this.client.verify(intentId);
   }
 
   async handleWebhook(event: AdapterWebhookEvent): Promise<AdapterWebhookResult> {
