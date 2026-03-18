@@ -2,7 +2,7 @@
  * Settings screen — name, auto-confirm limit, reset
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,19 +11,24 @@ import {
   Pressable,
   ScrollView,
   Alert,
-  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
 import { savePrefs, clearCredentials, clearHistory } from '../../lib/storage';
+import { hasProfile, deleteProfile } from '../../lib/profile';
 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, agentId, setPrefs, reset } = useStore();
-  const [name, setName]     = useState(userName);
-  const [budget, setBudget] = useState(String(autoConfirmLimitUsdc));
-  const [saved, setSaved]   = useState(false);
+  const [name, setName]           = useState(userName);
+  const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
+  const [saved, setSaved]         = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+
+  useEffect(() => {
+    hasProfile().then(setProfileSaved).catch(() => setProfileSaved(false));
+  }, []);
 
   const handleSave = async () => {
     const budgetN = parseFloat(budget) || 5;
@@ -129,6 +134,59 @@ export default function SettingsScreen() {
           </Section>
         )}
 
+        {/* Travel Profile */}
+        <Section
+          label="TRAVEL PROFILE"
+          hint="Stored locally on your device. Shared only when you confirm a booking with Face ID."
+        >
+          <View style={styles.profileRow}>
+            <Ionicons
+              name={profileSaved ? 'shield-checkmark' : 'shield-outline'}
+              size={16}
+              color={profileSaved ? '#34d399' : '#4b5563'}
+            />
+            <Text style={[styles.profileStatus, profileSaved && styles.profileStatusSaved]}>
+              {profileSaved ? 'Profile saved — biometric protected' : 'No profile saved'}
+            </Text>
+          </View>
+          <View style={styles.profileActions}>
+            <Pressable
+              onPress={() => router.push('/onboard?step=profile')}
+              style={styles.profileBtn}
+            >
+              <Ionicons name="create-outline" size={15} color="#818cf8" />
+              <Text style={styles.profileBtnText}>
+                {profileSaved ? 'Edit profile' : 'Set up profile'}
+              </Text>
+            </Pressable>
+            {profileSaved && (
+              <Pressable
+                onPress={() => {
+                  Alert.alert(
+                    'Delete Travel Profile',
+                    'This will permanently remove your profile from this device.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          await deleteProfile();
+                          setProfileSaved(false);
+                        },
+                      },
+                    ],
+                  );
+                }}
+                style={[styles.profileBtn, styles.profileBtnDanger]}
+              >
+                <Ionicons name="trash-outline" size={15} color="#f87171" />
+                <Text style={[styles.profileBtnText, { color: '#f87171' }]}>Delete profile</Text>
+              </Pressable>
+            )}
+          </View>
+        </Section>
+
         {/* Danger zone */}
         <Section label="DATA">
           <Pressable onPress={handleClearHistory} style={styles.dangerRow}>
@@ -216,6 +274,29 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   identityText: { flex: 1, fontSize: 12, fontFamily: 'monospace', color: '#4b5563' },
+
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  profileStatus: { fontSize: 13, color: '#4b5563' },
+  profileStatusSaved: { color: '#34d399' },
+  profileActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  profileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  profileBtnDanger: { borderColor: '#7f1d1d' },
+  profileBtnText: { fontSize: 13, fontWeight: '600', color: '#818cf8' },
 
   dangerRow: {
     flexDirection: 'row',

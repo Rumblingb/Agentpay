@@ -40,6 +40,11 @@ import {
   type TieredOptions,
 } from '../../lib/concierge';
 import type { Agent } from '../../lib/api';
+import {
+  loadProfileAuthenticated,
+  buildBookingContext,
+  hasProfile,
+} from '../../lib/profile';
 
 // ── Phase labels ───────────────────────────────────────────────────────────
 
@@ -84,12 +89,27 @@ export default function ConverseScreen() {
 
   const hireTier = useCallback(async (agent: Agent, label: string) => {
     setPhase('hiring');
-    await say(`Hiring ${agent.name}. ${label} option selected.`);
+    await say(`${label} option selected. Please confirm with your biometric.`);
+
+    // Biometric gate — loads profile and releases booking context
+    let jobDescription = transcript;
+    try {
+      const profileExists = await hasProfile();
+      if (profileExists) {
+        const profile = await loadProfileAuthenticated();
+        if (profile) {
+          jobDescription = `${transcript}\n\n${buildBookingContext(profile)}`;
+        }
+      }
+    } catch {
+      // Auth cancelled or profile unavailable — proceed without profile
+    }
+
     try {
       const result = await executeHire({
         hirerId: agentId!,
         agent,
-        jobDescription: transcript,
+        jobDescription,
         coordinationId: pendingChoice?.coordinationId ?? `direct_${Date.now()}`,
       });
       const meridianTurn = {
@@ -178,11 +198,26 @@ export default function ConverseScreen() {
 
         if (isYes) {
           setPhase('hiring');
-          await say(`Hiring ${pendingConfirm.agent.name} now.`);
+          await say(`Confirmed. Please verify with your biometric.`);
+
+          // Biometric gate — load profile for booking context
+          let confirmedDescription = transcript;
+          try {
+            const profileExists = await hasProfile();
+            if (profileExists) {
+              const profile = await loadProfileAuthenticated();
+              if (profile) {
+                confirmedDescription = `${transcript}\n\n${buildBookingContext(profile)}`;
+              }
+            }
+          } catch {
+            // Auth cancelled — proceed without profile
+          }
+
           const result = await executeHire({
             hirerId: agentId!,
             agent: pendingConfirm.agent,
-            jobDescription: transcript,
+            jobDescription: confirmedDescription,
             coordinationId: pendingConfirm.coordinationId,
           });
           const agentTurn = {
