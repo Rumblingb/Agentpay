@@ -33,10 +33,15 @@ export default function StatusScreen() {
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const { openaiKey, currentAgent, setPhase } = useStore();
 
-  const [statusPhase, setStatusPhase] = useState<StatusPhase>('executing');
-  const [elapsed, setElapsed]         = useState(0);
-  const [errorMsg, setErrorMsg]       = useState<string | null>(null);
-  const [bookingRef, setBookingRef]   = useState<string | null>(null);
+  const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
+  const [elapsed, setElapsed]           = useState(0);
+  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
+  const [bookingRef, setBookingRef]     = useState<string | null>(null);
+  const [departureTime, setDepartureTime] = useState<string | null>(null);
+  const [platform, setPlatform]         = useState<string | null>(null);
+  const [operator, setOperator]         = useState<string | null>(null);
+  const [fromStation, setFromStation]   = useState<string | null>(null);
+  const [toStation, setToStation]       = useState<string | null>(null);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const fadeSuccess = useRef(new Animated.Value(0)).current;
@@ -61,14 +66,20 @@ export default function StatusScreen() {
           clearInterval(t);
           if (!checkRef.current) {
             checkRef.current = true;
-            // Extract booking reference from completion proof
-            const ref = data.metadata?.completionProof?.bookingRef ?? null;
+            // Extract booking proof fields
+            const proof = data.metadata?.completionProof ?? {};
+            const ref = proof.bookingRef ?? null;
             if (ref) setBookingRef(ref);
+            if (proof.departureTime) setDepartureTime(proof.departureTime);
+            if (proof.platform)      setPlatform(proof.platform);
+            if (proof.operator)      setOperator(proof.operator);
+            if (proof.fromStation)   setFromStation(proof.fromStation);
+            if (proof.toStation)     setToStation(proof.toStation);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
-              ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}.`
+              ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}. ${departureTime ? `Departs at ${proof.departureTime} from platform ${proof.platform}.` : ''}`
               : 'Done! Your receipt is ready.';
             await speak(doneMsg, openaiKey);
             // Animate success
@@ -157,6 +168,23 @@ export default function StatusScreen() {
           <View style={styles.bookingRefWrap}>
             <Text style={styles.bookingRefLabel}>Booking Reference</Text>
             <Text style={styles.bookingRef}>{bookingRef}</Text>
+            {(departureTime || platform || operator) && (
+              <View style={styles.journeyMeta}>
+                {departureTime && (
+                  <View style={styles.journeyBadge}>
+                    <Text style={styles.journeyBadgeText}>🕐 {departureTime}</Text>
+                  </View>
+                )}
+                {platform && (
+                  <View style={styles.journeyBadge}>
+                    <Text style={styles.journeyBadgeText}>Platform {platform}</Text>
+                  </View>
+                )}
+                {operator && (
+                  <Text style={styles.journeyOperator}>{operator}</Text>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -164,7 +192,16 @@ export default function StatusScreen() {
         {isDone && (
           <Animated.View style={[styles.ctaWrap, { opacity: fadeSuccess }]}>
             <Pressable
-              onPress={() => router.push(`/receipt/${jobId}`)}
+              onPress={() => {
+                const qs = new URLSearchParams();
+                if (bookingRef)    qs.set('bookingRef', bookingRef);
+                if (departureTime) qs.set('departureTime', departureTime);
+                if (platform)      qs.set('platform', platform);
+                if (operator)      qs.set('operator', operator);
+                if (fromStation)   qs.set('fromStation', fromStation);
+                if (toStation)     qs.set('toStation', toStation);
+                router.push(`/receipt/${jobId}?${qs.toString()}`);
+              }}
               style={styles.receiptBtn}
             >
               <LinearGradient
@@ -313,6 +350,32 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     letterSpacing: 3,
     fontFamily: 'monospace',
+  },
+
+  journeyMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    justifyContent: 'center',
+  },
+  journeyBadge: {
+    backgroundColor: '#14532d',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  journeyBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4ade80',
+  },
+  journeyOperator: {
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#4b5563',
+    marginTop: 4,
   },
 
   ctaWrap: { width: '100%', alignItems: 'center' },

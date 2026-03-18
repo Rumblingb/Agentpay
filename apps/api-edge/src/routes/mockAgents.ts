@@ -26,14 +26,71 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Generate a readable booking reference: TRN-A3F2K1 */
-function genBookingRef(): string {
+/**
+ * Generate an agent-specific booking reference.
+ * TrainFinder → TF-2026-DRBLON-042
+ * RailSearch  → RS-2026-DRB-042
+ * Eurostar    → EUR-2026-042
+ * Default     → TRN-A3F2K1
+ */
+function genBookingRef(agentName: string, from: string, to: string): string {
+  const year = new Date().getFullYear();
+  const num  = String(Math.floor(Math.random() * 900) + 100).padStart(3, '0');
+  const frm  = from.replace(/\s+/g, '').slice(0, 3).toUpperCase();
+  const t    = to.replace(/\s+/g, '').slice(0, 3).toUpperCase();
+  const name = agentName.toLowerCase();
+
+  if (name.includes('trainfinder') || name.includes('train finder')) {
+    return `TF-${year}-${frm}${t}-${num}`;
+  }
+  if (name.includes('railsearch') || name.includes('rail search')) {
+    return `RS-${year}-${frm}-${num}`;
+  }
+  if (name.includes('eurostar') || name.includes('concierge')) {
+    return `EUR-${year}-${num}`;
+  }
+  // fallback: legacy random ref
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let ref = 'TRN-';
-  for (let i = 0; i < 6; i++) {
-    ref += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < 6; i++) ref += chars[Math.floor(Math.random() * chars.length)];
   return ref;
+}
+
+/** Pick a realistic departure time for the route */
+function pickDepartureTime(from: string, to: string): string {
+  // Common UK departure minutes to make times feel real
+  const times = [
+    '06:52', '07:14', '07:38', '07:52', '08:05', '08:23', '08:47', '09:15',
+    '09:32', '09:47', '10:04', '10:22', '10:51', '11:05', '11:28', '11:48',
+    '12:03', '12:30', '13:00', '13:15', '13:48', '14:00', '14:22', '14:45',
+    '15:00', '15:30', '16:05', '16:29', '16:52', '17:08', '17:23', '17:47',
+    '18:00', '18:22', '18:47', '19:05', '19:15', '19:52', '20:01', '20:30',
+  ];
+  // Seed by route so the same request always gets the same departure
+  const seed = (from + to).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return times[seed % times.length];
+}
+
+/** Pick a realistic platform number */
+function pickPlatform(from: string): string {
+  const f = from.toLowerCase();
+  // London St Pancras / Eurostar → high platforms
+  if (f.includes('pancras') || f.includes('eurostar'))  return String(Math.floor(Math.random() * 6) + 7);
+  // Most regional stations: 1–6
+  return String(Math.floor(Math.random() * 6) + 1);
+}
+
+/** Detect the most likely train operator from the route */
+function detectOperator(from: string, to: string): string {
+  const route = `${from} ${to}`.toLowerCase();
+  if (/derby|nottingham|leicester|lincoln|sheffield/.test(route)) return 'East Midlands Railway';
+  if (/edinburgh|leeds|newcastle|york|hull/.test(route))           return 'LNER';
+  if (/manchester|liverpool|glasgow|birmingham|avanti/.test(route)) return 'Avanti West Coast';
+  if (/brighton|gatwick|bedford|luton/.test(route))                return 'Thameslink';
+  if (/cambridge|norwich|ipswich/.test(route))                     return 'Greater Anglia';
+  if (/paris|brussels|amsterdam|eurostar/.test(route))             return 'Eurostar International';
+  if (/cardiff|swansea|bristol/.test(route))                       return 'Great Western Railway';
+  return 'National Rail';
 }
 
 /** Parse a field from buildBookingContext() output: "Label: value\n" */
@@ -76,6 +133,9 @@ async function sendConfirmationEmail(opts: {
   from: string;
   to_station: string;
   departure: string;
+  departureTime: string;
+  platform: string;
+  operator: string;
   class_: string;
   agentName: string;
   priceUsdc: number;
@@ -105,7 +165,10 @@ async function sendConfirmationEmail(opts: {
         <tr><td style="padding:8px 0;color:#6b7280;font-size:13px;">Passenger</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.name}</td></tr>
         <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">From</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.from}</td></tr>
         <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">To</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.to_station}</td></tr>
-        <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Departure</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.departure}</td></tr>
+        <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Date</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.departure}</td></tr>
+        <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Departs</td><td style="padding:8px 0;color:#4ade80;font-size:14px;font-weight:700;text-align:right;">${opts.departureTime}</td></tr>
+        <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Platform</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.platform}</td></tr>
+        <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Operator</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.operator}</td></tr>
         <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Class</td><td style="padding:8px 0;color:#f9fafb;font-size:13px;text-align:right;">${opts.class_}</td></tr>
         <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Agent</td><td style="padding:8px 0;color:#818cf8;font-size:13px;text-align:right;">${opts.agentName}</td></tr>
         <tr style="border-top:1px solid #1f2937;"><td style="padding:8px 0;color:#6b7280;font-size:13px;">Amount paid</td><td style="padding:8px 0;color:#4ade80;font-size:13px;font-weight:700;text-align:right;">$${opts.priceUsdc.toFixed(2)} USDC</td></tr>
@@ -160,21 +223,35 @@ router.post('/train-booking', async (c) => {
   const { from: fromStation, to: toStation } = parseRoute(intentText || jobDescription);
   const departure = parseDeparture(intentText || jobDescription);
 
-  // ── Generate booking reference ────────────────────────────────────────────
-  const bookingRef = genBookingRef();
+  // ── Simulate processing (rail inventory check, seat reservation, etc.) ────
+  await new Promise(r => setTimeout(r, 2000));
+
+  // ── Generate rich booking data ────────────────────────────────────────────
+  const bookingRef    = genBookingRef(agentName, fromStation, toStation);
+  const departureTime = pickDepartureTime(fromStation, toStation);
+  const platform      = pickPlatform(fromStation);
+  const operator      = detectOperator(fromStation, toStation);
 
   const completionProof = {
     bookingRef,
     fromStation,
     toStation,
-    passengerName: name,
+    departureTime,
+    platform,
+    operator,
+    passengerName:  name,
     passengerEmail: email,
     departureDate:  departure,
     classPreference: classPref,
     seatPreference:  seatPref,
     agentName,
-    bookedAt: new Date().toISOString(),
-    agentPayJobId: jobId,
+    payout: {
+      agentPayout:  parseFloat((agreedPriceUsdc * 0.95).toFixed(6)),
+      platformFee:  parseFloat((agreedPriceUsdc * 0.05).toFixed(6)),
+      currency:     'USDC',
+    },
+    bookedAt:       new Date().toISOString(),
+    agentPayJobId:  jobId,
   };
 
   // ── Complete the job (mark escrow → completed) ────────────────────────────
@@ -193,28 +270,34 @@ router.post('/train-booking', async (c) => {
   if (email && c.env.RESEND_API_KEY) {
     c.executionCtx.waitUntil(
       sendConfirmationEmail({
-        resendKey:  c.env.RESEND_API_KEY,
-        to:         email,
+        resendKey:     c.env.RESEND_API_KEY,
+        to:            email,
         name,
         bookingRef,
-        from:       fromStation,
-        to_station: toStation,
+        from:          fromStation,
+        to_station:    toStation,
         departure,
-        class_:     classPref,
+        departureTime,
+        platform,
+        operator,
+        class_:        classPref,
         agentName,
-        priceUsdc:  agreedPriceUsdc,
+        priceUsdc:     agreedPriceUsdc,
       }).catch((e) => console.error('[mock/train-booking] email failed', e instanceof Error ? e.message : e)),
     );
   }
 
   return c.json({
-    success: true,
+    success:       true,
     bookingRef,
     fromStation,
     toStation,
+    departureTime,
+    platform,
+    operator,
     departure,
     passengerName: name,
-    status: 'booked',
+    status:        'booked',
   });
 });
 
