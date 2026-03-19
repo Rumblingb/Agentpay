@@ -1,46 +1,37 @@
 #!/usr/bin/env node
 /**
- * Patches ExpoModulesCorePlugin.gradle for AGP 8.5+ compatibility.
+ * Patches ExpoModulesCorePlugin.gradle for AGP 8.5+ / Gradle 8.10.2 compatibility.
+ * Uses require.resolve to find expo-modules-core regardless of workspace hoisting.
  *
- * Root cause: `from components.release` is called during project evaluation,
- * but AGP 8.5+ registers software components lazily. The fix is to defer
- * the access with an inner afterEvaluate block.
- *
- * Affects: expo-modules-core 2.x on Gradle 8.10.2 / AGP 8.6 (EAS SDK 52 image)
+ * Root cause: `from components.release` is called during project evaluation but
+ * AGP 8.5+ registers software components lazily. Wrapping in afterEvaluate defers it.
  */
 const fs = require('fs');
 const path = require('path');
 
-const pluginPath = path.join(
-  __dirname, '..', 'node_modules',
-  'expo-modules-core', 'android', 'ExpoModulesCorePlugin.gradle'
-);
+let pluginPath;
+try {
+  const pkgJson = require.resolve('expo-modules-core/package.json');
+  pluginPath = path.join(path.dirname(pkgJson), 'android', 'ExpoModulesCorePlugin.gradle');
+  console.log('expo-modules-core found at:', path.dirname(pkgJson));
+} catch (e) {
+  console.log('expo-modules-core not found via require.resolve:', e.message);
+  process.exit(0);
+}
 
 if (!fs.existsSync(pluginPath)) {
-  console.log('ExpoModulesCorePlugin.gradle not found, skipping patch');
+  console.log('ExpoModulesCorePlugin.gradle not found at:', pluginPath);
   process.exit(0);
 }
 
 let content = fs.readFileSync(pluginPath, 'utf8');
 
-const original = '          from components.release';
-const patched  = '          afterEvaluate { from components.release }';
-
-if (content.includes(patched)) {
+if (content.includes('afterEvaluate { from components.release }')) {
   console.log('✓ ExpoModulesCorePlugin.gradle already patched');
-} else if (content.includes(original)) {
-  content = content.replace(original, patched);
+} else if (content.includes('from components.release')) {
+  content = content.replace(/from components\.release/g, 'afterEvaluate { from components.release }');
   fs.writeFileSync(pluginPath, content);
   console.log('✓ Patched ExpoModulesCorePlugin.gradle — deferred components.release for AGP 8.5+');
 } else {
-  // Fallback: try with different indentation
-  const alt = '        from components.release';
-  const altPatched = '        afterEvaluate { from components.release }';
-  if (content.includes(alt)) {
-    content = content.replace(alt, altPatched);
-    fs.writeFileSync(pluginPath, content);
-    console.log('✓ Patched ExpoModulesCorePlugin.gradle (alt indent)');
-  } else {
-    console.log('⚠ Could not find "from components.release" line — patch may not be needed or file changed');
-  }
+  console.log('⚠ "from components.release" not found — patch may not be needed or file changed');
 }
