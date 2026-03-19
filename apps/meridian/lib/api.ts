@@ -194,6 +194,64 @@ export async function matchAgents(params: {
   });
 }
 
+// ── Concierge ─────────────────────────────────────────────────────────────────
+
+export interface ConciergeAction {
+  toolName: string;
+  displayName: string;
+  agentId: string;
+  agentName: string;
+  jobId: string;
+  agreedPriceUsdc: number;
+  input: Record<string, unknown>;
+  status: 'hired' | 'failed';
+}
+
+export interface ConciergePlanItem {
+  toolName: string;
+  toolUseId: string;
+  agentId: string;
+  agentName: string;
+  displayName: string;
+  estimatedPriceUsdc: number;
+  input: Record<string, unknown>;
+}
+
+export interface ConciergeResponse {
+  narration: string;
+  actions: ConciergeAction[];
+  /** True when biometric confirmation is required before hire fires */
+  needsBiometric?: boolean;
+  /** Plan returned in phase 1 — pass back in phase 2 with confirmed: true */
+  plan?: ConciergePlanItem[];
+  estimatedPriceUsdc?: number;
+}
+
+/** Phase 1: plan — Claude decides what to do, returns price. No hire yet. */
+export async function conciergeIntent(params: {
+  transcript: string;
+  hirerId: string;
+  travelProfile?: Record<string, unknown>;
+}): Promise<ConciergeResponse> {
+  return apiFetch('/api/concierge/intent', {
+    method: 'POST',
+    body: JSON.stringify({ ...params, confirmed: false }),
+  });
+}
+
+/** Phase 2: execute — fires after biometric confirmation. Passes the plan back. */
+export async function conciergeConfirm(params: {
+  transcript: string;
+  hirerId: string;
+  travelProfile?: Record<string, unknown>;
+  plan: ConciergePlanItem[];
+}): Promise<ConciergeResponse> {
+  return apiFetch('/api/concierge/intent', {
+    method: 'POST',
+    body: JSON.stringify({ ...params, confirmed: true }),
+  });
+}
+
 /** Create a Stripe PaymentIntent for the given USDC amount (1 USDC ≈ £1) */
 export async function createStripeSession(params: {
   amountUsdc: number;

@@ -1,18 +1,16 @@
 /**
- * Converse — the Meridian concierge screen
+ * Converse — the Bro concierge screen
  *
- * UX philosophy: the human talks, Meridian acts.
- * No agent cards. No hire button. No plumbing visible.
+ * Flow:
+ *   Hold to talk → Whisper STT → Phase 1 (plan, no hire)
+ *   → Bro speaks price → fingerprint gate
+ *   → Phase 2 (execute hire) → receipt
  *
- * Phases:
- *   idle       → orb glows, "Hold to talk"
- *   listening  → orb pulses with rings, "Listening…"
- *   thinking   → orb spins, Meridian narrates via TTS
- *   choosing   → orb amber, three-tier card shown, user says budget/middle/premium
- *   confirming → orb amber, single voice yes/no (single-agent fallback)
- *   hiring     → orb spins, "Hiring [agent]…"
- *   executing  → orb spins, routes to /status/:jobId
- *   error      → orb red, error message, tap to retry
+ * Two biometric moments:
+ *   1. Profile release — before sending profile to server (silent, in background)
+ *   2. Payment confirm — after price announced, before hire fires
+ *
+ * Phases: idle → listening → thinking → confirming → done | error
  */
 
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -33,51 +31,40 @@ import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speak, stopSpeaking } from '../../lib/tts';
 import { appendHistory } from '../../lib/storage';
-import {
-  processIntent,
-  executeHire,
-  type ConciergeNeedsConfirm,
-  type TieredOptions,
-} from '../../lib/concierge';
-import type { Agent } from '../../lib/api';
-import {
-  loadProfileAuthenticated,
-  buildBookingContext,
-  hasProfile,
-} from '../../lib/profile';
-import { createStripeSession } from '../../lib/api';
-import { showPaymentSheet } from '../../lib/stripe';
+import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
+import { loadProfileRaw, hasProfile, loadProfileAuthenticated } from '../../lib/profile';
+import { authenticateWithBiometrics } from '../../lib/biometric';
 
-// ── Phase labels ───────────────────────────────────────────────────────────
+// ── Phase labels ──────────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<string, string> = {
   idle:       'Hold to talk',
   listening:  'Listening…',
-  thinking:   'Finding the best options…',
-  choosing:   'Say: budget, middle, or premium',
-  confirming: 'Say yes to confirm, or no to cancel',
-  hiring:     'Hiring…',
-  executing:  'Agent working…',
+  thinking:   'On it…',
+  confirming: 'Fingerprint to confirm',
   done:       'Done',
   error:      'Tap to try again',
 };
 
-// ── Main screen ────────────────────────────────────────────────────────────
+// ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function ConverseScreen() {
   const {
     phase, setPhase,
     transcript, setTranscript,
-    pendingChoice, setPendingChoice,
-    pendingConfirm, setPendingConfirm,
-    currentAgent, setCurrentAgent,
-    setCurrentJob,
     turns, addTurn,
     error, setError,
     agentId,
-    userName, autoConfirmLimitUsdc,
+    userName,
     reset,
   } = useStore();
+
+  // Pending plan — awaiting biometric confirmation
+  const pendingPlanRef = useRef<{
+    transcript: string;
+    plan: ConciergePlanItem[];
+    travelProfile?: Record<string, unknown>;
+  } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
 
@@ -85,91 +72,112 @@ export default function ConverseScreen() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
 
-  const say = (text: string) => speak(text);
+  // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
-  // ── Hire chosen agent tier ───────────────────────────────────────────────
+  const handleIntent = useCallback(async (text: string) => {
+    if (!agentId) throw new Error('No agent identity. Please restart the app.');
 
-  const hireTier = useCallback(async (agent: Agent, label: string) => {
-    setPhase('hiring');
-    await say(`${label} option selected. Please confirm with your biometric.`);
+    setTranscript(text);
+    const userTurn = { role: 'user' as const, text, ts: Date.now() };
+    addTurn(userTurn);
+    await appendHistory(userTurn);
 
-    // Biometric gate — loads profile and releases booking context
-    let jobDescription = transcript;
+    setPhase('thinking');
+
+    // Load travel profile — biometric-gated, silent on failure
+    let travelProfile: Record<string, unknown> | undefined;
     try {
-      const profileExists = await hasProfile();
-      if (profileExists) {
+      if (await hasProfile()) {
+        // Profile read is biometric-gated inside loadProfileAuthenticated.
+        // We load it here so it's ready to send scoped fields to the server.
         const profile = await loadProfileAuthenticated();
-        if (profile) {
-          jobDescription = `${transcript}\n\n${buildBookingContext(profile)}`;
-        }
+        if (profile) travelProfile = profile as unknown as Record<string, unknown>;
       }
     } catch {
-      // Auth cancelled or profile unavailable — proceed without profile
+      // Auth cancelled or no profile — proceed without
     }
 
-    // ── Stripe payment gate ─────────────────────────────────────────────────
-    // Create a PaymentIntent server-side, then present the native PaymentSheet.
-    // If the user cancels or payment fails, we bail before hiring the agent.
-    const priceUsdc = agent.pricePerTaskUsd ?? 1;
-    let stripePaymentIntentId: string | undefined;
-    try {
-      const session = await createStripeSession({
-        amountUsdc:  priceUsdc,
-        description: `Train booking · ${agent.name}`,
-      });
-      stripePaymentIntentId = session.paymentIntentId;
-      await showPaymentSheet(session.clientSecret);
-      // Payment authorised — proceed to hire
-    } catch (payErr: any) {
-      const msg = payErr.message ?? 'Payment failed';
-      setError(msg);
-      await say(msg === 'Payment cancelled' ? "No problem. Let me know if you'd like to try again." : `Payment failed — ${msg}`);
-      setPhase('error');
+    // Phase 1: get a plan from Claude — no hire fires yet
+    const response = await planIntent({
+      transcript:   text,
+      hirerId:      agentId,
+      travelProfile,
+    });
+
+    const meridianTurn = {
+      role: 'meridian' as const,
+      text: response.narration,
+      ts:   Date.now(),
+    };
+    addTurn(meridianTurn);
+    await appendHistory(meridianTurn);
+    await speak(response.narration);
+
+    // If plan needs biometric confirmation, store it and gate
+    if (response.needsBiometric && response.plan && response.plan.length > 0) {
+      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile };
+      setPhase('confirming');
       return;
     }
 
-    try {
-      const result = await executeHire({
-        hirerId: agentId!,
-        agent,
-        jobDescription,
-        coordinationId: pendingChoice?.coordinationId ?? `direct_${Date.now()}`,
-        stripePaymentIntentId,
-      });
-      const meridianTurn = {
-        role: 'meridian' as const,
-        text: `Hired ${agent.name} for $${result.agreedPriceUsdc.toFixed(2)}. Tracking your job.`,
-        ts: Date.now(),
-      };
-      addTurn(meridianTurn);
-      await appendHistory(meridianTurn);
-      setCurrentAgent(agent);
-      setCurrentJob({ jobId: result.jobId, agreedPriceUsdc: result.agreedPriceUsdc, agentId: agent.agentId } as any);
-      setPendingChoice(null);
-      setPhase('executing');
-      router.push(`/status/${result.jobId}`);
-    } catch (e: any) {
-      setError(e.message ?? 'Hire failed. Try again.');
+    // No action needed (research, clarification, or error from Claude)
+    setPhase('idle');
+  }, [agentId]);
+
+  // ── Phase 2: biometric → execute ─────────────────────────────────────────
+
+  const handleBiometricConfirm = useCallback(async () => {
+    const pending = pendingPlanRef.current;
+    if (!pending) return;
+
+    const authed = await authenticateWithBiometrics('Confirm booking and payment');
+    if (!authed) {
+      await speak('Payment cancelled.');
+      addTurn({ role: 'meridian', text: 'Payment cancelled.', ts: Date.now() });
+      pendingPlanRef.current = null;
+      setPhase('idle');
+      return;
     }
-  }, [agentId, transcript, pendingChoice]);
+
+    setPhase('thinking');
+    const { transcript: savedTranscript, plan, travelProfile } = pending;
+    pendingPlanRef.current = null;
+
+    const response = await executeIntent({
+      transcript:   savedTranscript,
+      hirerId:      agentId!,
+      travelProfile,
+      plan,
+    });
+
+    const meridianTurn = {
+      role: 'meridian' as const,
+      text: response.narration,
+      ts:   Date.now(),
+    };
+    addTurn(meridianTurn);
+    await appendHistory(meridianTurn);
+    await speak(response.narration);
+
+    if (response.actions.length > 0) {
+      setPhase('done');
+      router.push(`/status/${response.actions[0].jobId}`);
+    } else {
+      setPhase('idle');
+    }
+  }, [agentId]);
 
   // ── Hold-to-talk ──────────────────────────────────────────────────────────
 
   const handlePressIn = useCallback(async () => {
-    if (phase !== 'idle' && phase !== 'error' && phase !== 'confirming' && phase !== 'choosing') return;
-
-    if (phase === 'confirming' || phase === 'choosing') {
-      await startRecording().catch(() => {});
-      setPhase('listening');
-      return;
-    }
-
+    if (phase !== 'idle' && phase !== 'error') return;
     await stopSpeaking();
-    reset();
+    if (phase === 'error') reset();
     setPhase('listening');
     await startRecording().catch(() => {
       setError('Microphone access denied. Enable it in Settings.');
     });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, [phase]);
 
   const handlePressOut = useCallback(async () => {
@@ -179,159 +187,25 @@ export default function ConverseScreen() {
     try {
       const uri = await stopRecording();
       if (!uri) throw new Error('No audio recorded.');
+
       const text = await transcribeAudio(uri);
       if (!text) throw new Error('Could not understand that. Please try again.');
 
-      setTranscript(text);
-      const userTurn = { role: 'user' as const, text, ts: Date.now() };
-      addTurn(userTurn);
-      await appendHistory(userTurn);
-
-      // ── Tiered choice voice handling ──────────────────────────────────
-      if (pendingChoice) {
-        const lower = text.toLowerCase();
-        const isBudget   = /\b(budget|cheap|cheapest|first|one|basic|low)\b/.test(lower);
-        const isBalanced = /\b(middle|mid|second|two|balanced|moderate|mid|center)\b/.test(lower);
-        const isPremium  = /\b(premium|top|best|third|three|last|high|expensive|luxury|most)\b/.test(lower);
-
-        if (isBudget) {
-          await hireTier(pendingChoice.budget, 'Budget');
-          return;
-        }
-        if (isBalanced) {
-          await hireTier(pendingChoice.balanced, 'Middle');
-          return;
-        }
-        if (isPremium) {
-          await hireTier(pendingChoice.premium, 'Premium');
-          return;
-        }
-
-        await say("Sorry — say budget, middle, or premium to pick your option.");
-        setPhase('choosing');
-        return;
-      }
-
-      // ── Single-agent confirm voice handling ───────────────────────────
-      if (pendingConfirm) {
-        const lower = text.toLowerCase();
-        const isYes = /\b(yes|yeah|sure|ok|okay|go|do it|confirm|proceed)\b/.test(lower);
-        const isNo  = /\b(no|nope|cancel|stop|abort|don't|forget it)\b/.test(lower);
-
-        if (isYes) {
-          setPhase('hiring');
-          await say(`Confirmed. Please verify with your biometric.`);
-
-          // Biometric gate — load profile for booking context
-          let confirmedDescription = transcript;
-          try {
-            const profileExists = await hasProfile();
-            if (profileExists) {
-              const profile = await loadProfileAuthenticated();
-              if (profile) {
-                confirmedDescription = `${transcript}\n\n${buildBookingContext(profile)}`;
-              }
-            }
-          } catch {
-            // Auth cancelled — proceed without profile
-          }
-
-          const result = await executeHire({
-            hirerId: agentId!,
-            agent: pendingConfirm.agent,
-            jobDescription: confirmedDescription,
-            coordinationId: pendingConfirm.coordinationId,
-          });
-          const agentTurn = {
-            role: 'meridian' as const,
-            text: `Hired ${pendingConfirm.agent.name}. Tracking your job.`,
-            ts: Date.now(),
-          };
-          addTurn(agentTurn);
-          await appendHistory(agentTurn);
-          setCurrentAgent(pendingConfirm.agent);
-          setCurrentJob({ jobId: result.jobId, agreedPriceUsdc: result.agreedPriceUsdc, agentId: result.agent.agentId } as any);
-          setPendingConfirm(null);
-          setPhase('executing');
-          router.push(`/status/${result.jobId}`);
-          return;
-        }
-
-        if (isNo) {
-          setPendingConfirm(null);
-          await say('Okay, cancelled.');
-          const turn = { role: 'meridian' as const, text: 'Cancelled.', ts: Date.now() };
-          addTurn(turn);
-          await appendHistory(turn);
-          setPhase('idle');
-          return;
-        }
-
-        await say("Sorry, I didn't catch that. Say yes to confirm, or no to cancel.");
-        setPhase('confirming');
-        return;
-      }
-
-      // ── Normal intent flow ────────────────────────────────────────────
-      if (!agentId) throw new Error('No agent identity. Please restart the app.');
-
-      const outcome = await processIntent({
-        intent: text,
-        hirerId: agentId,
-        autoConfirmLimitUsdc,
-      });
-
-      if ('needsChoice' in outcome) {
-        const choice = outcome as TieredOptions;
-        setPendingChoice(choice);
-        const meridianTurn = {
-          role: 'meridian' as const,
-          text: `Found 3 options — budget ${choice.budget.name} ($${(choice.budget.pricePerTaskUsd ?? 0).toFixed(2)}), middle ${choice.balanced.name} ($${(choice.balanced.pricePerTaskUsd ?? 0).toFixed(2)}), premium ${choice.premium.name} ($${(choice.premium.pricePerTaskUsd ?? 0).toFixed(2)}). Which would you like?`,
-          ts: Date.now(),
-        };
-        addTurn(meridianTurn);
-        await appendHistory(meridianTurn);
-        setPhase('choosing');
-
-      } else if ('needsConfirm' in outcome) {
-        const confirm = outcome as ConciergeNeedsConfirm;
-        setPendingConfirm(confirm);
-        const meridianTurn = {
-          role: 'meridian' as const,
-          text: `${confirm.agent.name} — $${confirm.estimatedPriceUsdc.toFixed(2)} USDC. Say yes to confirm.`,
-          ts: Date.now(),
-        };
-        addTurn(meridianTurn);
-        await appendHistory(meridianTurn);
-        setPhase('confirming');
-
-      } else {
-        // Auto-hired
-        setPhase('hiring');
-        const meridianTurn = {
-          role: 'meridian' as const,
-          text: `Hired ${outcome.agent.name}. Tracking your job now.`,
-          ts: Date.now(),
-        };
-        addTurn(meridianTurn);
-        await appendHistory(meridianTurn);
-        setCurrentAgent(outcome.agent);
-        setCurrentJob({ jobId: outcome.jobId, agreedPriceUsdc: outcome.agreedPriceUsdc, agentId: outcome.agent.agentId } as any);
-        setPhase('executing');
-        router.push(`/status/${outcome.jobId}`);
-      }
+      await handleIntent(text);
     } catch (e: any) {
       const msg = e.message ?? 'Something went wrong.';
       setError(msg);
-      await say(`Sorry — ${msg}`);
+      await speak(`Sorry — ${msg}`);
     }
-  }, [phase, pendingChoice, pendingConfirm, agentId, openaiKey, transcript, autoConfirmLimitUsdc, hireTier]);
+  }, [phase, handleIntent]);
 
-  // ── Render ──────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   const phaseLabel = PHASE_LABEL[phase] ?? '';
-  const isIdle  = phase === 'idle';
-  const isError = phase === 'error';
+  const isIdle     = phase === 'idle';
+  const isError    = phase === 'error';
+  const isBusy     = phase === 'thinking' || phase === 'done';
+  const isConfirming = phase === 'confirming';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -344,7 +218,7 @@ export default function ConverseScreen() {
         </Pressable>
       </View>
 
-      {/* Conversation + choices */}
+      {/* Conversation */}
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -354,13 +228,13 @@ export default function ConverseScreen() {
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyGreeting}>
-              {`Hello${useStore.getState().userName !== 'there' ? `, ${useStore.getState().userName}` : ''}.`}
+              {`Hello${userName !== 'there' ? `, ${userName}` : ''}.`}
             </Text>
             <Text style={styles.emptyHint}>What can I help you with today?</Text>
             <View style={styles.suggestions}>
               <Suggestion text="Book a train to London" />
-              <Suggestion text="Find me a hotel in Paris" />
-              <Suggestion text="Arrange airport transport" />
+              <Suggestion text="Find me a hotel in Manchester" />
+              <Suggestion text="Get me a taxi from the station" />
             </View>
           </View>
         )}
@@ -387,19 +261,11 @@ export default function ConverseScreen() {
           </View>
         ))}
 
-        {/* Tiered choice card */}
-        {phase === 'choosing' && pendingChoice && (
-          <ChoiceCard choice={pendingChoice} onPick={hireTier} />
-        )}
-
-        {/* Single-agent confirm indicator */}
-        {phase === 'confirming' && pendingConfirm && (
-          <View style={styles.confirmCard}>
-            <Ionicons name="alert-circle-outline" size={16} color="#fcd34d" />
-            <Text style={styles.confirmText}>
-              {`${pendingConfirm.agent.name} · $${pendingConfirm.estimatedPriceUsdc.toFixed(2)} USDC`}
-            </Text>
-          </View>
+        {isConfirming && (
+          <Pressable style={styles.confirmCard} onPress={handleBiometricConfirm}>
+            <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
+            <Text style={styles.confirmText}>Tap to confirm with fingerprint</Text>
+          </Pressable>
         )}
 
         {isError && error && (
@@ -420,11 +286,11 @@ export default function ConverseScreen() {
           phase={phase}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
-          disabled={phase === 'hiring' || phase === 'executing' || phase === 'done'}
+          disabled={isBusy || isConfirming}
         />
 
         {(isIdle || isError) && turns.length > 0 && (
-          <Pressable onPress={() => { reset(); }} style={styles.clearBtn} hitSlop={12}>
+          <Pressable onPress={() => reset()} style={styles.clearBtn} hitSlop={12}>
             <Text style={styles.clearBtnText}>Clear</Text>
           </Pressable>
         )}
@@ -434,149 +300,7 @@ export default function ConverseScreen() {
   );
 }
 
-// ── ChoiceCard ────────────────────────────────────────────────────────────
-
-function ChoiceCard({
-  choice,
-  onPick,
-}: {
-  choice: TieredOptions;
-  onPick: (agent: Agent, label: string) => void;
-}) {
-  return (
-    <View style={choiceStyles.card}>
-      <Text style={choiceStyles.header}>Choose your option</Text>
-
-      <ChoiceRow
-        badge="Budget"
-        badgeColor="#065f46"
-        badgeText="#34d399"
-        agent={choice.budget}
-        onPress={() => onPick(choice.budget, 'Budget')}
-      />
-      <ChoiceRow
-        badge="Middle"
-        badgeColor="#1e1b4b"
-        badgeText="#818cf8"
-        agent={choice.balanced}
-        onPress={() => onPick(choice.balanced, 'Middle')}
-      />
-      <ChoiceRow
-        badge="Premium"
-        badgeColor="#3b0764"
-        badgeText="#c084fc"
-        agent={choice.premium}
-        onPress={() => onPick(choice.premium, 'Premium')}
-        last
-      />
-
-      <Text style={choiceStyles.hint}>Say "budget", "middle", or "premium" — or tap above</Text>
-    </View>
-  );
-}
-
-function ChoiceRow({
-  badge, badgeColor, badgeText, agent, onPress, last,
-}: {
-  badge: string;
-  badgeColor: string;
-  badgeText: string;
-  agent: Agent;
-  onPress: () => void;
-  last?: boolean;
-}) {
-  const price = agent.pricePerTaskUsd;
-  const priceStr = price == null || price === 0 ? 'Free'
-    : price < 1 ? `${Math.round(price * 100)}¢`
-    : `$${price.toFixed(2)}`;
-
-  const grade = agent.grade ?? 'B';
-  const context = agent.verified ? 'Verified' : grade === 'A+' || grade === 'A' ? 'Top rated' : grade === 'B' ? 'Trusted' : 'New';
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[choiceStyles.row, !last && choiceStyles.rowBorder]}
-    >
-      <View style={[choiceStyles.badge, { backgroundColor: badgeColor }]}>
-        <Text style={[choiceStyles.badgeText, { color: badgeText }]}>{badge}</Text>
-      </View>
-      <View style={choiceStyles.rowInfo}>
-        <Text style={choiceStyles.agentName} numberOfLines={1}>{agent.name}</Text>
-        <Text style={choiceStyles.agentMeta}>{context} · Grade {grade}</Text>
-      </View>
-      <Text style={choiceStyles.price}>{priceStr}</Text>
-    </Pressable>
-  );
-}
-
-const choiceStyles = StyleSheet.create({
-  card: {
-    backgroundColor: '#0d0d0d',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    padding: 16,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-    width: '100%',
-  },
-  header: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4b5563',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 12,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    gap: 12,
-  },
-  rowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#1f2937',
-  },
-  badge: {
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    minWidth: 68,
-    alignItems: 'center',
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  rowInfo: {
-    flex: 1,
-  },
-  agentName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#e5e7eb',
-    marginBottom: 2,
-  },
-  agentMeta: {
-    fontSize: 11,
-    color: '#6b7280',
-  },
-  price: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#f9fafb',
-  },
-  hint: {
-    fontSize: 11,
-    color: '#374151',
-    textAlign: 'center',
-    marginTop: 12,
-  },
-});
-
-// ── Suggestion chip ───────────────────────────────────────────────────────
+// ── Suggestion chip ───────────────────────────────────────────────────────────
 
 function Suggestion({ text }: { text: string }) {
   return (
@@ -600,7 +324,7 @@ const suggStyles = StyleSheet.create({
   text: { fontSize: 13, color: '#6b7280' },
 });
 
-// ── Styles ────────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#080808' },
@@ -628,7 +352,7 @@ const styles = StyleSheet.create({
   emptyState:    { paddingTop: 32, paddingBottom: 20 },
   emptyGreeting: { fontSize: 26, fontWeight: '700', color: '#f9fafb', marginBottom: 8 },
   emptyHint:     { fontSize: 16, color: '#6b7280', marginBottom: 24, lineHeight: 24 },
-  suggestions:   { gap: 0 },
+  suggestions:   {},
 
   bubble: {
     maxWidth: '85%',
@@ -670,16 +394,16 @@ const styles = StyleSheet.create({
   confirmCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#1c1400',
+    gap: 10,
+    backgroundColor: '#0d0b1f',
     borderWidth: 1,
-    borderColor: '#78350f',
-    borderRadius: 12,
-    padding: 12,
+    borderColor: '#4338ca',
+    borderRadius: 14,
+    padding: 16,
     marginBottom: 12,
     alignSelf: 'flex-start',
   },
-  confirmText: { fontSize: 14, color: '#fcd34d' },
+  confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '500' },
 
   errorCard: {
     flexDirection: 'row',

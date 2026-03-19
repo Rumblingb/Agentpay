@@ -10,7 +10,8 @@
     "typecheck": "pnpm -r -w --parallel run typecheck || (tsc -b --verbose)",
     "clean": "rm -rf dist",
     "prisma:generate": "prisma generate --schema=infra/prisma/schema.prisma",
-    "prisma:migrate:deploy": "prisma migrate deploy --schema=infra/prisma/schema.prisma"
+    "prisma:migrate:deploy": "prisma migrate deploy --schema=infra/prisma/schema.prisma",
+    "postinstall": "node apps/meridian/scripts/patch-expo-modules.js"
   },
   "keywords": [
     "agentpay",
@@ -42,7 +43,9 @@
     "node": ">=20.0.0"
   },
   "overrides": {
-    "undici": "7.24.1"
+    "undici": "7.24.1",
+    "@expo/config-plugins": "~8.0.0",
+    "expo-linking": "~6.3.0"
   },
   "dependencies": {
     "@sentry/node": "^10.43.0",

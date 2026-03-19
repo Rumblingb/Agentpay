@@ -162,6 +162,38 @@ export function buildBookingContext(profile: TravelProfile): string {
   return lines.join('\n');
 }
 
+// ── Minimum-field scoping ─────────────────────────────────────────────────
+
+/**
+ * Skill → profile fields it is permitted to receive.
+ * Mirrors the server-side `requiredProfileFields` in skills/index.ts.
+ * The server enforces this too — this is a defence-in-depth client guard.
+ */
+const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
+  book_train:     ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardNumber'],
+  book_hotel:     ['legalName', 'email', 'phone'],
+  book_taxi:      ['legalName', 'phone'],
+  search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
+  research:       [],
+};
+
+/**
+ * Return only the profile fields the named skill is permitted to receive.
+ * Pass this scoped object to the server — never the full profile.
+ */
+export function scopeProfile(
+  toolName: string,
+  profile: TravelProfile,
+): Partial<TravelProfile> {
+  const allowed = SKILL_PROFILE_FIELDS[toolName] ?? [];
+  if (allowed.length === 0) return {};
+  return Object.fromEntries(
+    allowed
+      .filter(f => profile[f] !== undefined && profile[f] !== null && profile[f] !== '')
+      .map(f => [f, profile[f]]),
+  ) as Partial<TravelProfile>;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 export function defaultDocumentType(nationality: Nationality): DocumentType {
