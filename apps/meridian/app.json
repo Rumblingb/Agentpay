@@ -61,7 +61,8 @@
             "newArchEnabled": false
           },
           "android": {
-            "newArchEnabled": false
+            "newArchEnabled": false,
+            "kotlinVersion": "1.9.25"
           }
         }
       ]
