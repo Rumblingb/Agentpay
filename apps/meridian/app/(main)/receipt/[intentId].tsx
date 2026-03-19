@@ -1,6 +1,10 @@
 /**
- * Receipt screen — signed settlement proof
- * Clean, premium design. Shareable.
+ * Receipt screen — signed settlement proof + boarding QR
+ *
+ * - Shows journey details + HMAC-verified payment proof
+ * - "Show Ticket" → full-screen QR mode for station staff
+ * - Caches QR image locally via expo-file-system (works offline)
+ * - Saves trip to AsyncStorage for My Trips history
  */
 
 import React, { useEffect, useState } from 'react';
@@ -12,13 +16,25 @@ import {
   ScrollView,
   ActivityIndicator,
   Share,
+  Modal,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const QR_SIZE = Math.min(SCREEN_W - 80, 280);
+
+function qrUrl(ref: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(ref)}&format=png&margin=2`;
+}
 
 export default function ReceiptScreen() {
   const params = useLocalSearchParams<{
@@ -32,12 +48,16 @@ export default function ReceiptScreen() {
   }>();
   const { intentId, bookingRef, departureTime, platform, operator, fromStation, toStation } = params;
   const { reset, currentAgent } = useStore();
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [receipt,     setReceipt]     = useState<Receipt | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+  const [showTicket,  setShowTicket]  = useState(false);
+  const [qrLocalUri,  setQrLocalUri]  = useState<string | null>(null);
+  const [qrLoading,   setQrLoading]   = useState(false);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
 
+  // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!intentId) return;
     getReceipt(intentId)
@@ -46,15 +66,59 @@ export default function ReceiptScreen() {
       .finally(() => setLoading(false));
   }, [intentId]);
 
+  // ── Cache QR image locally for offline use ───────────────────────────────
+  useEffect(() => {
+    if (!bookingRef) return;
+    const localPath = `${FileSystem.cacheDirectory}qr_${bookingRef.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+    setQrLoading(true);
+    FileSystem.getInfoAsync(localPath)
+      .then(info => {
+        if (info.exists) {
+          setQrLocalUri(localPath);
+          setQrLoading(false);
+        } else {
+          return FileSystem.downloadAsync(qrUrl(bookingRef), localPath)
+            .then(() => { setQrLocalUri(localPath); })
+            .catch(() => { setQrLocalUri(qrUrl(bookingRef)); });
+        }
+      })
+      .catch(() => { setQrLocalUri(qrUrl(bookingRef)); })
+      .finally(() => setQrLoading(false));
+  }, [bookingRef]);
+
+  // ── Save trip to My Trips history ────────────────────────────────────────
+  useEffect(() => {
+    if (!receipt || !intentId) return;
+    const entry = {
+      intentId,
+      bookingRef:    bookingRef    ?? null,
+      fromStation:   fromStation   ?? null,
+      toStation:     toStation     ?? null,
+      departureTime: departureTime ?? null,
+      platform:      platform      ?? null,
+      operator:      operator      ?? null,
+      amount:        receipt.amount,
+      currency:      receipt.currency,
+      savedAt:       new Date().toISOString(),
+    };
+    AsyncStorage.getItem('bro.trips').then(raw => {
+      const trips: typeof entry[] = raw ? JSON.parse(raw) : [];
+      // Deduplicate by intentId
+      const filtered = trips.filter(t => t.intentId !== intentId);
+      filtered.unshift(entry);
+      AsyncStorage.setItem('bro.trips', JSON.stringify(filtered.slice(0, 30)));
+    }).catch(() => {});
+  }, [receipt]);
+
   const handleShare = async () => {
     if (!receipt) return;
     await Share.share({
       message: [
         'Bro Receipt',
-        bookingRef ? `Booking: ${bookingRef}` : null,
+        bookingRef    ? `Booking: ${bookingRef}` : null,
         fromStation && toStation ? `Journey: ${fromStation} → ${toStation}` : null,
         departureTime ? `Departs: ${departureTime}` : null,
-        platform ? `Platform: ${platform}` : null,
+        platform      ? `Platform: ${platform}`     : null,
         '',
         `Job: ${intentId}`,
         `Amount: $${receipt.amount} ${receipt.currency}`,
@@ -104,8 +168,8 @@ export default function ReceiptScreen() {
 
             {/* Receipt card */}
             <View style={styles.card}>
-              <Row label="Status"   value={receipt.status}  pill />
-              {receipt.agentId   && <Row label="Agent"    value={shortId(receipt.agentId)} mono />}
+              <Row label="Status"    value={receipt.status}  pill />
+              {receipt.agentId    && <Row label="Agent"    value={shortId(receipt.agentId)} mono />}
               {receipt.merchantId && <Row label="Merchant" value={shortId(receipt.merchantId)} mono />}
               {receipt.verifiedAt && (
                 <Row label="Verified" value={new Date(receipt.verifiedAt).toLocaleString()} />
@@ -113,25 +177,42 @@ export default function ReceiptScreen() {
               <Row label="Intent ID" value={shortId(receipt.intentId)} mono />
             </View>
 
-            {/* Journey Details (train booking) */}
+            {/* Journey Details + QR */}
             {hasJourneyDetails && (
               <View style={styles.journeyCard}>
                 <View style={styles.journeyHeader}>
                   <Text style={styles.journeyIcon}>🚂</Text>
                   <Text style={styles.journeyTitle}>Journey Details</Text>
                 </View>
+
                 {bookingRef && (
                   <View style={styles.journeyRefWrap}>
                     <Text style={styles.journeyRefLabel}>Booking Reference</Text>
                     <Text style={styles.journeyRef}>{bookingRef}</Text>
                   </View>
                 )}
+
                 {fromStation && toStation && (
                   <Row label="Route" value={`${fromStation} → ${toStation}`} />
                 )}
-                {departureTime && <Row label="Departs" value={departureTime} />}
-                {platform && <Row label="Platform" value={platform} />}
-                {operator && <Row label="Operator" value={operator} />}
+                {departureTime && <Row label="Departs"  value={departureTime} />}
+                {platform      && <Row label="Platform" value={platform} />}
+                {operator      && <Row label="Operator" value={operator} />}
+
+                {/* Show Ticket button — full-screen QR */}
+                {bookingRef && (
+                  <Pressable
+                    onPress={() => setShowTicket(true)}
+                    style={styles.showTicketBtn}
+                  >
+                    {qrLoading ? (
+                      <ActivityIndicator color="#4ade80" size="small" />
+                    ) : (
+                      <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
+                    )}
+                    <Text style={styles.showTicketText}>Show Ticket QR</Text>
+                  </Pressable>
+                )}
               </View>
             )}
 
@@ -158,9 +239,62 @@ export default function ReceiptScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* ── Full-screen ticket QR modal ─────────────────────────────────── */}
+      <Modal
+        visible={showTicket}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowTicket(false)}
+      >
+        <View style={ticketStyles.container}>
+          <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+
+            <Text style={ticketStyles.label}>SHOW THIS TO STAFF</Text>
+
+            {/* QR code */}
+            {qrLocalUri ? (
+              <View style={ticketStyles.qrWrap}>
+                <Image
+                  source={{ uri: qrLocalUri }}
+                  style={{ width: QR_SIZE, height: QR_SIZE }}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : (
+              <View style={[ticketStyles.qrWrap, { alignItems: 'center', justifyContent: 'center' }]}>
+                <ActivityIndicator color="#111" size="large" />
+              </View>
+            )}
+
+            {/* Booking ref */}
+            {bookingRef && (
+              <Text style={ticketStyles.ref}>{bookingRef}</Text>
+            )}
+
+            {/* Route */}
+            {fromStation && toStation && (
+              <Text style={ticketStyles.route}>{fromStation} → {toStation}</Text>
+            )}
+            {departureTime && (
+              <Text style={ticketStyles.time}>Departs {departureTime}</Text>
+            )}
+            {platform && (
+              <Text style={ticketStyles.platform}>Platform {platform}</Text>
+            )}
+
+            <Pressable onPress={() => setShowTicket(false)} style={ticketStyles.closeBtn} hitSlop={16}>
+              <Text style={ticketStyles.closeText}>Back to Receipt</Text>
+            </Pressable>
+
+          </SafeAreaView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function shortId(id: string) {
   if (id.length <= 16) return id;
@@ -188,13 +322,15 @@ function Row({
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const rowStyles = StyleSheet.create({
-  row:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  label:     { fontSize: 13, color: '#6b7280' },
-  value:     { fontSize: 13, color: '#d1d5db', maxWidth: '55%', textAlign: 'right' },
-  mono:      { fontFamily: 'monospace', fontSize: 11 },
-  pill:      { backgroundColor: '#052e16', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
-  pillText:  { fontSize: 12, color: '#4ade80', fontWeight: '600' },
+  row:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  label:    { fontSize: 13, color: '#6b7280' },
+  value:    { fontSize: 13, color: '#d1d5db', maxWidth: '55%', textAlign: 'right' },
+  mono:     { fontFamily: 'monospace', fontSize: 11 },
+  pill:     { backgroundColor: '#052e16', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
+  pillText: { fontSize: 12, color: '#4ade80', fontWeight: '600' },
 });
 
 const styles = StyleSheet.create({
@@ -246,7 +382,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 14,
   },
-  journeyIcon: { fontSize: 18 },
+  journeyIcon:  { fontSize: 18 },
   journeyTitle: {
     fontSize: 13,
     fontWeight: '700',
@@ -276,6 +412,25 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     letterSpacing: 2.5,
     fontFamily: 'monospace',
+  },
+
+  showTicketBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    backgroundColor: '#052e16',
+    borderRadius: 12,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: '#14532d',
+  },
+  showTicketText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4ade80',
+    letterSpacing: 0.3,
   },
 
   sigCard: {
@@ -322,9 +477,80 @@ const styles = StyleSheet.create({
   },
   shareBtnText: { fontSize: 15, fontWeight: '600', color: '#818cf8' },
 
-  doneBtn: { width: '100%', alignItems: 'center', paddingVertical: 14 },
+  doneBtn:     { width: '100%', alignItems: 'center', paddingVertical: 14 },
   doneBtnText: { fontSize: 14, color: '#4b5563' },
 
-  errorBox: { marginTop: 60, padding: 20 },
+  errorBox:  { marginTop: 60, padding: 20 },
   errorText: { fontSize: 14, color: '#f87171', textAlign: 'center', lineHeight: 21 },
+});
+
+// ── Full-screen ticket styles ─────────────────────────────────────────────────
+
+const ticketStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6b7280',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: 24,
+  },
+  qrWrap: {
+    width: QR_SIZE + 24,
+    height: QR_SIZE + 24,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: 24,
+  },
+  ref: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111',
+    letterSpacing: 3,
+    fontFamily: 'monospace',
+    marginBottom: 8,
+  },
+  route: {
+    fontSize: 16,
+    color: '#374151',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  time: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  platform: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 32,
+  },
+  closeBtn: {
+    marginTop: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  closeText: {
+    fontSize: 15,
+    color: '#374151',
+    fontWeight: '600',
+  },
 });

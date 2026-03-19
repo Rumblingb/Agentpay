@@ -271,9 +271,14 @@ export default function ConverseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Bro</Text>
-        <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
-          <Ionicons name="settings-outline" size={20} color="#4b5563" />
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12}>
+            <Ionicons name="time-outline" size={20} color="#4b5563" />
+          </Pressable>
+          <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
+            <Ionicons name="settings-outline" size={20} color="#4b5563" />
+          </Pressable>
+        </View>
       </View>
 
       {/* Conversation */}
