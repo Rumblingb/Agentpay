@@ -1,11 +1,16 @@
 /**
- * Expo config plugin: patches ExpoModulesCorePlugin.gradle for AGP 8.5+ compatibility.
+ * Expo config plugin: two fixes applied during `expo prebuild` before Gradle runs.
  *
- * AGP 8.5+ registers SoftwareComponents lazily. Wrapping `from components.release`
- * in an inner `afterEvaluate` defers the lookup until the component is registered.
+ * Fix 1 — ExpoModulesCorePlugin.gradle for AGP 8.5+:
+ *   In AGP 8.5+, software components are registered lazily. `components.release`
+ *   is not available even inside `project.afterEvaluate`. The fix is to double-nest:
+ *   `project.afterEvaluate { publishing { ... } }` becomes
+ *   `project.afterEvaluate { project.afterEvaluate { publishing { ... } } }`
+ *   so the component lookup runs after all projects have evaluated.
  *
- * This runs as part of `expo prebuild` (withDangerousMod), patching the file
- * after the android project is generated but before Gradle runs.
+ * Fix 2 — Gradle wrapper version:
+ *   expo prebuild generates Gradle 8.6 (from the RN template), but AGP 8.5+ requires
+ *   Gradle 8.7+. Patching the wrapper to 8.10.2 satisfies the requirement.
  */
 
 const { withDangerousMod } = require('@expo/config-plugins');
@@ -16,36 +21,66 @@ const withExpoModulesPatch = (config) => {
   return withDangerousMod(config, [
     'android',
     async (config) => {
-      // expo-modules-core is hoisted to workspace root or lives in node_modules
+      const projectRoot = config.modRequest.projectRoot;
+
+      // ── Fix 1: ExpoModulesCorePlugin.gradle ─────────────────────────────
+
       let pluginPath;
       try {
         const pkgJson = require.resolve('expo-modules-core/package.json', {
-          paths: [config.modRequest.projectRoot, __dirname],
+          paths: [projectRoot, __dirname],
         });
         pluginPath = path.join(path.dirname(pkgJson), 'android', 'ExpoModulesCorePlugin.gradle');
       } catch (e) {
         console.log('[withExpoModulesPatch] expo-modules-core not found:', e.message);
-        return config;
       }
 
-      if (!fs.existsSync(pluginPath)) {
-        console.log('[withExpoModulesPatch] ExpoModulesCorePlugin.gradle not found at:', pluginPath);
-        return config;
+      if (pluginPath && fs.existsSync(pluginPath)) {
+        let content = fs.readFileSync(pluginPath, 'utf8');
+
+        // Check if already double-nested (our final state)
+        // The `from components.release` line is used only for local Maven publishing,
+        // not needed for building the app. AGP 8.5+ registers components lazily and
+        // this line fails at any evaluation depth. Remove it entirely.
+        if (!content.includes('from components.release') &&
+            !content.includes('afterEvaluate { from components.release }')) {
+          console.log('[withExpoModulesPatch] ✓ ExpoModulesCorePlugin already patched (line removed)');
+        } else {
+          // Remove the line (handle both original and a previous partial patch)
+          content = content
+            .replace(/\s*afterEvaluate \{ from components\.release \}\n/g, '\n')
+            .replace(/\s*from components\.release\n/g, '\n');
+          fs.writeFileSync(pluginPath, content);
+          console.log('[withExpoModulesPatch] ✓ Removed components.release line from ExpoModulesCorePlugin.gradle');
+        }
       }
 
-      let content = fs.readFileSync(pluginPath, 'utf8');
+      // ── Fix 2: Gradle wrapper → 8.10.2 ──────────────────────────────────
 
-      if (content.includes('afterEvaluate { from components.release }')) {
-        console.log('[withExpoModulesPatch] ✓ already patched');
-      } else if (content.includes('from components.release')) {
-        content = content.replace(
-          /from components\.release/g,
-          'afterEvaluate { from components.release }'
-        );
-        fs.writeFileSync(pluginPath, content);
-        console.log('[withExpoModulesPatch] ✓ patched ExpoModulesCorePlugin.gradle for AGP 8.5+');
+      const gradleWrapperPath = path.join(
+        projectRoot,
+        'android',
+        'gradle',
+        'wrapper',
+        'gradle-wrapper.properties',
+      );
+
+      if (fs.existsSync(gradleWrapperPath)) {
+        let wrapperContent = fs.readFileSync(gradleWrapperPath, 'utf8');
+        const targetVersion = 'gradle-8.10.2-all.zip';
+
+        if (wrapperContent.includes(targetVersion)) {
+          console.log('[withExpoModulesPatch] ✓ Gradle wrapper already at 8.10.2');
+        } else {
+          wrapperContent = wrapperContent.replace(
+            /gradle-\d+\.\d+(?:\.\d+)?-(?:all|bin)\.zip/,
+            targetVersion,
+          );
+          fs.writeFileSync(gradleWrapperPath, wrapperContent);
+          console.log('[withExpoModulesPatch] ✓ Patched gradle-wrapper to 8.10.2');
+        }
       } else {
-        console.log('[withExpoModulesPatch] ⚠ "from components.release" not found — may already be fixed upstream');
+        console.log('[withExpoModulesPatch] ⚠ gradle-wrapper.properties not found');
       }
 
       return config;
