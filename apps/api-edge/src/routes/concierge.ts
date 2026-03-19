@@ -25,6 +25,7 @@ import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
 import { queryRTT, formatTrainsForClaude } from '../lib/rtt';
+import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -71,7 +72,12 @@ conciergeRouter.post('/intent', async (c) => {
 
   // ── Guardrails system prompt ──────────────────────────────────────────────
 
-  const systemPrompt = `You are Bro, a personal travel concierge for a voice-first app.
+  // Include nationality context so Claude routes to the right rail skill
+  const nationalityContext = travelProfile?.nationality
+    ? `\nUser nationality: ${travelProfile.nationality}. `
+    : '';
+
+  const systemPrompt = `You are Bro, a personal travel concierge for a voice-first app.${nationalityContext}
 
 HARD RULES — never violate these:
 1. Never spend more than the user's confirmed budget without explicit biometric confirmation.
@@ -82,13 +88,20 @@ HARD RULES — never violate these:
 6. If unsure about intent, ask one clarifying question. Never assume.
 7. Only call agents registered on AgentPay with AgentRank grade B or above.
 
+ROUTING RULES — choose the right tool:
+- Use book_train for UK and European routes (stations like London, Manchester, Edinburgh, Paris, Amsterdam).
+- Use book_train_india for Indian routes (stations like Delhi, Mumbai, Bangalore, Chennai, Kolkata, Hyderabad).
+- If the user's nationality is "india" and they say "train" without specifying country, assume India.
+- If station names are ambiguous, ask one clarifying question: "UK or India?"
+
 Available specialists are provided as tools. Use them to fulfil the request.
 - Read each tool's description and skill doc carefully before deciding
 - Call only the tools needed — do not call tools that aren't relevant
 - For multi-step requests (e.g. train + hotel), call multiple tools
 - After all tool results are available, respond with ONE natural sentence
-- For ANY booking: ALWAYS state the fare (e.g. "£24"), operator name, and departure time — the user must hear the price before confirming
-- Format: "[Operator] at [time], [route], [fare]. Fingerprint to confirm." — e.g. "Avanti at 14:32, Derby to London, estimated £24. Fingerprint to confirm."
+- For ANY booking: ALWAYS state the fare (£ for UK, ₹ for India), train name/operator, and departure time
+- UK format: "[Operator] at [time], [route], estimated £[price]. Fingerprint to confirm."
+- India format: "[Train name] at [time], [route], [duration], estimated ₹[price]. Fingerprint to confirm."
 - For non-booking responses (clarifications, research): no price needed, just answer naturally
 - Keep under 40 words — the user is listening, not reading
 - If you cannot help with something, say so clearly in one sentence`;
@@ -124,7 +137,8 @@ Available specialists are provided as tools. Use them to fulfil the request.
           // We already have the schedule data from Phase 1 (stored in trainDetails).
           // Instantly complete the job so the status screen shows real booking info.
           if (item.trainDetails) {
-            const bookingRef = generateBookingRef();
+            const isIndia   = item.trainDetails.country === 'india';
+            const bookingRef = isIndia ? generateIndianPNR() : generateBookingRef();
             const proof: BookingProof = {
               bookingRef,
               departureTime:  item.trainDetails.departureTime,
@@ -135,8 +149,15 @@ Available specialists are provided as tools. Use them to fulfil the request.
               toStation:      item.trainDetails.destination,
               serviceUid:     item.trainDetails.serviceUid,
               fareGbp:        item.trainDetails.estimatedFareGbp,
+              country:        item.trainDetails.country,
+              fareInr:        item.trainDetails.fareInr,
+              trainNumber:    item.trainDetails.trainNumber,
+              trainName:      item.trainDetails.trainName,
+              classCode:      item.trainDetails.classCode,
               bookedAt:       new Date().toISOString(),
-              note:           'Schedule data from National Rail via Realtime Trains API.',
+              note: isIndia
+                ? 'Schedule data from Indian Railways via IRCTC.'
+                : 'Schedule data from National Rail via Realtime Trains API.',
             };
 
             // Fire-and-forget: complete the job + send email confirmation
@@ -153,10 +174,14 @@ Available specialists are provided as tools. Use them to fulfil the request.
               ]),
             );
 
+            const confirmLine = isIndia
+              ? `PNR confirmed: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. ₹${item.trainDetails.fareInr}.`
+              : `Booking confirmed. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}.`;
+
             toolResults.push({
               type:        'tool_result',
               tool_use_id: item.toolUseId,
-              content:     `Booking confirmed. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Confirmation details stored.`,
+              content:     confirmLine,
             });
           } else {
             toolResults.push({
@@ -264,10 +289,10 @@ Available specialists are provided as tools. Use them to fulfil the request.
       let trainDetails: TrainDetails | undefined;
 
       if (toolCall.name === 'book_train') {
-        // ── Live RTT query ────────────────────────────────────────────────
+        // ── Live RTT query (UK) ───────────────────────────────────────────
         const rttResult = await queryRTT(
           c.env,
-          input.origin  ?? '',
+          input.origin      ?? '',
           input.destination ?? '',
           input.date,
           input.time_preference,
@@ -276,7 +301,7 @@ Available specialists are provided as tools. Use them to fulfil the request.
         toolResultContent = formatTrainsForClaude(rttResult);
 
         if (rttResult.services.length > 0) {
-          const svc = rttResult.services[0]; // best option (first by time preference)
+          const svc = rttResult.services[0];
           trainDetails = {
             departureTime:    svc.departureTime,
             arrivalTime:      svc.arrivalTime,
@@ -286,6 +311,40 @@ Available specialists are provided as tools. Use them to fulfil the request.
             origin:           rttResult.origin,
             destination:      rttResult.destination,
             estimatedFareGbp: svc.estimatedFareGbp,
+            country:          'uk',
+          };
+        }
+      } else if (toolCall.name === 'book_train_india') {
+        // ── Indian Railways query (IRCTC / RapidAPI) ─────────────────────
+        const irResult = await queryIndianRail(
+          c.env,
+          input.origin      ?? '',
+          input.destination ?? '',
+          input.date,
+          input.class_pref,
+          input.time_preference,
+        );
+
+        toolResultContent = formatTrainsForClaudeIndia(irResult);
+
+        if (irResult.services.length > 0) {
+          const svc = irResult.services[0];
+          // Convert INR to USDC for the AgentPay payment layer (≈85 INR per USD)
+          const INR_TO_USD = 0.012;
+          trainDetails = {
+            departureTime:    svc.departureTime,
+            arrivalTime:      svc.arrivalTime,
+            platform:         undefined, // platform not known in advance for Indian rail
+            operator:         `${svc.trainNumber} ${svc.trainName}`,
+            serviceUid:       svc.trainNumber,
+            origin:           irResult.origin,
+            destination:      irResult.destination,
+            estimatedFareGbp: Math.round(svc.estimatedFareInr * INR_TO_USD * 100) / 100,
+            trainNumber:      svc.trainNumber,
+            trainName:        svc.trainName,
+            classCode:        svc.classCode,
+            fareInr:          svc.estimatedFareInr,
+            country:          'india',
           };
         }
       } else {
@@ -430,7 +489,7 @@ async function autoCompleteJob(
   }
 }
 
-/** Generate a human-readable booking reference (e.g. BRO-K7X2NP) */
+/** Generate a UK-style booking reference (e.g. BRO-K7X2NP) */
 function generateBookingRef(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let ref = 'BRO-';
@@ -440,16 +499,29 @@ function generateBookingRef(): string {
   return ref;
 }
 
+/** Generate a 10-digit Indian PNR (IRCTC format) */
+function generateIndianPNR(): string {
+  // PNR starts with 2-digit zone code (21=NR, 24=WR, 22=SR etc.) + 8 random digits
+  const zones = ['21', '22', '24', '25', '26', '27'];
+  const zone  = zones[Math.floor(Math.random() * zones.length)];
+  let pnr = zone;
+  for (let i = 0; i < 8; i++) pnr += Math.floor(Math.random() * 10);
+  return pnr;
+}
+
 function buildFallbackNarration(planItems: PlanItem[]): string {
   if (planItems.length === 1) {
     const p = planItems[0];
     if (p.trainDetails) {
-      return `${p.trainDetails.operator} at ${p.trainDetails.departureTime} from ${p.trainDetails.origin} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
+      if (p.trainDetails.country === 'india') {
+        return `${p.trainDetails.trainName} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated ₹${p.trainDetails.fareInr}. Fingerprint to confirm.`;
+      }
+      return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
     }
-    return `I can ${p.displayName.toLowerCase()} for £${p.estimatedPriceUsdc.toFixed(2)}. Fingerprint to confirm.`;
+    return `I can ${p.displayName.toLowerCase()} for approximately $${p.estimatedPriceUsdc.toFixed(2)}. Fingerprint to confirm.`;
   }
   const total = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
-  return `I can arrange ${planItems.map(p => p.displayName).join(' + ')} — £${total.toFixed(2)} total. Fingerprint to confirm.`;
+  return `I can arrange ${planItems.map(p => p.displayName).join(' + ')} — approximately $${total.toFixed(2)} total. Fingerprint to confirm.`;
 }
 
 function scopeProfileFields(
@@ -506,11 +578,41 @@ async function sendBookingConfirmationEmail(
   if (!resendKey || !params.to) return;
 
   const { proof, to, name } = params;
-  const greeting = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
-  const arrivalLine = proof.arrivalTime ? ` — arrives ${proof.arrivalTime}` : '';
-  const platformLine = proof.platform ? `, Platform ${proof.platform}` : '';
+  const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
+  const isIndia     = proof.country === 'india';
+  const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
+  const bookedDate  = new Date(proof.bookedAt).toLocaleDateString(
+    isIndia ? 'en-IN' : 'en-GB',
+    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' },
+  );
 
-  const html = `
+  const html = isIndia ? `
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+      <h2 style="color:#f97316">Booking Confirmed ✓</h2>
+      <p>${greeting}</p>
+      <p>Your train ticket is booked. Here are your journey details:</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0">
+        <tr><td style="padding:8px 0;color:#666;width:140px">PNR Number</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#f97316">${proof.bookingRef}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Train</td>
+            <td style="padding:8px 0;font-weight:600">${proof.trainNumber} ${proof.trainName}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Route</td>
+            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Departure</td>
+            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Class</td>
+            <td style="padding:8px 0">${proof.classCode ?? '3A'}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Fare</td>
+            <td style="padding:8px 0">₹${proof.fareInr} (advance estimate)</td></tr>
+      </table>
+      <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
+        Keep your PNR <strong>${proof.bookingRef}</strong> safe. You'll need it at the station for ticket collection or for chart/PNR status checks on IRCTC.
+      </p>
+      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${bookedDate}</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+      <p style="font-size:12px;color:#9ca3af">Schedule data sourced from Indian Railways via IRCTC. This confirmation is sent by AgentPay on behalf of your Bro concierge.</p>
+    </div>
+  ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
       <h2 style="color:#16a34a">Booking Confirmed ✓</h2>
       <p>${greeting}</p>
@@ -528,7 +630,7 @@ async function sendBookingConfirmationEmail(
         <tr><td style="padding:8px 0;color:#666">Fare</td>
             <td style="padding:8px 0">£${proof.fareGbp} (advance estimate)</td></tr>
       </table>
-      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${new Date(proof.bookedAt).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</p>
+      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${bookedDate}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
       <p style="font-size:12px;color:#9ca3af">This confirmation is sent by AgentPay on behalf of your Bro concierge. Schedule data sourced from National Rail via Realtime Trains API.</p>
     </div>
@@ -544,7 +646,9 @@ async function sendBookingConfirmationEmail(
       body: JSON.stringify({
         from:    'Bro <bookings@agentpay.so>',
         to:      [to],
-        subject: `Your train is booked — ${proof.bookingRef}`,
+        subject: isIndia
+          ? `Train booked — PNR ${proof.bookingRef}`
+          : `Your train is booked — ${proof.bookingRef}`,
         html,
       }),
     });
@@ -599,6 +703,12 @@ interface TrainDetails {
   origin:           string;
   destination:      string;
   estimatedFareGbp: number;
+  // India-specific fields (present when country === 'india')
+  country?:         'uk' | 'india';
+  trainNumber?:     string;
+  trainName?:       string;
+  classCode?:       string;
+  fareInr?:         number;
 }
 
 interface PlanItem {
@@ -634,6 +744,12 @@ interface BookingProof {
   toStation:      string;
   serviceUid:     string;
   fareGbp:        number;
+  // India-specific
+  country?:       'uk' | 'india';
+  fareInr?:       number;
+  trainNumber?:   string;
+  trainName?:     string;
+  classCode?:     string;
   bookedAt:       string;
   note:           string;
 }

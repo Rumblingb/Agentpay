@@ -111,6 +111,23 @@ const SPECIALIST_AGENTS = [
       tier:           'standard',
     },
   },
+  {
+    agent_id:    'agt_system_india_rail_01',
+    owner_email: 'agents@agentpay.so',
+    kyc_status:  'programmatic',
+    verified:    true,
+    metadata: {
+      name:           'IndiaRailAgent',
+      category:       'rail_india',
+      description:    'Books Indian Railways (IRCTC) journeys across India. Handles all classes from Sleeper to 1st AC, Rajdhani, Shatabdi, Duronto express trains. Real-time schedule data via IRCTC API.',
+      capabilities:   ['book_train_india', 'irctc', 'rajdhani', 'shatabdi', 'india_rail', 'tatkal'],
+      pricePerTaskUsd: 1.20,
+      agentRankScore:  840,
+      webhookUrl:     null,
+      operator:       'AgentPay Platform',
+      tier:           'standard',
+    },
+  },
 ];
 
 async function main() {
@@ -178,6 +195,7 @@ async function main() {
   console.log('[seed-specialist-agents] Done.\n');
   console.log('Verify with:');
   console.log('  curl https://api.agentpay.so/api/marketplace/discover?category=rail');
+  console.log('  curl https://api.agentpay.so/api/marketplace/discover?category=rail_india');
   console.log('  curl https://api.agentpay.so/api/marketplace/discover?category=accommodation');
 }
 

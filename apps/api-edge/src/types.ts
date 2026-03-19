@@ -142,11 +142,19 @@ export interface Env {
   /** OpenAI API key — powers Whisper STT and TTS-1 for voice proxy. */
   OPENAI_API_KEY?: string;
 
-  // ── RTT (Realtime Trains) ─────────────────────────────────────────────────
+  // ── RTT (Realtime Trains — UK) ────────────────────────────────────────────
   /** Realtime Trains API username — register free at realtimetrains.co.uk */
   RTT_USERNAME?: string;
   /** Realtime Trains API password */
   RTT_PASSWORD?: string;
+
+  // ── Indian Railways (RapidAPI IRCTC) ──────────────────────────────────────
+  /**
+   * RapidAPI key — enables live Indian rail schedule data.
+   * Register at rapidapi.com, subscribe to the IRCTC API (free tier available).
+   * npx wrangler secret put RAPIDAPI_KEY
+   */
+  RAPIDAPI_KEY?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -65,6 +65,52 @@ Searches and books UK rail journeys including National Rail, Eurostar, and cross
 Returns booking reference, departure time, platform, operator, price, and confirmation email status.`,
 };
 
+// ── India train booking ──────────────────────────────────────────────────────
+
+const trainIndiaSkill: SkillDefinition = {
+  toolName: 'book_train_india',
+  category: 'rail_india',
+  displayName: 'IndiaRailAgent',
+  description: 'Search and book Indian Railways (IRCTC) train journeys across India. Handles all classes from Sleeper to 1st AC, Rajdhani, Shatabdi, and all express trains.',
+  requiredProfileFields: ['legalName', 'email', 'phone', 'nationality'],
+  inputSchema: {
+    type: 'object',
+    required: ['origin', 'destination'],
+    properties: {
+      origin:          { type: 'string', description: 'Departure station or Indian city (e.g. "New Delhi", "Mumbai", "Bangalore")' },
+      destination:     { type: 'string', description: 'Arrival station or Indian city' },
+      date:            { type: 'string', description: 'Travel date — ISO (YYYY-MM-DD) or natural language ("tomorrow", "Thursday")' },
+      class_pref:      { type: 'string', enum: ['SL', '3A', '2A', '1A', 'CC', 'EC'], description: 'Booking class: SL=Sleeper, 3A=3-tier AC (most popular), 2A=2-tier AC, 1A=First AC, CC=Chair Car (day trains), EC=Executive Chair' },
+      time_preference: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'any'], description: 'Preferred departure window' },
+      quota:           { type: 'string', enum: ['GENERAL', 'TATKAL'], description: 'Booking quota — TATKAL for last-minute (costs more)' },
+    },
+  },
+  skillDoc: `# IndiaRailAgent
+Searches and books Indian Railways (IRCTC) train journeys across India.
+
+## Handles
+- All IRCTC train categories: Rajdhani, Shatabdi, Duronto, Express, Mail
+- All booking classes: SL (Sleeper), 3A, 2A, 1A, CC, EC
+- General and TATKAL quota
+- Pan-India routes — all major stations
+
+## Class guide
+- SL (Sleeper): Basic non-AC, most affordable. ~₹300–800 for medium routes.
+- 3A (3-tier AC): Most popular AC class. ~₹800–2500.
+- 2A (2-tier AC): More comfortable, wider berths. ~₹1200–4000.
+- 1A (First AC): Premium, private cabins. ~₹2500–8000.
+- CC (Chair Car): Day trains like Shatabdi. ~₹400–1200.
+- EC (Executive Chair): Shatabdi executive, wider seats. ~₹800–2000.
+
+## Cannot handle
+- Foreign tourist quota (FTSR) — requires separate process
+- Group bookings over 6 passengers
+- Season tickets or monthly passes
+
+## Output
+Returns train number, train name, departure/arrival time, journey duration, class, fare in INR, and booking PNR.`,
+};
+
 // ── Hotel booking ────────────────────────────────────────────────────────────
 
 const hotelSkill: SkillDefinition = {
@@ -218,6 +264,7 @@ Returns a concise summary with key facts, relevant links, and recommendations.`,
 
 export const SKILLS: SkillDefinition[] = [
   trainSkill,
+  trainIndiaSkill,
   hotelSkill,
   taxiSkill,
   flightSkill,
