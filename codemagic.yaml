@@ -1,0 +1,121 @@
+workflows:
+
+  # ── Android APK (preview/internal) ────────────────────────────────────────
+  android-preview:
+    name: Android Preview (APK)
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    environment:
+      vars:
+        EXPO_PUBLIC_API_URL: https://api.agentpay.so
+      node: 20.18.0
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      - name: Install dependencies
+        script: |
+          cd apps/meridian
+          npm install
+
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > apps/meridian/android/local.properties
+
+      - name: Prebuild (generate native project)
+        script: |
+          cd apps/meridian
+          npx expo prebuild --platform android --clean --non-interactive
+
+      - name: Build APK
+        script: |
+          cd apps/meridian/android
+          ./gradlew assembleDebug --no-daemon
+
+    artifacts:
+      - apps/meridian/android/app/build/outputs/apk/**/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - vishal@agentpay.so
+        notify:
+          success: true
+          failure: true
+
+  # ── iOS IPA (preview/internal — TestFlight) ────────────────────────────────
+  ios-preview:
+    name: iOS Preview (IPA)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      vars:
+        EXPO_PUBLIC_API_URL: https://api.agentpay.so
+        # Add these in the Codemagic UI → Environment variables (encrypted):
+        # APP_STORE_CONNECT_KEY_IDENTIFIER
+        # APP_STORE_CONNECT_ISSUER_ID
+        # APP_STORE_CONNECT_PRIVATE_KEY   (contents of .p8 file)
+        # CERTIFICATE_PRIVATE_KEY         (contents of signing certificate .p12)
+      node: 20.18.0
+      xcode: latest
+      cocoapods: default
+
+    integrations:
+      app_store_connect: codemagic-api-key   # set up in Codemagic Teams → Integrations
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      - name: Install dependencies
+        script: |
+          cd apps/meridian
+          npm install
+
+      - name: Prebuild (generate native project)
+        script: |
+          cd apps/meridian
+          npx expo prebuild --platform ios --clean --non-interactive
+
+      - name: Install CocoaPods
+        script: |
+          cd apps/meridian/ios
+          pod install
+
+      - name: Set up code signing (automatic)
+        script: |
+          xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          cd apps/meridian
+          xcode-project build-ipa \
+            --workspace ios/meridian.xcworkspace \
+            --scheme meridian
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      email:
+        recipients:
+          - vishal@agentpay.so
+        notify:
+          success: true
+          failure: true
+      # Uncomment to publish straight to TestFlight:
+      # app_store_connect:
+      #   auth: integration
+      #   submit_to_testflight: true
