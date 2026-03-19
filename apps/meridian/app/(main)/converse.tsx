@@ -74,7 +74,7 @@ export default function ConverseScreen() {
     setCurrentJob,
     turns, addTurn,
     error, setError,
-    agentId, openaiKey,
+    agentId,
     userName, autoConfirmLimitUsdc,
     reset,
   } = useStore();
@@ -85,7 +85,7 @@ export default function ConverseScreen() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
 
-  const say = (text: string) => speak(text, openaiKey);
+  const say = (text: string) => speak(text);
 
   // ── Hire chosen agent tier ───────────────────────────────────────────────
 
@@ -179,9 +179,7 @@ export default function ConverseScreen() {
     try {
       const uri = await stopRecording();
       if (!uri) throw new Error('No audio recorded.');
-      if (!openaiKey) throw new Error('OpenAI key not set. Go to Settings.');
-
-      const text = await transcribeAudio(uri, openaiKey);
+      const text = await transcribeAudio(uri);
       if (!text) throw new Error('Could not understand that. Please try again.');
 
       setTranscript(text);
@@ -281,7 +279,6 @@ export default function ConverseScreen() {
         intent: text,
         hirerId: agentId,
         autoConfirmLimitUsdc,
-        openaiKey,
       });
 
       if ('needsChoice' in outcome) {

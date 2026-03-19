@@ -39,6 +39,7 @@ import { agentWalletRouter } from './routes/agentWallet';
 import { spendingPoliciesRouter } from './routes/spendingPolicies';
 import { foundationAgentsRouter } from './routes/foundationAgents';
 import { escrowRouter } from './routes/escrow';
+import { voiceRouter } from './routes/voice';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -142,6 +143,9 @@ app.route('/api/foundation-agents', foundationAgentsRouter);
 
 // On-chain escrow — /api/escrow/*
 app.route('/api/escrow', escrowRouter);
+
+// Voice proxy — /api/voice/transcribe, /api/voice/tts
+app.route('/api/voice', voiceRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

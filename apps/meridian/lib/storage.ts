@@ -24,7 +24,7 @@ const KEYS = {
 export interface StoredCredentials {
   agentId: string;
   agentKey: string;
-  openaiKey: string;
+  openaiKey?: string; // no longer required — voice is proxied server-side
 }
 
 export interface StoredPrefs {
@@ -45,18 +45,16 @@ export async function saveCredentials(creds: StoredCredentials): Promise<void> {
   await Promise.all([
     SecureStore.setItemAsync(KEYS.agentId,  creds.agentId),
     SecureStore.setItemAsync(KEYS.agentKey, creds.agentKey),
-    SecureStore.setItemAsync(KEYS.openaiKey, creds.openaiKey),
   ]);
 }
 
 export async function loadCredentials(): Promise<StoredCredentials | null> {
-  const [agentId, agentKey, openaiKey] = await Promise.all([
+  const [agentId, agentKey] = await Promise.all([
     SecureStore.getItemAsync(KEYS.agentId),
     SecureStore.getItemAsync(KEYS.agentKey),
-    SecureStore.getItemAsync(KEYS.openaiKey),
   ]);
-  if (!agentId || !agentKey || !openaiKey) return null;
-  return { agentId, agentKey, openaiKey };
+  if (!agentId || !agentKey) return null;
+  return { agentId, agentKey };
 }
 
 export async function clearCredentials(): Promise<void> {

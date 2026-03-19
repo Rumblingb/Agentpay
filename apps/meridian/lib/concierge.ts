@@ -120,11 +120,10 @@ export async function processIntent(params: {
   intent: string;
   hirerId: string;
   autoConfirmLimitUsdc: number;
-  openaiKey: string | null;
 }): Promise<ConciergeOutcome> {
-  const { intent, hirerId, autoConfirmLimitUsdc, openaiKey } = params;
+  const { intent, hirerId, autoConfirmLimitUsdc } = params;
 
-  await speak('Let me find the best options for that.', openaiKey);
+  await speak('Let me find the best options for that.');
 
   let coordinationId: string;
   let candidates: Agent[];
@@ -157,7 +156,7 @@ export async function processIntent(params: {
     if (tiers) {
       const [budget, balanced, premium] = tiers;
       const narration = buildNarration(budget, balanced, premium);
-      await speak(narration, openaiKey);
+      await speak(narration);
       return { needsChoice: true, budget, balanced, premium, coordinationId, narration };
     }
   }
@@ -169,16 +168,14 @@ export async function processIntent(params: {
   if (price <= autoConfirmLimitUsdc) {
     await speak(
       `Found ${best.name}. Grade ${best.grade ?? 'B'}. Hiring now for ${priceLabel(price)}.`,
-      openaiKey,
     );
     const result = await executeHire({ hirerId, agent: best, jobDescription: intent, coordinationId });
-    await speak(`Done. ${best.name} is on it.`, openaiKey);
+    await speak(`Done. ${best.name} is on it.`);
     return result;
   }
 
   await speak(
     `I found ${best.name} — ${priceLabel(price)}. Should I go ahead?`,
-    openaiKey,
   );
   return {
     needsConfirm: true,

@@ -25,7 +25,6 @@ interface MeridianState {
   // ── Auth (loaded from SecureStore at boot) ───────────────────────────────
   agentId: string | null;
   agentKey: string | null;
-  openaiKey: string | null;
 
   // ── User prefs (loaded from AsyncStorage at boot) ────────────────────────
   userName: string;
@@ -52,14 +51,13 @@ interface MeridianState {
   hydrate: (params: {
     agentId: string;
     agentKey: string;
-    openaiKey: string;
     userName: string;
     autoConfirmLimitUsdc: number;
     onboarded: boolean;
     turns: HistoryTurn[];
   }) => void;
 
-  setCredentials: (agentId: string, agentKey: string, openaiKey: string) => void;
+  setCredentials: (agentId: string, agentKey: string) => void;
   setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean }) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
@@ -88,7 +86,6 @@ export const useStore = create<MeridianState>((set) => ({
   // Auth
   agentId: null,
   agentKey: null,
-  openaiKey: null,
 
   // Prefs
   userName: 'there',
@@ -102,11 +99,11 @@ export const useStore = create<MeridianState>((set) => ({
   turns: [],
   wallet: null,
 
-  hydrate: ({ agentId, agentKey, openaiKey, userName, autoConfirmLimitUsdc, onboarded, turns }) =>
-    set({ agentId, agentKey, openaiKey, userName, autoConfirmLimitUsdc, onboarded, turns }),
+  hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }) =>
+    set({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }),
 
-  setCredentials: (agentId, agentKey, openaiKey) =>
-    set({ agentId, agentKey, openaiKey }),
+  setCredentials: (agentId, agentKey) =>
+    set({ agentId, agentKey }),
 
   setPrefs: (prefs) => set((s) => ({
     userName: prefs.userName ?? s.userName,

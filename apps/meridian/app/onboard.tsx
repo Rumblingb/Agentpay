@@ -47,7 +47,7 @@ import {
 } from '../lib/profile';
 import { getBiometricLabel } from '../lib/biometric';
 
-type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'setup';
+type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
 
 export default function OnboardScreen() {
   const { hydrate } = useStore();
@@ -80,11 +80,10 @@ export default function OnboardScreen() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError,  setProfileError]  = useState<string | null>(null);
 
-  // Step 5 — setup
-  const [openaiKey, setOpenaiKey] = useState('');
-  const [budget,    setBudget]    = useState('5');
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
+  // Step 5 — finish
+  const [budget,  setBudget]  = useState('5');
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -138,7 +137,7 @@ export default function OnboardScreen() {
       if (params.step === 'profile') {
         router.back();
       } else {
-        fadeToNext('setup');
+        fadeToNext('finish');
       }
     } catch (e: any) {
       setProfileError(e.message ?? 'Profile save failed.');
@@ -158,10 +157,6 @@ export default function OnboardScreen() {
   };
 
   const handleFinish = async () => {
-    if (!openaiKey.trim()) {
-      setError('OpenAI key is required for voice recognition.');
-      return;
-    }
     const budgetN = parseFloat(budget) || 5;
     const name = userName.trim() || 'Traveler';
 
@@ -169,17 +164,15 @@ export default function OnboardScreen() {
     setError(null);
     try {
       const { agentId, agentKey } = await registerAgent({ name });
-      const creds = { agentId, agentKey, openaiKey: openaiKey.trim() };
 
       await Promise.all([
-        saveCredentials(creds),
+        saveCredentials({ agentId, agentKey }),
         savePrefs({ userName: name, autoConfirmLimitUsdc: budgetN, onboarded: true }),
       ]);
 
       hydrate({
         agentId,
         agentKey,
-        openaiKey: openaiKey.trim(),
         userName:  name,
         autoConfirmLimitUsdc: budgetN,
         onboarded: true,
@@ -481,7 +474,7 @@ export default function OnboardScreen() {
                 </Pressable>
 
                 <Pressable
-                  onPress={() => params.step === 'profile' ? router.back() : fadeToNext('setup')}
+                  onPress={() => params.step === 'profile' ? router.back() : fadeToNext('finish')}
                   style={styles.skipBtn}
                 >
                   <Text style={styles.skipText}>Skip for now — I'll add this later in Settings</Text>
@@ -489,32 +482,20 @@ export default function OnboardScreen() {
               </View>
             )}
 
-            {/* ── Step 5: Setup ────────────────────────────────────────── */}
-            {step === 'setup' && (
+            {/* ── Step 5: Finish ───────────────────────────────────────── */}
+            {step === 'finish' && (
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>
                   Almost there{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  I need your OpenAI key for voice recognition.
-                  Your key stays on this device.
+                  Set your auto-approve limit. Below this amount, I'll act without asking.
+                  Above it, I'll confirm with you first.
                 </Text>
-
-                <FieldLabel text="OpenAI API Key" />
-                <TextInput
-                  style={styles.input}
-                  value={openaiKey}
-                  onChangeText={setOpenaiKey}
-                  placeholder="sk-…"
-                  placeholderTextColor="#374151"
-                  autoCapitalize="none"
-                  secureTextEntry
-                  autoFocus
-                />
 
                 <FieldLabel
                   text="Auto-approve limit (USDC)"
-                  hint="I'll hire agents automatically up to this amount. Above it, I'll ask first."
+                  hint="I'll hire agents automatically up to this amount."
                 />
                 <View style={styles.chipRow}>
                   {['2', '5', '10', '25'].map((v) => (

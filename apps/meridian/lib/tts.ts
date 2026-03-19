@@ -1,72 +1,58 @@
 /**
- * tts.ts — OpenAI TTS-1-HD premium voice
+ * tts.ts — server-proxied TTS (OpenAI nova voice)
  *
- * Uses OpenAI's tts-1-hd model with the "nova" voice.
- * Audio is streamed to a temp file and played via expo-av.
- *
- * Falls back to expo-speech if OpenAI key is unavailable.
+ * Calls /api/voice/tts on the AgentPay server which calls OpenAI TTS-1.
+ * Falls back to expo-speech if the server is unavailable or returns no audio.
+ * No OpenAI key needed in the app.
  */
 
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import * as Speech from 'expo-speech';
 
-const TTS_URL = 'https://api.openai.com/v1/audio/speech';
-const VOICE   = 'nova';   // nova = warm, natural female. alloy/echo/fable/onyx/shimmer also available
-const MODEL   = 'tts-1-hd';
+const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
 let _sound: Audio.Sound | null = null;
 
-export async function speak(text: string, openaiKey: string | null): Promise<void> {
-  // Stop any current speech
+export async function speak(text: string): Promise<void> {
   await stopSpeaking();
 
-  if (!openaiKey) {
-    // Fallback to system TTS
-    Speech.speak(text, { rate: 1.0, pitch: 1.0, language: 'en-US' });
-    return;
-  }
-
   try {
-    // Set audio mode for playback
+    const res = await fetch(`${BASE}/api/voice/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+
+    // 204 = server TTS not configured — fall back to system voice
+    if (res.status === 204 || !res.ok) {
+      Speech.speak(text, { rate: 1.0, language: 'en-US' });
+      return;
+    }
+
+    const { audio } = await res.json() as { audio: string };
+    if (!audio) {
+      Speech.speak(text, { rate: 1.0, language: 'en-US' });
+      return;
+    }
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
     });
 
-    // Fetch TTS audio from OpenAI
-    const res = await fetch(TTS_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model: MODEL, voice: VOICE, input: text }),
-    });
-
-    if (!res.ok) {
-      // Fallback on API error
-      Speech.speak(text, { rate: 1.0, language: 'en-US' });
-      return;
-    }
-
-    // Save audio to temp file
-    const arrayBuffer = await res.arrayBuffer();
-    const base64 = arrayBufferToBase64(arrayBuffer);
     const uri = `${FileSystem.cacheDirectory}meridian_tts_${Date.now()}.mp3`;
-    await FileSystem.writeAsStringAsync(uri, base64, {
+    await FileSystem.writeAsStringAsync(uri, audio, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    // Play
     const { sound } = await Audio.Sound.createAsync(
       { uri },
       { shouldPlay: true, volume: 1.0 },
     );
     _sound = sound;
 
-    // Clean up temp file when done
     sound.setOnPlaybackStatusUpdate((status) => {
       if (status.isLoaded && status.didJustFinish) {
         sound.unloadAsync().catch(() => {});
@@ -75,7 +61,6 @@ export async function speak(text: string, openaiKey: string | null): Promise<voi
       }
     });
   } catch {
-    // Fallback on any error
     Speech.speak(text, { rate: 1.0, language: 'en-US' });
   }
 }
@@ -89,15 +74,4 @@ export async function stopSpeaking(): Promise<void> {
     } catch {}
     _sound = null;
   }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }

@@ -33,7 +33,6 @@ export default function BootScreen() {
         hydrate({
           agentId:              creds.agentId,
           agentKey:             creds.agentKey,
-          openaiKey:            creds.openaiKey,
           userName:             prefs.userName,
           autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc,
           onboarded:            prefs.onboarded,
