@@ -8,7 +8,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "postinstall": "node scripts/patch-expo-modules.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
