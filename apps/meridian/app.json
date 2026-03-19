@@ -48,13 +48,6 @@
       "expo-secure-store",
       "expo-local-authentication",
       [
-        "@stripe/stripe-react-native",
-        {
-          "merchantIdentifier": "merchant.so.agentpay.meridian",
-          "enableGooglePay": true
-        }
-      ],
-      [
         "expo-build-properties",
         {
           "ios": {
