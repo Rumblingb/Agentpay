@@ -1,0 +1,6 @@
+# Exclude local android dir — EAS will run expo prebuild fresh on the server
+android/
+# Expo local cache
+.expo/
+# Node
+node_modules/
