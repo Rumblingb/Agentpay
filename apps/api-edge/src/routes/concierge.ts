@@ -86,8 +86,11 @@ Available specialists are provided as tools. Use them to fulfil the request.
 - Read each tool's description and skill doc carefully before deciding
 - Call only the tools needed — do not call tools that aren't relevant
 - For multi-step requests (e.g. train + hotel), call multiple tools
-- After all tool results are available, respond with ONE natural, warm sentence confirming what was arranged
-- Keep the final response under 30 words — the user is listening, not reading
+- After all tool results are available, respond with ONE natural sentence
+- For ANY booking: ALWAYS state the fare (e.g. "£24"), operator name, and departure time — the user must hear the price before confirming
+- Format: "[Operator] at [time], [route], [fare]. Fingerprint to confirm." — e.g. "Avanti at 14:32, Derby to London, estimated £24. Fingerprint to confirm."
+- For non-booking responses (clarifications, research): no price needed, just answer naturally
+- Keep under 40 words — the user is listening, not reading
 - If you cannot help with something, say so clearly in one sentence`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────

@@ -56,6 +56,7 @@ export default function ConverseScreen() {
     error, setError,
     agentId,
     userName,
+    autoConfirmLimitUsdc,
     setCurrentAgent,
     reset,
   } = useStore();
@@ -68,6 +69,8 @@ export default function ConverseScreen() {
     travelProfile?: Record<string, unknown>;
     /** Full profile — only loaded for Phase 2 after biometric confirmation */
     fullProfile?: Record<string, unknown>;
+    /** Total estimated cost across all plan items */
+    totalPriceUsdc: number;
   } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
@@ -129,16 +132,70 @@ export default function ConverseScreen() {
     await appendHistory(meridianTurn);
     await speak(response.narration);
 
-    // If plan needs biometric confirmation, store it and gate
+    // If plan needs biometric confirmation, store it
     if (response.needsBiometric && response.plan && response.plan.length > 0) {
-      // Store fullProfile so Phase 2 can send complete booking details to agent
-      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile, fullProfile };
+      const total = response.estimatedPriceUsdc ?? 0;
+      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile, fullProfile, totalPriceUsdc: total };
+
+      // Auto-confirm if total is within the spending limit (no fingerprint needed)
+      if (total > 0 && total <= autoConfirmLimitUsdc) {
+        await executePhase2(pendingPlanRef.current);
+        return;
+      }
+
+      // Above limit — show confirmation card with price + fingerprint gate
       setPhase('confirming');
       return;
     }
 
     // No action needed (research, clarification, or error from Claude)
     setPhase('idle');
+  }, [agentId, autoConfirmLimitUsdc]);
+
+  // ── Shared Phase 2 executor ───────────────────────────────────────────────
+
+  const executePhase2 = useCallback(async (pending: NonNullable<typeof pendingPlanRef.current>) => {
+    setPhase('thinking');
+    const { transcript: savedTranscript, plan, fullProfile } = pending;
+    pendingPlanRef.current = null;
+
+    try {
+      const response = await executeIntent({
+        transcript:    savedTranscript,
+        hirerId:       agentId!,
+        travelProfile: fullProfile,
+        plan,
+      });
+
+      const meridianTurn = { role: 'meridian' as const, text: response.narration, ts: Date.now() };
+      addTurn(meridianTurn);
+      await appendHistory(meridianTurn);
+      await speak(response.narration);
+
+      if (response.actions.length > 0) {
+        const firstAction = response.actions[0];
+        setCurrentAgent({
+          agentId:         firstAction.agentId,
+          name:            firstAction.agentName,
+          category:        firstAction.toolName,
+          description:     firstAction.displayName,
+          capabilities:    [],
+          pricePerTaskUsd: firstAction.agreedPriceUsdc,
+          trustScore:      0,
+          grade:           'B',
+          verified:        true,
+          passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
+        });
+        setPhase('done');
+        router.push(`/status/${firstAction.jobId}`);
+      } else {
+        setPhase('idle');
+      }
+    } catch (e: any) {
+      const msg = e.message ?? 'Booking failed. Please try again.';
+      setError(msg);
+      await speak(`Sorry — ${msg}`);
+    }
   }, [agentId]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
@@ -156,53 +213,17 @@ export default function ConverseScreen() {
       return;
     }
 
-    setPhase('thinking');
-    const { transcript: savedTranscript, plan, fullProfile } = pending;
+    await executePhase2(pending);
+  }, [agentId, executePhase2]);
+
+  // ── Cancel confirmation ───────────────────────────────────────────────────
+
+  const handleCancelConfirm = useCallback(async () => {
     pendingPlanRef.current = null;
-
-    try {
-    const response = await executeIntent({
-      transcript:   savedTranscript,
-      hirerId:      agentId!,
-      travelProfile: fullProfile, // Phase 2: full profile — server scopes per skill
-      plan,
-    });
-
-    const meridianTurn = {
-      role: 'meridian' as const,
-      text: response.narration,
-      ts:   Date.now(),
-    };
-    addTurn(meridianTurn);
-    await appendHistory(meridianTurn);
-    await speak(response.narration);
-
-    if (response.actions.length > 0) {
-      const firstAction = response.actions[0];
-      // Populate currentAgent so the status screen shows the agent name
-      setCurrentAgent({
-        agentId:         firstAction.agentId,
-        name:            firstAction.agentName,
-        category:        firstAction.toolName,
-        description:     firstAction.displayName,
-        capabilities:    [],
-        pricePerTaskUsd: firstAction.agreedPriceUsdc,
-        trustScore:      0,
-        grade:           'B',
-        verified:        true,
-        passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
-      });
-      setPhase('done');
-      router.push(`/status/${firstAction.jobId}`);
-    } else {
-      setPhase('idle');
-    }
-    } catch (e: any) {
-      const msg = e.message ?? 'Booking failed. Please try again.';
-      setError(msg);
-      await speak(`Sorry — ${msg}`);
-    }
-  }, [agentId]);
+    await speak('OK, cancelled.');
+    addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
+    setPhase('idle');
+  }, []);
 
   // ── Hold-to-talk ──────────────────────────────────────────────────────────
 
@@ -298,12 +319,24 @@ export default function ConverseScreen() {
           </View>
         ))}
 
-        {isConfirming && (
-          <Pressable style={styles.confirmCard} onPress={handleBiometricConfirm}>
-            <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
-            <Text style={styles.confirmText}>Tap to confirm with fingerprint</Text>
-          </Pressable>
-        )}
+        {isConfirming && (() => {
+          const total = pendingPlanRef.current?.totalPriceUsdc ?? 0;
+          const priceLabel = total > 0 ? `£${total.toFixed(2)}` : null;
+          return (
+            <View style={styles.confirmCard}>
+              {priceLabel && (
+                <Text style={styles.confirmPrice}>{priceLabel}</Text>
+              )}
+              <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
+                <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
+                <Text style={styles.confirmText}>Confirm with fingerprint</Text>
+              </Pressable>
+              <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          );
+        })()}
 
         {isError && error && (
           <View style={styles.errorCard}>
@@ -429,18 +462,34 @@ const styles = StyleSheet.create({
   },
 
   confirmCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
     backgroundColor: '#0d0b1f',
     borderWidth: 1,
     borderColor: '#4338ca',
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
+    gap: 10,
+  },
+  confirmPrice: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#f9fafb',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  confirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1e1b4b',
+    borderRadius: 10,
+    paddingVertical: 12,
   },
   confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '500' },
+  confirmCancel: { alignItems: 'center', paddingVertical: 8 },
+  confirmCancelText: { fontSize: 13, color: '#374151' },
 
   errorCard: {
     flexDirection: 'row',
