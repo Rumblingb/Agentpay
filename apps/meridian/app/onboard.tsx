@@ -47,6 +47,9 @@ import {
 } from '../lib/profile';
 import { getBiometricLabel } from '../lib/biometric';
 import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
+import { speak, stopSpeaking } from '../lib/tts';
+import { OrbAnimation } from '../components/OrbAnimation';
+import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
@@ -94,6 +97,12 @@ export default function OnboardScreen() {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
+  // Demo (welcome step)
+  type DemoPhase = 'intro' | 'ready' | 'listening' | 'thinking' | 'done';
+  const [demoPhase,    setDemoPhase]    = useState<DemoPhase>('intro');
+  const [demoResponse, setDemoResponse] = useState('');
+  const demoIntroPlayedRef = useRef(false);
+
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   // Load biometric label on mount
@@ -116,6 +125,55 @@ export default function OnboardScreen() {
     setDocType(defaultDocumentType(nat));
     setDocNumber('');
   };
+
+  // ── Demo: Bro speaks first on welcome screen ─────────────────────────────
+
+  React.useEffect(() => {
+    if (step !== 'welcome' || demoIntroPlayedRef.current) return;
+    demoIntroPlayedRef.current = true;
+    const t = setTimeout(async () => {
+      await speak("Hey. I book trains, hotels, taxis — all by voice. Hold the orb and try me.");
+      setDemoPhase('ready');
+    }, 600);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  const handleDemoPressIn = React.useCallback(async () => {
+    if (demoPhase !== 'ready') return;
+    await stopSpeaking();
+    setDemoPhase('listening');
+    await startRecording().catch(async () => {
+      // Mic denied — show scripted demo so user still gets the wow moment
+      const fallback = "Train to London? I'd find the best route, quote the price, and book it with your fingerprint.";
+      setDemoResponse(fallback);
+      setDemoPhase('done');
+      await speak(fallback);
+    });
+  }, [demoPhase]);
+
+  const handleDemoPressOut = React.useCallback(async () => {
+    if (demoPhase !== 'listening') return;
+    setDemoPhase('thinking');
+    try {
+      const uri = await stopRecording();
+      let transcript = '';
+      if (uri) transcript = await transcribeAudio(uri).catch(() => '');
+      if (!transcript) transcript = 'book a train to London tomorrow';
+
+      // Small thinking pause — feels real
+      await new Promise(r => setTimeout(r, 700));
+
+      const response = getDemoResponse(transcript);
+      setDemoResponse(response);
+      setDemoPhase('done');
+      await speak(response);
+    } catch {
+      const fallback = "Heard you. In the real app, I'd find the best option and book it — just like that.";
+      setDemoResponse(fallback);
+      setDemoPhase('done');
+      await speak(fallback);
+    }
+  }, [demoPhase]);
 
   const handleVoiceFill = async () => {
     setVoiceFilling(true);
@@ -245,25 +303,47 @@ export default function OnboardScreen() {
         >
           <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
 
-            {/* ── Step 1: Welcome ──────────────────────────────────────── */}
+            {/* ── Step 1: Welcome — interactive demo ───────────────── */}
             {step === 'welcome' && (
-              <View style={styles.stepWrap}>
-                <LinearGradient colors={['#1e1b4b', '#080808']} style={styles.heroBg} />
-                <View style={styles.orbWrap}>
-                  <LinearGradient colors={['#4338ca', '#7c3aed']} style={styles.orb}>
-                    <Ionicons name="mic" size={44} color="#fff" />
-                  </LinearGradient>
+              <View style={demoStyles.wrap}>
+                <LinearGradient colors={['#0c0a1e', '#080808']} style={StyleSheet.absoluteFill} />
+
+                {/* Wordmark */}
+                <Text style={demoStyles.wordmark}>bro</Text>
+
+                {/* Orb — passive during intro, interactive when ready */}
+                <View style={demoStyles.orbArea}>
+                  <OrbAnimation
+                    phase={demoPhaseTo(demoPhase)}
+                    onPressIn={handleDemoPressIn}
+                    onPressOut={handleDemoPressOut}
+                    disabled={demoPhase === 'intro' || demoPhase === 'thinking'}
+                  />
                 </View>
-                <Text style={styles.heroTitle}>Bro</Text>
-                <Text style={styles.heroSub}>
-                  Your personal AI concierge.{'\n'}Speak. I handle the rest.
+
+                {/* Dynamic label */}
+                <Text style={demoStyles.label}>
+                  {demoPhase === 'intro'     ? '' :
+                   demoPhase === 'ready'     ? 'Hold to talk' :
+                   demoPhase === 'listening' ? 'Listening…' :
+                   demoPhase === 'thinking'  ? 'On it…' :
+                   demoResponse}
                 </Text>
-                <View style={styles.features}>
-                  <Feature icon="train"             text="Book trains by voice — UK, Europe, India" />
-                  <Feature icon="flash"             text="Agents hired and paid automatically" />
-                  <Feature icon="shield-checkmark"  text="Your profile stays on your device only" />
-                </View>
-                <PrimaryBtn onPress={() => fadeToNext('name')} label="Get Started" />
+
+                {/* CTA — appears after demo */}
+                {demoPhase === 'done' && (
+                  <View style={demoStyles.ctaArea}>
+                    <Text style={demoStyles.demoTagline}>That's what I do — every time.</Text>
+                    <PrimaryBtn onPress={() => fadeToNext('name')} label="Let's get you set up" />
+                  </View>
+                )}
+
+                {/* Skip — subtle, for returning testers */}
+                {(demoPhase === 'intro' || demoPhase === 'ready') && (
+                  <Pressable onPress={() => fadeToNext('name')} style={demoStyles.skip}>
+                    <Text style={demoStyles.skipText}>Skip intro</Text>
+                  </Pressable>
+                )}
               </View>
             )}
 
@@ -578,6 +658,24 @@ export default function OnboardScreen() {
                   ))}
                 </View>
 
+                {/* Time saved strip */}
+                <View style={finishStyles.savedStrip}>
+                  <View style={finishStyles.savedItem}>
+                    <Text style={finishStyles.savedNum}>~4 min</Text>
+                    <Text style={finishStyles.savedLabel}>saved per booking</Text>
+                  </View>
+                  <View style={finishStyles.savedDivider} />
+                  <View style={finishStyles.savedItem}>
+                    <Text style={finishStyles.savedNum}>0</Text>
+                    <Text style={finishStyles.savedLabel}>hold music. ever.</Text>
+                  </View>
+                  <View style={finishStyles.savedDivider} />
+                  <View style={finishStyles.savedItem}>
+                    <Text style={finishStyles.savedNum}>1 tap</Text>
+                    <Text style={finishStyles.savedLabel}>to confirm anything</Text>
+                  </View>
+                </View>
+
                 {error && <Text style={styles.error}>{error}</Text>}
 
                 <Pressable
@@ -614,6 +712,38 @@ export default function OnboardScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+// ── Demo helpers ──────────────────────────────────────────────────────────
+
+/** Map demo-only phase names to AppPhase for OrbAnimation */
+function demoPhaseTo(dp: string): AppPhase {
+  if (dp === 'listening') return 'listening';
+  if (dp === 'thinking')  return 'thinking';
+  if (dp === 'done')      return 'done';
+  return 'idle';
+}
+
+/** Generate a convincing scripted mock response based on what the user said */
+function getDemoResponse(transcript: string): string {
+  const t = transcript.toLowerCase();
+  if (t.match(/train|rail|london|manchester|birmingham|derby|euston|paddington|victoria|liverpool|edinburgh|glasgow/)) {
+    return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
+  }
+  if (t.match(/hotel|room|stay|night|accommodation|b&b|inn/)) {
+    return "4-star hotel in the city centre, £89 a night. I'd have that confirmed before you finish this sentence.";
+  }
+  if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
+    return "Taxi from the station — about £12, 4 minutes away. Already on its way in the real app.";
+  }
+  if (t.match(/flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
+    return "Flight options checked. I handle trains, hotels, and taxis too — all completely hands-free.";
+  }
+  if (t.match(/food|restaurant|eat|dinner|lunch|table|reservation/)) {
+    return "Table booked at a highly-rated spot nearby. I'm not just for travel — whatever you need, just ask.";
+  }
+  const preview = transcript.trim().slice(0, 35);
+  return `Heard "${preview}…". In the real app, I'd find the best option and book it — fingerprint to confirm.`;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────
@@ -787,6 +917,92 @@ const styles = StyleSheet.create({
 
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
+});
+
+// ── Demo screen styles ────────────────────────────────────────────────────
+
+const demoStyles = StyleSheet.create({
+  wrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  wordmark: {
+    position: 'absolute',
+    top: 32,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4b5563',
+    letterSpacing: 5,
+    textTransform: 'lowercase',
+  },
+  orbArea: {
+    marginBottom: 32,
+  },
+  label: {
+    fontSize: 17,
+    color: '#9ca3af',
+    textAlign: 'center',
+    lineHeight: 26,
+    minHeight: 80,
+    paddingHorizontal: 12,
+  },
+  demoTagline: {
+    fontSize: 14,
+    color: '#4b5563',
+    textAlign: 'center',
+    marginBottom: 20,
+    letterSpacing: 0.2,
+  },
+  ctaArea: {
+    width: '100%',
+    marginTop: 8,
+  },
+  skip: {
+    position: 'absolute',
+    bottom: 28,
+  },
+  skipText: {
+    fontSize: 13,
+    color: '#2d3748',
+  },
+});
+
+// ── Finish screen styles ──────────────────────────────────────────────────
+
+const finishStyles = StyleSheet.create({
+  savedStrip: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 24,
+    width: '100%',
+  },
+  savedItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  savedDivider: {
+    width: 1,
+    backgroundColor: '#1f2937',
+    marginHorizontal: 4,
+  },
+  savedNum: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#818cf8',
+    letterSpacing: -0.5,
+  },
+  savedLabel: {
+    fontSize: 10,
+    color: '#4b5563',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
 });
 
 const profileStyles = StyleSheet.create({
