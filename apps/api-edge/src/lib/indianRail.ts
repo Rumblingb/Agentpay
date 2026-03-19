@@ -248,7 +248,6 @@ const TYPICAL_FARES_INR: Record<string, number> = {
   'MAS-TVC': 680,    'TVC-MAS': 680,
   'MAS-CBE': 460,    'CBE-MAS': 460,
   'ADI-PUNE': 890,   'PUNE-ADI': 890,
-  'ADI-MMCT': 640,   'MMCT-ADI': 640,
   'HWH-BBS': 545,    'BBS-HWH': 545,
   'HWH-GHY': 1195,   'GHY-HWH': 1195,
   'HWH-PNBE': 545,   'PNBE-HWH': 545,

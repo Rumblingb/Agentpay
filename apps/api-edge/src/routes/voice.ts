@@ -18,7 +18,7 @@ export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Returns: { transcript: string }
 
 voiceRouter.post('/transcribe', async (c) => {
-  const openaiKey = (c.env as any).OPENAI_API_KEY as string | undefined;
+  const openaiKey = c.env.OPENAI_API_KEY;
   if (!openaiKey) {
     return c.json({ error: 'Voice service not configured' }, 503);
   }
@@ -133,7 +133,7 @@ If a field is not mentioned, omit it. Return only JSON, no explanation.`,
 // Returns: { audio: string } — base64 encoded MP3
 
 voiceRouter.post('/tts', async (c) => {
-  const openaiKey = (c.env as any).OPENAI_API_KEY as string | undefined;
+  const openaiKey = c.env.OPENAI_API_KEY;
   if (!openaiKey) {
     // Return 204 — app will fall back to system TTS
     return c.body(null, 204);
