@@ -135,6 +135,18 @@ export interface Env {
   // ── Email ─────────────────────────────────────────────────────────────────
   /** Resend API key — enables booking confirmation emails from mock agents. */
   RESEND_API_KEY?: string;
+
+  // ── AI ────────────────────────────────────────────────────────────────────
+  /** Anthropic API key — powers the Bro concierge brain. */
+  ANTHROPIC_API_KEY?: string;
+  /** OpenAI API key — powers Whisper STT and TTS-1 for voice proxy. */
+  OPENAI_API_KEY?: string;
+
+  // ── RTT (Realtime Trains) ─────────────────────────────────────────────────
+  /** Realtime Trains API username — register free at realtimetrains.co.uk */
+  RTT_USERNAME?: string;
+  /** Realtime Trains API password */
+  RTT_PASSWORD?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,79 +1,27 @@
-# AgentPay Workers — local development secrets
-# ============================================================
-# Copy this file to .dev.vars (never commit .dev.vars).
-# Wrangler reads .dev.vars automatically during `wrangler dev`.
-#
-# In production, set these via `wrangler secret put <NAME>`
-# or in the Cloudflare Workers dashboard → Settings → Variables.
-#
-# Minimum secret length for WEBHOOK_SECRET, AGENTPAY_SIGNING_SECRET,
-# and VERIFICATION_SECRET is 32 characters.  Generate with:
-#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-# ============================================================
+# ── Required secrets (copy to .dev.vars for local dev) ────────────────────────
+# Run: cp .dev.vars.example .dev.vars  then fill in real values
 
-# ── Database ──────────────────────────────────────────────────────────────
-# PostgreSQL Direct connection string (Supabase port 5432, NOT the pooled
-# PgBouncer URL on port 6543).
-#
-# Use the Direct URL because:
-#   - Without Hyperdrive: Workers connect directly to Supabase; the pooled URL
-#     wastes a PgBouncer slot per Worker invocation.
-#   - With Hyperdrive: This value is not used at runtime (Hyperdrive provides
-#     its own connection string).  When creating the Hyperdrive config in the
-#     Cloudflare dashboard, also supply the Direct URL as the source URL —
-#     Hyperdrive does its own pooling and double-pooling causes errors.
-#
-# Format (Direct URL): postgres://user:password@db.XXX.supabase.co:5432/postgres
-# For the App (Transaction Mode)
-DATABASE_URL="postgresql://postgres.yndlhhkhylwihsggdyru:Agentpay2026@aws-1-eu-central-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+DATABASE_URL="postgresql://..."
+WEBHOOK_SECRET="<32+ char random string>"
+AGENTPAY_SIGNING_SECRET="<32+ char random string>"
+VERIFICATION_SECRET="<32+ char random string>"
+ADMIN_SECRET_KEY="<32+ char random string>"
 
-# For Migrations (Session Mode - change port to 5432)
-DIRECT_URL="postgresql://postgres.yndlhhkhylwihsggdyru:Agentpay2026@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+# ── AI (required for Bro concierge + voice) ───────────────────────────────────
+# Anthropic: https://console.anthropic.com → API Keys
+ANTHROPIC_API_KEY="sk-ant-..."
 
-# ── Required secrets ──────────────────────────────────────────────────────
-# HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars).
-WEBHOOK_SECRET="137fbef7c9d4438fcd9b0601ccb6beef720bf3dfe7ef0ec7f5f3d1dee07ef78b"
+# OpenAI: https://platform.openai.com → API Keys
+# Powers Whisper STT and TTS-1 in the voice proxy
+OPENAI_API_KEY="sk-..."
 
-# HMAC secret for AP2 payment receipt signatures (≥32 chars).
-AGENTPAY_SIGNING_SECRET="e4749c044e808b48f61bc4ab0e04cfbcabb94b68e30437394410c4e71d22c15f"
+# ── RTT (Realtime Trains) — required for live train schedules ─────────────────
+# Register FREE at: https://api.rtt.io (click "Register" → Developer / Free plan)
+# You get a username and password immediately after registration.
+# Free tier: 500 requests/hour — more than enough for demo.
+RTT_USERNAME="rttapi_yourname"
+RTT_PASSWORD="your_rtt_password"
 
-# HMAC secret for verification certificate signatures (≥32 chars).
-VERIFICATION_SECRET="7f8b9c0a1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6g7h8i9j0k"
-
-# Bearer token protecting admin API endpoints (x-admin-key header).
-ADMIN_SECRET_KEY="e4ad3fab454d3e6702641acdb0dff84986a3c91de8cb0597eb548160eeb08442"
-
-# ── Stripe (optional) ─────────────────────────────────────────────────────
-# Leave blank to disable Stripe routes.
-STRIPE_SECRET_KEY="mk_1T4sdNBGHccSp1StkSMXshDY"
-STRIPE_WEBHOOK_SECRET="whsec_48GqwExMXMpgudQG97ffBNlbVJH4cF0q"
-STRIPE_SUCCESS_URL=
-STRIPE_CANCEL_URL=
-
-AGENTPAY_TEST_MODE=false
-NODE_ENV=development
-CORS_ORIGIN=http://localhost:3000
-API_BASE_URL=http://localhost:8787
-FRONTEND_URL=http://localhost:3000
-
-# ── Rate limiting (optional) ──────────────────────────────────────────────
-# These override the per-IP sliding window defaults in rateLimit.ts.
-# Values are requests-per-60-second-window for each route group.
-# Omit to use defaults: 60 / 30 / 10 / 5 / 120.
-# RATE_LIMIT_INTENT_CREATE=60
-# RATE_LIMIT_INTENT_VERIFY=30
-# RATE_LIMIT_REGISTER=10
-# RATE_LIMIT_KEY_ROTATE=5
-# RATE_LIMIT_DEFAULT=120
-
-# ── Resend (email confirmation — required for mock booking demo) ──────────
-# Sign up at https://resend.com, create an API key, and verify bookings@agentpay.so
-# as a sender domain. Without this, train booking confirmations complete silently
-# (the booking ref is still returned; email is just skipped).
-# RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
-# ── Solana RPC fallback (optional) ────────────────────────────────────────
-# Comma-separated list of Solana RPC endpoints tried in order when the
-# primary SOLANA_RPC_URL is unreachable.  Used by the Node.js solana-listener.
-# Example: https://api.mainnet-beta.solana.com,https://solana-api.projectserum.com
-# SOLANA_RPC_FALLBACKS=
+# ── Stripe (optional for GBP payments) ───────────────────────────────────────
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
