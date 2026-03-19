@@ -23,6 +23,7 @@
         "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "android": {
+        "gradleCommand": ":app:assembleDebug",
         "buildType": "apk"
       }
     },
