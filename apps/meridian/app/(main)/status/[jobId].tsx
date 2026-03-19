@@ -31,7 +31,7 @@ type StatusPhase = 'executing' | 'done' | 'error';
 
 export default function StatusScreen() {
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
-  const { openaiKey, currentAgent, setPhase } = useStore();
+  const { currentAgent, setPhase } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
   const [elapsed, setElapsed]           = useState(0);
@@ -81,7 +81,7 @@ export default function StatusScreen() {
             const doneMsg = ref
               ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}. ${departureTime ? `Departs at ${proof.departureTime} from platform ${proof.platform}.` : ''}`
               : 'Done! Your receipt is ready.';
-            await speak(doneMsg, openaiKey);
+            await speak(doneMsg);
             // Animate success
             Animated.parallel([
               Animated.spring(orbScale, { toValue: 1.2, useNativeDriver: true, speed: 30 }),
@@ -95,7 +95,7 @@ export default function StatusScreen() {
           setStatusPhase('error');
           setErrorMsg(`Job ${s}.`);
           setPhase('error');
-          await speak(`The job ${s}. Please try again.`, openaiKey);
+          await speak(`The job ${s}. Please try again.`);
         }
       } catch {
         // transient — keep polling
@@ -109,7 +109,7 @@ export default function StatusScreen() {
   useEffect(() => {
     if (statusPhase !== 'executing' || !currentAgent) return;
     if (elapsed === 0 || elapsed % 20 !== 0) return;
-    speak(statusNarration(currentAgent, elapsed), openaiKey);
+    speak(statusNarration(currentAgent, elapsed));
   }, [elapsed, statusPhase, currentAgent]);
 
   // ── Render ─────────────────────────────────────────────────────────────────

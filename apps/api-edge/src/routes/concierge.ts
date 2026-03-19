@@ -136,9 +136,18 @@ Available specialists are provided as tools. Use them to fulfil the request.
               note:           'Schedule data from National Rail via Realtime Trains API.',
             };
 
-            // Fire-and-forget the completion call (non-blocking)
+            // Fire-and-forget: complete the job + send email confirmation
+            const userEmail = travelProfile?.email as string | undefined;
+            const userName  = travelProfile?.legalName as string | undefined;
             c.executionCtx.waitUntil(
-              autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hirerId, proof),
+              Promise.all([
+                autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hirerId, proof),
+                sendBookingConfirmationEmail(c.env.RESEND_API_KEY, {
+                  to:    userEmail,
+                  name:  userName,
+                  proof,
+                }),
+              ]),
             );
 
             toolResults.push({
@@ -483,6 +492,60 @@ function buildJobDescription(
   }
 
   return lines.join('\n');
+}
+
+async function sendBookingConfirmationEmail(
+  resendKey: string | undefined,
+  params: { to: string | undefined; name: string | undefined; proof: BookingProof },
+): Promise<void> {
+  if (!resendKey || !params.to) return;
+
+  const { proof, to, name } = params;
+  const greeting = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
+  const arrivalLine = proof.arrivalTime ? ` — arrives ${proof.arrivalTime}` : '';
+  const platformLine = proof.platform ? `, Platform ${proof.platform}` : '';
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+      <h2 style="color:#16a34a">Booking Confirmed ✓</h2>
+      <p>${greeting}</p>
+      <p>Your train is booked. Here are your journey details:</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0">
+        <tr><td style="padding:8px 0;color:#666;width:140px">Booking Ref</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${proof.bookingRef}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Route</td>
+            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Departs</td>
+            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
+        ${proof.platform ? `<tr><td style="padding:8px 0;color:#666">Platform</td><td style="padding:8px 0">${proof.platform}</td></tr>` : ''}
+        <tr><td style="padding:8px 0;color:#666">Operator</td>
+            <td style="padding:8px 0">${proof.operator}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Fare</td>
+            <td style="padding:8px 0">£${proof.fareGbp} (advance estimate)</td></tr>
+      </table>
+      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${new Date(proof.bookedAt).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+      <p style="font-size:12px;color:#9ca3af">This confirmation is sent by AgentPay on behalf of your Bro concierge. Schedule data sourced from National Rail via Realtime Trains API.</p>
+    </div>
+  `;
+
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from:    'Bro <bookings@agentpay.so>',
+        to:      [to],
+        subject: `Your train is booked — ${proof.bookingRef}`,
+        html,
+      }),
+    });
+  } catch {
+    // Best-effort — booking is confirmed regardless
+  }
 }
 
 function extractText(response: AnthropicResponse): string {

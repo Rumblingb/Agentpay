@@ -32,7 +32,7 @@ import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech
 import { speak, stopSpeaking } from '../../lib/tts';
 import { appendHistory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
-import { loadProfileRaw, hasProfile, loadProfileAuthenticated } from '../../lib/profile';
+import { loadProfileRaw, hasProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 
 // ── Phase labels ──────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ export default function ConverseScreen() {
     error, setError,
     agentId,
     userName,
+    setCurrentAgent,
     reset,
   } = useStore();
 
@@ -84,17 +85,17 @@ export default function ConverseScreen() {
 
     setPhase('thinking');
 
-    // Load travel profile — biometric-gated, silent on failure
+    // Load travel profile without biometric — no sensitive data leaves device yet.
+    // Fields are scoped server-side (minimum necessary per skill) and only released
+    // after biometric confirmation in Phase 2.
     let travelProfile: Record<string, unknown> | undefined;
     try {
       if (await hasProfile()) {
-        // Profile read is biometric-gated inside loadProfileAuthenticated.
-        // We load it here so it's ready to send scoped fields to the server.
-        const profile = await loadProfileAuthenticated();
+        const profile = await loadProfileRaw();
         if (profile) travelProfile = profile as unknown as Record<string, unknown>;
       }
     } catch {
-      // Auth cancelled or no profile — proceed without
+      // No profile stored — proceed without
     }
 
     // Phase 1: get a plan from Claude — no hire fires yet
@@ -160,8 +161,22 @@ export default function ConverseScreen() {
     await speak(response.narration);
 
     if (response.actions.length > 0) {
+      const firstAction = response.actions[0];
+      // Populate currentAgent so the status screen shows the agent name
+      setCurrentAgent({
+        agentId:         firstAction.agentId,
+        name:            firstAction.agentName,
+        category:        firstAction.toolName,
+        description:     firstAction.displayName,
+        capabilities:    [],
+        pricePerTaskUsd: firstAction.agreedPriceUsdc,
+        trustScore:      0,
+        grade:           'B',
+        verified:        true,
+        passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
+      });
       setPhase('done');
-      router.push(`/status/${response.actions[0].jobId}`);
+      router.push(`/status/${firstAction.jobId}`);
     } else {
       setPhase('idle');
     }
