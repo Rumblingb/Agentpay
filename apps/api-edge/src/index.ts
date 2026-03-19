@@ -40,6 +40,7 @@ import { spendingPoliciesRouter } from './routes/spendingPolicies';
 import { foundationAgentsRouter } from './routes/foundationAgents';
 import { escrowRouter } from './routes/escrow';
 import { voiceRouter } from './routes/voice';
+import { conciergeRouter } from './routes/concierge';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -146,6 +147,10 @@ app.route('/api/escrow', escrowRouter);
 
 // Voice proxy — /api/voice/transcribe, /api/voice/tts
 app.route('/api/voice', voiceRouter);
+
+// Concierge brain + skill registry — /api/concierge/intent, /api/skills
+app.route('/api/concierge', conciergeRouter);
+app.route('/api/skills', conciergeRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

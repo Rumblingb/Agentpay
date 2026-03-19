@@ -9,7 +9,7 @@ interface Props {
  * /agent/:id — canonical short URL for AgentPassport pages.
  *
  * This is the shareable URL format:
- *   agentpay.xyz/agent/agent_001
+ *   agentpay.so/agent/agent_001
  *
  * Permanently redirects to /registry/:id which is the full passport page.
  * External links, social shares, and SDK profileUrl all use this path.

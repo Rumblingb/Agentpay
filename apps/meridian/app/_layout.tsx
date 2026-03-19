@@ -10,7 +10,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <StripeProvider
         publishableKey={STRIPE_PUBLISHABLE_KEY}
-        merchantIdentifier="merchant.so.agentpay.meridian"
+        {...(Platform.OS === 'ios' ? { merchantIdentifier: 'merchant.so.agentpay.meridian' } : {})}
         googlePay={{ merchantCountryCode: 'GB', currencyCode: 'gbp', testEnv: !STRIPE_PUBLISHABLE_KEY.startsWith('pk_live') }}
       >
         <StatusBar style="light" />
