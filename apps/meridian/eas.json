@@ -19,8 +19,7 @@
     },
     "preview": {
       "distribution": "internal",
-      "prebuildCommand": "node scripts/patch-expo-modules.js && npx expo prebuild --clean",
-      "env": {
+"env": {
         "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "android": {

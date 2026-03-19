@@ -41,6 +41,7 @@
       ]
     },
     "plugins": [
+      "./plugins/withExpoModulesPatch",
       "expo-router",
       "expo-av",
       "expo-secure-store",
