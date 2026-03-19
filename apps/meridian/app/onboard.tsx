@@ -2,17 +2,17 @@
  * Onboard — premium first-launch experience
  *
  * Five steps:
- *   1. Welcome  — intro to Meridian
+ *   1. Welcome  — intro to Bro
  *   2. Name     — "What should I call you?"
  *   3. Privacy  — consent to profile storage, biometric protection, location
- *   4. Profile  — travel details (biometric-gated save) — optional, skippable
- *   5. Setup    — OpenAI key + auto-confirm budget
+ *   4. Profile  — travel details (voice-fill or form, biometric-gated save)
+ *   5. Finish   — auto-confirm budget + agent registration
  *
  * On completion: auto-registers as AgentPay agent, saves credentials,
  * routes to converse.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,9 @@ import {
   type ClassPref,
 } from '../lib/profile';
 import { getBiometricLabel } from '../lib/biometric';
+import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
+
+const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
 type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
 
@@ -80,6 +83,12 @@ export default function OnboardScreen() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError,  setProfileError]  = useState<string | null>(null);
 
+  // Profile — voice fill
+  const [voiceFilling, setVoiceFilling]     = useState(false);
+  const [voiceFillHint, setVoiceFillHint]   = useState<string | null>(null);
+  // Document section collapsed by default (only needed for flights/Eurostar)
+  const [showDocs, setShowDocs]             = useState(false);
+
   // Step 5 — finish
   const [budget,  setBudget]  = useState('5');
   const [loading, setLoading] = useState(false);
@@ -108,11 +117,47 @@ export default function OnboardScreen() {
     setDocNumber('');
   };
 
+  const handleVoiceFill = async () => {
+    setVoiceFilling(true);
+    setVoiceFillHint('Listening…');
+    try {
+      await startRecording();
+      // Give user 6 seconds to speak their details
+      await new Promise(r => setTimeout(r, 6000));
+      const uri = await stopRecording();
+      if (!uri) throw new Error('No audio captured.');
+
+      setVoiceFillHint('Thinking…');
+      const transcript = await transcribeAudio(uri);
+
+      const res = await fetch(`${BASE}/api/voice/extract-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      });
+      const data = await res.json() as { fields?: Record<string, string> };
+      const f = data.fields ?? {};
+
+      if (f.legalName)      setLegalName(f.legalName);
+      if (f.email)          setEmail(f.email);
+      if (f.phone)          setPhone(f.phone);
+      if (f.railcardNumber) setRailcard(f.railcardNumber);
+      if (f.nationality && ['uk', 'india', 'other'].includes(f.nationality)) {
+        handleNationality(f.nationality as Nationality);
+      }
+
+      const filled = Object.keys(f).length;
+      setVoiceFillHint(filled > 0 ? `Got it — ${filled} field${filled > 1 ? 's' : ''} filled. Check and save.` : 'Could not extract details — please type them in.');
+    } catch (e: any) {
+      setVoiceFillHint(e.message ?? 'Voice fill failed — please type your details.');
+    } finally {
+      setVoiceFilling(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (!legalName.trim()) { setProfileError('Legal name is required.'); return; }
-    if (!phone.trim()) { setProfileError('Phone number is required.'); return; }
-    if (!email.trim()) { setProfileError('Email is required.'); return; }
-    if (!docNumber.trim()) { setProfileError('Document number is required.'); return; }
+    if (!email.trim()) { setProfileError('Email is required for your e-ticket.'); return; }
 
     setProfileSaving(true);
     setProfileError(null);
@@ -292,33 +337,61 @@ export default function OnboardScreen() {
             {/* ── Step 4: Travel Profile ───────────────────────────────── */}
             {step === 'profile' && (
               <View style={styles.stepWrap}>
-                <Text style={styles.stepTitle}>Your travel profile.</Text>
+                <Text style={styles.stepTitle}>Your booking details.</Text>
                 <Text style={styles.stepSub}>
-                  Stored on this device only. Protected by {biometricLabel}.{'\n'}
-                  Speeds up every booking — no re-entering details.
+                  Stays on this device. {biometricLabel} protected.{'\n'}
+                  I need these to book and send your e-ticket.
                 </Text>
 
-                {/* Personal */}
-                <SectionLabel text="PERSONAL" />
+                {/* ── Voice fill ─────────────────────────────────────── */}
+                <Pressable
+                  onPress={handleVoiceFill}
+                  disabled={voiceFilling}
+                  style={[profileStyles.voiceBtn, voiceFilling && { opacity: 0.6 }]}
+                >
+                  <Ionicons
+                    name={voiceFilling ? 'mic' : 'mic-outline'}
+                    size={18}
+                    color={voiceFilling ? '#818cf8' : '#6b7280'}
+                  />
+                  <Text style={profileStyles.voiceBtnText}>
+                    {voiceFilling ? 'Listening…' : 'Fill in by voice'}
+                  </Text>
+                </Pressable>
+                {voiceFillHint && (
+                  <Text style={profileStyles.voiceHint}>{voiceFillHint}</Text>
+                )}
+
+                {/* ── Train essentials (always visible) ─────────────── */}
+                <SectionLabel text="FOR BOOKING CONFIRMATION" />
                 <TextInput
                   style={styles.input}
                   value={legalName}
                   onChangeText={setLegalName}
-                  placeholder="Full legal name (as on ID)"
+                  placeholder="Full name (as you want it on the ticket)"
                   placeholderTextColor="#374151"
                   autoCapitalize="words"
                 />
                 <TextInput
                   style={styles.input}
-                  value={dob}
-                  onChangeText={setDob}
-                  placeholder="Date of birth (YYYY-MM-DD)"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Email — your e-ticket arrives here"
                   placeholderTextColor="#374151"
-                  keyboardType="numbers-and-punctuation"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder={nationality === 'uk' ? '+44 7xxx xxxxxx' : '+91 98xxx xxxxx'}
+                  placeholderTextColor="#374151"
+                  keyboardType="phone-pad"
                 />
 
                 {/* Nationality */}
-                <SectionLabel text="NATIONALITY" />
+                <SectionLabel text="YOUR COUNTRY" />
                 <View style={styles.chipRow}>
                   {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
                     <Pressable
@@ -333,73 +406,13 @@ export default function OnboardScreen() {
                   ))}
                 </View>
 
-                {/* Contact */}
-                <SectionLabel text="CONTACT (for booking confirmations)" />
-                <TextInput
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder={nationality === 'uk' ? '+44 7xxx xxxxxx' : '+91 98xxx xxxxx'}
-                  placeholderTextColor="#374151"
-                  keyboardType="phone-pad"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Email address (for e-ticket)"
-                  placeholderTextColor="#374151"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-
-                {/* Travel document */}
-                <SectionLabel text="TRAVEL DOCUMENT" />
-                <View style={styles.chipRow}>
-                  {documentTypeOptions(nationality).map(dt => (
-                    <Pressable
-                      key={dt}
-                      onPress={() => setDocType(dt)}
-                      style={[styles.chip, docType === dt && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, docType === dt && styles.chipTextActive]}>
-                        {dt === 'passport' ? 'Passport' :
-                         dt === 'aadhaar'  ? 'Aadhaar' :
-                         dt === 'driving_licence' ? 'Driving Lic.' : 'National ID'}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <TextInput
-                  style={styles.input}
-                  value={docNumber}
-                  onChangeText={setDocNumber}
-                  placeholder={
-                    docType === 'aadhaar' ? 'Aadhaar number (12 digits)' :
-                    docType === 'passport' ? 'Passport number' : 'Document number'
-                  }
-                  placeholderTextColor="#374151"
-                  secureTextEntry
-                  autoCapitalize="characters"
-                />
-                {(docType === 'passport') && (
-                  <TextInput
-                    style={styles.input}
-                    value={docExpiry}
-                    onChangeText={setDocExpiry}
-                    placeholder="Passport expiry (YYYY-MM-DD)"
-                    placeholderTextColor="#374151"
-                    keyboardType="numbers-and-punctuation"
-                  />
-                )}
-
-                {/* Region extras */}
+                {/* Railcard / IRCTC — region extras */}
                 {nationality === 'uk' && (
                   <TextInput
                     style={styles.input}
                     value={railcard}
                     onChangeText={setRailcard}
-                    placeholder="Railcard number (optional — 16-25, Senior…)"
+                    placeholder="Railcard (optional — 16-25, Senior, Network…)"
                     placeholderTextColor="#374151"
                     autoCapitalize="characters"
                   />
@@ -416,8 +429,7 @@ export default function OnboardScreen() {
                 )}
 
                 {/* Preferences */}
-                <SectionLabel text="PREFERENCES" />
-                <Text style={styles.prefLabel}>Seat</Text>
+                <SectionLabel text="SEAT PREFERENCE" />
                 <View style={styles.chipRow}>
                   {(['window', 'aisle', 'no_preference'] as SeatPref[]).map(s => (
                     <Pressable
@@ -432,20 +444,71 @@ export default function OnboardScreen() {
                   ))}
                 </View>
 
-                <Text style={[styles.prefLabel, { marginTop: 8 }]}>Class</Text>
-                <View style={styles.chipRow}>
-                  {(['economy', 'standard', 'business'] as ClassPref[]).map(c => (
-                    <Pressable
-                      key={c}
-                      onPress={() => setClassPref(c)}
-                      style={[styles.chip, classPref === c && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, classPref === c && styles.chipTextActive]}>
-                        {c.charAt(0).toUpperCase() + c.slice(1)}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                {/* ── Document section — collapsed by default ──────────
+                    Only needed for Eurostar, flights, and IRCTC tatkal. */}
+                <Pressable
+                  onPress={() => setShowDocs(d => !d)}
+                  style={profileStyles.docsToggle}
+                >
+                  <Ionicons
+                    name={showDocs ? 'chevron-down' : 'chevron-forward'}
+                    size={14}
+                    color="#4b5563"
+                  />
+                  <Text style={profileStyles.docsToggleText}>
+                    Travel document — required for Eurostar & flights only
+                  </Text>
+                </Pressable>
+
+                {showDocs && (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      value={dob}
+                      onChangeText={setDob}
+                      placeholder="Date of birth (YYYY-MM-DD)"
+                      placeholderTextColor="#374151"
+                      keyboardType="numbers-and-punctuation"
+                    />
+                    <View style={[styles.chipRow, { marginTop: 4 }]}>
+                      {documentTypeOptions(nationality).map(dt => (
+                        <Pressable
+                          key={dt}
+                          onPress={() => setDocType(dt)}
+                          style={[styles.chip, docType === dt && styles.chipActive]}
+                        >
+                          <Text style={[styles.chipText, docType === dt && styles.chipTextActive]}>
+                            {dt === 'passport' ? 'Passport' :
+                             dt === 'aadhaar'  ? 'Aadhaar' :
+                             dt === 'driving_licence' ? 'Driving Lic.' : 'National ID'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      value={docNumber}
+                      onChangeText={setDocNumber}
+                      placeholder={
+                        docType === 'aadhaar' ? 'Aadhaar number (12 digits)' :
+                        docType === 'passport' ? 'Passport number' : 'Document number'
+                      }
+                      placeholderTextColor="#374151"
+                      secureTextEntry
+                      autoCapitalize="characters"
+                    />
+                    {docType === 'passport' && (
+                      <TextInput
+                        style={styles.input}
+                        value={docExpiry}
+                        onChangeText={setDocExpiry}
+                        placeholder="Passport expiry (YYYY-MM-DD)"
+                        placeholderTextColor="#374151"
+                        keyboardType="numbers-and-punctuation"
+                      />
+                    )}
+                  </>
+                )}
 
                 {profileError && <Text style={styles.error}>{profileError}</Text>}
 
@@ -477,7 +540,11 @@ export default function OnboardScreen() {
                   onPress={() => params.step === 'profile' ? router.back() : fadeToNext('finish')}
                   style={styles.skipBtn}
                 >
-                  <Text style={styles.skipText}>Skip for now — I'll add this later in Settings</Text>
+                  <Text style={styles.skipText}>
+                    {!email.trim()
+                      ? "Skip — I won't be able to send your e-ticket without an email"
+                      : "Skip for now — edit anytime in Settings"}
+                  </Text>
                 </Pressable>
               </View>
             )}
@@ -720,4 +787,28 @@ const styles = StyleSheet.create({
 
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
+});
+
+const profileStyles = StyleSheet.create({
+  voiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  voiceBtnText: { fontSize: 14, color: '#6b7280' },
+  voiceHint:    { fontSize: 12, color: '#818cf8', marginBottom: 16, textAlign: 'center' },
+  docsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  docsToggleText: { fontSize: 13, color: '#4b5563', flex: 1 },
 });

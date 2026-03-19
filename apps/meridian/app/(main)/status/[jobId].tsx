@@ -44,6 +44,7 @@ export default function StatusScreen() {
   const [toStation, setToStation]       = useState<string | null>(null);
 
   const checkRef    = useRef(false);     // prevent double-narration
+  const POLL_TIMEOUT_S = 90;             // give up polling after 90s
   const fadeSuccess = useRef(new Animated.Value(0)).current;
   const orbScale    = useRef(new Animated.Value(1)).current;
 
@@ -96,6 +97,14 @@ export default function StatusScreen() {
           setErrorMsg(`Job ${s}.`);
           setPhase('error');
           await speak(`The job ${s}. Please try again.`);
+        } else if (elapsed >= POLL_TIMEOUT_S) {
+          // Booking confirmation is taking too long — auto-complete may have failed.
+          // Show a soft message rather than spinning forever.
+          clearInterval(t);
+          setStatusPhase('error');
+          setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
+          setPhase('error');
+          await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
         }
       } catch {
         // transient — keep polling

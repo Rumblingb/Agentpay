@@ -58,6 +58,76 @@ voiceRouter.post('/transcribe', async (c) => {
   }
 });
 
+// ── POST /api/voice/extract-profile ──────────────────────────────────────
+// Accepts: { transcript: string }
+// Returns: { fields: { legalName?, email?, phone?, railcardNumber?, nationality? } }
+//
+// Used by onboarding: user speaks their details, Claude extracts the fields.
+// Example: "I'm John Smith, my email is john@example.com, phone 07700 900123,
+//           I have a 16-25 railcard"
+
+voiceRouter.post('/extract-profile', async (c) => {
+  const anthropicKey = c.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return c.json({ error: 'AI not configured' }, 503);
+  }
+
+  let transcript: string;
+  try {
+    const body = await c.req.json<{ transcript: string }>();
+    transcript = (body.transcript ?? '').trim();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  if (!transcript) return c.json({ error: 'Missing transcript' }, 400);
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key':         anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        system: `Extract travel profile fields from the user's spoken input.
+Return ONLY valid JSON with these optional fields (include only what was clearly stated):
+{
+  "legalName": "full legal name",
+  "email": "email address",
+  "phone": "phone number in E.164 format (+44... or +91...)",
+  "railcardNumber": "railcard name or number (e.g. 16-25, Senior, Network)",
+  "nationality": "uk | india | other"
+}
+If a field is not mentioned, omit it. Return only JSON, no explanation.`,
+        messages: [{ role: 'user', content: transcript }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) return c.json({ fields: {} });
+
+    const data = await res.json() as { content: Array<{ type: string; text: string }> };
+    const text = data.content?.find(b => b.type === 'text')?.text ?? '{}';
+
+    let fields: Record<string, string> = {};
+    try {
+      // Strip any markdown code fences Claude might add
+      const clean = text.replace(/```json\n?|\n?```/g, '').trim();
+      fields = JSON.parse(clean);
+    } catch {
+      fields = {};
+    }
+
+    return c.json({ fields });
+  } catch {
+    return c.json({ fields: {} });
+  }
+});
+
 // ── POST /api/voice/tts ───────────────────────────────────────────────────
 // Accepts: { text: string }
 // Returns: { audio: string } — base64 encoded MP3

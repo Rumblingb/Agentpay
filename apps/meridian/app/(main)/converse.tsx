@@ -64,7 +64,10 @@ export default function ConverseScreen() {
   const pendingPlanRef = useRef<{
     transcript: string;
     plan: ConciergePlanItem[];
+    /** Scoped (non-sensitive) profile used in Phase 1 narration */
     travelProfile?: Record<string, unknown>;
+    /** Full profile — only loaded for Phase 2 after biometric confirmation */
+    fullProfile?: Record<string, unknown>;
   } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
@@ -85,14 +88,26 @@ export default function ConverseScreen() {
 
     setPhase('thinking');
 
-    // Load travel profile without biometric — no sensitive data leaves device yet.
-    // Fields are scoped server-side (minimum necessary per skill) and only released
-    // after biometric confirmation in Phase 2.
-    let travelProfile: Record<string, unknown> | undefined;
+    // Load travel profile without biometric.
+    // Phase 1 sends only non-sensitive preference fields so Claude can personalise
+    // the narration ("with your 16-25 railcard, standard class").
+    // Document numbers, passport, email, phone stay on device until Phase 2.
+    let travelProfile:  Record<string, unknown> | undefined;
+    let fullProfile:    Record<string, unknown> | undefined;
     try {
       if (await hasProfile()) {
         const profile = await loadProfileRaw();
-        if (profile) travelProfile = profile as unknown as Record<string, unknown>;
+        if (profile) {
+          fullProfile = profile as unknown as Record<string, unknown>;
+          // Phase 1: safe fields only — no identity documents or contact details
+          travelProfile = {
+            legalName:       profile.legalName,
+            nationality:     profile.nationality,
+            seatPreference:  profile.seatPreference,
+            classPreference: profile.classPreference,
+            railcardNumber:  profile.railcardNumber,
+          };
+        }
       }
     } catch {
       // No profile stored — proceed without
@@ -116,7 +131,8 @@ export default function ConverseScreen() {
 
     // If plan needs biometric confirmation, store it and gate
     if (response.needsBiometric && response.plan && response.plan.length > 0) {
-      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile };
+      // Store fullProfile so Phase 2 can send complete booking details to agent
+      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile, fullProfile };
       setPhase('confirming');
       return;
     }
@@ -141,13 +157,14 @@ export default function ConverseScreen() {
     }
 
     setPhase('thinking');
-    const { transcript: savedTranscript, plan, travelProfile } = pending;
+    const { transcript: savedTranscript, plan, fullProfile } = pending;
     pendingPlanRef.current = null;
 
+    try {
     const response = await executeIntent({
       transcript:   savedTranscript,
       hirerId:      agentId!,
-      travelProfile,
+      travelProfile: fullProfile, // Phase 2: full profile — server scopes per skill
       plan,
     });
 
@@ -179,6 +196,11 @@ export default function ConverseScreen() {
       router.push(`/status/${firstAction.jobId}`);
     } else {
       setPhase('idle');
+    }
+    } catch (e: any) {
+      const msg = e.message ?? 'Booking failed. Please try again.';
+      setError(msg);
+      await speak(`Sorry — ${msg}`);
     }
   }, [agentId]);
 

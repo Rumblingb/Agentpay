@@ -301,7 +301,7 @@ Available specialists are provided as tools. Use them to fulfil the request.
       planItems.push({
         toolName:           skill.toolName,
         toolUseId:          toolCall.id,
-        agentId:            agent?.agentId ?? `agt_system_${skill.category}`,
+        agentId:            agent?.agentId ?? `agt_system_${skill.category}_01`,
         agentName:          agent?.name    ?? skill.displayName,
         displayName:        skill.displayName,
         estimatedPriceUsdc: trainDetails?.estimatedFareGbp ?? (agent?.pricePerTaskUsd ?? 1),
@@ -362,6 +362,8 @@ function callClaude(apiKey: string, body: Record<string, unknown>) {
       'content-type':      'application/json',
     },
     body: JSON.stringify({ model: 'claude-sonnet-4-6', ...body }),
+    // 25s — Workers have a 30s CPU wall; leave headroom for DB + RTT
+    signal: AbortSignal.timeout(25_000),
   });
 }
 
