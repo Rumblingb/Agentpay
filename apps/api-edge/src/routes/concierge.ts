@@ -171,9 +171,10 @@ RESPONSE FORMAT:
             item.estimatedPriceUsdc,
           );
 
-          // ── Auto-complete train bookings with real proof ──────────────────
-          // We already have the schedule data from Phase 1 (stored in trainDetails).
-          // Instantly complete the job so the status screen shows real booking info.
+          // ── Auto-complete train bookings with schedule proof ──────────────
+          // We have live schedule data from Phase 1, but no live provider booking
+          // integration yet. Mark the proof isSimulated=true so the UI shows the
+          // correct "Requested" state rather than claiming a confirmed booking.
           if (item.trainDetails) {
             const isIndia   = item.trainDetails.country === 'india';
             const bookingRef = isIndia ? generateIndianPNR() : generateBookingRef();
@@ -193,9 +194,11 @@ RESPONSE FORMAT:
               trainName:      item.trainDetails.trainName,
               classCode:      item.trainDetails.classCode,
               bookedAt:       new Date().toISOString(),
+              isSimulated:    true,
+              dataSource:     item.trainDetails.dataSource,
               note: isIndia
-                ? 'Schedule data from Indian Railways via IRCTC.'
-                : 'Schedule data from National Rail via Realtime Trains API.',
+                ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
+                : 'Schedule data from National Rail via Realtime Trains API. Provider booking not yet integrated.',
             };
 
             // Fire-and-forget: complete the job + send email confirmation
@@ -203,7 +206,7 @@ RESPONSE FORMAT:
             const userName  = travelProfile?.legalName as string | undefined;
             c.executionCtx.waitUntil(
               Promise.all([
-                autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hirerId, proof),
+                autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hireResult.completionSecret ?? hirerId, proof),
                 sendBookingConfirmationEmail(c.env.RESEND_API_KEY, {
                   to:    userEmail,
                   name:  userName,
@@ -213,8 +216,8 @@ RESPONSE FORMAT:
             );
 
             const confirmLine = isIndia
-              ? `PNR confirmed: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. ₹${item.trainDetails.fareInr}.`
-              : `Booking confirmed. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}.`;
+              ? `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.`
+              : `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.`;
 
             toolResults.push({
               type:        'tool_result',
@@ -359,6 +362,9 @@ RESPONSE FORMAT:
             destination:      rttResult.destination,
             estimatedFareGbp: svc.estimatedFareGbp,
             country:          'uk',
+            dataSource:       !rttResult.error ? 'darwin_live'
+                            : rttResult.error === 'advance_schedule' ? 'national_rail_scheduled'
+                            : 'estimated',
           };
         }
       } else if (toolCall.name === 'book_train_india') {
@@ -392,6 +398,7 @@ RESPONSE FORMAT:
             classCode:        svc.classCode,
             fareInr:          svc.estimatedFareInr,
             country:          'india',
+            dataSource:       !irResult.error ? 'irctc_live' : 'estimated',
           };
         }
       } else {
@@ -428,6 +435,7 @@ RESPONSE FORMAT:
         estimatedPriceUsdc,
         input:              toolCall.input as Record<string, unknown>,
         trainDetails,
+        dataSource:         trainDetails?.dataSource,
       });
     }
   } finally {
@@ -525,7 +533,7 @@ async function hireAgent(
   agentId: string,
   jobDescription: string,
   agreedPriceUsdc: number,
-): Promise<{ jobId: string; agreedPriceUsdc: number }> {
+): Promise<{ jobId: string; agreedPriceUsdc: number; completionSecret?: string }> {
   const res = await fetch(`${apiBase}/api/marketplace/hire`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -535,20 +543,20 @@ async function hireAgent(
     const err = await res.text();
     throw new Error(`Hire failed (${res.status}): ${err.slice(0, 100)}`);
   }
-  return res.json() as Promise<{ jobId: string; agreedPriceUsdc: number }>;
+  return res.json() as Promise<{ jobId: string; agreedPriceUsdc: number; completionSecret?: string }>;
 }
 
 async function autoCompleteJob(
   apiBase: string,
   jobId: string,
-  hirerId: string,
+  completionSecret: string,
   completionProof: BookingProof,
 ): Promise<void> {
   try {
     await fetch(`${apiBase}/api/marketplace/hire/${jobId}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hirerId, completionProof }),
+      body: JSON.stringify({ completionSecret, completionProof }),
     });
   } catch {
     // Best-effort — the job stays escrow_pending if this fails
@@ -654,9 +662,9 @@ async function sendBookingConfirmationEmail(
 
   const html = isIndia ? `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#f97316">Booking Confirmed ✓</h2>
+      <h2 style="color:#f97316">Journey Details — Booking Request</h2>
       <p>${greeting}</p>
-      <p>Your train ticket is booked. Here are your journey details:</p>
+      <p>Your booking request has been submitted. Here are your journey details:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
         <tr><td style="padding:8px 0;color:#666;width:140px">PNR Number</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#f97316">${proof.bookingRef}</td></tr>
@@ -672,7 +680,7 @@ async function sendBookingConfirmationEmail(
             <td style="padding:8px 0">₹${proof.fareInr} (advance estimate)</td></tr>
       </table>
       <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
-        Keep your PNR <strong>${proof.bookingRef}</strong> safe. You'll need it at the station for ticket collection or for chart/PNR status checks on IRCTC.
+        Reference number <strong>${proof.bookingRef}</strong> is your Bro request reference. This is a schedule preview — full IRCTC provider integration coming soon.
       </p>
       <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${bookedDate}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
@@ -680,9 +688,9 @@ async function sendBookingConfirmationEmail(
     </div>
   ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#16a34a">Booking Confirmed ✓</h2>
+      <h2 style="color:#16a34a">Journey Details — Booking Request</h2>
       <p>${greeting}</p>
-      <p>Your train is booked. Here are your journey details:</p>
+      <p>Your booking request has been submitted. Here are your journey details:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
         <tr><td style="padding:8px 0;color:#666;width:140px">Booking Ref</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${proof.bookingRef}</td></tr>
@@ -696,9 +704,9 @@ async function sendBookingConfirmationEmail(
         <tr><td style="padding:8px 0;color:#666">Fare</td>
             <td style="padding:8px 0">£${proof.fareGbp} (advance estimate)</td></tr>
       </table>
-      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${bookedDate}</p>
+      <p style="color:#666;font-size:13px">Requested via Bro · AgentPay · ${bookedDate}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-      <p style="font-size:12px;color:#9ca3af">This confirmation is sent by AgentPay on behalf of your Bro concierge. Schedule data sourced from National Rail via Realtime Trains API.</p>
+      <p style="font-size:12px;color:#9ca3af">Schedule data from National Rail via Realtime Trains API. This is a booking request — provider integration coming soon.</p>
     </div>
   `;
 
@@ -807,6 +815,8 @@ interface TrainDetails {
   trainName?:       string;
   classCode?:       string;
   fareInr?:         number;
+  /** Whether this data came from a live API or a scheduled/mock fallback */
+  dataSource?:      'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
 }
 
 interface PlanItem {
@@ -818,6 +828,7 @@ interface PlanItem {
   estimatedPriceUsdc: number;
   input:              Record<string, unknown>;
   trainDetails?:      TrainDetails;
+  dataSource?:        string;
 }
 
 interface ActionResult {
@@ -850,4 +861,7 @@ interface BookingProof {
   classCode?:     string;
   bookedAt:       string;
   note:           string;
+  /** True = synthetic ref — schedule data only, no live provider booking */
+  isSimulated?:   boolean;
+  dataSource?:    string;
 }

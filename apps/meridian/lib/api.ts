@@ -231,6 +231,8 @@ export interface ConciergePlanItem {
   displayName: string;
   estimatedPriceUsdc: number;
   input: Record<string, unknown>;
+  /** Where the schedule data came from — shown as a source badge in the confirm card */
+  dataSource?: 'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
 }
 
 export interface ConciergeResponse {

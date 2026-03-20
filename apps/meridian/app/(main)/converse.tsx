@@ -33,7 +33,7 @@ import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech
 import { speak, stopSpeaking } from '../../lib/tts';
 import { appendHistory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
-import { loadProfileRaw, hasProfile } from '../../lib/profile';
+import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 
 // ── Phase labels ──────────────────────────────────────────────────────────────
@@ -99,21 +99,17 @@ export default function ConverseScreen() {
 
     setPhase('thinking');
 
-    // Load travel profile without biometric.
-    // Phase 1 sends only non-sensitive preference fields so Claude can personalise
-    // the narration ("with your 16-25 railcard, standard class").
-    // Document numbers, passport, email, phone stay on device until Phase 2.
-    let travelProfile:  Record<string, unknown> | undefined;
-    let fullProfile:    Record<string, unknown> | undefined;
+    // Load travel profile for Phase 1 — preferences only, no identity data.
+    // Full profile (legalName, email, phone, documents) is loaded AFTER biometric
+    // confirmation in handleBiometricConfirm. This ensures sensitive data never
+    // reaches memory before the user explicitly authorises the booking.
+    let travelProfile: Record<string, unknown> | undefined;
     try {
       if (await hasProfile()) {
         const profile = await loadProfileRaw();
         if (profile) {
-          fullProfile = profile as unknown as Record<string, unknown>;
-          // Phase 1: safe fields only — no identity documents or contact details
+          // Phase 1: non-identity prefs only — railcard/class for narration personalisation
           travelProfile = {
-            legalName:       profile.legalName,
-            nationality:     profile.nationality,
             seatPreference:  profile.seatPreference,
             classPreference: profile.classPreference,
             railcardNumber:  profile.railcardNumber,
@@ -151,8 +147,9 @@ export default function ConverseScreen() {
       const fiatAmount = response.fiatAmount          ?? total;
       const fiatSymbol = response.currencySymbol      ?? currencySymbol;
       const fiatCode   = response.currencyCode        ?? currencyCode;
+      // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
-        transcript: text, plan: response.plan, travelProfile, fullProfile,
+        transcript: text, plan: response.plan, travelProfile, fullProfile: undefined,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
       };
 
@@ -233,6 +230,15 @@ export default function ConverseScreen() {
       pendingPlanRef.current = null;
       setPhase('idle');
       return;
+    }
+
+    // Load full profile NOW — only after biometric success.
+    // This is the first time legalName, email, phone, and documents enter memory.
+    try {
+      const fullProfile = await loadProfileAuthenticated();
+      if (fullProfile) pending.fullProfile = fullProfile as unknown as Record<string, unknown>;
+    } catch {
+      // Biometric already succeeded — proceed without full profile if load fails
     }
 
     await executePhase2(pending);
@@ -424,6 +430,12 @@ export default function ConverseScreen() {
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
           const plan    = pendingPlanRef.current?.plan ?? [];
           const tripDesc = plan[0]?.displayName ?? null;
+          const dataSource = plan[0]?.dataSource;
+          const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'
+                            : dataSource === 'national_rail_scheduled' ? 'National Rail · Scheduled'
+                            : dataSource === 'irctc_live'             ? 'IRCTC · Live'
+                            : dataSource === 'estimated'              ? 'Estimated fare'
+                            : null;
           // Format: no decimals for INR (large numbers), 2 decimals for others
           const fiatStr = sym === '₹'
             ? Math.round(fiat).toLocaleString('en-IN')
@@ -433,6 +445,11 @@ export default function ConverseScreen() {
             <View style={styles.confirmCard}>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
+              )}
+              {sourceLabel && (
+                <View style={styles.sourceBadge}>
+                  <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
+                </View>
               )}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
@@ -615,6 +632,22 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  sourceBadge: {
+    alignSelf: 'center',
+    backgroundColor: '#0d1117',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginTop: 6,
+  },
+  sourceBadgeText: {
+    fontSize: 11,
+    color: '#4b5563',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   confirmPrice: {
     fontSize: 28,

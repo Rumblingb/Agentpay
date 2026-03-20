@@ -43,6 +43,7 @@ export default function StatusScreen() {
   const [operator, setOperator]         = useState<string | null>(null);
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
+  const [isSimulated, setIsSimulated]   = useState(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -77,10 +78,13 @@ export default function StatusScreen() {
             if (proof.operator)      setOperator(proof.operator);
             if (proof.fromStation)   setFromStation(proof.fromStation);
             if (proof.toStation)     setToStation(proof.toStation);
+            if (proof.isSimulated)   setIsSimulated(true);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            const doneMsg = ref
+            const doneMsg = proof.isSimulated
+              ? `Your booking request has been submitted. Reference: ${ref?.replace(/-/g, ' ') ?? 'confirmed'}. Check your email for journey details.`
+              : ref
               ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}. ${departureTime ? `Departs at ${proof.departureTime} from platform ${proof.platform}.` : ''}`
               : 'Done! Your receipt is ready.';
             await speak(doneMsg);
@@ -147,9 +151,15 @@ export default function StatusScreen() {
         <View style={styles.orbWrap}>
           <Animated.View style={{ transform: [{ scale: orbScale }] }}>
             {isDone ? (
-              <LinearGradient colors={['#052e16', '#14532d']} style={styles.orb}>
-                <Ionicons name="checkmark" size={52} color="#4ade80" />
-              </LinearGradient>
+              isSimulated ? (
+                <LinearGradient colors={['#1c1000', '#451a03']} style={styles.orb}>
+                  <Ionicons name="time-outline" size={44} color="#f59e0b" />
+                </LinearGradient>
+              ) : (
+                <LinearGradient colors={['#052e16', '#14532d']} style={styles.orb}>
+                  <Ionicons name="checkmark" size={52} color="#4ade80" />
+                </LinearGradient>
+              )
             ) : isError ? (
               <LinearGradient colors={['#450a0a', '#7f1d1d']} style={styles.orb}>
                 <Ionicons name="warning-outline" size={44} color="#f87171" />
@@ -161,13 +171,15 @@ export default function StatusScreen() {
         </View>
 
         {/* Status text */}
-        <Text style={[styles.statusTitle, isDone && styles.statusTitleDone, isError && styles.statusTitleError]}>
-          {isDone ? 'Booked' : isError ? 'Failed' : 'On it…'}
+        <Text style={[styles.statusTitle, isDone && (isSimulated ? styles.statusTitleRequested : styles.statusTitleDone), isError && styles.statusTitleError]}>
+          {isDone ? (isSimulated ? 'Requested' : 'Booked') : isError ? 'Failed' : 'On it…'}
         </Text>
 
         <Text style={styles.statusSub}>
           {isDone
-            ? (bookingRef ? 'Confirmation sent to your email.' : 'All done.')
+            ? (isSimulated
+                ? 'Booking request submitted. Check your email for journey details.'
+                : (bookingRef ? 'Confirmation sent to your email.' : 'All done.'))
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is working · ${elapsed}s`}
@@ -175,9 +187,9 @@ export default function StatusScreen() {
 
         {/* Booking reference pill */}
         {isDone && bookingRef && (
-          <View style={styles.bookingRefWrap}>
-            <Text style={styles.bookingRefLabel}>Booking Reference</Text>
-            <Text style={styles.bookingRef}>{bookingRef}</Text>
+          <View style={[styles.bookingRefWrap, isSimulated && styles.bookingRefWrapRequested]}>
+            <Text style={styles.bookingRefLabel}>{isSimulated ? 'Request Reference' : 'Booking Reference'}</Text>
+            <Text style={[styles.bookingRef, isSimulated && styles.bookingRefRequested]}>{bookingRef}</Text>
             {(departureTime || platform || operator) && (
               <View style={styles.journeyMeta}>
                 {departureTime && (
@@ -325,9 +337,10 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
 
-  statusTitle:       { fontSize: 28, fontWeight: '700', color: '#f9fafb', marginBottom: 10 },
-  statusTitleDone:   { color: '#4ade80' },
-  statusTitleError:  { color: '#f87171' },
+  statusTitle:            { fontSize: 28, fontWeight: '700', color: '#f9fafb', marginBottom: 10 },
+  statusTitleDone:        { color: '#4ade80' },
+  statusTitleRequested:   { color: '#f59e0b' },
+  statusTitleError:       { color: '#f87171' },
 
   statusSub: {
     fontSize: 15,
@@ -349,6 +362,10 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     width: '100%',
   },
+  bookingRefWrapRequested: {
+    backgroundColor: '#0c0a00',
+    borderColor: '#78350f',
+  },
   bookingRefLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -363,6 +380,9 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     letterSpacing: 3,
     fontFamily: 'monospace',
+  },
+  bookingRefRequested: {
+    color: '#f59e0b',
   },
 
   journeyMeta: {

@@ -321,6 +321,7 @@ router.post('/hire', async (c) => {
     hirerId,
     agentId,
     agreedPriceUsdc,
+    completionSecret,   // caller uses this to authenticate /complete — stronger than hirerId alone
     breakdown: {
       platformFee,
       platformFeePct: `${(takeRateBps / 100).toFixed(1)}%`,
@@ -387,6 +388,11 @@ router.post('/hire/:jobId/complete', async (c) => {
 
     if (!callerIsHirer && !callerHasSecret && !callerIsAgent) {
       return c.json({ error: 'Unauthorized: valid completionSecret, agentKey, or hirerId required' }, 403);
+    }
+    // hirerId alone is the weakest auth path — require confirmed payment before completion.
+    // completionSecret / agentKey paths are trusted internal callers (can complete without Stripe).
+    if (callerIsHirer && !callerHasSecret && !callerIsAgent && !job.metadata?.stripePaymentConfirmed) {
+      return c.json({ error: 'Payment not confirmed. Provide completionSecret or complete Stripe payment first.' }, 402);
     }
     if (job.status !== 'escrow_pending') {
       return c.json({ error: `Job is already in status: ${job.status}` }, 409);
