@@ -403,6 +403,7 @@ function parseDarwinResponse(
 // Based on known typical UK schedules.
 
 const MOCK_SCHEDULES: Record<string, Array<{ dep: string; arr: string; operator: string }>> = {
+  // Derby ↔ London St Pancras
   'DBY-STP': [
     { dep: '07:10', arr: '08:43', operator: 'East Midlands Railway' },
     { dep: '07:42', arr: '09:15', operator: 'East Midlands Railway' },
@@ -410,40 +411,112 @@ const MOCK_SCHEDULES: Record<string, Array<{ dep: string; arr: string; operator:
     { dep: '08:42', arr: '10:15', operator: 'East Midlands Railway' },
     { dep: '09:10', arr: '10:43', operator: 'East Midlands Railway' },
   ],
+  'STP-DBY': [
+    { dep: '07:15', arr: '08:48', operator: 'East Midlands Railway' },
+    { dep: '07:45', arr: '09:18', operator: 'East Midlands Railway' },
+    { dep: '08:15', arr: '09:48', operator: 'East Midlands Railway' },
+    { dep: '09:15', arr: '10:48', operator: 'East Midlands Railway' },
+  ],
+  // Manchester ↔ London Euston/St Pancras
   'MAN-EUS': [
     { dep: '07:03', arr: '09:08', operator: 'Avanti West Coast' },
     { dep: '07:33', arr: '09:38', operator: 'Avanti West Coast' },
     { dep: '08:03', arr: '10:08', operator: 'Avanti West Coast' },
     { dep: '09:03', arr: '11:08', operator: 'Avanti West Coast' },
   ],
+  'EUS-MAN': [
+    { dep: '07:10', arr: '09:15', operator: 'Avanti West Coast' },
+    { dep: '07:40', arr: '09:45', operator: 'Avanti West Coast' },
+    { dep: '08:10', arr: '10:15', operator: 'Avanti West Coast' },
+    { dep: '09:10', arr: '11:15', operator: 'Avanti West Coast' },
+  ],
+  'MAN-STP': [
+    { dep: '07:07', arr: '09:42', operator: 'Avanti West Coast' },
+    { dep: '07:37', arr: '10:12', operator: 'Avanti West Coast' },
+    { dep: '08:07', arr: '10:42', operator: 'Avanti West Coast' },
+    { dep: '09:07', arr: '11:42', operator: 'Avanti West Coast' },
+  ],
+  'STP-MAN': [
+    { dep: '07:05', arr: '09:40', operator: 'Avanti West Coast' },
+    { dep: '07:35', arr: '10:10', operator: 'Avanti West Coast' },
+    { dep: '08:05', arr: '10:40', operator: 'Avanti West Coast' },
+    { dep: '09:05', arr: '11:40', operator: 'Avanti West Coast' },
+  ],
+  // Birmingham ↔ London
   'BHM-EUS': [
     { dep: '07:00', arr: '07:56', operator: 'Avanti West Coast' },
     { dep: '07:30', arr: '08:27', operator: 'Avanti West Coast' },
     { dep: '08:00', arr: '08:56', operator: 'Avanti West Coast' },
     { dep: '08:33', arr: '09:27', operator: 'Avanti West Coast' },
   ],
+  'EUS-BHM': [
+    { dep: '07:03', arr: '08:00', operator: 'Avanti West Coast' },
+    { dep: '07:33', arr: '08:30', operator: 'Avanti West Coast' },
+    { dep: '08:03', arr: '09:00', operator: 'Avanti West Coast' },
+    { dep: '09:03', arr: '10:00', operator: 'Avanti West Coast' },
+  ],
+  // Edinburgh ↔ London
   'EDB-KGX': [
     { dep: '07:00', arr: '11:25', operator: 'LNER' },
     { dep: '08:00', arr: '12:26', operator: 'LNER' },
     { dep: '09:00', arr: '13:25', operator: 'LNER' },
   ],
+  'KGX-EDB': [
+    { dep: '07:00', arr: '11:26', operator: 'LNER' },
+    { dep: '08:00', arr: '12:25', operator: 'LNER' },
+    { dep: '09:00', arr: '13:26', operator: 'LNER' },
+  ],
+  // Newcastle ↔ London
   'NCL-KGX': [
     { dep: '07:00', arr: '09:27', operator: 'LNER' },
     { dep: '07:30', arr: '09:57', operator: 'LNER' },
     { dep: '08:00', arr: '10:28', operator: 'LNER' },
     { dep: '09:00', arr: '11:25', operator: 'LNER' },
   ],
+  'KGX-NCL': [
+    { dep: '07:00', arr: '09:28', operator: 'LNER' },
+    { dep: '07:30', arr: '09:58', operator: 'LNER' },
+    { dep: '08:00', arr: '10:29', operator: 'LNER' },
+    { dep: '09:00', arr: '11:27', operator: 'LNER' },
+  ],
+  // Leeds ↔ London
   'LDS-KGX': [
     { dep: '07:00', arr: '08:59', operator: 'LNER' },
     { dep: '07:30', arr: '09:29', operator: 'LNER' },
     { dep: '08:03', arr: '10:04', operator: 'TransPennine Express' },
     { dep: '09:00', arr: '10:59', operator: 'LNER' },
   ],
+  'KGX-LDS': [
+    { dep: '07:03', arr: '09:02', operator: 'LNER' },
+    { dep: '07:33', arr: '09:32', operator: 'LNER' },
+    { dep: '08:03', arr: '10:05', operator: 'LNER' },
+    { dep: '09:03', arr: '11:02', operator: 'LNER' },
+  ],
+  // Bristol ↔ London Paddington
   'BRI-PAD': [
     { dep: '07:00', arr: '08:33', operator: 'GWR' },
     { dep: '07:30', arr: '09:03', operator: 'GWR' },
     { dep: '08:00', arr: '09:33', operator: 'GWR' },
     { dep: '09:00', arr: '10:33', operator: 'GWR' },
+  ],
+  'PAD-BRI': [
+    { dep: '07:03', arr: '08:36', operator: 'GWR' },
+    { dep: '07:33', arr: '09:06', operator: 'GWR' },
+    { dep: '08:03', arr: '09:36', operator: 'GWR' },
+    { dep: '09:03', arr: '10:36', operator: 'GWR' },
+  ],
+  // Oxford ↔ London
+  'OXF-PAD': [
+    { dep: '07:13', arr: '08:05', operator: 'GWR' },
+    { dep: '07:43', arr: '08:35', operator: 'GWR' },
+    { dep: '08:13', arr: '09:05', operator: 'GWR' },
+    { dep: '09:13', arr: '10:05', operator: 'GWR' },
+  ],
+  'PAD-OXF': [
+    { dep: '07:15', arr: '08:07', operator: 'GWR' },
+    { dep: '07:45', arr: '08:37', operator: 'GWR' },
+    { dep: '08:15', arr: '09:07', operator: 'GWR' },
+    { dep: '09:15', arr: '10:07', operator: 'GWR' },
   ],
 };
 

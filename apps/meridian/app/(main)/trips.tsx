@@ -21,16 +21,20 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface TripEntry {
-  intentId:     string;
-  bookingRef:   string | null;
-  fromStation:  string | null;
-  toStation:    string | null;
+  intentId:      string;
+  bookingRef:    string | null;
+  fromStation:   string | null;
+  toStation:     string | null;
   departureTime: string | null;
-  platform:     string | null;
-  operator:     string | null;
-  amount:       string | number;
-  currency:     string;
-  savedAt:      string;
+  platform:      string | null;
+  operator:      string | null;
+  amount:        string | number;
+  currency:      string;
+  /** Fiat display fields — always shown to user, never USDC */
+  fiatAmount?:     number | null;
+  currencySymbol?: string | null;
+  currencyCode?:   string | null;
+  savedAt:       string;
 }
 
 export default function TripsScreen() {
@@ -140,8 +144,16 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
         <Text style={styles.cardDate}>{dateStr}</Text>
       </View>
       <View style={styles.cardRight}>
-        <Text style={styles.cardAmount}>${trip.amount}</Text>
-        <Text style={styles.cardCurrency}>{trip.currency}</Text>
+        {trip.fiatAmount != null && trip.currencySymbol ? (
+          <Text style={styles.cardAmount}>
+            {trip.currencySymbol}{trip.currencyCode === 'INR'
+              ? Math.round(trip.fiatAmount).toLocaleString('en-IN')
+              : Number(trip.fiatAmount).toFixed(2)}
+          </Text>
+        ) : (
+          <Text style={styles.cardAmount}>{trip.amount}</Text>
+        )}
+        <Text style={styles.cardCurrency}>{trip.currencyCode ?? trip.currency}</Text>
         <Ionicons name="chevron-forward" size={16} color="#374151" style={{ marginTop: 6 }} />
       </View>
     </Pressable>

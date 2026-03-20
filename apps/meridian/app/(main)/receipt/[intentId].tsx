@@ -45,8 +45,19 @@ export default function ReceiptScreen() {
     operator?: string;
     fromStation?: string;
     toStation?: string;
+    fiatAmount?: string;
+    currencySymbol?: string;
+    currencyCode?: string;
   }>();
-  const { intentId, bookingRef, departureTime, platform, operator, fromStation, toStation } = params;
+  const {
+    intentId, bookingRef, departureTime, platform, operator, fromStation, toStation,
+    fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
+  } = params;
+
+  // Fiat display: prefer URL params (passed from booking flow), fall back to receipt.amount
+  const fiatSymbol   = symParam  ?? '£';
+  const fiatCode     = codeParam ?? 'GBP';
+  const fiatAmountNum = fiatAmountParam ? parseFloat(fiatAmountParam) : null;
   const { reset, currentAgent } = useStore();
   const [receipt,     setReceipt]     = useState<Receipt | null>(null);
   const [loading,     setLoading]     = useState(true);
@@ -99,6 +110,9 @@ export default function ReceiptScreen() {
       operator:      operator      ?? null,
       amount:        receipt.amount,
       currency:      receipt.currency,
+      fiatAmount:    fiatAmountNum,
+      currencySymbol: fiatSymbol,
+      currencyCode:  fiatCode,
       savedAt:       new Date().toISOString(),
     };
     AsyncStorage.getItem('bro.trips').then(raw => {
@@ -121,7 +135,9 @@ export default function ReceiptScreen() {
         platform      ? `Platform: ${platform}`     : null,
         '',
         `Job: ${intentId}`,
-        `Amount: $${receipt.amount} ${receipt.currency}`,
+        fiatAmountNum != null
+          ? `Amount: ${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
+          : `Amount: ${fiatSymbol}${receipt.amount}`,
         `Status: ${receipt.status}`,
         receipt.verifiedAt ? `Verified: ${new Date(receipt.verifiedAt).toLocaleString()}` : '',
         `Signature: ${receipt.signature.slice(0, 24)}…`,
@@ -161,7 +177,11 @@ export default function ReceiptScreen() {
               </LinearGradient>
             </View>
 
-            <Text style={styles.amount}>${receipt.amount} {receipt.currency}</Text>
+            <Text style={styles.amount}>
+              {fiatAmountNum != null
+                ? `${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
+                : `${fiatSymbol}${receipt.amount}`}
+            </Text>
             <Text style={styles.subtitle}>
               {currentAgent ? `via ${currentAgent.name}` : 'Payment verified'}
             </Text>

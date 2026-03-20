@@ -6,17 +6,33 @@
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(30_000),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (e: any) {
+    if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+      throw new Error('Request timed out — hold to try again.');
+    }
+    throw new Error('No connection — check your internet and try again.');
+  }
   const text = await res.text();
   let data: unknown;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  if (!res.ok) throw new Error((data as any)?.error ?? `API ${res.status}`);
+  if (!res.ok) {
+    const serverMsg = (data as any)?.error ?? '';
+    // Translate server errors into user-friendly messages
+    if (res.status === 503) throw new Error('Service offline — try again in a moment.');
+    if (res.status === 502 || res.status === 504 || res.status === 524) throw new Error('Bro is slow right now — try again.');
+    if (res.status === 401 || res.status === 403) throw new Error('Not authorised — please restart the app.');
+    throw new Error(serverMsg || `API error ${res.status}`);
+  }
   return data as T;
 }
 
@@ -225,6 +241,10 @@ export interface ConciergeResponse {
   /** Plan returned in phase 1 — pass back in phase 2 with confirmed: true */
   plan?: ConciergePlanItem[];
   estimatedPriceUsdc?: number;
+  /** Fiat display amount — shown to user, never USDC */
+  fiatAmount?: number;
+  currencySymbol?: string;
+  currencyCode?: string;
 }
 
 /** Phase 1: plan — Claude decides what to do, returns price. No hire yet. */

@@ -1,14 +1,14 @@
 /**
- * OrbAnimation — the Meridian ambient orb
+ * OrbAnimation — the Bro concierge orb
  *
- * Single visual focal point of the app.
- * Animates differently per phase:
- *   idle      → slow, gentle glow pulse
- *   listening → rapid outer rings expanding outward
- *   thinking  → rotating arc / spinner overlay
- *   executing → slow steady pulse, indigo → violet gradient
- *   done      → green flash then settles
- *   error     → red tint
+ * Character: compass needle — travel's original instrument.
+ * The needle tells the story of every phase:
+ *   idle       → oscillates ±15°, searching the horizon
+ *   listening  → rapid quiver — picking up your signal
+ *   thinking   → clockwise spin — plotting your route
+ *   confirming → slow tremble — the weight of a booking
+ *   done       → snaps North with bounce — you're on your way
+ *   error      → settles South (180°) — recalibrating
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -20,9 +20,9 @@ import type { AppPhase } from '../lib/store';
 
 interface Props {
   phase: AppPhase;
-  /** Tap-to-toggle mode — single tap starts/stops. Use this in converse. */
+  /** Tap-to-toggle mode */
   onPress?: () => void;
-  /** Hold-to-talk mode — used in the welcome demo only. */
+  /** Hold-to-talk mode */
   onPressIn?: () => void;
   onPressOut?: () => void;
   disabled?: boolean;
@@ -32,28 +32,20 @@ const PHASE_COLORS: Record<AppPhase, [string, string]> = {
   idle:       ['#1e1b4b', '#312e81'],
   listening:  ['#4338ca', '#7c3aed'],
   thinking:   ['#1e3a5f', '#1e40af'],
-  confirming: ['#92400e', '#b45309'],
+  choosing:   ['#1e1b4b', '#312e81'],
+  confirming: ['#78350f', '#b45309'],
   hiring:     ['#1e3a5f', '#1e40af'],
   executing:  ['#1e1b4b', '#312e81'],
   done:       ['#052e16', '#14532d'],
   error:      ['#450a0a', '#7f1d1d'],
 };
 
-const PHASE_ICON: Partial<Record<AppPhase, string>> = {
-  idle:       'mic-outline',
-  listening:  'mic',
-  thinking:   'sparkles',
-  confirming: 'help-circle-outline',
-  hiring:     'flash',
-  executing:  'pulse',
-  done:       'checkmark',
-  error:      'warning-outline',
-};
-
-const PHASE_ICON_COLOR: Record<AppPhase, string> = {
+// The bright (North) tip colour of the needle
+const NEEDLE_COLOR: Record<AppPhase, string> = {
   idle:       '#818cf8',
-  listening:  '#fff',
+  listening:  '#e0e7ff',
   thinking:   '#93c5fd',
+  choosing:   '#818cf8',
   confirming: '#fcd34d',
   hiring:     '#93c5fd',
   executing:  '#a5b4fc',
@@ -69,11 +61,10 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const ring2Scale   = useRef(new Animated.Value(1)).current;
   const ring2Opacity = useRef(new Animated.Value(0)).current;
   const orbScale     = useRef(new Animated.Value(1)).current;
-  const spinValue    = useRef(new Animated.Value(0)).current;
+  const needleRot    = useRef(new Animated.Value(0)).current;
 
-  const colors = PHASE_COLORS[phase];
-  const icon   = PHASE_ICON[phase] ?? 'mic-outline';
-  const iconColor = PHASE_ICON_COLOR[phase];
+  const colors      = PHASE_COLORS[phase];
+  const needleColor = NEEDLE_COLOR[phase];
 
   useEffect(() => {
     // Stop all running animations
@@ -83,10 +74,16 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     ring1Opacity.stopAnimation();
     ring2Scale.stopAnimation();
     ring2Opacity.stopAnimation();
-    spinValue.stopAnimation();
+    needleRot.stopAnimation();
 
+    // Reset needle for phases that start fresh — let done/error animate from wherever they are
+    if (phase !== 'done' && phase !== 'error') {
+      needleRot.setValue(0);
+    }
+
+    // ── Idle ──────────────────────────────────────────────────────────────────
     if (phase === 'idle') {
-      // Gentle slow pulse
+      // Glow breathes slowly
       Animated.loop(
         Animated.sequence([
           Animated.parallel([
@@ -99,11 +96,18 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           ]),
         ]),
       ).start();
+      // Needle oscillates ±15° — searching the horizon
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(needleRot, { toValue: -15, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(needleRot, { toValue: 15,  duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
     }
 
+    // ── Listening ─────────────────────────────────────────────────────────────
     if (phase === 'listening') {
-      // Elegant breathing halo — one slow bloom, no sharp radar rings
-      // Ring 1: slow expand + fade (2.2s, offset by 900ms for ring 2)
+      // Halo rings bloom outward
       const breathe = (scale: Animated.Value, opacity: Animated.Value, delay: number) =>
         Animated.loop(
           Animated.sequence([
@@ -120,56 +124,79 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         );
       breathe(ring1Scale, ring1Opacity, 0).start();
       breathe(ring2Scale, ring2Opacity, 1100).start();
-      // Orb breathes gently — inhale on press
+      // Orb gentle inhale
       Animated.loop(
         Animated.sequence([
           Animated.timing(orbScale, { toValue: 1.05, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           Animated.timing(orbScale, { toValue: 1.0,  duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
-      // Glow intensifies — feels attentive
       Animated.timing(glowOpacity, { toValue: 0.65, duration: 600, useNativeDriver: true }).start();
-    }
-
-    if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
-      // Slow steady glow + spin arc
-      Animated.loop(
-        Animated.timing(spinValue, {
-          toValue: 1,
-          duration: 2000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-      ).start();
+      // Needle quivers rapidly — picking up your signal
       Animated.loop(
         Animated.sequence([
-          Animated.timing(glowScale,   { toValue: 1.1, duration: 1200, useNativeDriver: true }),
-          Animated.timing(glowScale,   { toValue: 1.0, duration: 1200, useNativeDriver: true }),
+          Animated.timing(needleRot, { toValue: -8, duration: 85, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(needleRot, { toValue: 8,  duration: 85, easing: Easing.linear, useNativeDriver: true }),
         ]),
       ).start();
     }
 
+    // ── Thinking / Hiring / Executing ─────────────────────────────────────────
+    if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
+      // Glow pulses
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowScale, { toValue: 1.1, duration: 1200, useNativeDriver: true }),
+          Animated.timing(glowScale, { toValue: 1.0, duration: 1200, useNativeDriver: true }),
+        ]),
+      ).start();
+      // Needle spins clockwise — plotting your route
+      Animated.loop(
+        Animated.timing(needleRot, { toValue: 360, duration: 2400, easing: Easing.linear, useNativeDriver: true }),
+      ).start();
+    }
+
+    // ── Confirming ────────────────────────────────────────────────────────────
+    if (phase === 'confirming') {
+      // Needle trembles — the weight of a booking
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(needleRot, { toValue: -5, duration: 200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(needleRot, { toValue: 5,  duration: 200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+    }
+
+    // ── Done ──────────────────────────────────────────────────────────────────
     if (phase === 'done') {
+      // Orb bounces
       Animated.sequence([
         Animated.spring(orbScale, { toValue: 1.2, useNativeDriver: true, speed: 30 }),
         Animated.spring(orbScale, { toValue: 1.0, useNativeDriver: true, speed: 10 }),
       ]).start();
+      // Needle snaps North — you're on your way
+      Animated.spring(needleRot, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 10 }).start();
     }
 
-    if (phase !== 'listening') {
-      orbScale.stopAnimation();
+    // ── Error ─────────────────────────────────────────────────────────────────
+    if (phase === 'error') {
+      // Needle droops South — recalibrating
+      Animated.spring(needleRot, { toValue: 180, useNativeDriver: true, speed: 8, bounciness: 4 }).start();
+    }
+
+    // Reset orbScale and rings for non-special phases
+    if (phase !== 'listening' && phase !== 'done') {
       Animated.spring(orbScale, { toValue: 1, useNativeDriver: true, speed: 15 }).start();
       Animated.timing(glowOpacity, { toValue: phase === 'idle' ? 0.3 : 0.2, duration: 400, useNativeDriver: true }).start();
-      ring1Scale.setValue(1);
-      ring1Opacity.setValue(0);
-      ring2Scale.setValue(1);
-      ring2Opacity.setValue(0);
+      ring1Scale.setValue(1);  ring1Opacity.setValue(0);
+      ring2Scale.setValue(1);  ring2Opacity.setValue(0);
     }
   }, [phase]);
 
-  const spin = spinValue.interpolate({
-    inputRange:  [0, 1],
-    outputRange: ['0deg', '360deg'],
+  // Linear interpolation covers both oscillation (-15→15) and full spin (0→360)
+  const needleRotDeg = needleRot.interpolate({
+    inputRange:  [-360, 360],
+    outputRange: ['-360deg', '360deg'],
   });
 
   const isInteractive = phase === 'idle' || phase === 'listening' || phase === 'confirming' || phase === 'error';
@@ -179,45 +206,30 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress?.();
   };
-
   const handlePressIn = () => {
     if (disabled || !isInteractive || onPress) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPressIn?.();
   };
-
   const handlePressOut = () => {
     if (disabled || !isInteractive || onPress) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPressOut?.();
   };
 
+  // Done + error: show a clear status icon instead of compass
+  const showStatusIcon = phase === 'done' || phase === 'error';
+
   return (
     <View style={styles.container}>
       {/* Outer glow */}
-      <Animated.View style={[
-        styles.glow,
-        { transform: [{ scale: glowScale }], opacity: glowOpacity }
-      ]}>
+      <Animated.View style={[styles.glow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]}>
         <LinearGradient colors={[colors[1], 'transparent']} style={styles.glowGrad} />
       </Animated.View>
 
-      {/* Expanding rings (listening) */}
-      <Animated.View style={[
-        styles.ring,
-        { transform: [{ scale: ring1Scale }], opacity: ring1Opacity }
-      ]} />
-      <Animated.View style={[
-        styles.ring,
-        { transform: [{ scale: ring2Scale }], opacity: ring2Opacity }
-      ]} />
-
-      {/* Spin arc (thinking/executing) */}
-      {(phase === 'thinking' || phase === 'hiring' || phase === 'executing') && (
-        <Animated.View style={[styles.spinArc, { transform: [{ rotate: spin }] }]}>
-          <View style={styles.spinDot} />
-        </Animated.View>
-      )}
+      {/* Listening halo rings */}
+      <Animated.View style={[styles.ring, { transform: [{ scale: ring1Scale }], opacity: ring1Opacity }]} />
+      <Animated.View style={[styles.ring, { transform: [{ scale: ring2Scale }], opacity: ring2Opacity }]} />
 
       {/* Main orb */}
       <Animated.View style={{ transform: [{ scale: orbScale }] }}>
@@ -227,11 +239,16 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           onPressOut={!onPress ? handlePressOut : undefined}
           disabled={disabled || !isInteractive}
         >
-          <LinearGradient
-            colors={colors}
-            style={styles.orb}
-          >
-            <Ionicons name={icon as any} size={40} color={iconColor} />
+          <LinearGradient colors={colors} style={styles.orb}>
+            {showStatusIcon ? (
+              <Ionicons
+                name={phase === 'done' ? 'checkmark' : 'warning-outline'}
+                size={40}
+                color={phase === 'done' ? '#4ade80' : '#f87171'}
+              />
+            ) : (
+              <CompassNeedle rotation={needleRotDeg} color={needleColor} />
+            )}
           </LinearGradient>
         </Pressable>
       </Animated.View>
@@ -239,7 +256,71 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   );
 }
 
-const ORB_SIZE = 120;
+// ── Compass needle ────────────────────────────────────────────────────────────
+// Two triangular tips (North bright, South muted) around a circular pivot.
+// Entirely View-based — no SVG dependency.
+
+const NORTH_H  = 26;
+const SOUTH_H  = 17;
+const NEEDLE_W = 6;
+const PIVOT_R  = 4;
+
+function CompassNeedle({
+  rotation,
+  color,
+}: {
+  rotation: Animated.AnimatedInterpolation<string>;
+  color: string;
+}) {
+  return (
+    <Animated.View style={[compassStyles.wrap, { transform: [{ rotate: rotation }] }]}>
+      {/* North tip — bright, phase-tinted */}
+      <View style={[compassStyles.tipNorth, { borderBottomColor: color }]} />
+      {/* Pivot */}
+      <View style={[compassStyles.pivot, { backgroundColor: color }]} />
+      {/* South tip — always muted */}
+      <View style={[compassStyles.tipSouth, { borderTopColor: 'rgba(255,255,255,0.22)' }]} />
+    </Animated.View>
+  );
+}
+
+const compassStyles = StyleSheet.create({
+  wrap: {
+    width:  NEEDLE_W,
+    height: NORTH_H + PIVOT_R * 2 + SOUTH_H,
+    alignItems: 'center',
+  },
+  tipNorth: {
+    width: 0,
+    height: 0,
+    borderLeftWidth:   NEEDLE_W / 2,
+    borderRightWidth:  NEEDLE_W / 2,
+    borderBottomWidth: NORTH_H,
+    borderLeftColor:   'transparent',
+    borderRightColor:  'transparent',
+    // borderBottomColor provided via prop
+  },
+  pivot: {
+    width:        PIVOT_R * 2,
+    height:       PIVOT_R * 2,
+    borderRadius: PIVOT_R,
+    // backgroundColor provided via prop
+  },
+  tipSouth: {
+    width: 0,
+    height: 0,
+    borderLeftWidth:  NEEDLE_W / 2,
+    borderRightWidth: NEEDLE_W / 2,
+    borderTopWidth:   SOUTH_H,
+    borderLeftColor:  'transparent',
+    borderRightColor: 'transparent',
+    // borderTopColor provided via prop
+  },
+});
+
+// ── Orb styles ────────────────────────────────────────────────────────────────
+
+const ORB_SIZE  = 120;
 const GLOW_SIZE = 220;
 const RING_SIZE = 140;
 
@@ -251,48 +332,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   glow: {
-    position: 'absolute',
-    width:  GLOW_SIZE,
-    height: GLOW_SIZE,
+    position:     'absolute',
+    width:        GLOW_SIZE,
+    height:       GLOW_SIZE,
     borderRadius: GLOW_SIZE / 2,
-    overflow: 'hidden',
+    overflow:     'hidden',
   },
   glowGrad: {
-    flex: 1,
+    flex:         1,
     borderRadius: GLOW_SIZE / 2,
   },
   ring: {
-    position: 'absolute',
-    width:  RING_SIZE,
-    height: RING_SIZE,
+    position:     'absolute',
+    width:        RING_SIZE,
+    height:       RING_SIZE,
     borderRadius: RING_SIZE / 2,
-    borderWidth: 1.5,
-    borderColor: '#6366f1',
-  },
-  spinArc: {
-    position: 'absolute',
-    width:  ORB_SIZE + 24,
-    height: ORB_SIZE + 24,
-    borderRadius: (ORB_SIZE + 24) / 2,
-    alignItems: 'center',
-  },
-  spinDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#818cf8',
-    marginTop: 2,
+    borderWidth:  1.5,
+    borderColor:  '#6366f1',
   },
   orb: {
-    width:  ORB_SIZE,
-    height: ORB_SIZE,
-    borderRadius: ORB_SIZE / 2,
-    alignItems: 'center',
+    width:          ORB_SIZE,
+    height:         ORB_SIZE,
+    borderRadius:   ORB_SIZE / 2,
+    alignItems:     'center',
     justifyContent: 'center',
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 30,
-    elevation: 15,
+    shadowColor:    '#6366f1',
+    shadowOffset:   { width: 0, height: 0 },
+    shadowOpacity:  0.6,
+    shadowRadius:   30,
+    elevation:      15,
   },
 });

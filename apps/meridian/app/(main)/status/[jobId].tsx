@@ -30,7 +30,8 @@ const POLL_MS = 3000;
 type StatusPhase = 'executing' | 'done' | 'error';
 
 export default function StatusScreen() {
-  const { jobId } = useLocalSearchParams<{ jobId: string }>();
+  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode } =
+    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string }>();
   const { currentAgent, setPhase } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
@@ -161,15 +162,15 @@ export default function StatusScreen() {
 
         {/* Status text */}
         <Text style={[styles.statusTitle, isDone && styles.statusTitleDone, isError && styles.statusTitleError]}>
-          {isDone ? 'Complete' : isError ? 'Failed' : 'Working…'}
+          {isDone ? 'Booked' : isError ? 'Failed' : 'On it…'}
         </Text>
 
         <Text style={styles.statusSub}>
           {isDone
-            ? (bookingRef ? `Confirmation sent to your email.` : 'Your task has been completed successfully.')
+            ? (bookingRef ? 'Confirmation sent to your email.' : 'All done.')
             : isError
             ? (errorMsg ?? 'Something went wrong.')
-            : `${currentAgent?.name ?? 'Agent'} is on it · ${elapsed}s`}
+            : `${currentAgent?.name ?? 'Bro'} is working · ${elapsed}s`}
         </Text>
 
         {/* Booking reference pill */}
@@ -209,7 +210,10 @@ export default function StatusScreen() {
                 if (operator)      qs.set('operator', operator);
                 if (fromStation)   qs.set('fromStation', fromStation);
                 if (toStation)     qs.set('toStation', toStation);
-                router.push(`/receipt/${jobId}?${qs.toString()}`);
+                if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
+              if (paramSymbol) qs.set('currencySymbol', paramSymbol);
+              if (paramCode)   qs.set('currencyCode',   paramCode);
+              router.push(`/receipt/${jobId}?${qs.toString()}`);
               }}
               style={styles.receiptBtn}
             >

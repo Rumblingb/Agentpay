@@ -39,12 +39,12 @@ import { authenticateWithBiometrics } from '../../lib/biometric';
 // ── Phase labels ──────────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<string, string> = {
-  idle:       'Hold to talk',
-  listening:  'Listening… release to send',
+  idle:       'Where to?',
+  listening:  'Listening…',
   thinking:   'On it…',
-  confirming: 'Fingerprint to confirm',
-  done:       'Done',
-  error:      'Hold to try again',
+  confirming: 'Confirm to book',
+  done:       'Booked',
+  error:      'Try again',
 };
 
 // ── Main screen ───────────────────────────────────────────────────────────────
@@ -58,6 +58,9 @@ export default function ConverseScreen() {
     agentId,
     userName,
     autoConfirmLimitUsdc,
+    currencySymbol,
+    currencyCode,
+    setCurrency,
     setCurrentAgent,
     reset,
   } = useStore();
@@ -72,6 +75,10 @@ export default function ConverseScreen() {
     fullProfile?: Record<string, unknown>;
     /** Total estimated cost across all plan items */
     totalPriceUsdc: number;
+    /** Fiat display amount — what the user sees */
+    fiatAmount: number;
+    fiatSymbol: string;
+    fiatCode: string;
   } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
@@ -133,10 +140,21 @@ export default function ConverseScreen() {
     await appendHistory(meridianTurn);
     await speak(response.narration);
 
+    // Persist detected currency to store (used everywhere in app)
+    if (response.currencySymbol && response.currencyCode) {
+      setCurrency(response.currencySymbol, response.currencyCode);
+    }
+
     // If plan needs biometric confirmation, store it
     if (response.needsBiometric && response.plan && response.plan.length > 0) {
-      const total = response.estimatedPriceUsdc ?? 0;
-      pendingPlanRef.current = { transcript: text, plan: response.plan, travelProfile, fullProfile, totalPriceUsdc: total };
+      const total      = response.estimatedPriceUsdc ?? 0;
+      const fiatAmount = response.fiatAmount          ?? total;
+      const fiatSymbol = response.currencySymbol      ?? currencySymbol;
+      const fiatCode   = response.currencyCode        ?? currencyCode;
+      pendingPlanRef.current = {
+        transcript: text, plan: response.plan, travelProfile, fullProfile,
+        totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
+      };
 
       // Auto-confirm if total is within the spending limit (no fingerprint needed)
       if (total > 0 && total <= autoConfirmLimitUsdc) {
@@ -188,7 +206,10 @@ export default function ConverseScreen() {
           passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
         });
         setPhase('done');
-        router.push(`/status/${firstAction.jobId}`);
+        const fiat   = pending.fiatAmount;
+        const sym    = pending.fiatSymbol;
+        const code   = pending.fiatCode;
+        router.push(`/status/${firstAction.jobId}?fiatAmount=${fiat}&currencySymbol=${encodeURIComponent(sym)}&currencyCode=${code}`);
       } else {
         setPhase('idle');
       }
@@ -232,7 +253,10 @@ export default function ConverseScreen() {
     const pending = pendingPlanRef.current;
     if (!pending) return;
 
-    const amountInr = Math.round(pending.totalPriceUsdc * 85); // rough USD→INR
+    // fiatAmount is already in INR when currencyCode === 'INR'
+    const amountInr = pending.fiatCode === 'INR'
+      ? Math.round(pending.fiatAmount)
+      : Math.round(pending.fiatAmount * 84); // fallback: convert USD→INR
     const upiDeepLink = `upi://pay?pa=agentpay@razorpay&pn=AgentPay&am=${amountInr}&cu=INR&tn=${encodeURIComponent('Train booking via Bro')}`;
 
     const canOpen = await Linking.canOpenURL(upiDeepLink);
@@ -245,21 +269,24 @@ export default function ConverseScreen() {
 
   // ── Hold-to-talk (press = start recording, release = send) ──────────────
   // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
+  // recordingReadyRef guards the race where user releases before startRecording() completes.
 
-  const pressStartRef = useRef<number>(0);
+  const pressStartRef    = useRef<number>(0);
+  const recordingReadyRef = useRef<boolean>(false);
 
   const handlePressIn = useCallback(async () => {
     if (phase !== 'idle' && phase !== 'error') return;
     await stopSpeaking();
     if (phase === 'error') reset();
-    pressStartRef.current = Date.now();
+    pressStartRef.current    = Date.now();
+    recordingReadyRef.current = false;
     setPhase('listening');
     try {
       await startRecording();
+      recordingReadyRef.current = true;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
       setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
-      setPhase('error');
     }
   }, [phase]);
 
@@ -267,9 +294,10 @@ export default function ConverseScreen() {
     if (phase !== 'listening') return;
 
     const heldMs = Date.now() - pressStartRef.current;
-    if (heldMs < 600) {
-      // Too short — accidental tap, don't send garbage audio
-      await stopRecording();
+
+    // Too short OR recording not ready — cancel cleanly
+    if (heldMs < 600 || !recordingReadyRef.current) {
+      await stopRecording(); // safe to call even if null
       setPhase('idle');
       return;
     }
@@ -285,28 +313,38 @@ export default function ConverseScreen() {
       try {
         text = await transcribeAudio(uri);
       } catch (e: any) {
-        const msg = e.message ?? '';
-        if (msg.includes('401') || msg.includes('403')) {
+        const msg = (e.message ?? '').toLowerCase();
+        if (msg.includes('timed out') || msg.includes('timeout')) {
+          setError('Voice service is slow — try again.');
+        } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
           setError('Voice service not configured — contact support.');
-        } else if (msg.includes('5')) {
+        } else if (msg.includes('503') || msg.includes('offline')) {
+          setError('Voice service offline — try again in a moment.');
+        } else if (msg.includes('502') || msg.includes('slow') || msg.includes('5')) {
           setError('Voice service error — please try again.');
         } else {
           setError('No connection — check your internet and try again.');
         }
-        setPhase('error');
         return;
       }
 
       if (!text.trim()) {
         setError("Didn't catch that — hold and speak clearly.");
-        setPhase('error');
         return;
       }
 
       await handleIntent(text);
     } catch (e: any) {
-      setError(e.message ?? 'Something went wrong.');
-      setPhase('error');
+      const msg = (e.message ?? '').toLowerCase();
+      if (msg.includes('timed out') || msg.includes('timeout')) {
+        setError('Bro took too long — hold to try again.');
+      } else if (msg.includes('no connection') || msg.includes('internet')) {
+        setError('No connection — check your internet and try again.');
+      } else if (msg.includes('offline')) {
+        setError('Service offline — try again in a moment.');
+      } else {
+        setError('Something went wrong — hold to try again.');
+      }
     }
   }, [phase, handleIntent]);
 
@@ -324,13 +362,16 @@ export default function ConverseScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Bro</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+        <View style={styles.headerBrand}>
+          <Text style={styles.headerCompass}>🧭</Text>
+          <Text style={styles.headerTitle}>Bro</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
           <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12}>
-            <Ionicons name="time-outline" size={20} color="#4b5563" />
+            <Ionicons name="time-outline" size={20} color="#374151" />
           </Pressable>
           <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
-            <Ionicons name="settings-outline" size={20} color="#4b5563" />
+            <Ionicons name="settings-outline" size={20} color="#374151" />
           </Pressable>
         </View>
       </View>
@@ -345,13 +386,13 @@ export default function ConverseScreen() {
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyGreeting}>
-              {`Hello${userName !== 'there' ? `, ${userName}` : ''}.`}
+              {userName !== 'there' ? `Hello, ${userName}.` : 'Hello.'}
             </Text>
-            <Text style={styles.emptyHint}>What can I help you with today?</Text>
+            <Text style={styles.emptyHint}>Where are we heading?</Text>
             <View style={styles.suggestions}>
-              <Suggestion text="Book a train to London" />
-              <Suggestion text="Find me a hotel in Manchester" />
-              <Suggestion text="Get me a taxi from the station" />
+              <Suggestion emoji="🚂" text="London to Edinburgh, tomorrow 8am" />
+              <Suggestion emoji="🏨" text="Hotel in Manchester, 2 nights" />
+              <Suggestion emoji="🚕" text="Taxi from King's Cross" />
             </View>
           </View>
         )}
@@ -366,7 +407,7 @@ export default function ConverseScreen() {
           >
             {turn.role === 'meridian' && (
               <View style={styles.bubbleAvatar}>
-                <Ionicons name="sparkles" size={12} color="#818cf8" />
+                <Text style={styles.bubbleAvatarEmoji}>🧭</Text>
               </View>
             )}
             <Text style={[
@@ -379,10 +420,20 @@ export default function ConverseScreen() {
         ))}
 
         {isConfirming && (() => {
-          const total = pendingPlanRef.current?.totalPriceUsdc ?? 0;
-          const priceLabel = total > 0 ? `£${total.toFixed(2)}` : null;
+          const fiat    = pendingPlanRef.current?.fiatAmount ?? 0;
+          const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
+          const plan    = pendingPlanRef.current?.plan ?? [];
+          const tripDesc = plan[0]?.displayName ?? null;
+          // Format: no decimals for INR (large numbers), 2 decimals for others
+          const fiatStr = sym === '₹'
+            ? Math.round(fiat).toLocaleString('en-IN')
+            : fiat.toFixed(2);
+          const priceLabel = fiat > 0 ? `${sym}${fiatStr}` : null;
           return (
             <View style={styles.confirmCard}>
+              {tripDesc && (
+                <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
+              )}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
               )}
@@ -392,7 +443,7 @@ export default function ConverseScreen() {
               </Pressable>
               {isIndia && (
                 <View style={styles.upiSection}>
-                  <Text style={styles.upiLabel}>Pay with UPI</Text>
+                  <Text style={styles.upiLabel}>or pay with UPI</Text>
                   <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
                     <Ionicons name="qr-code-outline" size={16} color="#f97316" />
                     <Text style={styles.upiBtnText}>Open UPI App</Text>
@@ -441,9 +492,10 @@ export default function ConverseScreen() {
 
 // ── Suggestion chip ───────────────────────────────────────────────────────────
 
-function Suggestion({ text }: { text: string }) {
+function Suggestion({ emoji, text }: { emoji: string; text: string }) {
   return (
     <View style={suggStyles.chip}>
+      <Text style={suggStyles.emoji}>{emoji}</Text>
       <Text style={suggStyles.text}>{text}</Text>
     </View>
   );
@@ -451,16 +503,20 @@ function Suggestion({ text }: { text: string }) {
 
 const suggStyles = StyleSheet.create({
   chip: {
-    backgroundColor: '#111',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#0d0d0d',
     borderWidth: 1,
-    borderColor: '#1f2937',
-    borderRadius: 20,
+    borderColor: '#1a1a1a',
+    borderRadius: 22,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
     marginBottom: 8,
     alignSelf: 'flex-start',
   },
-  text: { fontSize: 13, color: '#6b7280' },
+  emoji: { fontSize: 14 },
+  text:  { fontSize: 13, color: '#6b7280' },
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -476,21 +532,27 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#111',
+    borderBottomColor: '#0f0f0f',
   },
+  headerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerCompass: { fontSize: 18 },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: '#f9fafb',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
   },
 
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 16 },
 
-  emptyState:    { paddingTop: 32, paddingBottom: 20 },
-  emptyGreeting: { fontSize: 26, fontWeight: '700', color: '#f9fafb', marginBottom: 8 },
-  emptyHint:     { fontSize: 16, color: '#6b7280', marginBottom: 24, lineHeight: 24 },
+  emptyState:    { paddingTop: 40, paddingBottom: 20 },
+  emptyGreeting: { fontSize: 28, fontWeight: '700', color: '#f9fafb', marginBottom: 6, letterSpacing: -0.5 },
+  emptyHint:     { fontSize: 17, color: '#4b5563', marginBottom: 28, lineHeight: 25 },
   suggestions:   {},
 
   bubble: {
@@ -503,14 +565,17 @@ const styles = StyleSheet.create({
   bubbleUser:     { alignSelf: 'flex-end' },
   bubbleMeridian: { alignSelf: 'flex-start' },
   bubbleAvatar: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#1e1b4b',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#0f0d24',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
+    borderWidth: 1,
+    borderColor: '#1e1b4b',
   },
+  bubbleAvatarEmoji: { fontSize: 13, lineHeight: 16 },
   bubbleText: {
     fontSize: 15,
     lineHeight: 22,
@@ -531,21 +596,32 @@ const styles = StyleSheet.create({
   },
 
   confirmCard: {
-    backgroundColor: '#0d0b1f',
+    backgroundColor: '#09080f',
     borderWidth: 1,
-    borderColor: '#4338ca',
-    borderRadius: 14,
-    padding: 16,
+    borderColor: '#3730a3',
+    borderRadius: 16,
+    padding: 18,
     marginBottom: 12,
     alignSelf: 'stretch',
-    gap: 10,
+    gap: 12,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  confirmTrip: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   confirmPrice: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     color: '#f9fafb',
     textAlign: 'center',
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   confirmBtn: {
     flexDirection: 'row',
@@ -553,11 +629,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     backgroundColor: '#1e1b4b',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#3730a3',
   },
-  confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '500' },
-  confirmCancel: { alignItems: 'center', paddingVertical: 8 },
+  confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '600' },
+  confirmCancel: { alignItems: 'center', paddingVertical: 6 },
   confirmCancelText: { fontSize: 13, color: '#374151' },
 
   upiSection:  { marginTop: 12, alignItems: 'center', gap: 8 },
@@ -592,10 +670,11 @@ const styles = StyleSheet.create({
     borderTopColor: '#111',
   },
   phaseLabel: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#4b5563',
     marginBottom: 16,
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
+    fontWeight: '500',
   },
   clearBtn: { marginTop: 16 },
   clearBtnText: { fontSize: 13, color: '#374151' },

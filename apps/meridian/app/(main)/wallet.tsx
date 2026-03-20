@@ -19,8 +19,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getWallet } from '../../lib/api';
 import { useStore } from '../../lib/store';
 
+/** Convert USDC (≈ USD) to local fiat for display */
+function usdcToFiat(usdc: number, currencyCode: string, currencySymbol: string): string {
+  const rates: Record<string, number> = {
+    USD: 1, GBP: 0.79, EUR: 0.93, INR: 84, AUD: 1.54,
+    CAD: 1.36, SGD: 1.35, AED: 3.67,
+  };
+  const fiat = usdc * (rates[currencyCode] ?? 1);
+  if (currencyCode === 'INR') {
+    return `${currencySymbol}${Math.round(fiat).toLocaleString('en-IN')}`;
+  }
+  return `${currencySymbol}${fiat.toFixed(2)}`;
+}
+
 export default function WalletScreen() {
-  const { agentId, wallet, setWallet } = useStore();
+  const { agentId, wallet, setWallet, currencySymbol, currencyCode } = useStore();
   const [loading, setLoading] = useState(true);
   const [depositAddress, setDepositAddress] = useState<string | null>(null);
   const [depositMemo, setDepositMemo] = useState<string | null>(null);
@@ -40,7 +53,7 @@ export default function WalletScreen() {
   const handleShareDeposit = async () => {
     if (!depositAddress) return;
     await Share.share({
-      message: `Send USDC to: ${depositAddress}\nMemo (required): ${depositMemo}`,
+      message: `AgentPay top-up address: ${depositAddress}\nMemo (required): ${depositMemo}`,
     });
   };
 
@@ -67,26 +80,24 @@ export default function WalletScreen() {
             >
               <Text style={styles.balanceLabel}>Available Balance</Text>
               <Text style={styles.balanceAmount}>
-                ${wallet.availableUsdc.toFixed(2)}
-                <Text style={styles.balanceCurrency}> USDC</Text>
+                {usdcToFiat(wallet.availableUsdc, currencyCode, currencySymbol)}
               </Text>
               {wallet.reservedUsdc > 0 && (
                 <Text style={styles.reserved}>
-                  ${wallet.reservedUsdc.toFixed(2)} reserved
+                  {usdcToFiat(wallet.reservedUsdc, currencyCode, currencySymbol)} reserved
                 </Text>
               )}
-              <Text style={styles.agentId}>{agentId}</Text>
             </LinearGradient>
 
-            {/* Deposit instructions */}
+            {/* Top-up instructions */}
             {depositAddress && (
               <View style={styles.depositCard}>
                 <View style={styles.depositHeader}>
                   <Ionicons name="arrow-down-circle" size={18} color="#6366f1" />
-                  <Text style={styles.depositTitle}>Deposit USDC</Text>
+                  <Text style={styles.depositTitle}>Add Funds</Text>
                 </View>
                 <Text style={styles.depositNote}>
-                  Send USDC (Solana) to the address below. Include the memo so the platform credits your wallet.
+                  Top up your Bro balance. Contact support to add funds to your account.
                 </Text>
 
                 <View style={styles.depositField}>

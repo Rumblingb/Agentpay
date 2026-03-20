@@ -260,20 +260,23 @@ RESPONSE FORMAT:
       input: p.input,
     }));
 
-    const narrationResponse = await callClaude(anthropicKey, {
-      system: systemPrompt,
-      messages: [
-        { role: 'user', content: transcript },
-        { role: 'assistant', content: firstClaudeContent },
-        { role: 'user', content: toolResults },
-      ],
-      max_tokens: 256,
-    });
-
     let narration = 'Done — your booking is confirmed.';
-    if (narrationResponse.ok) {
-      const narrationData = await narrationResponse.json() as AnthropicResponse;
-      narration = extractText(narrationData) || narration;
+    try {
+      const narrationResponse = await callClaude(anthropicKey, {
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: transcript },
+          { role: 'assistant', content: firstClaudeContent },
+          { role: 'user', content: toolResults },
+        ],
+        max_tokens: 256,
+      });
+      if (narrationResponse.ok) {
+        const narrationData = await narrationResponse.json() as AnthropicResponse;
+        narration = extractText(narrationData) || narration;
+      }
+    } catch {
+      // Narration timeout — use default confirmation message
     }
 
     return c.json({ narration, actions });
@@ -283,16 +286,22 @@ RESPONSE FORMAT:
 
   const tools = skillsToAnthropicTools();
 
-  const firstResponse = await callClaude(anthropicKey, {
-    system: systemPrompt,
-    messages: [{ role: 'user', content: transcript }],
-    tools,
-    max_tokens: 1024,
-  });
+  let firstResponse: Response;
+  try {
+    firstResponse = await callClaude(anthropicKey, {
+      system: systemPrompt,
+      messages: [{ role: 'user', content: transcript }],
+      tools,
+      max_tokens: 1024,
+    });
+  } catch (e: any) {
+    // Timeout or network error reaching Anthropic
+    return c.json({ narration: "I'm slow right now — try again in a moment.", actions: [], needsBiometric: false });
+  }
 
   if (!firstResponse.ok) {
-    const err = await firstResponse.text();
-    return c.json({ error: `Claude API error: ${err.slice(0, 200)}` }, 502);
+    // Don't leak internal error details to the client
+    return c.json({ narration: "Something went wrong on my end — try again.", actions: [], needsBiometric: false });
   }
 
   const firstData = await firstResponse.json() as AnthropicResponse;
@@ -398,13 +407,25 @@ RESPONSE FORMAT:
         content:     toolResultContent,
       });
 
+      // Estimated price: real fare from train details, or route estimate, or agent price
+      let estimatedPriceUsdc = agent?.pricePerTaskUsd ?? 1;
+      if (trainDetails?.estimatedFareGbp) {
+        estimatedPriceUsdc = trainDetails.estimatedFareGbp;
+      } else if (toolCall.name === 'book_train') {
+        // No live trains but we can still estimate the fare from route tables
+        const { stationToCRS, estimateFareGbp } = await import('../lib/rtt');
+        const oCRS = stationToCRS(input.origin ?? '');
+        const dCRS = stationToCRS(input.destination ?? '');
+        if (oCRS && dCRS) estimatedPriceUsdc = estimateFareGbp(oCRS, dCRS);
+      }
+
       planItems.push({
         toolName:           skill.toolName,
         toolUseId:          toolCall.id,
         agentId:            agent?.agentId ?? `agt_system_${skill.category}_01`,
         agentName:          agent?.name    ?? skill.displayName,
         displayName:        skill.displayName,
-        estimatedPriceUsdc: trainDetails?.estimatedFareGbp ?? (agent?.pricePerTaskUsd ?? 1),
+        estimatedPriceUsdc,
         input:              toolCall.input as Record<string, unknown>,
         trainDetails,
       });
@@ -423,24 +444,28 @@ RESPONSE FORMAT:
 
   // ── Second Claude call with real data → natural narration ─────────────────
 
-  const narrationCall = await callClaude(anthropicKey, {
-    system: systemPrompt,
-    messages: [
-      { role: 'user',      content: transcript },
-      { role: 'assistant', content: toolUseBlocks.map(b => ({ type: 'tool_use' as const, id: b.id, name: b.name, input: b.input })) },
-      { role: 'user',      content: toolResultsForClaude },
-    ],
-    max_tokens: 256,
-  });
-
   let narration = buildFallbackNarration(planItems);
-  if (narrationCall.ok) {
-    const narrationData = await narrationCall.json() as AnthropicResponse;
-    const text = extractText(narrationData);
-    if (text) narration = text;
+  try {
+    const narrationCall = await callClaude(anthropicKey, {
+      system: systemPrompt,
+      messages: [
+        { role: 'user',      content: transcript },
+        { role: 'assistant', content: toolUseBlocks.map(b => ({ type: 'tool_use' as const, id: b.id, name: b.name, input: b.input })) },
+        { role: 'user',      content: toolResultsForClaude },
+      ],
+      max_tokens: 256,
+    });
+    if (narrationCall.ok) {
+      const narrationData = await narrationCall.json() as AnthropicResponse;
+      const text = extractText(narrationData);
+      if (text) narration = text;
+    }
+  } catch {
+    // Narration timeout — use fallback, still return the plan
   }
 
   const totalUsdc = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
+  const totalFiat = planItems.reduce((s, p) => s + planItemFiatAmount(p, currency.code), 0);
 
   return c.json({
     narration,
@@ -448,6 +473,9 @@ RESPONSE FORMAT:
     plan:           planItems,
     actions:        [],
     estimatedPriceUsdc: totalUsdc,
+    fiatAmount:    Math.round(totalFiat * 100) / 100,
+    currencySymbol: currency.symbol,
+    currencyCode:   currency.code,
   });
 });
 
@@ -693,6 +721,38 @@ async function sendBookingConfirmationEmail(
   } catch {
     // Best-effort — booking is confirmed regardless
   }
+}
+
+/** Convert a plan item's estimated cost into the user's local currency amount */
+function planItemFiatAmount(item: PlanItem, currencyCode: string): number {
+  // India train: fare already in INR
+  if (item.trainDetails?.country === 'india' && item.trainDetails.fareInr) {
+    return item.trainDetails.fareInr;
+  }
+  // UK/EU train: fare already in GBP — convert to local
+  if (item.trainDetails?.estimatedFareGbp) {
+    return convertFromGbp(item.trainDetails.estimatedFareGbp, currencyCode);
+  }
+  // Other services: price in USD (≈ USDC) — convert to local
+  return convertFromUsd(item.estimatedPriceUsdc, currencyCode);
+}
+
+/** Approximate GBP → local fiat (static rates, display only — not financial) */
+function convertFromGbp(gbp: number, code: string): number {
+  const rates: Record<string, number> = {
+    GBP: 1, USD: 1.27, EUR: 1.18, INR: 107, AUD: 1.96,
+    CAD: 1.73, SGD: 1.72, AED: 4.66,
+  };
+  return Math.round(gbp * (rates[code] ?? 1) * 100) / 100;
+}
+
+/** Approximate USD → local fiat (static rates, display only) */
+function convertFromUsd(usd: number, code: string): number {
+  const rates: Record<string, number> = {
+    USD: 1, GBP: 0.79, EUR: 0.93, INR: 84, AUD: 1.54,
+    CAD: 1.36, SGD: 1.35, AED: 3.67,
+  };
+  return Math.round(usd * (rates[code] ?? 1) * 100) / 100;
 }
 
 function extractText(response: AnthropicResponse): string {

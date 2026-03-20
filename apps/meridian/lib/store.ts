@@ -30,6 +30,9 @@ interface MeridianState {
   userName: string;
   autoConfirmLimitUsdc: number;
   onboarded: boolean;
+  /** Local currency detected from server (cfCountry). Default GBP. */
+  currencySymbol: string;
+  currencyCode: string;
 
   // ── Current session ───────────────────────────────────────────────────────
   phase: AppPhase;
@@ -59,6 +62,7 @@ interface MeridianState {
 
   setCredentials: (agentId: string, agentKey: string) => void;
   setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean }) => void;
+  setCurrency: (symbol: string, code: string) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
   setPendingChoice: (choice: TieredOptions | null) => void;
@@ -91,6 +95,8 @@ export const useStore = create<MeridianState>((set) => ({
   userName: 'there',
   autoConfirmLimitUsdc: 5,
   onboarded: false,
+  currencySymbol: '£',
+  currencyCode: 'GBP',
 
   // Session
   ...SESSION_INITIAL,
@@ -101,6 +107,8 @@ export const useStore = create<MeridianState>((set) => ({
 
   hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }) =>
     set({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }),
+
+  setCurrency: (currencySymbol, currencyCode) => set({ currencySymbol, currencyCode }),
 
   setCredentials: (agentId, agentKey) =>
     set({ agentId, agentKey }),
