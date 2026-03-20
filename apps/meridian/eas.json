@@ -17,6 +17,17 @@
         "buildType": "apk"
       }
     },
+    "ios-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.agentpay.so",
+        "EXPO_NO_DOCTOR": "1"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
     "preview": {
       "distribution": "internal",
 "env": {
