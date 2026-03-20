@@ -16,20 +16,22 @@ export interface TfLLegResult {
   error?:    string;
 }
 
-// CRS codes → human-readable station name that TfL Journey Planner accepts as origin
-const TERMINUS_NAME: Record<string, string> = {
-  STP: 'St Pancras International',
-  KGX: "King's Cross",
-  EUS: 'Euston',
-  PAD: 'Paddington',
-  WAT: 'Waterloo',
-  VIC: 'Victoria',
-  LBG: 'London Bridge',
-  LST: 'Liverpool Street',
-  MYB: 'Marylebone',
-  CST: 'Cannon Street',
-  CHX: 'Charing Cross',
-  BFR: 'Blackfriars',
+// CRS codes → TfL NAPTAN/NLC IDs for precise station matching.
+// Using 910G (National Rail) NAPTAN IDs avoids TfL's text disambiguation
+// returning wrong places (e.g. "Euston Tap" pub instead of Euston station).
+const TERMINUS_NAPTAN: Record<string, string> = {
+  STP: '910GSTPNCRS',   // St Pancras International
+  KGX: '910GKNGX',     // King's Cross
+  EUS: '910GEUSTON',   // Euston
+  PAD: '910GPADTON',   // Paddington
+  WAT: '910GWATRLOO',  // Waterloo
+  VIC: '910GVICTRIA',  // Victoria
+  LBG: '910GLONDBDG',  // London Bridge
+  LST: '910GLIVST',    // Liverpool Street
+  MYB: '910GMARYLBN',  // Marylebone
+  CST: '910GCNNST',    // Cannon Street
+  CHX: '910GCHX',      // Charing Cross
+  BFR: '910GBLKFR',    // Blackfriars
 };
 
 /**
@@ -38,38 +40,43 @@ const TERMINUS_NAME: Record<string, string> = {
  * @param destination  - User's final destination text (postcode, area, address)
  * @param appKey       - Optional TfL app_key for higher rate limits
  */
+const TFL_BASE = 'https://api.tfl.gov.uk';
+
 export async function queryTfLFinalLeg(
   terminusCRS: string,
   destination: string,
   appKey?: string,
 ): Promise<TfLLegResult> {
-  const from = TERMINUS_NAME[terminusCRS] ?? terminusCRS;
-  const params = new URLSearchParams({
-    nationalSearch: 'true',
-    mode:           'tube,dlr,elizabeth-line,overground,bus,walking',
+  const from = TERMINUS_NAPTAN[terminusCRS] ?? terminusCRS;
+  const baseParams = new URLSearchParams({
+    nationalSearch:    'true',
+    mode:              'tube,dlr,elizabeth-line,overground,bus,walking',
     journeyPreference: 'leasttime',
     ...(appKey ? { app_key: appKey } : {}),
   });
 
-  const url = `https://api.tfl.gov.uk/Journey/JourneyResults/${encodeURIComponent(from)}/to/${encodeURIComponent(destination)}?${params}`;
+  const firstUrl = `${TFL_BASE}/Journey/JourneyResults/${encodeURIComponent(from)}/to/${encodeURIComponent(destination)}?${baseParams}`;
 
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(6_000),
-  });
+  const data = await tflFetch(firstUrl);
+  if (!data) return { summary: '', duration: 0, modes: [], steps: [], error: 'TfL unavailable' };
 
-  if (!res.ok) {
-    return { summary: '', duration: 0, modes: [], steps: [], error: `TfL API ${res.status}` };
+  // If TfL returns journeys directly, we're done.
+  let journeys: any[] = data.journeys ?? [];
+
+  // TfL returns 300 (or 200 with empty journeys) when either location is ambiguous.
+  // Re-run with the best-matched parameterValue for both from and to.
+  if (!journeys.length) {
+    const bestFrom: any  = data.fromLocationDisambiguation?.disambiguationOptions?.[0];
+    const bestTo: any    = data.toLocationDisambiguation?.disambiguationOptions?.[0];
+    const resolvedFrom   = bestFrom?.parameterValue ? encodeURIComponent(bestFrom.parameterValue) : encodeURIComponent(from);
+    const resolvedTo     = bestTo?.parameterValue   ? encodeURIComponent(bestTo.parameterValue)   : null;
+    if (resolvedTo) {
+      const retryUrl = `${TFL_BASE}/Journey/JourneyResults/${resolvedFrom}/to/${resolvedTo}?${baseParams}`;
+      const retryData = await tflFetch(retryUrl);
+      journeys = retryData?.journeys ?? [];
+    }
   }
 
-  let data: any;
-  try {
-    data = await res.json();
-  } catch {
-    return { summary: '', duration: 0, modes: [], steps: [], error: 'TfL parse error' };
-  }
-
-  const journeys: any[] = data?.journeys ?? [];
   if (!journeys.length) {
     return { summary: '', duration: 0, modes: [], steps: [], error: 'No TfL journeys found' };
   }
@@ -89,10 +96,25 @@ export async function queryTfLFinalLeg(
     if (instruction) steps.push(instruction);
   }
 
-  // Build a concise human summary
   const summary = buildSummary(legs, duration, destination);
 
   return { summary, duration, modes, steps };
+}
+
+async function tflFetch(url: string): Promise<any | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(6_000),
+    });
+    // TfL uses 300 for disambiguation (still parseable JSON), 200 for success.
+    // Reject only on 4xx/5xx or non-JSON responses.
+    if (res.status >= 400) return null;
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function buildSummary(legs: any[], duration: number, finalDest: string): string {

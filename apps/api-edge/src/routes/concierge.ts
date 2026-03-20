@@ -46,7 +46,7 @@ function broLog(event: string, data: Record<string, unknown>) {
 // Last 20 Bro-created jobs with their metadata, for debugging.
 // Protected by x-admin-key header.
 
-conciergeRouter.get('/admin/bro-jobs', async (c) => {
+conciergeRouter.get('/bro-jobs', async (c) => {
   const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
   if (!adminKey || adminKey !== c.env.ADMIN_SECRET_KEY) {
     return c.json({ error: 'UNAUTHORIZED' }, 401);
