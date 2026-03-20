@@ -263,7 +263,7 @@ RESPONSE FORMAT:
       input: p.input,
     }));
 
-    let narration = 'Done — your booking is confirmed.';
+    let narration = 'Done — your booking request has been submitted.';
     try {
       const narrationResponse = await callClaude(anthropicKey, {
         system: systemPrompt,
@@ -682,9 +682,9 @@ async function sendBookingConfirmationEmail(
       <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
         Reference number <strong>${proof.bookingRef}</strong> is your Bro request reference. This is a schedule preview — full IRCTC provider integration coming soon.
       </p>
-      <p style="color:#666;font-size:13px">Booked via Bro · AgentPay · ${bookedDate}</p>
+      <p style="color:#666;font-size:13px">Requested via Bro · AgentPay · ${bookedDate}</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-      <p style="font-size:12px;color:#9ca3af">Schedule data sourced from Indian Railways via IRCTC. This confirmation is sent by AgentPay on behalf of your Bro concierge.</p>
+      <p style="font-size:12px;color:#9ca3af">Schedule data sourced from Indian Railways via IRCTC. This request was submitted by AgentPay on behalf of your Bro concierge.</p>
     </div>
   ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
@@ -721,13 +721,13 @@ async function sendBookingConfirmationEmail(
         from:    'Bro <bookings@agentpay.so>',
         to:      [to],
         subject: isIndia
-          ? `Train booked — PNR ${proof.bookingRef}`
-          : `Your train is booked — ${proof.bookingRef}`,
+          ? `Train booking request — Ref ${proof.bookingRef}`
+          : `Your train booking request — ${proof.bookingRef}`,
         html,
       }),
     });
   } catch {
-    // Best-effort — booking is confirmed regardless
+    // Best-effort — request was submitted regardless
   }
 }
 

@@ -462,8 +462,8 @@ export default function OnboardScreen() {
                     onToggle={setLocationConsent}
                   />
                   <ConsentRow
-                    label="Booking confirmations"
-                    sub="Notifications when your booking is confirmed"
+                    label="Booking updates"
+                    sub="Notifications when your booking request is submitted"
                     value={notifConsent}
                     onToggle={setNotifConsent}
                   />

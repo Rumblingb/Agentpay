@@ -90,7 +90,7 @@ export default function TripsScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>🚂</Text>
           <Text style={styles.emptyTitle}>No trips yet</Text>
-          <Text style={styles.emptyBody}>Your booked journeys will appear here.</Text>
+          <Text style={styles.emptyBody}>Your travel requests will appear here.</Text>
           <Pressable onPress={() => router.replace('/(main)/converse')} style={styles.bookBtn}>
             <Text style={styles.bookBtnText}>Book a trip</Text>
           </Pressable>
