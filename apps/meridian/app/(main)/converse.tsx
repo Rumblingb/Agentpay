@@ -361,7 +361,7 @@ export default function ConverseScreen() {
   const isError    = phase === 'error';
   const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
-  const isIndia = (pendingPlanRef.current?.travelProfile?.nationality as string | undefined) === 'india';
+  const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
 
   return (
     <SafeAreaView style={styles.safe}>

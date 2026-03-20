@@ -30,6 +30,55 @@ import { queryTfLFinalLeg } from '../lib/tfl';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// ── Structured logging ────────────────────────────────────────────────────────
+// Each request gets a short trace ID so events can be correlated in CF logs.
+
+function makeTrace(): string {
+  return `bro_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function broLog(event: string, data: Record<string, unknown>) {
+  // console.info emits to Cloudflare Workers Tail logs as a structured JSON line.
+  console.info(JSON.stringify({ bro: true, event, ...data }));
+}
+
+// ── GET /api/admin/bro-jobs ───────────────────────────────────────────────────
+// Last 20 Bro-created jobs with their metadata, for debugging.
+// Protected by x-admin-key header.
+
+conciergeRouter.get('/admin/bro-jobs', async (c) => {
+  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
+  if (!adminKey || adminKey !== c.env.ADMIN_SECRET_KEY) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<any[]>`
+      SELECT
+        id                                        AS "jobId",
+        status,
+        amount                                    AS "agreedPriceUsdc",
+        created_at                                AS "createdAt",
+        metadata->>'hirerId'                      AS "hirerId",
+        metadata->>'agentId'                      AS "agentId",
+        metadata->>'hiredAt'                      AS "hiredAt",
+        metadata->>'completedAt'                  AS "completedAt",
+        metadata->>'dispatchStatus'               AS "dispatchStatus",
+        metadata->>'stripePaymentConfirmed'       AS "stripePaymentConfirmed",
+        metadata->'completionProof'               AS "completionProof"
+      FROM payment_intents
+      WHERE metadata->>'protocol' = 'marketplace_hire'
+      ORDER BY created_at DESC
+      LIMIT 20
+    `.catch(() => []);
+
+    return c.json({ jobs: rows, count: rows.length });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 // ── GET /api/skills ───────────────────────────────────────────────────────────
 
 conciergeRouter.get('/skills', (c) => {
@@ -70,6 +119,16 @@ conciergeRouter.post('/intent', async (c) => {
   if (!transcript || !hirerId) {
     return c.json({ error: 'transcript and hirerId required' }, 400);
   }
+
+  const traceId = makeTrace();
+  broLog('request_received', {
+    traceId,
+    hirerId: hirerId.slice(0, 12),
+    phase: confirmed ? 'execute' : 'plan',
+    transcriptLen: transcript.length,
+    hasTravelProfile: !!travelProfile,
+    planItemCount: plan?.length ?? 0,
+  });
 
   // ── Location-aware currency + nationality context ─────────────────────────
 
@@ -148,6 +207,7 @@ RESPONSE FORMAT:
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
   if (confirmed && plan && plan.length > 0) {
+    broLog('phase2_start', { traceId, planItemCount: plan.length });
     const actions: ActionResult[] = [];
     const toolResults: ToolResultBlock[] = [];
 
@@ -203,6 +263,17 @@ RESPONSE FORMAT:
                 : 'Schedule data from National Rail via Realtime Trains API. Provider booking not yet integrated.',
             };
 
+            broLog('auto_complete', {
+              traceId,
+              jobId:       hireResult.jobId,
+              bookingRef,
+              isSimulated: true,
+              dataSource:  item.trainDetails.dataSource ?? null,
+              hasFinalLeg: !!item.trainDetails.finalLegSummary,
+              country:     item.trainDetails.country ?? 'uk',
+              hasEmail:    !!(travelProfile?.email),
+            });
+
             // Fire-and-forget: complete the job + send email confirmation
             const userEmail = travelProfile?.email as string | undefined;
             const userName  = travelProfile?.legalName as string | undefined;
@@ -237,6 +308,15 @@ RESPONSE FORMAT:
             });
           }
 
+          broLog('hire_success', {
+            traceId,
+            toolName:        skill.toolName,
+            jobId:           hireResult.jobId,
+            agreedPriceUsdc: hireResult.agreedPriceUsdc,
+            isSimulated:     !!item.trainDetails,
+            bookingRef:      item.trainDetails ? (item.trainDetails.country === 'india' ? 'PNR' : 'BRO') : null,
+          });
+
           actions.push({
             toolName:        skill.toolName,
             displayName:     skill.displayName,
@@ -249,6 +329,7 @@ RESPONSE FORMAT:
             trainDetails:    item.trainDetails,
           });
         } catch (e: any) {
+          broLog('hire_failed', { traceId, toolName: skill.toolName, error: (e as Error).message });
           toolResults.push({
             type:        'tool_result',
             tool_use_id: item.toolUseId,
@@ -337,7 +418,17 @@ RESPONSE FORMAT:
       const skill = SKILL_MAP[toolCall.name];
       if (!skill) continue;
 
+      broLog('tool_selected', { traceId, toolName: toolCall.name, toolUseId: toolCall.id });
+
       const agent = await findBestAgent(sql, skill.category);
+      broLog('agent_found', {
+        traceId,
+        toolName:  toolCall.name,
+        agentId:   agent?.agentId ?? null,
+        agentName: agent?.name    ?? null,
+        price:     agent?.pricePerTaskUsd ?? null,
+        grade:     agent?.grade ?? null,
+      });
       const input = toolCall.input as Record<string, string>;
 
       let toolResultContent = '';
@@ -355,6 +446,20 @@ RESPONSE FORMAT:
 
         toolResultContent = formatTrainsForClaude(rttResult);
 
+        const dataSource = !rttResult.error ? 'darwin_live'
+          : rttResult.error === 'advance_schedule' ? 'national_rail_scheduled'
+          : 'estimated';
+
+        broLog('darwin_result', {
+          traceId,
+          origin:       input.origin,
+          destination:  input.destination,
+          servicesFound: rttResult.services.length,
+          dataSource,
+          error:        rttResult.error ?? null,
+          destinationCRS: rttResult.destinationCRS ?? null,
+        });
+
         if (rttResult.services.length > 0) {
           const svc = rttResult.services[0];
           trainDetails = {
@@ -368,21 +473,34 @@ RESPONSE FORMAT:
             estimatedFareGbp: svc.estimatedFareGbp,
             country:          'uk',
             destinationCRS:   rttResult.destinationCRS,
-            dataSource:       !rttResult.error ? 'darwin_live'
-                            : rttResult.error === 'advance_schedule' ? 'national_rail_scheduled'
-                            : 'estimated',
+            dataSource,
           };
 
           // ── TfL final-leg routing ──────────────────────────────────────────
           // If arriving at a London terminus and user gave a final London destination,
           // query TfL Journey Planner for the city transfer leg.
           const finalDest = input.final_destination as string | undefined;
-          if (finalDest && LONDON_TERMINI.has(rttResult.destinationCRS ?? '')) {
+          const isLondonArrival = LONDON_TERMINI.has(rttResult.destinationCRS ?? '');
+          broLog('tfl_decision', {
+            traceId,
+            destinationCRS: rttResult.destinationCRS ?? null,
+            isLondonArrival,
+            hasFinalDest: !!finalDest,
+            finalDest: finalDest ?? null,
+          });
+          if (finalDest && isLondonArrival) {
             const tflLeg = await queryTfLFinalLeg(
               rttResult.destinationCRS,
               finalDest,
               (c.env as any).TFL_APP_KEY,
             ).catch(() => undefined);
+            broLog('tfl_result', {
+              traceId,
+              success: !!tflLeg && !tflLeg?.error,
+              summary: tflLeg?.summary ?? null,
+              duration: tflLeg?.duration ?? null,
+              error: tflLeg?.error ?? null,
+            });
             if (tflLeg && !tflLeg.error) {
               trainDetails.finalLegSummary  = tflLeg.summary;
               trainDetails.finalLegDuration = tflLeg.duration;
@@ -404,6 +522,16 @@ RESPONSE FORMAT:
 
         toolResultContent = formatTrainsForClaudeIndia(irResult);
 
+        const irDataSource = !irResult.error ? 'irctc_live' : 'estimated';
+        broLog('irctc_result', {
+          traceId,
+          origin:        input.origin,
+          destination:   input.destination,
+          servicesFound: irResult.services.length,
+          dataSource:    irDataSource,
+          error:         irResult.error ?? null,
+        });
+
         if (irResult.services.length > 0) {
           const svc = irResult.services[0];
           // Convert INR to USDC for the AgentPay payment layer (≈85 INR per USD)
@@ -422,7 +550,7 @@ RESPONSE FORMAT:
             classCode:        svc.classCode,
             fareInr:          svc.estimatedFareInr,
             country:          'india',
-            dataSource:       !irResult.error ? 'irctc_live' : 'estimated',
+            dataSource:       irDataSource,
           };
         }
       } else {
@@ -468,12 +596,22 @@ RESPONSE FORMAT:
   }
 
   if (planItems.length === 0) {
+    broLog('plan_empty', { traceId });
     return c.json({
       narration: "I couldn't find an available specialist for that right now.",
       actions:   [],
       needsBiometric: false,
     });
   }
+
+  broLog('plan_built', {
+    traceId,
+    itemCount:   planItems.length,
+    tools:       planItems.map(p => p.toolName),
+    totalUsdc:   planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0),
+    dataSources: planItems.map(p => p.dataSource ?? null),
+    hasTfLLeg:   planItems.some(p => !!p.finalLegSummary),
+  });
 
   // ── Second Claude call with real data → natural narration ─────────────────
 
@@ -531,22 +669,37 @@ function callClaude(apiKey: string, body: Record<string, unknown>) {
 async function findBestAgent(
   sql: ReturnType<typeof createDb>,
   category: string,
-): Promise<{ agentId: string; name: string; pricePerTaskUsd: number } | null> {
+): Promise<{ agentId: string; name: string; pricePerTaskUsd: number; grade: string } | null> {
   try {
+    // Enforce grade B or above (system prompt rule 7). Grade is derived from AgentRank score:
+    //   A = 800+, B = 600+, C = 400+, D = 200+, F = <200
+    // Programmatic/self-registered agents (pilot set) are trusted unconditionally — they are
+    // all first-party and have no external bad actors to filter.
     const rows = await sql`
       SELECT
-        ai.agent_id          AS "agentId",
-        ai.metadata->>'name' AS "name",
-        COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 1)::float AS "pricePerTaskUsd"
+        ai.agent_id              AS "agentId",
+        ai.metadata->>'name'     AS "name",
+        COALESCE((ai.metadata->>'pricePerTaskUsd')::numeric, 1)::float AS "pricePerTaskUsd",
+        CASE
+          WHEN COALESCE(ar.score, 0) >= 800 THEN 'A'
+          WHEN COALESCE(ar.score, 0) >= 600 THEN 'B'
+          WHEN COALESCE(ar.score, 0) >= 400 THEN 'C'
+          WHEN COALESCE(ar.score, 0) >= 200 THEN 'D'
+          ELSE 'F'
+        END AS "grade"
       FROM agent_identities ai
       LEFT JOIN agentrank_scores ar ON ar.agent_id = ai.agent_id
       WHERE ai.metadata->>'category' = ${category}
         AND (ai.kyc_status = 'programmatic' OR ai.verified = true)
+        AND (
+          ai.kyc_status = 'programmatic'
+          OR COALESCE(ar.score, 0) >= 600
+        )
       ORDER BY COALESCE(ar.score, 0) DESC
       LIMIT 1
     `;
     if (rows.length === 0) return null;
-    return rows[0] as { agentId: string; name: string; pricePerTaskUsd: number };
+    return rows[0] as { agentId: string; name: string; pricePerTaskUsd: number; grade: string };
   } catch {
     return null;
   }

@@ -152,6 +152,8 @@ app.route('/api/voice', voiceRouter);
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
 app.route('/api/skills', conciergeRouter);
+// Admin shortcuts — bro-jobs debug lives in concierge router
+app.route('/api/admin', conciergeRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);
