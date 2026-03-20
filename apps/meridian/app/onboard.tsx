@@ -86,6 +86,7 @@ export default function OnboardScreen() {
   const [classPref,     setClassPref]     = useState<ClassPref>('standard');
   const [railcard,      setRailcard]      = useState('');
   const [irctcId,       setIrctcId]       = useState('');
+  const [upiId,         setUpiId]         = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError,  setProfileError]  = useState<string | null>(null);
 
@@ -254,6 +255,7 @@ export default function OnboardScreen() {
         classPreference: classPref,
         railcardNumber: railcard.trim() || undefined,
         irctcId:        irctcId.trim() || undefined,
+        upiId:          upiId.trim() || undefined,
         savedAt:        new Date().toISOString(),
       };
       await saveProfile(profile);
@@ -566,6 +568,17 @@ export default function OnboardScreen() {
                     placeholder="IRCTC user ID (optional)"
                     placeholderTextColor="#374151"
                     autoCapitalize="none"
+                  />
+                )}
+                {nationality === 'india' && (
+                  <TextInput
+                    style={styles.input}
+                    value={upiId}
+                    onChangeText={setUpiId}
+                    placeholder="UPI ID — for instant payment (e.g. name@upi)"
+                    placeholderTextColor="#374151"
+                    autoCapitalize="none"
+                    keyboardType="email-address"
                   />
                 )}
 

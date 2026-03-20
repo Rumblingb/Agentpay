@@ -21,6 +21,7 @@ import {
   ScrollView,
   Pressable,
   SafeAreaView,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -225,6 +226,23 @@ export default function ConverseScreen() {
     setPhase('idle');
   }, []);
 
+  // ── UPI pay (India only) ─────────────────────────────────────────────────
+
+  const handleUpiPay = useCallback(async () => {
+    const pending = pendingPlanRef.current;
+    if (!pending) return;
+
+    const amountInr = Math.round(pending.totalPriceUsdc * 85); // rough USD→INR
+    const upiDeepLink = `upi://pay?pa=agentpay@razorpay&pn=AgentPay&am=${amountInr}&cu=INR&tn=${encodeURIComponent('Train booking via Bro')}`;
+
+    const canOpen = await Linking.canOpenURL(upiDeepLink);
+    if (canOpen) {
+      await Linking.openURL(upiDeepLink);
+    } else {
+      await speak('No UPI app found — use fingerprint to confirm instead.');
+    }
+  }, []);
+
   // ── Tap-to-talk (tap once = start, tap again = stop + send) ──────────────
 
   const handleTap = useCallback(async () => {
@@ -279,6 +297,7 @@ export default function ConverseScreen() {
   const isError    = phase === 'error';
   const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
+  const isIndia = (pendingPlanRef.current?.travelProfile?.nationality as string | undefined) === 'india';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -351,6 +370,16 @@ export default function ConverseScreen() {
                 <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
                 <Text style={styles.confirmText}>Confirm with fingerprint</Text>
               </Pressable>
+              {isIndia && (
+                <View style={styles.upiSection}>
+                  <Text style={styles.upiLabel}>Pay with UPI</Text>
+                  <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
+                    <Ionicons name="qr-code-outline" size={16} color="#f97316" />
+                    <Text style={styles.upiBtnText}>Open UPI App</Text>
+                  </Pressable>
+                  <Text style={styles.upiHint}>Google Pay · PhonePe · Paytm · BHIM</Text>
+                </View>
+              )}
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
                 <Text style={styles.confirmCancelText}>Cancel</Text>
               </Pressable>
@@ -509,6 +538,12 @@ const styles = StyleSheet.create({
   confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '500' },
   confirmCancel: { alignItems: 'center', paddingVertical: 8 },
   confirmCancelText: { fontSize: 13, color: '#374151' },
+
+  upiSection:  { marginTop: 12, alignItems: 'center', gap: 8 },
+  upiLabel:    { fontSize: 12, color: '#6b7280', letterSpacing: 0.5 },
+  upiBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1c1008', borderWidth: 1, borderColor: '#92400e', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
+  upiBtnText:  { fontSize: 14, fontWeight: '600', color: '#f97316' },
+  upiHint:     { fontSize: 11, color: '#374151' },
 
   errorCard: {
     flexDirection: 'row',

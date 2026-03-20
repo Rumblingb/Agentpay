@@ -60,6 +60,14 @@ export interface Env {
   /** Absolute URL to redirect after a cancelled Stripe Checkout session. */
   STRIPE_CANCEL_URL?: string;
 
+  // ── Razorpay (India UPI) ──────────────────────────────────────────────────
+  /** Razorpay API key ID — enables UPI payment links for India. */
+  RAZORPAY_KEY_ID?: string;
+  /** Razorpay API key secret — required with RAZORPAY_KEY_ID. */
+  RAZORPAY_KEY_SECRET?: string;
+  /** Razorpay webhook secret — for verifying /webhooks/razorpay. */
+  RAZORPAY_WEBHOOK_SECRET?: string;
+
   // ── URLs & CORS ───────────────────────────────────────────────────────────
   /**
    * Comma-separated list of allowed CORS origins.

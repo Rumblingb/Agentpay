@@ -41,6 +41,7 @@ import { foundationAgentsRouter } from './routes/foundationAgents';
 import { escrowRouter } from './routes/escrow';
 import { voiceRouter } from './routes/voice';
 import { conciergeRouter } from './routes/concierge';
+import { paymentsUpiRouter } from './routes/paymentsUpi';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -169,6 +170,12 @@ app.route('/api/webhooks', webhooksRouter);
 
 // Stripe webhook — /webhooks/stripe (raw body, no JSON parsing before signature check)
 app.route('/webhooks/stripe', stripeWebhooksRouter);
+
+// UPI payment links — POST /api/payments/upi/create
+app.route('/api/payments/upi', paymentsUpiRouter);
+
+// Razorpay webhook — POST /webhooks/razorpay (raw body, no JSON parsing before signature check)
+app.route('/webhooks/razorpay', paymentsUpiRouter);
 
 // Stubs for non-migrated endpoints (returns 501 instead of 404)
 app.route('/', stubsRouter);

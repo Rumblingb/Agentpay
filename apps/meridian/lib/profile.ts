@@ -44,6 +44,7 @@ export interface TravelProfile {
   // Region-specific extras (optional)
   railcardNumber?: string;   // UK: 16-25, Senior, Network railcard
   irctcId?: string;          // India: IRCTC user ID for faster booking
+  upiId?: string;            // India: UPI ID (e.g. name@upi) for payment
 
   // Metadata
   savedAt: string;
@@ -156,6 +157,7 @@ export function buildBookingContext(profile: TravelProfile): string {
     `Class preference: ${profile.classPreference}`,
     profile.railcardNumber ? `UK Railcard: ${profile.railcardNumber}` : '',
     profile.irctcId ? `IRCTC ID: ${profile.irctcId}` : '',
+    profile.upiId ? `UPI ID: ${profile.upiId}` : '',
     `Send confirmation to: ${profile.email} and ${profile.phone}`,
   ].filter(Boolean);
 
@@ -170,7 +172,8 @@ export function buildBookingContext(profile: TravelProfile): string {
  * The server enforces this too — this is a defence-in-depth client guard.
  */
 const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
-  book_train:     ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardNumber'],
+  book_train:          ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardNumber'],
+  book_train_india:    ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'irctcId', 'upiId'],
   book_hotel:     ['legalName', 'email', 'phone'],
   book_taxi:      ['legalName', 'phone'],
   search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
