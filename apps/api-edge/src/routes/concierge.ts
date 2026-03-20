@@ -70,14 +70,40 @@ conciergeRouter.post('/intent', async (c) => {
     return c.json({ error: 'transcript and hirerId required' }, 400);
   }
 
-  // ── Guardrails system prompt ──────────────────────────────────────────────
+  // ── Location-aware currency + nationality context ─────────────────────────
 
-  // Include nationality context so Claude routes to the right rail skill
+  // Cloudflare provides the user's country for free — no GPS, no permissions needed
+  const cfCountry = (c.req.raw as any).cf?.country as string | undefined;
+
+  const COUNTRY_TO_CURRENCY: Record<string, { symbol: string; code: string; name: string }> = {
+    GB: { symbol: '£', code: 'GBP', name: 'pounds' },
+    IN: { symbol: '₹', code: 'INR', name: 'rupees' },
+    US: { symbol: '$', code: 'USD', name: 'dollars' },
+    EU: { symbol: '€', code: 'EUR', name: 'euros' },
+    DE: { symbol: '€', code: 'EUR', name: 'euros' },
+    FR: { symbol: '€', code: 'EUR', name: 'euros' },
+    ES: { symbol: '€', code: 'EUR', name: 'euros' },
+    IT: { symbol: '€', code: 'EUR', name: 'euros' },
+    NL: { symbol: '€', code: 'EUR', name: 'euros' },
+    AU: { symbol: 'A$', code: 'AUD', name: 'dollars' },
+    CA: { symbol: 'C$', code: 'CAD', name: 'dollars' },
+    SG: { symbol: 'S$', code: 'SGD', name: 'dollars' },
+    AE: { symbol: 'AED', code: 'AED', name: 'dirhams' },
+  };
+
+  // Priority: GPS country header → nationality profile → default GBP
+  const nationalityFallback = travelProfile?.nationality === 'india' ? 'IN'
+    : travelProfile?.nationality === 'uk' ? 'GB'
+    : undefined;
+  const detectedCountry = cfCountry ?? nationalityFallback ?? 'GB';
+  const currency = COUNTRY_TO_CURRENCY[detectedCountry] ?? { symbol: '£', code: 'GBP', name: 'pounds' };
+
+  const locationContext = `\nUser location: ${detectedCountry}. Local currency: ${currency.symbol} (${currency.code}).`;
   const nationalityContext = travelProfile?.nationality
-    ? `\nUser nationality: ${travelProfile.nationality}. `
+    ? ` User nationality: ${travelProfile.nationality}.`
     : '';
 
-  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${nationalityContext}
+  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -104,8 +130,9 @@ ROUTING RULES:
 
 RESPONSE FORMAT:
 - For ANY booking: state operator/train name, time, route, fare. End with "Fingerprint to confirm."
-  UK: "[Operator] at [time], [origin] to [destination], £[price]. Fingerprint to confirm."
-  India: "[Train name] at [time], [route], [duration], ₹[price]. Fingerprint to confirm."
+  Always quote the fare in the user's local currency (${currency.symbol} ${currency.code}) where possible.
+  UK trains example: "Avanti at 17:45, London to Manchester, £28. Fingerprint to confirm."
+  India trains example: "Rajdhani at 06:00, Delhi to Mumbai, 16hr, ₹1,200. Fingerprint to confirm."
 - For clarifications or research: answer naturally, no price format needed
 - Hard limit: 35 words. The user is listening, not reading.
 - If you cannot help, say so in one sentence and suggest what you can do instead`;
