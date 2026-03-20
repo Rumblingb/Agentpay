@@ -142,11 +142,13 @@ export interface Env {
   /** OpenAI API key — powers Whisper STT and TTS-1 for voice proxy. */
   OPENAI_API_KEY?: string;
 
-  // ── RTT (Realtime Trains — UK) ────────────────────────────────────────────
-  /** Realtime Trains API username — register free at realtimetrains.co.uk */
-  RTT_USERNAME?: string;
-  /** Realtime Trains API password */
-  RTT_PASSWORD?: string;
+  // ── Darwin (National Rail OpenLDBWS — UK) ────────────────────────────────
+  /**
+   * Darwin API token — live UK train departure boards.
+   * Register at: https://realtime.nationalrail.co.uk/OpenLDBWS/
+   * Set via: npx wrangler secret put DARWIN_API_KEY
+   */
+  DARWIN_API_KEY?: string;
 
   // ── Indian Railways (RapidAPI IRCTC) ──────────────────────────────────────
   /**

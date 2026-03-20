@@ -64,7 +64,10 @@ export default function OnboardScreen() {
   const [biometricLabel, setBioLabel] = useState('Face ID');
 
   // Step 2 — name
-  const [userName, setUserName] = useState('');
+  const [userName,       setUserName]       = useState('');
+  const [nameListening,  setNameListening]  = useState(false);
+  const [nameThinking,   setNameThinking]   = useState(false);
+  const [nameHeard,      setNameHeard]      = useState('');
 
   // Step 3 — privacy consents
   const [locationConsent, setLocationConsent]   = useState(false);
@@ -183,31 +186,49 @@ export default function OnboardScreen() {
       // Give user 6 seconds to speak their details
       await new Promise(r => setTimeout(r, 6000));
       const uri = await stopRecording();
-      if (!uri) throw new Error('No audio captured.');
-
-      setVoiceFillHint('Thinking…');
-      const transcript = await transcribeAudio(uri);
-
-      const res = await fetch(`${BASE}/api/voice/extract-profile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript }),
-      });
-      const data = await res.json() as { fields?: Record<string, string> };
-      const f = data.fields ?? {};
-
-      if (f.legalName)      setLegalName(f.legalName);
-      if (f.email)          setEmail(f.email);
-      if (f.phone)          setPhone(f.phone);
-      if (f.railcardNumber) setRailcard(f.railcardNumber);
-      if (f.nationality && ['uk', 'india', 'other'].includes(f.nationality)) {
-        handleNationality(f.nationality as Nationality);
+      if (!uri) {
+        setVoiceFillHint('No audio captured — mic may be blocked. Try tapping again or type your details below.');
+        return;
       }
 
-      const filled = Object.keys(f).length;
-      setVoiceFillHint(filled > 0 ? `Got it — ${filled} field${filled > 1 ? 's' : ''} filled. Check and save.` : 'Could not extract details — please type them in.');
+      setVoiceFillHint('Thinking…');
+      let transcript = '';
+      try {
+        transcript = await transcribeAudio(uri);
+      } catch {
+        setVoiceFillHint('Could not reach voice service — please type your details below.');
+        return;
+      }
+      if (!transcript.trim()) {
+        setVoiceFillHint('Could not hear you — please try again or type below.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BASE}/api/voice/extract-profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript }),
+        });
+        const data = await res.json() as { fields?: Record<string, string> };
+        const f = data.fields ?? {};
+
+        if (f.legalName)      setLegalName(f.legalName);
+        if (f.email)          setEmail(f.email);
+        if (f.phone)          setPhone(f.phone);
+        if (f.railcardNumber) setRailcard(f.railcardNumber);
+        if (f.nationality && ['uk', 'india', 'other'].includes(f.nationality)) {
+          handleNationality(f.nationality as Nationality);
+        }
+
+        const filled = Object.keys(f).length;
+        setVoiceFillHint(filled > 0 ? `Got it — ${filled} field${filled > 1 ? 's' : ''} filled. Check and save.` : 'Could not extract details — please type them in.');
+      } catch {
+        setVoiceFillHint('Offline? Could not reach server — please type your details below.');
+      }
     } catch (e: any) {
-      setVoiceFillHint(e.message ?? 'Voice fill failed — please type your details.');
+      // mic permission denied or recording failed
+      setVoiceFillHint('Microphone access needed — please type your details below.');
     } finally {
       setVoiceFilling(false);
     }
@@ -351,21 +372,61 @@ export default function OnboardScreen() {
             {step === 'name' && (
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>What should I call you?</Text>
-                <Text style={styles.stepSub}>I'll use your name when we talk.</Text>
+                <Text style={styles.stepSub}>
+                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Hold the orb and say your name.'}
+                </Text>
+
+                {/* Voice orb */}
+                <Pressable
+                  onPressIn={async () => {
+                    if (nameListening || nameThinking) return;
+                    setNameListening(true);
+                    setNameHeard('');
+                    await startRecording().catch(() => { setNameListening(false); });
+                  }}
+                  onPressOut={async () => {
+                    if (!nameListening) return;
+                    setNameListening(false);
+                    setNameThinking(true);
+                    try {
+                      const uri = await stopRecording();
+                      if (uri) {
+                        const t = await transcribeAudio(uri).catch(() => '');
+                        const name = t.trim().replace(/^(my name is|i'm|i am|call me)\s+/i, '').replace(/[.,!?]+$/, '').trim();
+                        if (name) { setNameHeard(name); setUserName(name); }
+                      }
+                    } catch {}
+                    setNameThinking(false);
+                  }}
+                  style={nameStyles.orbWrap}
+                >
+                  <LinearGradient
+                    colors={nameListening ? ['#1e1b4b', '#312e81'] : ['#111', '#1a1a1a']}
+                    style={nameStyles.orb}
+                  >
+                    {nameThinking
+                      ? <ActivityIndicator color="#818cf8" />
+                      : <Ionicons name={nameListening ? 'mic' : 'mic-outline'} size={32} color={nameListening ? '#818cf8' : '#4b5563'} />
+                    }
+                  </LinearGradient>
+                </Pressable>
+
+                {/* Text fallback */}
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { marginTop: 16 }]}
                   value={userName}
-                  onChangeText={setUserName}
-                  placeholder="Your name"
+                  onChangeText={(t) => { setUserName(t); setNameHeard(t); }}
+                  placeholder="Or type your name"
                   placeholderTextColor="#374151"
-                  autoFocus
                   autoCapitalize="words"
                   returnKeyType="next"
-                  onSubmitEditing={() => fadeToNext('privacy')}
+                  onSubmitEditing={() => { if (userName.trim()) fadeToNext('privacy'); }}
                 />
+
                 <PrimaryBtn
                   onPress={() => fadeToNext('privacy')}
-                  label={userName.trim() ? `Nice to meet you, ${userName.trim()}` : 'Continue'}
+                  label={userName.trim() ? `That's me — let's go` : 'Continue'}
+                  disabled={nameListening || nameThinking}
                 />
               </View>
             )}
@@ -748,9 +809,9 @@ function getDemoResponse(transcript: string): string {
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
-function PrimaryBtn({ onPress, label }: { onPress: () => void; label: string }) {
+function PrimaryBtn({ onPress, label, disabled }: { onPress: () => void; label: string; disabled?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={styles.primaryBtn}>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.primaryBtn, disabled && { opacity: 0.5 }]}>
       <LinearGradient
         colors={['#4338ca', '#6366f1']}
         start={{ x: 0, y: 0 }}
@@ -1002,6 +1063,16 @@ const finishStyles = StyleSheet.create({
     color: '#4b5563',
     textAlign: 'center',
     lineHeight: 14,
+  },
+});
+
+const nameStyles = StyleSheet.create({
+  orbWrap: { alignSelf: 'center', marginVertical: 24 },
+  orb: {
+    width: 100, height: 100, borderRadius: 50,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#6366f1', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6, shadowRadius: 30, elevation: 16,
   },
 });
 
