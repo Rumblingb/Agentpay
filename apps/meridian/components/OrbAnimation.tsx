@@ -20,8 +20,11 @@ import type { AppPhase } from '../lib/store';
 
 interface Props {
   phase: AppPhase;
-  onPressIn: () => void;
-  onPressOut: () => void;
+  /** Tap-to-toggle mode — single tap starts/stops. Use this in converse. */
+  onPress?: () => void;
+  /** Hold-to-talk mode — used in the welcome demo only. */
+  onPressIn?: () => void;
+  onPressOut?: () => void;
   disabled?: boolean;
 }
 
@@ -58,7 +61,7 @@ const PHASE_ICON_COLOR: Record<AppPhase, string> = {
   error:      '#f87171',
 };
 
-export function OrbAnimation({ phase, onPressIn, onPressOut, disabled }: Props) {
+export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }: Props) {
   const glowScale    = useRef(new Animated.Value(1)).current;
   const glowOpacity  = useRef(new Animated.Value(0.3)).current;
   const ring1Scale   = useRef(new Animated.Value(1)).current;
@@ -160,16 +163,22 @@ export function OrbAnimation({ phase, onPressIn, onPressOut, disabled }: Props) 
 
   const isInteractive = phase === 'idle' || phase === 'listening' || phase === 'confirming' || phase === 'error';
 
-  const handlePressIn = () => {
+  const handlePress = () => {
     if (disabled || !isInteractive) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onPressIn();
+    onPress?.();
+  };
+
+  const handlePressIn = () => {
+    if (disabled || !isInteractive || onPress) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onPressIn?.();
   };
 
   const handlePressOut = () => {
-    if (disabled || !isInteractive) return;
+    if (disabled || !isInteractive || onPress) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onPressOut();
+    onPressOut?.();
   };
 
   return (
@@ -202,8 +211,9 @@ export function OrbAnimation({ phase, onPressIn, onPressOut, disabled }: Props) 
       {/* Main orb */}
       <Animated.View style={{ transform: [{ scale: orbScale }] }}>
         <Pressable
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
+          onPress={onPress ? handlePress : undefined}
+          onPressIn={!onPress ? handlePressIn : undefined}
+          onPressOut={!onPress ? handlePressOut : undefined}
           disabled={disabled || !isInteractive}
         >
           <LinearGradient

@@ -38,8 +38,8 @@ import { authenticateWithBiometrics } from '../../lib/biometric';
 // ── Phase labels ──────────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<string, string> = {
-  idle:       'Hold to talk',
-  listening:  'Listening…',
+  idle:       'Tap to talk',
+  listening:  'Listening… tap to send',
   thinking:   'On it…',
   confirming: 'Fingerprint to confirm',
   done:       'Done',
@@ -225,55 +225,50 @@ export default function ConverseScreen() {
     setPhase('idle');
   }, []);
 
-  // ── Hold-to-talk ──────────────────────────────────────────────────────────
+  // ── Tap-to-talk (tap once = start, tap again = stop + send) ──────────────
 
-  const handlePressIn = useCallback(async () => {
-    if (phase !== 'idle' && phase !== 'error') return;
-    await stopSpeaking();
-    if (phase === 'error') reset();
-    setPhase('listening');
-    try {
-      await startRecording();
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {
-      // Mic denied — reset to error state so the orb is tappable again
-      setError('Microphone access denied. Go to Android Settings → Apps → Bro → Permissions → Microphone.');
-      setPhase('error');
-    }
-  }, [phase]);
-
-  const handlePressOut = useCallback(async () => {
-    if (phase !== 'listening') return;
-    setPhase('thinking');
-
-    try {
-      const uri = await stopRecording();
-      if (!uri) {
-        // Recording never started (mic was denied in pressIn) — reset silently
-        setPhase('idle');
-        return;
-      }
-
-      let text = '';
+  const handleTap = useCallback(async () => {
+    // Tap while idle/error → start listening
+    if (phase === 'idle' || phase === 'error') {
+      await stopSpeaking();
+      if (phase === 'error') reset();
+      setPhase('listening');
       try {
-        text = await transcribeAudio(uri);
+        await startRecording();
       } catch {
-        setError('Could not reach voice service — check your connection and try again.');
+        setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
         setPhase('error');
-        return;
       }
+      return;
+    }
 
-      if (!text.trim()) {
-        setError("Didn't catch that — please try again.");
+    // Tap while listening → stop and process
+    if (phase === 'listening') {
+      setPhase('thinking');
+      try {
+        const uri = await stopRecording();
+        if (!uri) { setPhase('idle'); return; }
+
+        let text = '';
+        try {
+          text = await transcribeAudio(uri);
+        } catch {
+          setError('Could not reach voice service — check your connection and try again.');
+          setPhase('error');
+          return;
+        }
+
+        if (!text.trim()) {
+          setError("Didn't catch that — please try again.");
+          setPhase('error');
+          return;
+        }
+
+        await handleIntent(text);
+      } catch (e: any) {
+        setError(e.message ?? 'Something went wrong.');
         setPhase('error');
-        return;
       }
-
-      await handleIntent(text);
-    } catch (e: any) {
-      const msg = e.message ?? 'Something went wrong.';
-      setError(msg);
-      setPhase('error');
     }
   }, [phase, handleIntent]);
 
@@ -379,8 +374,7 @@ export default function ConverseScreen() {
 
         <OrbAnimation
           phase={phase}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
+          onPress={handleTap}
           disabled={isBusy || isConfirming}
         />
 
