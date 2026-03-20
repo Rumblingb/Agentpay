@@ -44,6 +44,7 @@ export default function StatusScreen() {
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
   const [isSimulated, setIsSimulated]   = useState(false);
+  const [finalLegSummary, setFinalLegSummary] = useState<string | null>(null);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -78,7 +79,8 @@ export default function StatusScreen() {
             if (proof.operator)      setOperator(proof.operator);
             if (proof.fromStation)   setFromStation(proof.fromStation);
             if (proof.toStation)     setToStation(proof.toStation);
-            if (proof.isSimulated)   setIsSimulated(true);
+            if (proof.isSimulated)    setIsSimulated(true);
+            if (proof.finalLegSummary) setFinalLegSummary(proof.finalLegSummary);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -204,6 +206,11 @@ export default function StatusScreen() {
                 )}
                 {operator && (
                   <Text style={styles.journeyOperator}>{operator}</Text>
+                )}
+                {finalLegSummary && (
+                  <View style={[styles.journeyBadge, { backgroundColor: '#1e1b4b', width: '100%', marginTop: 4 }]}>
+                    <Text style={[styles.journeyBadgeText, { color: '#818cf8' }]}>🚇 {finalLegSummary}</Text>
+                  </View>
                 )}
               </View>
             )}

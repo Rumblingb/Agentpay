@@ -187,6 +187,12 @@ export function estimateFareGbp(originCRS: string, destCRS: string): number {
   return TYPICAL_FARES[`${originCRS}-${destCRS}`] ?? 20;
 }
 
+// ── London termini set — used by concierge to detect arriving-in-London journeys
+export const LONDON_TERMINI = new Set([
+  'STP', 'KGX', 'EUS', 'PAD', 'WAT', 'VIC',
+  'LBG', 'LST', 'MYB', 'CST', 'CHX', 'BFR',
+]);
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TrainService {

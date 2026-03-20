@@ -233,6 +233,8 @@ export interface ConciergePlanItem {
   input: Record<string, unknown>;
   /** Where the schedule data came from — shown as a source badge in the confirm card */
   dataSource?: 'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
+  /** TfL final-leg (only present when arriving at a London terminus) */
+  finalLegSummary?: string;
 }
 
 export interface ConciergeResponse {

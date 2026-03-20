@@ -430,6 +430,7 @@ export default function ConverseScreen() {
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
           const plan    = pendingPlanRef.current?.plan ?? [];
           const tripDesc = plan[0]?.displayName ?? null;
+          const finalLegSummary = plan[0]?.finalLegSummary ?? null;
           const dataSource = plan[0]?.dataSource;
           const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'
                             : dataSource === 'national_rail_scheduled' ? 'National Rail · Scheduled'
@@ -453,6 +454,11 @@ export default function ConverseScreen() {
               )}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
+              )}
+              {finalLegSummary && (
+                <View style={styles.finalLegRow}>
+                  <Text style={styles.finalLegText}>🚇 {finalLegSummary}</Text>
+                </View>
               )}
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
@@ -655,6 +661,21 @@ const styles = StyleSheet.create({
     color: '#f9fafb',
     textAlign: 'center',
     letterSpacing: -1,
+  },
+  finalLegRow: {
+    width: '100%',
+    backgroundColor: '#0d0d1a',
+    borderWidth: 1,
+    borderColor: '#1e1b4b',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  finalLegText: {
+    fontSize: 12,
+    color: '#818cf8',
+    lineHeight: 18,
   },
   confirmBtn: {
     flexDirection: 'row',

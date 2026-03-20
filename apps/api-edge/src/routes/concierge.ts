@@ -24,8 +24,9 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
-import { queryRTT, formatTrainsForClaude } from '../lib/rtt';
+import { queryRTT, formatTrainsForClaude, LONDON_TERMINI } from '../lib/rtt';
 import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
+import { queryTfLFinalLeg } from '../lib/tfl';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -194,8 +195,9 @@ RESPONSE FORMAT:
               trainName:      item.trainDetails.trainName,
               classCode:      item.trainDetails.classCode,
               bookedAt:       new Date().toISOString(),
-              isSimulated:    true,
-              dataSource:     item.trainDetails.dataSource,
+              isSimulated:     true,
+              dataSource:      item.trainDetails.dataSource,
+              finalLegSummary: item.trainDetails.finalLegSummary,
               note: isIndia
                 ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
                 : 'Schedule data from National Rail via Realtime Trains API. Provider booking not yet integrated.',
@@ -215,9 +217,12 @@ RESPONSE FORMAT:
               ]),
             );
 
+            const finalLegLine = item.trainDetails.finalLegSummary
+              ? ` Then: ${item.trainDetails.finalLegSummary}.`
+              : '';
             const confirmLine = isIndia
-              ? `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.`
-              : `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.`;
+              ? `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.${finalLegLine}`
+              : `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.${finalLegLine}`;
 
             toolResults.push({
               type:        'tool_result',
@@ -362,10 +367,29 @@ RESPONSE FORMAT:
             destination:      rttResult.destination,
             estimatedFareGbp: svc.estimatedFareGbp,
             country:          'uk',
+            destinationCRS:   rttResult.destinationCRS,
             dataSource:       !rttResult.error ? 'darwin_live'
                             : rttResult.error === 'advance_schedule' ? 'national_rail_scheduled'
                             : 'estimated',
           };
+
+          // ── TfL final-leg routing ──────────────────────────────────────────
+          // If arriving at a London terminus and user gave a final London destination,
+          // query TfL Journey Planner for the city transfer leg.
+          const finalDest = input.final_destination as string | undefined;
+          if (finalDest && LONDON_TERMINI.has(rttResult.destinationCRS ?? '')) {
+            const tflLeg = await queryTfLFinalLeg(
+              rttResult.destinationCRS,
+              finalDest,
+              (c.env as any).TFL_APP_KEY,
+            ).catch(() => undefined);
+            if (tflLeg && !tflLeg.error) {
+              trainDetails.finalLegSummary  = tflLeg.summary;
+              trainDetails.finalLegDuration = tflLeg.duration;
+              // Append to Claude's context so the narration naturally includes the final leg
+              toolResultContent += `\nCity transfer from ${rttResult.destination}: ${tflLeg.summary}.`;
+            }
+          }
         }
       } else if (toolCall.name === 'book_train_india') {
         // ── Indian Railways query (IRCTC / RapidAPI) ─────────────────────
@@ -436,6 +460,7 @@ RESPONSE FORMAT:
         input:              toolCall.input as Record<string, unknown>,
         trainDetails,
         dataSource:         trainDetails?.dataSource,
+        finalLegSummary:    trainDetails?.finalLegSummary,
       });
     }
   } finally {
@@ -817,6 +842,11 @@ interface TrainDetails {
   fareInr?:         number;
   /** Whether this data came from a live API or a scheduled/mock fallback */
   dataSource?:      'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
+  /** CRS code of the arrival station — used to detect London terminus for TfL final leg */
+  destinationCRS?:  string;
+  /** TfL final-leg summary (only present when arriving at a London terminus) */
+  finalLegSummary?: string;
+  finalLegDuration?: number;
 }
 
 interface PlanItem {
@@ -829,6 +859,7 @@ interface PlanItem {
   input:              Record<string, unknown>;
   trainDetails?:      TrainDetails;
   dataSource?:        string;
+  finalLegSummary?:   string;
 }
 
 interface ActionResult {
@@ -862,6 +893,8 @@ interface BookingProof {
   bookedAt:       string;
   note:           string;
   /** True = synthetic ref — schedule data only, no live provider booking */
-  isSimulated?:   boolean;
-  dataSource?:    string;
+  isSimulated?:    boolean;
+  dataSource?:     string;
+  /** TfL final-leg summary (e.g. "Piccadilly line (3 stops) → Covent Garden, 12 min") */
+  finalLegSummary?: string;
 }
