@@ -102,24 +102,33 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     }
 
     if (phase === 'listening') {
-      // Rapid expanding rings
-      const ringLoop = (scale: Animated.Value, opacity: Animated.Value, delay: number) =>
+      // Elegant breathing halo — one slow bloom, no sharp radar rings
+      // Ring 1: slow expand + fade (2.2s, offset by 900ms for ring 2)
+      const breathe = (scale: Animated.Value, opacity: Animated.Value, delay: number) =>
         Animated.loop(
           Animated.sequence([
             Animated.delay(delay),
             Animated.parallel([
-              Animated.timing(scale,   { toValue: 2.2, duration: 1000, useNativeDriver: true }),
-              Animated.timing(opacity, { toValue: 0,   duration: 1000, useNativeDriver: true }),
+              Animated.timing(scale,   { toValue: 1.9, duration: 2200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+              Animated.timing(opacity, { toValue: 0,   duration: 2200, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
             ]),
             Animated.parallel([
-              Animated.timing(scale,   { toValue: 1,   duration: 0,    useNativeDriver: true }),
-              Animated.timing(opacity, { toValue: 0.6, duration: 0,    useNativeDriver: true }),
+              Animated.timing(scale,   { toValue: 1,    duration: 0, useNativeDriver: true }),
+              Animated.timing(opacity, { toValue: 0.35, duration: 0, useNativeDriver: true }),
             ]),
           ]),
         );
-      ringLoop(ring1Scale, ring1Opacity, 0).start();
-      ringLoop(ring2Scale, ring2Opacity, 500).start();
-      Animated.spring(orbScale, { toValue: 1.08, useNativeDriver: true, speed: 20 }).start();
+      breathe(ring1Scale, ring1Opacity, 0).start();
+      breathe(ring2Scale, ring2Opacity, 1100).start();
+      // Orb breathes gently — inhale on press
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(orbScale, { toValue: 1.05, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(orbScale, { toValue: 1.0,  duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+      // Glow intensifies — feels attentive
+      Animated.timing(glowOpacity, { toValue: 0.65, duration: 600, useNativeDriver: true }).start();
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
@@ -148,7 +157,9 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     }
 
     if (phase !== 'listening') {
+      orbScale.stopAnimation();
       Animated.spring(orbScale, { toValue: 1, useNativeDriver: true, speed: 15 }).start();
+      Animated.timing(glowOpacity, { toValue: phase === 'idle' ? 0.3 : 0.2, duration: 400, useNativeDriver: true }).start();
       ring1Scale.setValue(1);
       ring1Opacity.setValue(0);
       ring2Scale.setValue(1);

@@ -128,13 +128,20 @@ ROUTING RULES:
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
 
+TIME CLARIFICATION RULE — critical:
+- If the user did NOT specify a time (e.g. "book a train to Manchester"), call the tool with time_preference="any"
+- When the tool returns multiple trains, list up to 3 options and ask which they want:
+  "Three today — 14:05 £21, 15:30 £28, 17:45 £19. Which one?"
+- Only move to "Fingerprint to confirm" AFTER the user has chosen a specific train
+- If only one train is available, go straight to confirmation
+
 RESPONSE FORMAT:
-- For ANY booking: state operator/train name, time, route, fare. End with "Fingerprint to confirm."
-  Always quote the fare in the user's local currency (${currency.symbol} ${currency.code}) where possible.
-  UK trains example: "Avanti at 17:45, London to Manchester, £28. Fingerprint to confirm."
-  India trains example: "Rajdhani at 06:00, Delhi to Mumbai, 16hr, ₹1,200. Fingerprint to confirm."
-- For clarifications or research: answer naturally, no price format needed
-- Hard limit: 35 words. The user is listening, not reading.
+- Confirmed single booking: state operator, time, fare. End with "Fingerprint to confirm."
+  UK: "Avanti at 17:45, £28. Fingerprint to confirm."
+  India: "Rajdhani at 06:00, 16hr, ₹1,200. Fingerprint to confirm."
+- Multiple options (no time given): list up to 3 times + fares, ask which one. Under 20 words.
+- Clarifications: answer naturally, no price format needed
+- Hard limit: 35 words. The user is listening on a platform, not reading.
 - If you cannot help, say so in one sentence and suggest what you can do instead`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
