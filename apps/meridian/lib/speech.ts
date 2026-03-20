@@ -10,7 +10,6 @@
  */
 
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
 export { speak, stopSpeaking } from './tts';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
@@ -46,16 +45,10 @@ export async function stopRecording(): Promise<string | null> {
 // ── Transcription ─────────────────────────────────────────────────────────────
 
 export async function transcribeAudio(uri: string): Promise<string> {
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  // Build a Blob from base64 so we can send as multipart
-  const dataUri = `data:audio/m4a;base64,${base64}`;
-  const blob = await fetch(dataUri).then(r => r.blob());
-
+  // React Native FormData accepts { uri, type, name } directly.
+  // Never use fetch(dataUri).then(r => r.blob()) — data URI fetch is broken on Android.
   const form = new FormData();
-  form.append('audio', blob as any, 'audio.m4a');
+  form.append('audio', { uri, type: 'audio/m4a', name: 'audio.m4a' } as any);
 
   const res = await fetch(`${BASE}/api/voice/transcribe`, {
     method: 'POST',

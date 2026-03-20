@@ -39,12 +39,12 @@ import { authenticateWithBiometrics } from '../../lib/biometric';
 // ── Phase labels ──────────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<string, string> = {
-  idle:       'Tap to talk',
-  listening:  'Listening… tap to send',
+  idle:       'Hold to talk',
+  listening:  'Listening… release to send',
   thinking:   'On it…',
   confirming: 'Fingerprint to confirm',
   done:       'Done',
-  error:      'Tap to try again',
+  error:      'Hold to try again',
 };
 
 // ── Main screen ───────────────────────────────────────────────────────────────
@@ -243,50 +243,70 @@ export default function ConverseScreen() {
     }
   }, []);
 
-  // ── Tap-to-talk (tap once = start, tap again = stop + send) ──────────────
+  // ── Hold-to-talk (press = start recording, release = send) ──────────────
+  // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
 
-  const handleTap = useCallback(async () => {
-    // Tap while idle/error → start listening
-    if (phase === 'idle' || phase === 'error') {
-      await stopSpeaking();
-      if (phase === 'error') reset();
-      setPhase('listening');
-      try {
-        await startRecording();
-      } catch {
-        setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
-        setPhase('error');
-      }
+  const pressStartRef = useRef<number>(0);
+
+  const handlePressIn = useCallback(async () => {
+    if (phase !== 'idle' && phase !== 'error') return;
+    await stopSpeaking();
+    if (phase === 'error') reset();
+    pressStartRef.current = Date.now();
+    setPhase('listening');
+    try {
+      await startRecording();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
+      setPhase('error');
+    }
+  }, [phase]);
+
+  const handlePressOut = useCallback(async () => {
+    if (phase !== 'listening') return;
+
+    const heldMs = Date.now() - pressStartRef.current;
+    if (heldMs < 600) {
+      // Too short — accidental tap, don't send garbage audio
+      await stopRecording();
+      setPhase('idle');
       return;
     }
 
-    // Tap while listening → stop and process
-    if (phase === 'listening') {
-      setPhase('thinking');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPhase('thinking');
+
+    try {
+      const uri = await stopRecording();
+      if (!uri) { setPhase('idle'); return; }
+
+      let text = '';
       try {
-        const uri = await stopRecording();
-        if (!uri) { setPhase('idle'); return; }
-
-        let text = '';
-        try {
-          text = await transcribeAudio(uri);
-        } catch {
-          setError('Could not reach voice service — check your connection and try again.');
-          setPhase('error');
-          return;
-        }
-
-        if (!text.trim()) {
-          setError("Didn't catch that — please try again.");
-          setPhase('error');
-          return;
-        }
-
-        await handleIntent(text);
+        text = await transcribeAudio(uri);
       } catch (e: any) {
-        setError(e.message ?? 'Something went wrong.');
+        const msg = e.message ?? '';
+        if (msg.includes('401') || msg.includes('403')) {
+          setError('Voice service not configured — contact support.');
+        } else if (msg.includes('5')) {
+          setError('Voice service error — please try again.');
+        } else {
+          setError('No connection — check your internet and try again.');
+        }
         setPhase('error');
+        return;
       }
+
+      if (!text.trim()) {
+        setError("Didn't catch that — hold and speak clearly.");
+        setPhase('error');
+        return;
+      }
+
+      await handleIntent(text);
+    } catch (e: any) {
+      setError(e.message ?? 'Something went wrong.');
+      setPhase('error');
     }
   }, [phase, handleIntent]);
 
@@ -403,7 +423,8 @@ export default function ConverseScreen() {
 
         <OrbAnimation
           phase={phase}
-          onPress={handleTap}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
           disabled={isBusy || isConfirming}
         />
 
