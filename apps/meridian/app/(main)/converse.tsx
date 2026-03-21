@@ -26,6 +26,9 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { C, PHASE_LABEL_COLOR } from '../../lib/theme';
 
 import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
@@ -369,15 +372,15 @@ export default function ConverseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerBrand}>
-          <Text style={styles.headerCompass}>🧭</Text>
-          <Text style={styles.headerTitle}>Bro</Text>
+          <View style={styles.headerDot} />
+          <Text style={styles.headerTitle}>bro</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 22 }}>
           <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12}>
-            <Ionicons name="time-outline" size={20} color="#374151" />
+            <Ionicons name="time-outline" size={19} color={C.textMuted} />
           </Pressable>
           <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
-            <Ionicons name="settings-outline" size={20} color="#374151" />
+            <Ionicons name="settings-outline" size={19} color={C.textMuted} />
           </Pressable>
         </View>
       </View>
@@ -394,11 +397,13 @@ export default function ConverseScreen() {
             <Text style={styles.emptyGreeting}>
               {userName !== 'there' ? `Hello, ${userName}.` : 'Hello.'}
             </Text>
-            <Text style={styles.emptyHint}>Where are we heading?</Text>
+            <Text style={styles.emptyHint}>
+              Hold the orb. Tell me where you're going.{'\n'}I'll handle the rest.
+            </Text>
             <View style={styles.suggestions}>
-              <Suggestion emoji="🚂" text="London to Edinburgh, tomorrow 8am" />
-              <Suggestion emoji="🏨" text="Hotel in Manchester, 2 nights" />
-              <Suggestion emoji="🚕" text="Taxi from King's Cross" />
+              <Suggestion icon="train-outline" text="London to Edinburgh, tomorrow 8am" />
+              <Suggestion icon="bed-outline"   text="Hotel in Manchester, 2 nights" />
+              <Suggestion icon="car-outline"   text="Taxi from King's Cross" />
             </View>
           </View>
         )}
@@ -413,7 +418,7 @@ export default function ConverseScreen() {
           >
             {turn.role === 'meridian' && (
               <View style={styles.bubbleAvatar}>
-                <Text style={styles.bubbleAvatarEmoji}>🧭</Text>
+                <View style={styles.avatarDot} />
               </View>
             )}
             <Text style={[
@@ -443,7 +448,7 @@ export default function ConverseScreen() {
             : fiat.toFixed(2);
           const priceLabel = fiat > 0 ? `${sym}${fiatStr}` : null;
           return (
-            <View style={styles.confirmCard}>
+            <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
@@ -457,12 +462,19 @@ export default function ConverseScreen() {
               )}
               {finalLegSummary && (
                 <View style={styles.finalLegRow}>
-                  <Text style={styles.finalLegText}>🚇 {finalLegSummary}</Text>
+                  <Ionicons name="subway-outline" size={13} color={C.sky} style={{ marginRight: 6 }} />
+                  <Text style={styles.finalLegText}>{finalLegSummary}</Text>
                 </View>
               )}
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
-                <Ionicons name="finger-print-outline" size={18} color="#818cf8" />
-                <Text style={styles.confirmText}>Confirm with fingerprint</Text>
+                <LinearGradient
+                  colors={[C.emDim, C.emMid]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={styles.confirmBtnGrad}
+                >
+                  <Ionicons name="finger-print-outline" size={20} color={C.emBright} />
+                  <Text style={styles.confirmText}>Confirm with fingerprint</Text>
+                </LinearGradient>
               </Pressable>
               {isIndia && (
                 <View style={styles.upiSection}>
@@ -477,7 +489,7 @@ export default function ConverseScreen() {
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
                 <Text style={styles.confirmCancelText}>Cancel</Text>
               </Pressable>
-            </View>
+            </BlurView>
           );
         })()}
 
@@ -493,7 +505,9 @@ export default function ConverseScreen() {
 
       {/* Orb + label */}
       <View style={styles.orbArea}>
-        <Text style={styles.phaseLabel}>{phaseLabel}</Text>
+        <Text style={[styles.phaseLabel, { color: PHASE_LABEL_COLOR[phase] ?? C.textMuted }]}>
+          {phaseLabel}
+        </Text>
 
         <OrbAnimation
           phase={phase}
@@ -515,10 +529,12 @@ export default function ConverseScreen() {
 
 // ── Suggestion chip ───────────────────────────────────────────────────────────
 
-function Suggestion({ emoji, text }: { emoji: string; text: string }) {
+function Suggestion({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={suggStyles.chip}>
-      <Text style={suggStyles.emoji}>{emoji}</Text>
+      <View style={suggStyles.iconWrap}>
+        <Ionicons name={icon as any} size={13} color={C.em} />
+      </View>
       <Text style={suggStyles.text}>{text}</Text>
     </View>
   );
@@ -528,188 +544,230 @@ const suggStyles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#0d0d0d',
+    gap: 10,
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
-    borderRadius: 22,
+    borderColor: C.border,
+    borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 11,
     marginBottom: 8,
     alignSelf: 'flex-start',
   },
-  emoji: { fontSize: 14 },
-  text:  { fontSize: 13, color: '#6b7280' },
+  iconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: C.emDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  text: { fontSize: 13, color: C.textSecondary, letterSpacing: 0.1 },
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#080808' },
+  safe: { flex: 1, backgroundColor: C.bg },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: 22,
+    paddingTop: 10,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#0f0f0f',
+    borderBottomColor: C.border,
   },
   headerBrand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 9,
   },
-  headerCompass: { fontSize: 18 },
+  headerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.em,
+    shadowColor: C.em,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+  },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '700',
-    color: '#f9fafb',
-    letterSpacing: -0.5,
+    color: C.textPrimary,
+    letterSpacing: -0.3,
   },
 
   scroll:        { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 16 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  emptyState:    { paddingTop: 40, paddingBottom: 20 },
-  emptyGreeting: { fontSize: 28, fontWeight: '700', color: '#f9fafb', marginBottom: 6, letterSpacing: -0.5 },
-  emptyHint:     { fontSize: 17, color: '#4b5563', marginBottom: 28, lineHeight: 25 },
-  suggestions:   {},
+  emptyState:    { paddingTop: 44, paddingBottom: 20 },
+  emptyGreeting: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: C.textPrimary,
+    marginBottom: 10,
+    letterSpacing: -1,
+    lineHeight: 40,
+  },
+  emptyHint: {
+    fontSize: 16,
+    color: C.textMuted,
+    marginBottom: 32,
+    lineHeight: 26,
+    letterSpacing: 0.1,
+  },
+  suggestions: {},
 
   bubble: {
     maxWidth: '85%',
-    marginBottom: 12,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 6,
+    gap: 7,
   },
   bubbleUser:     { alignSelf: 'flex-end' },
   bubbleMeridian: { alignSelf: 'flex-start' },
   bubbleAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#0f0d24',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: C.emDim,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
     borderWidth: 1,
-    borderColor: '#1e1b4b',
+    borderColor: C.emGlow,
   },
-  bubbleAvatarEmoji: { fontSize: 13, lineHeight: 16 },
+  avatarDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.emBright,
+  },
   bubbleText: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 23,
     borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
     overflow: 'hidden',
   },
   bubbleTextUser: {
-    backgroundColor: '#1e1b4b',
-    color: '#e0e7ff',
-    borderBottomRightRadius: 4,
+    backgroundColor: C.indigoDim,
+    color: '#dde4ff',
+    borderBottomRightRadius: 3,
   },
   bubbleTextMeridian: {
-    backgroundColor: '#111',
-    color: '#d1d5db',
-    borderBottomLeftRadius: 4,
+    backgroundColor: C.surface,
+    color: C.textSecondary,
+    borderBottomLeftRadius: 3,
+    borderLeftWidth: 2,
+    borderLeftColor: C.em,
   },
 
   confirmCard: {
-    backgroundColor: '#09080f',
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#3730a3',
-    borderRadius: 16,
-    padding: 18,
+    borderColor: C.emGlow,
+    borderRadius: 20,
+    padding: 22,
     marginBottom: 12,
     alignSelf: 'stretch',
-    gap: 12,
-    shadowColor: '#4338ca',
+    gap: 14,
+    shadowColor: C.em,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 40,
+    elevation: 12,
   },
   confirmTrip: {
-    fontSize: 13,
-    color: '#6b7280',
+    fontSize: 14,
+    color: C.textSecondary,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 20,
+    letterSpacing: 0.1,
   },
   sourceBadge: {
     alignSelf: 'center',
-    backgroundColor: '#0d1117',
+    backgroundColor: C.surface2,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: C.borderMd,
     borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   sourceBadgeText: {
     fontSize: 11,
-    color: '#4b5563',
+    color: C.textMuted,
     fontWeight: '600',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   confirmPrice: {
-    fontSize: 28,
+    fontSize: 38,
     fontWeight: '800',
-    color: '#f9fafb',
+    color: C.textPrimary,
     textAlign: 'center',
-    letterSpacing: -1,
+    letterSpacing: -1.5,
   },
   finalLegRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     width: '100%',
-    backgroundColor: '#0d0d1a',
+    backgroundColor: C.skyDim,
     borderWidth: 1,
-    borderColor: '#1e1b4b',
+    borderColor: '#1a3a50',
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 4,
+    paddingVertical: 9,
   },
   finalLegText: {
+    flex: 1,
     fontSize: 12,
-    color: '#818cf8',
+    color: C.sky,
     lineHeight: 18,
+    letterSpacing: 0.1,
   },
   confirmBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  confirmBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#1e1b4b',
-    borderRadius: 12,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#3730a3',
+    gap: 10,
+    paddingVertical: 16,
   },
-  confirmText: { fontSize: 15, color: '#a5b4fc', fontWeight: '600' },
-  confirmCancel: { alignItems: 'center', paddingVertical: 6 },
-  confirmCancelText: { fontSize: 13, color: '#374151' },
+  confirmText: { fontSize: 15, color: C.emBright, fontWeight: '700', letterSpacing: 0.2 },
+  confirmCancel: { alignItems: 'center', paddingVertical: 8 },
+  confirmCancelText: { fontSize: 13, color: C.textDim },
 
-  upiSection:  { marginTop: 12, alignItems: 'center', gap: 8 },
-  upiLabel:    { fontSize: 12, color: '#6b7280', letterSpacing: 0.5 },
-  upiBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1c1008', borderWidth: 1, borderColor: '#92400e', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
+  upiSection:  { marginTop: 4, alignItems: 'center', gap: 8 },
+  upiLabel:    { fontSize: 12, color: C.textMuted, letterSpacing: 0.5 },
+  upiBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1c1008', borderWidth: 1, borderColor: C.amberMid, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
   upiBtnText:  { fontSize: 14, fontWeight: '600', color: '#f97316' },
-  upiHint:     { fontSize: 11, color: '#374151' },
+  upiHint:     { fontSize: 11, color: C.textDim },
 
   errorCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#0f0505',
+    gap: 10,
+    backgroundColor: '#080505',
     borderWidth: 1,
-    borderColor: '#7f1d1d',
+    borderColor: C.redMid,
+    borderLeftWidth: 3,
+    borderLeftColor: C.red,
     borderRadius: 12,
-    padding: 12,
+    padding: 14,
     marginBottom: 12,
   },
-  errorText: { flex: 1, fontSize: 13, color: '#fca5a5', lineHeight: 19 },
+  errorText: { flex: 1, fontSize: 13, color: '#fca5a5', lineHeight: 20 },
 
   orbArea: {
     position: 'absolute',
@@ -717,19 +775,20 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingBottom: 48,
-    paddingTop: 16,
-    backgroundColor: 'rgba(8,8,8,0.95)',
+    paddingBottom: 50,
+    paddingTop: 18,
+    backgroundColor: 'rgba(3,7,15,0.97)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#111',
+    borderTopColor: C.border,
   },
   phaseLabel: {
-    fontSize: 14,
-    color: '#4b5563',
+    fontSize: 11,
     marginBottom: 16,
-    letterSpacing: 0.3,
-    fontWeight: '500',
+    letterSpacing: 2,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    // color injected inline per-phase
   },
-  clearBtn: { marginTop: 16 },
-  clearBtnText: { fontSize: 13, color: '#374151' },
+  clearBtn: { marginTop: 18 },
+  clearBtnText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
 });

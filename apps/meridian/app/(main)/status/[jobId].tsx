@@ -24,6 +24,7 @@ import { getIntentStatus } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
+import { C } from '../../../lib/theme';
 
 const POLL_MS = 3000;
 
@@ -139,14 +140,15 @@ export default function StatusScreen() {
 
         {/* Back */}
         <Pressable onPress={() => router.back()} style={styles.back} hitSlop={12}>
-          <Ionicons name="chevron-back" size={22} color="#4b5563" />
+          <Ionicons name="chevron-back" size={22} color={C.textMuted} />
         </Pressable>
 
-        {/* Agent name */}
+        {/* Agent label with emerald indicator */}
         {currentAgent && (
-          <Text style={styles.agentLabel}>
-            {currentAgent.name}
-          </Text>
+          <View style={styles.agentLabelRow}>
+            <View style={styles.agentDot} />
+            <Text style={styles.agentLabel}>{currentAgent.name}</Text>
+          </View>
         )}
 
         {/* Main orb visual */}
@@ -154,17 +156,17 @@ export default function StatusScreen() {
           <Animated.View style={{ transform: [{ scale: orbScale }] }}>
             {isDone ? (
               isSimulated ? (
-                <LinearGradient colors={['#1c1000', '#451a03']} style={styles.orb}>
-                  <Ionicons name="time-outline" size={44} color="#f59e0b" />
+                <LinearGradient colors={[C.amberDim, '#451a03']} style={[styles.orb, { shadowColor: C.amber }]}>
+                  <Ionicons name="time-outline" size={44} color={C.amber} />
                 </LinearGradient>
               ) : (
-                <LinearGradient colors={['#052e16', '#14532d']} style={styles.orb}>
-                  <Ionicons name="checkmark" size={52} color="#4ade80" />
+                <LinearGradient colors={[C.emDim, C.greenMid]} style={[styles.orb, { shadowColor: C.green }]}>
+                  <Ionicons name="checkmark" size={52} color={C.green} />
                 </LinearGradient>
               )
             ) : isError ? (
-              <LinearGradient colors={['#450a0a', '#7f1d1d']} style={styles.orb}>
-                <Ionicons name="warning-outline" size={44} color="#f87171" />
+              <LinearGradient colors={[C.redDim, C.redMid]} style={[styles.orb, { shadowColor: C.red }]}>
+                <Ionicons name="warning-outline" size={44} color={C.red} />
               </LinearGradient>
             ) : (
               <OrbWorking />
@@ -298,8 +300,8 @@ function OrbWorking() {
     <View style={{ alignItems: 'center', justifyContent: 'center', width: 140, height: 140 }}>
       <Animated.View style={[statusStyles.ring, { transform: [{ scale: ring1 }], opacity: ring1Op }]} />
       <Animated.View style={[statusStyles.ring, { transform: [{ scale: ring2 }], opacity: ring2Op }]} />
-      <LinearGradient colors={['#1e1b4b', '#312e81']} style={styles.orb}>
-        <Ionicons name="pulse" size={44} color="#818cf8" />
+      <LinearGradient colors={[C.emDim, C.emMid]} style={[styles.orb, { shadowColor: C.em }]}>
+        <Ionicons name="navigate-outline" size={40} color={C.emBright} />
       </LinearGradient>
     </View>
   );
@@ -311,132 +313,162 @@ const statusStyles = StyleSheet.create({
     width:  110,
     height: 110,
     borderRadius: 55,
-    borderWidth: 1,
-    borderColor: '#6366f1',
+    borderWidth: 1.5,
+    borderColor: C.em,
   },
 });
 
 const styles = StyleSheet.create({
-  safe:      { flex: 1, backgroundColor: '#080808' },
+  safe:      { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 28, alignItems: 'center' },
 
-  back: { alignSelf: 'flex-start', marginTop: 8, marginBottom: 24 },
+  back: { alignSelf: 'flex-start', marginTop: 8, marginBottom: 20 },
 
+  agentLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 44,
+  },
+  agentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.em,
+    shadowColor: C.em,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 5,
+  },
   agentLabel: {
-    fontSize: 13,
-    color: '#4b5563',
+    fontSize: 12,
+    color: C.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 40,
+    letterSpacing: 1.5,
+    fontWeight: '600',
   },
 
-  orbWrap: { marginBottom: 32 },
+  orbWrap: { marginBottom: 36 },
   orb: {
     width:  120,
     height: 120,
     borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#6366f1',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 30,
-    elevation: 12,
+    shadowOpacity: 0.55,
+    shadowRadius: 36,
+    elevation: 14,
   },
 
-  statusTitle:            { fontSize: 28, fontWeight: '700', color: '#f9fafb', marginBottom: 10 },
-  statusTitleDone:        { color: '#4ade80' },
-  statusTitleRequested:   { color: '#f59e0b' },
-  statusTitleError:       { color: '#f87171' },
+  statusTitle:            { fontSize: 32, fontWeight: '800', color: C.textPrimary, marginBottom: 10, letterSpacing: -0.5 },
+  statusTitleDone:        { color: C.green },
+  statusTitleRequested:   { color: C.amber },
+  statusTitleError:       { color: C.red },
 
   statusSub: {
     fontSize: 15,
-    color: '#6b7280',
+    color: C.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 23,
     marginBottom: 40,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
 
   bookingRefWrap: {
-    backgroundColor: '#0a1a0a',
+    backgroundColor: '#050f05',
     borderWidth: 1,
-    borderColor: '#14532d',
-    borderRadius: 14,
+    borderColor: C.greenMid,
+    borderRadius: 16,
     paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingVertical: 20,
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 36,
     width: '100%',
+    shadowColor: C.green,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 30,
   },
   bookingRefWrapRequested: {
-    backgroundColor: '#0c0a00',
-    borderColor: '#78350f',
+    backgroundColor: '#0a0700',
+    borderColor: C.amberMid,
+    shadowColor: C.amber,
   },
   bookingRefLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#4b5563',
+    color: C.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 8,
+    letterSpacing: 1.5,
+    marginBottom: 10,
   },
   bookingRef: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#4ade80',
-    letterSpacing: 3,
+    color: C.green,
+    letterSpacing: 4,
     fontFamily: 'monospace',
   },
   bookingRefRequested: {
-    color: '#f59e0b',
+    color: C.amber,
+    letterSpacing: 2,
   },
 
   journeyMeta: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginTop: 14,
+    marginTop: 16,
     justifyContent: 'center',
   },
   journeyBadge: {
-    backgroundColor: '#14532d',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: C.emDim,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.emGlow,
   },
   journeyBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#4ade80',
+    color: C.emBright,
+    letterSpacing: 0.2,
   },
   journeyOperator: {
     width: '100%',
     textAlign: 'center',
     fontSize: 12,
-    color: '#4b5563',
-    marginTop: 4,
+    color: C.textMuted,
+    marginTop: 6,
+    letterSpacing: 0.3,
   },
 
   ctaWrap: { width: '100%', alignItems: 'center' },
   receiptBtn: {
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 14,
+    shadowColor: C.em,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
   },
   receiptBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    paddingVertical: 16,
+    paddingVertical: 18,
   },
-  receiptBtnText: { fontSize: 17, fontWeight: '700', color: '#4ade80' },
+  receiptBtnText: { fontSize: 17, fontWeight: '700', color: C.emBright, letterSpacing: 0.2 },
 
-  newRequestBtn: { paddingVertical: 12 },
-  newRequestText: { fontSize: 14, color: '#4b5563' },
+  newRequestBtn: { paddingVertical: 14 },
+  newRequestText: { fontSize: 14, color: C.textMuted, letterSpacing: 0.3 },
 
   retryBtn: { paddingVertical: 16 },
-  retryText: { fontSize: 15, color: '#6b7280' },
+  retryText: { fontSize: 15, color: C.textSecondary },
 });

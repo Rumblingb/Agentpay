@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
+import { PHASE_SHADOW } from '../lib/theme';
 
 interface Props {
   phase: AppPhase;
@@ -29,28 +30,28 @@ interface Props {
 }
 
 const PHASE_COLORS: Record<AppPhase, [string, string]> = {
-  idle:       ['#1e1b4b', '#312e81'],
-  listening:  ['#4338ca', '#7c3aed'],
-  thinking:   ['#1e3a5f', '#1e40af'],
-  choosing:   ['#1e1b4b', '#312e81'],
-  confirming: ['#78350f', '#b45309'],
-  hiring:     ['#1e3a5f', '#1e40af'],
-  executing:  ['#1e1b4b', '#312e81'],
-  done:       ['#052e16', '#14532d'],
-  error:      ['#450a0a', '#7f1d1d'],
+  idle:       ['#052e16', '#064e3b'],   // emerald — brand at rest
+  listening:  ['#053530', '#065f46'],   // deep emerald — signal coming in
+  thinking:   ['#0c2240', '#1e3a5f'],   // dark navy — AI processing
+  choosing:   ['#052e16', '#064e3b'],   // emerald — assessing
+  confirming: ['#451a03', '#92400e'],   // amber — weight of payment
+  hiring:     ['#0c2240', '#1e3a5f'],   // navy — executing hire
+  executing:  ['#052e16', '#064e3b'],   // emerald — doing the work
+  done:       ['#052e16', '#14532d'],   // rich green — confirmed
+  error:      ['#450a0a', '#7f1d1d'],   // red — recalibrating
 };
 
 // The bright (North) tip colour of the needle
 const NEEDLE_COLOR: Record<AppPhase, string> = {
-  idle:       '#818cf8',
-  listening:  '#e0e7ff',
-  thinking:   '#93c5fd',
-  choosing:   '#818cf8',
-  confirming: '#fcd34d',
-  hiring:     '#93c5fd',
-  executing:  '#a5b4fc',
-  done:       '#4ade80',
-  error:      '#f87171',
+  idle:       '#34d399',  // emerald — searching the horizon
+  listening:  '#6ee7b7',  // bright emerald — picking up signal
+  thinking:   '#38bdf8',  // sky — plotting the route
+  choosing:   '#34d399',  // emerald
+  confirming: '#fcd34d',  // amber — the weight of a booking
+  hiring:     '#38bdf8',  // sky
+  executing:  '#34d399',  // emerald
+  done:       '#4ade80',  // green — you're on your way
+  error:      '#f87171',  // red — recalibrating
 };
 
 export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }: Props) {
@@ -65,6 +66,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
 
   const colors      = PHASE_COLORS[phase];
   const needleColor = NEEDLE_COLOR[phase];
+  const shadowColor = PHASE_SHADOW[phase] ?? '#10b981';
 
   useEffect(() => {
     // Stop all running animations
@@ -239,7 +241,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           onPressOut={!onPress ? handlePressOut : undefined}
           disabled={disabled || !isInteractive}
         >
-          <LinearGradient colors={colors} style={styles.orb}>
+          <LinearGradient colors={colors} style={[styles.orb, { shadowColor }]}>
             {showStatusIcon ? (
               <Ionicons
                 name={phase === 'done' ? 'checkmark' : 'warning-outline'}
@@ -348,7 +350,7 @@ const styles = StyleSheet.create({
     height:       RING_SIZE,
     borderRadius: RING_SIZE / 2,
     borderWidth:  1.5,
-    borderColor:  '#6366f1',
+    borderColor:  '#10b981',   // emerald rings
   },
   orb: {
     width:          ORB_SIZE,
@@ -356,10 +358,10 @@ const styles = StyleSheet.create({
     borderRadius:   ORB_SIZE / 2,
     alignItems:     'center',
     justifyContent: 'center',
-    shadowColor:    '#6366f1',
+    // shadowColor is injected dynamically via inline style
     shadowOffset:   { width: 0, height: 0 },
-    shadowOpacity:  0.6,
-    shadowRadius:   30,
+    shadowOpacity:  0.65,
+    shadowRadius:   32,
     elevation:      15,
   },
 });
