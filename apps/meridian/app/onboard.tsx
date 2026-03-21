@@ -25,6 +25,7 @@ import {
   ScrollView,
   Animated,
   Switch,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -39,11 +40,15 @@ import {
   saveConsents,
   defaultDocumentType,
   documentTypeOptions,
+  RAILCARD_LABELS,
+  INDIA_CLASS_LABELS,
   type TravelProfile,
   type Nationality,
   type DocumentType,
   type SeatPref,
   type ClassPref,
+  type RailcardType,
+  type IndiaClassTier,
 } from '../lib/profile';
 import { getBiometricLabel } from '../lib/biometric';
 import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
@@ -82,11 +87,16 @@ export default function OnboardScreen() {
   const [docType,       setDocType]       = useState<DocumentType>('passport');
   const [docNumber,     setDocNumber]     = useState('');
   const [docExpiry,     setDocExpiry]     = useState('');
-  const [seatPref,      setSeatPref]      = useState<SeatPref>('no_preference');
-  const [classPref,     setClassPref]     = useState<ClassPref>('standard');
-  const [railcard,      setRailcard]      = useState('');
+  const [seatPref,       setSeatPref]       = useState<SeatPref>('no_preference');
+  const [classPref,      setClassPref]      = useState<ClassPref>('standard');
+  const [railcardType,   setRailcardType]   = useState<RailcardType>('none');
+  const [indiaClassTier, setIndiaClassTier] = useState<IndiaClassTier>('standard');
   const [irctcId,       setIrctcId]       = useState('');
+  const [irctcUsername, setIrctcUsername] = useState('');
+  const [irctcPassword, setIrctcPassword] = useState('');
+  const [showIrctcPass, setShowIrctcPass] = useState(false);
   const [upiId,         setUpiId]         = useState('');
+  const [whatsapp,      setWhatsapp]      = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError,  setProfileError]  = useState<string | null>(null);
 
@@ -136,7 +146,7 @@ export default function OnboardScreen() {
     if (step !== 'welcome' || demoIntroPlayedRef.current) return;
     demoIntroPlayedRef.current = true;
     const t = setTimeout(async () => {
-      await speak("Hey. I book trains, hotels, taxis — all by voice. Hold the orb and try me.");
+      await speak("Hey. I book trains — all by voice. Hold the orb and try me.");
       setDemoPhase('ready');
     }, 600);
     return () => clearTimeout(t);
@@ -214,10 +224,14 @@ export default function OnboardScreen() {
         const data = await res.json() as { fields?: Record<string, string> };
         const f = data.fields ?? {};
 
-        if (f.legalName)      setLegalName(f.legalName);
-        if (f.email)          setEmail(f.email);
-        if (f.phone)          setPhone(f.phone);
-        if (f.railcardNumber) setRailcard(f.railcardNumber);
+        if (f.legalName)       setLegalName(f.legalName);
+        if (f.email)           setEmail(f.email);
+        if (f.phone)           setPhone(f.phone);
+        if (f.railcardType && ['16-25','26-30','senior','two-together','family','network','disabled','hm-forces'].includes(f.railcardType)) {
+          setRailcardType(f.railcardType as RailcardType);
+        }
+        if (f.irctcUsername)   setIrctcUsername(f.irctcUsername);
+        if (f.whatsappNumber)  setWhatsapp(f.whatsappNumber);
         if (f.nationality && ['uk', 'india', 'other'].includes(f.nationality)) {
           handleNationality(f.nationality as Nationality);
         }
@@ -251,12 +265,16 @@ export default function OnboardScreen() {
         documentType:   docType,
         documentNumber: docNumber.trim(),
         documentExpiry: docExpiry.trim() || undefined,
-        seatPreference: seatPref,
+        seatPreference:  seatPref,
         classPreference: classPref,
-        railcardNumber: railcard.trim() || undefined,
-        irctcId:        irctcId.trim() || undefined,
-        upiId:          upiId.trim() || undefined,
-        savedAt:        new Date().toISOString(),
+        railcardType:    railcardType !== 'none' ? railcardType : undefined,
+        indiaClassTier:  nationality === 'india' ? indiaClassTier : undefined,
+        irctcId:         irctcId.trim()        || undefined,
+        irctcUsername:   irctcUsername.trim()  || undefined,
+        irctcPassword:   irctcPassword.trim()  || undefined,
+        upiId:           upiId.trim()          || undefined,
+        whatsappNumber:  whatsapp.trim()        || undefined,
+        savedAt:         new Date().toISOString(),
       };
       await saveProfile(profile);
       // If deep-linked from settings, go back; otherwise continue onboarding
@@ -532,6 +550,14 @@ export default function OnboardScreen() {
                   placeholderTextColor="#374151"
                   keyboardType="phone-pad"
                 />
+                <TextInput
+                  style={styles.input}
+                  value={whatsapp}
+                  onChangeText={setWhatsapp}
+                  placeholder="WhatsApp number (optional — for instant confirmation)"
+                  placeholderTextColor="#374151"
+                  keyboardType="phone-pad"
+                />
 
                 {/* Nationality */}
                 <SectionLabel text="YOUR COUNTRY" />
@@ -549,37 +575,118 @@ export default function OnboardScreen() {
                   ))}
                 </View>
 
-                {/* Railcard / IRCTC — region extras */}
+                {/* Railcard — UK chip picker */}
                 {nationality === 'uk' && (
-                  <TextInput
-                    style={styles.input}
-                    value={railcard}
-                    onChangeText={setRailcard}
-                    placeholder="Railcard (optional — 16-25, Senior, Network…)"
-                    placeholderTextColor="#374151"
-                    autoCapitalize="characters"
-                  />
+                  <>
+                    <SectionLabel text="RAILCARD (OPTIONAL)" />
+                    <Text style={styles.prefLabel}>~1/3 off most fares if you have one</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                      {(['none', '16-25', '26-30', 'senior', 'two-together', 'family', 'network', 'disabled', 'hm-forces'] as RailcardType[]).map(rt => (
+                        <Pressable
+                          key={rt}
+                          onPress={() => setRailcardType(rt)}
+                          style={[styles.chip, railcardType === rt && styles.chipActive, { marginBottom: 0 }]}
+                        >
+                          <Text style={[styles.chipText, railcardType === rt && styles.chipTextActive]}>
+                            {rt === 'none' ? 'None' :
+                             rt === '16-25' ? '16–25' :
+                             rt === '26-30' ? '26–30' :
+                             rt === 'senior' ? 'Senior' :
+                             rt === 'two-together' ? 'Two Together' :
+                             rt === 'family' ? 'Family' :
+                             rt === 'network' ? 'Network' :
+                             rt === 'disabled' ? 'Disabled' : 'HM Forces'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                    {railcardType !== 'none' && (
+                      <Text style={profileStyles.voiceHint} numberOfLines={1}>
+                        {RAILCARD_LABELS[railcardType]} — Bro will apply your discount automatically
+                      </Text>
+                    )}
+                  </>
                 )}
+
+                {/* India class tier + IRCTC */}
                 {nationality === 'india' && (
-                  <TextInput
-                    style={styles.input}
-                    value={irctcId}
-                    onChangeText={setIrctcId}
-                    placeholder="IRCTC user ID (optional)"
-                    placeholderTextColor="#374151"
-                    autoCapitalize="none"
-                  />
+                  <>
+                    <SectionLabel text="PREFERRED CLASS" />
+                    <View style={styles.chipRow}>
+                      {(['budget', 'standard', 'premium'] as IndiaClassTier[]).map(tier => (
+                        <Pressable
+                          key={tier}
+                          onPress={() => setIndiaClassTier(tier)}
+                          style={[styles.chip, indiaClassTier === tier && styles.chipActive]}
+                        >
+                          <Text style={[styles.chipText, indiaClassTier === tier && styles.chipTextActive]}>
+                            {tier === 'budget' ? 'Budget' : tier === 'standard' ? 'Standard' : 'Premium'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Text style={styles.prefLabel}>
+                      {indiaClassTier === 'budget' ? 'SL/2S — non-AC, most affordable' :
+                       indiaClassTier === 'standard' ? '3A/CC — AC, most popular' :
+                       '2A/1A — premium AC, widest berths'}
+                    </Text>
+                  </>
                 )}
+
                 {nationality === 'india' && (
-                  <TextInput
-                    style={styles.input}
-                    value={upiId}
-                    onChangeText={setUpiId}
-                    placeholder="UPI ID — for instant payment (e.g. name@upi)"
-                    placeholderTextColor="#374151"
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                  />
+                  <>
+                    <SectionLabel text="INDIA RAIL" />
+                    <View style={styles.irctcInfoBox}>
+                      <Ionicons name="lock-closed" size={13} color="#6b7280" style={{ marginTop: 1 }} />
+                      <Text style={styles.irctcInfoText}>
+                        Stored encrypted on your device only. Used to book Indian rail on your behalf. Never shared beyond IRCTC.
+                      </Text>
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      value={irctcUsername}
+                      onChangeText={setIrctcUsername}
+                      placeholder="IRCTC username"
+                      placeholderTextColor="#374151"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <View style={styles.passwordRow}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                        value={irctcPassword}
+                        onChangeText={setIrctcPassword}
+                        placeholder="IRCTC password"
+                        placeholderTextColor="#374151"
+                        secureTextEntry={!showIrctcPass}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      <Pressable onPress={() => setShowIrctcPass(v => !v)} style={styles.eyeBtn} hitSlop={8}>
+                        <Ionicons name={showIrctcPass ? 'eye-off-outline' : 'eye-outline'} size={18} color="#4b5563" />
+                      </Pressable>
+                    </View>
+                    <Pressable onPress={() => Linking.openURL('https://www.irctc.co.in/nget/train-search')} style={styles.irctcLink}>
+                      <Text style={styles.irctcLinkText}>Don't have an IRCTC account? Create one free →</Text>
+                    </Pressable>
+                    <TextInput
+                      style={styles.input}
+                      value={irctcId}
+                      onChangeText={setIrctcId}
+                      placeholder="IRCTC user ID (if different from username)"
+                      placeholderTextColor="#374151"
+                      autoCapitalize="none"
+                    />
+                    <TextInput
+                      style={styles.input}
+                      value={upiId}
+                      onChangeText={setUpiId}
+                      placeholder="UPI ID — for instant payment (e.g. name@upi)"
+                      placeholderTextColor="#374151"
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                    />
+                  </>
                 )}
 
                 {/* Preferences */}
@@ -804,14 +911,11 @@ function getDemoResponse(transcript: string): string {
   if (t.match(/train|rail|london|manchester|birmingham|derby|euston|paddington|victoria|liverpool|edinburgh|glasgow/)) {
     return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
   }
-  if (t.match(/hotel|room|stay|night|accommodation|b&b|inn/)) {
-    return "4-star hotel in the city centre, £89 a night. I'd have that confirmed before you finish this sentence.";
-  }
   if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
-    return "Taxi from the station — about £12, 4 minutes away. Already on its way in the real app.";
+    return "Cabs and hotels are coming soon — trains I can sort right now. Try asking for a train journey.";
   }
-  if (t.match(/flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
-    return "Flight options checked. I handle trains, hotels, and taxis too — all completely hands-free.";
+  if (t.match(/hotel|room|stay|night|accommodation|b&b|inn|flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
+    return "Hotels and flights are coming soon — trains I can sort right now. Try asking for a train journey.";
   }
   if (t.match(/food|restaurant|eat|dinner|lunch|table|reservation/)) {
     return "Table booked at a highly-rated spot nearby. I'm not just for travel — whatever you need, just ask.";
@@ -964,6 +1068,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111', borderWidth: 1, borderColor: '#1f2937',
     borderRadius: 12, padding: 15, fontSize: 16, color: '#f9fafb', marginBottom: 12,
   },
+
+  // IRCTC credential fields
+  irctcInfoBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#0d0d0d', borderWidth: 1, borderColor: '#1f2937',
+    borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  irctcInfoText: { flex: 1, fontSize: 12, color: '#6b7280', lineHeight: 17 },
+  passwordRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  eyeBtn: {
+    width: 44, height: 50, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#111111', borderWidth: 1, borderColor: '#1f2937', borderRadius: 12,
+  },
+  irctcLink: { marginBottom: 12 },
+  irctcLinkText: { fontSize: 12, color: '#4f46e5', textDecorationLine: 'underline' },
+
   prefLabel: { fontSize: 12, color: '#6b7280', marginBottom: 8 },
 
   // Chips

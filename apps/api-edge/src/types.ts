@@ -167,6 +167,32 @@ export interface Env {
    * npx wrangler secret put RAPIDAPI_KEY
    */
   RAPIDAPI_KEY?: string;
+
+  // ── Operations (Make.com fulfillment sheet) ───────────────────────────────
+  /**
+   * Make.com webhook URL — every confirmed booking POSTs here.
+   * Make.com creates a Google Sheet row (PENDING) for manual fulfilment.
+   * npx wrangler secret put MAKECOM_WEBHOOK_URL
+   */
+  MAKECOM_WEBHOOK_URL?: string;
+
+  // ── WhatsApp (Twilio) ─────────────────────────────────────────────────────
+  /** Twilio Account SID — enables WhatsApp notifications. */
+  TWILIO_ACCOUNT_SID?: string;
+  /** Twilio Auth Token — paired with TWILIO_ACCOUNT_SID. */
+  TWILIO_AUTH_TOKEN?: string;
+  /**
+   * Twilio WhatsApp sender number — must start with "whatsapp:+".
+   * Sandbox: "whatsapp:+14155238886"
+   * Production: your verified business number.
+   */
+  TWILIO_WHATSAPP_FROM?: string;
+  /**
+   * Your personal WhatsApp number for admin booking alerts.
+   * Format: +447700900123 (no spaces, international format).
+   * npx wrangler secret put ADMIN_WHATSAPP_NUMBER
+   */
+  ADMIN_WHATSAPP_NUMBER?: string;
 }
 
 // ---------------------------------------------------------------------------

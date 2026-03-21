@@ -106,10 +106,10 @@ export default function SettingsScreen() {
           />
         </Section>
 
-        {/* Auto-confirm budget */}
+        {/* Auto-confirm spending limit */}
         <Section
-          label="AUTO-APPROVE LIMIT (USDC)"
-          hint="I'll hire agents automatically up to this amount. I'll ask for confirmation above it."
+          label="SPENDING LIMIT"
+          hint="Bro will book automatically below this amount. Above it, you'll confirm with fingerprint."
         >
           <View style={styles.budgetRow}>
             {['2', '5', '10', '25'].map((v) => (
@@ -123,16 +123,6 @@ export default function SettingsScreen() {
             ))}
           </View>
         </Section>
-
-        {/* Agent identity */}
-        {agentId && (
-          <Section label="YOUR AGENT IDENTITY">
-            <View style={styles.identityRow}>
-              <Ionicons name="person-circle-outline" size={16} color="#4b5563" />
-              <Text style={styles.identityText} numberOfLines={1}>{agentId}</Text>
-            </View>
-          </Section>
-        )}
 
         {/* Travel Profile */}
         <Section
@@ -187,7 +177,17 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        {/* Danger zone */}
+        {/* Advanced */}
+        <Section label="ADVANCED">
+          {agentId && (
+            <View style={styles.identityRow}>
+              <Ionicons name="key-outline" size={14} color="#374151" />
+              <Text style={styles.identityText} numberOfLines={1}>{agentId}</Text>
+            </View>
+          )}
+        </Section>
+
+        {/* Data */}
         <Section label="DATA">
           <Pressable onPress={handleClearHistory} style={styles.dangerRow}>
             <Ionicons name="trash-outline" size={16} color="#6b7280" />

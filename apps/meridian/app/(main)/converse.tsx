@@ -111,11 +111,13 @@ export default function ConverseScreen() {
       if (await hasProfile()) {
         const profile = await loadProfileRaw();
         if (profile) {
-          // Phase 1: non-identity prefs only — railcard/class for narration personalisation
+          // Phase 1: non-identity prefs only — railcard/class/nationality for narration personalisation
           travelProfile = {
             seatPreference:  profile.seatPreference,
             classPreference: profile.classPreference,
-            railcardNumber:  profile.railcardNumber,
+            railcardType:    profile.railcardType,
+            indiaClassTier:  profile.indiaClassTier,
+            nationality:     profile.nationality,
           };
         }
       }

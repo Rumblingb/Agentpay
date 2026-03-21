@@ -26,13 +26,17 @@ export async function speak(text: string): Promise<void> {
 
     // 204 = server TTS not configured — fall back to system voice
     if (res.status === 204 || !res.ok) {
-      Speech.speak(text, { rate: 1.0, language: 'en-US' });
+      await new Promise<void>((resolve) => {
+        Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
+      });
       return;
     }
 
     const { audio } = await res.json() as { audio: string };
     if (!audio) {
-      Speech.speak(text, { rate: 1.0, language: 'en-US' });
+      await new Promise<void>((resolve) => {
+        Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
+      });
       return;
     }
 
@@ -49,19 +53,27 @@ export async function speak(text: string): Promise<void> {
 
     const { sound } = await Audio.Sound.createAsync(
       { uri },
-      { shouldPlay: true, volume: 1.0 },
+      { shouldPlay: false, volume: 1.0 },
     );
     _sound = sound;
 
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync().catch(() => {});
-        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-        _sound = null;
-      }
+    // Await audio completion before returning — ensures UI changes (confirm card,
+    // biometric prompt) only appear after Bro has finished speaking.
+    await new Promise<void>((resolve) => {
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+          _sound = null;
+          resolve();
+        }
+      });
+      sound.playAsync().catch(() => resolve());
     });
   } catch {
-    Speech.speak(text, { rate: 1.0, language: 'en-US' });
+    await new Promise<void>((resolve) => {
+      Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
+    });
   }
 }
 

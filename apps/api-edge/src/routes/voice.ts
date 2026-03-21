@@ -80,7 +80,7 @@ voiceRouter.post('/transcribe', async (c) => {
 
 // ── POST /api/voice/extract-profile ──────────────────────────────────────
 // Accepts: { transcript: string }
-// Returns: { fields: { legalName?, email?, phone?, railcardNumber?, nationality? } }
+// Returns: { fields: { legalName?, email?, phone?, railcardType?, nationality? } }
 //
 // Used by onboarding: user speaks their details, Claude extracts the fields.
 // Example: "I'm John Smith, my email is john@example.com, phone 07700 900123,
@@ -119,7 +119,7 @@ Return ONLY valid JSON with these optional fields (include only what was clearly
   "legalName": "full legal name",
   "email": "email address",
   "phone": "phone number in E.164 format (+44... or +91...)",
-  "railcardNumber": "railcard name or number (e.g. 16-25, Senior, Network)",
+  "railcardType": "one of: 16-25 | 26-30 | senior | two-together | family | network | disabled | hm-forces | none",
   "nationality": "uk | india | other"
 }
 If a field is not mentioned, omit it. Return only JSON, no explanation.`,

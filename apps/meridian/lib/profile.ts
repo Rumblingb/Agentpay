@@ -22,6 +22,21 @@ export type DocumentType = 'passport' | 'aadhaar' | 'driving_licence' | 'nationa
 export type SeatPref = 'window' | 'aisle' | 'no_preference';
 export type ClassPref = 'economy' | 'standard' | 'business';
 
+/** UK railcard type — determines discount eligibility (~1/3 off most fares) */
+export type RailcardType =
+  | '16-25'
+  | '26-30'
+  | 'senior'
+  | 'two-together'
+  | 'family'
+  | 'network'
+  | 'disabled'
+  | 'hm-forces'
+  | 'none';
+
+/** India class tier — mapped to IRCTC class code based on journey duration */
+export type IndiaClassTier = 'budget' | 'standard' | 'premium';
+
 export interface TravelProfile {
   // Identity
   legalName: string;
@@ -42,9 +57,17 @@ export interface TravelProfile {
   classPreference: ClassPref;
 
   // Region-specific extras (optional)
-  railcardNumber?: string;   // UK: 16-25, Senior, Network railcard
-  irctcId?: string;          // India: IRCTC user ID for faster booking
-  upiId?: string;            // India: UPI ID (e.g. name@upi) for payment
+  railcardType?: RailcardType;   // UK: type of railcard held (~1/3 off most fares)
+  indiaClassTier?: IndiaClassTier; // India: preferred class tier (budget/standard/premium)
+  irctcId?: string;              // India: IRCTC user ID for faster booking
+  upiId?: string;                // India: UPI ID (e.g. name@upi) for payment
+
+  // India Rail credentials (optional — stored encrypted, biometric gated)
+  irctcUsername?: string;    // IRCTC login username — used to book ticket under user's account
+  irctcPassword?: string;    // IRCTC login password — encrypted in SecureStore, never logged server-side
+
+  // Notification preferences (optional)
+  whatsappNumber?: string;   // E.164 format (+447… / +91…) — booking confirmations via WhatsApp
 
   // Metadata
   savedAt: string;
@@ -126,6 +149,24 @@ export async function loadConsents(): Promise<PrivacyConsents | null> {
 
 // ── Booking context builder ───────────────────────────────────────────────
 
+export const RAILCARD_LABELS: Record<RailcardType, string> = {
+  '16-25':        '16-25 Railcard',
+  '26-30':        '26-30 Railcard',
+  senior:         'Senior Railcard',
+  'two-together': 'Two Together Railcard',
+  family:         'Family & Friends Railcard',
+  network:        'Network Railcard',
+  disabled:       'Disabled Persons Railcard',
+  'hm-forces':    'HM Forces Railcard',
+  none:           'None',
+};
+
+export const INDIA_CLASS_LABELS: Record<IndiaClassTier, string> = {
+  budget:   'Budget (SL/2S — non-AC, cheapest)',
+  standard: 'Standard (3A/CC — AC, most popular)',
+  premium:  'Premium (2A/1A — best AC)',
+};
+
 const NATIONALITY_LABELS: Record<Nationality, string> = {
   uk: 'British',
   india: 'Indian',
@@ -155,7 +196,8 @@ export function buildBookingContext(profile: TravelProfile): string {
     profile.documentExpiry ? `Document expiry: ${profile.documentExpiry}` : '',
     `Seat preference: ${profile.seatPreference.replace('_', ' ')}`,
     `Class preference: ${profile.classPreference}`,
-    profile.railcardNumber ? `UK Railcard: ${profile.railcardNumber}` : '',
+    profile.railcardType && profile.railcardType !== 'none' ? `UK Railcard: ${RAILCARD_LABELS[profile.railcardType]}` : '',
+    profile.indiaClassTier ? `India class preference: ${profile.indiaClassTier}` : '',
     profile.irctcId ? `IRCTC ID: ${profile.irctcId}` : '',
     profile.upiId ? `UPI ID: ${profile.upiId}` : '',
     `Send confirmation to: ${profile.email} and ${profile.phone}`,
@@ -172,9 +214,8 @@ export function buildBookingContext(profile: TravelProfile): string {
  * The server enforces this too — this is a defence-in-depth client guard.
  */
 const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
-  book_train:          ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardNumber'],
-  book_train_india:    ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'irctcId', 'upiId'],
-  book_hotel:     ['legalName', 'email', 'phone'],
+  book_train:          ['legalName', 'email', 'phone', 'whatsappNumber', 'seatPreference', 'classPreference', 'railcardType'],
+  book_train_india:    ['legalName', 'email', 'phone', 'whatsappNumber', 'seatPreference', 'classPreference', 'indiaClassTier', 'irctcId', 'irctcUsername', 'irctcPassword', 'upiId'],
   book_taxi:      ['legalName', 'phone'],
   search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
   research:       [],

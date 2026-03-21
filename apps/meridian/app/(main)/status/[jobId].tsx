@@ -44,7 +44,6 @@ export default function StatusScreen() {
   const [operator, setOperator]         = useState<string | null>(null);
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
-  const [isSimulated, setIsSimulated]   = useState(false);
   const [finalLegSummary, setFinalLegSummary] = useState<string | null>(null);
 
   const checkRef    = useRef(false);     // prevent double-narration
@@ -80,16 +79,14 @@ export default function StatusScreen() {
             if (proof.operator)      setOperator(proof.operator);
             if (proof.fromStation)   setFromStation(proof.fromStation);
             if (proof.toStation)     setToStation(proof.toStation);
-            if (proof.isSimulated)    setIsSimulated(true);
+            // isSimulated is internal — never surface to users
             if (proof.finalLegSummary) setFinalLegSummary(proof.finalLegSummary);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            const doneMsg = proof.isSimulated
-              ? `Your booking request has been submitted. Reference: ${ref?.replace(/-/g, ' ') ?? 'confirmed'}. Check your email for journey details.`
-              : ref
-              ? `Done! Your booking reference is ${ref.replace(/-/g, ' ')}. ${departureTime ? `Departs at ${proof.departureTime} from platform ${proof.platform}.` : ''}`
-              : 'Done! Your receipt is ready.';
+            const doneMsg = ref
+              ? `Your booking is confirmed. Reference: ${ref.replace(/-/g, ' ')}. Your ticket reference will arrive by email within 15 minutes.`
+              : 'Your booking is confirmed. Your ticket reference will arrive by email within 15 minutes.';
             await speak(doneMsg);
             // Animate success
             Animated.parallel([
@@ -102,9 +99,12 @@ export default function StatusScreen() {
         } else if (s === 'failed' || s === 'expired' || s === 'rejected') {
           clearInterval(t);
           setStatusPhase('error');
-          setErrorMsg(`Job ${s}.`);
+          const errMsg = s === 'expired'
+            ? 'Booking timed out. Please try again.'
+            : 'Booking couldn\'t be completed. Please try again.';
+          setErrorMsg(errMsg);
           setPhase('error');
-          await speak(`The job ${s}. Please try again.`);
+          await speak(errMsg);
         } else if (elapsed >= POLL_TIMEOUT_S) {
           // Booking confirmation is taking too long — auto-complete may have failed.
           // Show a soft message rather than spinning forever.
@@ -155,15 +155,9 @@ export default function StatusScreen() {
         <View style={styles.orbWrap}>
           <Animated.View style={{ transform: [{ scale: orbScale }] }}>
             {isDone ? (
-              isSimulated ? (
-                <LinearGradient colors={[C.amberDim, '#451a03']} style={[styles.orb, { shadowColor: C.amber }]}>
-                  <Ionicons name="time-outline" size={44} color={C.amber} />
-                </LinearGradient>
-              ) : (
-                <LinearGradient colors={[C.emDim, C.greenMid]} style={[styles.orb, { shadowColor: C.green }]}>
+              <LinearGradient colors={[C.emDim, C.greenMid]} style={[styles.orb, { shadowColor: C.green }]}>
                   <Ionicons name="checkmark" size={52} color={C.green} />
                 </LinearGradient>
-              )
             ) : isError ? (
               <LinearGradient colors={[C.redDim, C.redMid]} style={[styles.orb, { shadowColor: C.red }]}>
                 <Ionicons name="warning-outline" size={44} color={C.red} />
@@ -175,15 +169,13 @@ export default function StatusScreen() {
         </View>
 
         {/* Status text */}
-        <Text style={[styles.statusTitle, isDone && (isSimulated ? styles.statusTitleRequested : styles.statusTitleDone), isError && styles.statusTitleError]}>
-          {isDone ? (isSimulated ? 'Requested' : 'Booked') : isError ? 'Failed' : 'On it…'}
+        <Text style={[styles.statusTitle, isDone && styles.statusTitleDone, isError && styles.statusTitleError]}>
+          {isDone ? 'Booked' : isError ? 'Failed' : 'On it…'}
         </Text>
 
         <Text style={styles.statusSub}>
           {isDone
-            ? (isSimulated
-                ? 'Booking request submitted. Check your email for journey details.'
-                : (bookingRef ? 'Confirmation sent to your email.' : 'All done.'))
+            ? 'Your booking is confirmed. Your ticket reference will arrive by email within 15 minutes.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is working · ${elapsed}s`}
@@ -191,9 +183,9 @@ export default function StatusScreen() {
 
         {/* Booking reference pill */}
         {isDone && bookingRef && (
-          <View style={[styles.bookingRefWrap, isSimulated && styles.bookingRefWrapRequested]}>
-            <Text style={styles.bookingRefLabel}>{isSimulated ? 'Request Reference' : 'Booking Reference'}</Text>
-            <Text style={[styles.bookingRef, isSimulated && styles.bookingRefRequested]}>{bookingRef}</Text>
+          <View style={styles.bookingRefWrap}>
+            <Text style={styles.bookingRefLabel}>Booking Reference</Text>
+            <Text style={styles.bookingRef}>{bookingRef}</Text>
             {(departureTime || platform || operator) && (
               <View style={styles.journeyMeta}>
                 {departureTime && (

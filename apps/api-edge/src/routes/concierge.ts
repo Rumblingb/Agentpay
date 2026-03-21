@@ -163,8 +163,14 @@ conciergeRouter.post('/intent', async (c) => {
   const nationalityContext = travelProfile?.nationality
     ? ` User nationality: ${travelProfile.nationality}.`
     : '';
+  const railcardContext = travelProfile?.railcardType && travelProfile.railcardType !== 'none'
+    ? ` User has a ${travelProfile.railcardType} railcard — apply ~33% discount to UK fare estimates.`
+    : '';
+  const indiaClassContext = travelProfile?.indiaClassTier
+    ? ` User's India class tier: ${travelProfile.indiaClassTier} — translate to the right IRCTC code based on journey duration.`
+    : '';
 
-  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}
+  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -192,6 +198,33 @@ ROUTING RULES:
 - If ambiguous, ask one question: "UK or India?"
 - If asked about hotels, taxis, flights, or car hire: say exactly "Hotels and cabs coming soon — trains I can sort right now." Do NOT call any tool. One sentence only.
 
+BEING ACCOMMODATING — never block on missing info:
+- No date given ("book a train to Manchester"): call the tool with no date — query next available services today. Present top 3 options.
+- No time given: always call with time_preference="any", list up to 3 options with time + fare, ask which.
+- Ambiguous station: infer the most likely match and state it: "Edinburgh Waverley — right?" Then proceed.
+- No class given (India): use indiaClassTier from profile, or default to standard (3A/CC).
+- Partial destination (e.g. "London" with no terminus): pick the right terminus for the origin (e.g. Manchester → Euston, Leeds → King's Cross) and confirm it.
+- If the user just says "I need to go to X": treat as "next available train" and present options.
+- Never ask more than ONE clarifying question. Never ask about something you can reasonably assume.
+- If the user's request is genuinely ambiguous (two plausible routes or dates), ask once. Otherwise, proceed and confirm your assumption in the narration.
+
+UK RAILCARD DISCOUNTS (apply when railcardType is in travel profile):
+- 16-25 Railcard, 26-30 Railcard, Senior Railcard, Two Together Railcard, Family Railcard, Disabled Railcard, HM Forces Railcard: ~1/3 off most Advance, Off-Peak, and Anytime fares
+- Network Railcard: ~1/3 off fares within Network Rail zone (South East England and London)
+- When quoting fares: apply ~33% discount and note the railcard. E.g. "17:45 Avanti, £19 with your 16-25 railcard. Fingerprint to confirm."
+- If railcardType is "none" or absent: quote full fare.
+
+INDIA CLASS MAPPING — translate indiaClassTier to IRCTC class code based on journey duration:
+- budget:   short route (<4hr) → 2S (chair seater non-AC); long route (4hr+) → SL (sleeper non-AC)
+- standard: short route (<4hr) → CC (chair car AC, Shatabdi/Express); long route (4hr+) → 3A (three-tier AC) ← DEFAULT
+- premium:  short route (<4hr) → EC (executive chair car); long route (4hr+) → 2A (two-tier AC)
+- If no indiaClassTier in profile: default to standard (3A or CC depending on duration)
+- State the class you're booking: "Rajdhani 3A, overnight, ₹1,450. Fingerprint to confirm."
+TATKAL (India last-minute — auto-detect):
+- If travel is today or tomorrow AND class is available: mention TATKAL option proactively.
+- "This is last minute — TATKAL is 30–50% more but guaranteed. Want that, or shall I try general quota?"
+- For premium tier: suggest TATKAL automatically for same-day/next-day.
+
 TIME CLARIFICATION RULE — critical:
 - If the user did NOT specify a time (e.g. "book a train to Manchester"), call the tool with time_preference="any"
 - When the tool returns multiple trains, list up to 3 options and ask which they want:
@@ -199,14 +232,21 @@ TIME CLARIFICATION RULE — critical:
 - Only move to "Fingerprint to confirm" AFTER the user has chosen a specific train
 - If only one train is available, go straight to confirmation
 
-RESPONSE FORMAT:
-- Confirmed single booking: state operator, time, fare. End with "Fingerprint to confirm."
+PHASE 1 RESPONSE FORMAT:
+- Confirmed single booking: operator, time, fare. End with "Fingerprint to confirm." Maximum 12 words.
   UK: "Avanti at 17:45, £28. Fingerprint to confirm."
   India: "Rajdhani at 06:00, 16hr, ₹1,200. Fingerprint to confirm."
-- Multiple options (no time given): list up to 3 times + fares, ask which one. Under 20 words.
-- Clarifications: answer naturally, no price format needed
+- Multiple options (no time given): list up to 3 as "HH:MM £X" separated by commas, ask which. Under 20 words total.
+  Example: "Three today — 14:05 £21, 15:30 £28, 17:45 £19. Which one?"
+- Clarifications: one sentence only
 - Hard limit: 35 words. The user is listening on a platform, not reading.
-- If you cannot help, say so in one sentence and suggest what you can do instead`;
+- If you cannot help, say so in one sentence and suggest what you can do instead
+
+PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
+- Exactly one sentence. State the booking ref and that email is on its way. Nothing else.
+- Format: "[Ref] is confirmed. Check your email."
+- Example: "BRO-A1B2C3 is confirmed. Check your email."
+- Never say "I've booked" or "I have arranged" — just state the fact. Maximum 10 words.`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
@@ -278,19 +318,44 @@ RESPONSE FORMAT:
               hasEmail:    !!(travelProfile?.email),
             });
 
-            // Fire-and-forget: complete the job + send email confirmation
-            const userEmail = travelProfile?.email as string | undefined;
-            const userName  = travelProfile?.legalName as string | undefined;
-            const userPhone = travelProfile?.phone as string | undefined;
+            // Fire-and-forget: complete the job + emails + WhatsApp + operations webhook
+            const userEmail        = travelProfile?.email          as string | undefined;
+            const userName         = travelProfile?.legalName      as string | undefined;
+            const userPhone        = travelProfile?.phone          as string | undefined;
+            const userWhatsapp     = travelProfile?.whatsappNumber as string | undefined;
+            const userIrctcUser    = travelProfile?.irctcUsername  as string | undefined;
+            const userIrctcPass    = travelProfile?.irctcPassword  as string | undefined;
             c.executionCtx.waitUntil(
               Promise.all([
                 autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hireResult.completionSecret ?? hirerId, proof),
                 sendBookingConfirmationEmail(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
-                  to:    userEmail,
-                  name:  userName,
-                  phone: userPhone,
+                  to:            userEmail,
+                  name:          userName,
+                  phone:         userPhone,
+                  irctcUsername: userIrctcUser,
+                  irctcPassword: userIrctcPass,
                   proof,
                 }),
+                // WhatsApp: admin alert + user confirmation (if whatsappNumber in profile)
+                sendBookingWhatsApp(c.env, {
+                  proof,
+                  userEmail,
+                  userName,
+                  userPhone,
+                  userWhatsapp,
+                  irctcUsername: userIrctcUser,
+                }).catch(e => broLog('whatsapp_failed', { traceId, error: (e as Error).message })),
+                // Operations webhook → Make.com → Google Sheet row (PENDING)
+                c.env.MAKECOM_WEBHOOK_URL
+                  ? fireOperationsWebhook(c.env.MAKECOM_WEBHOOK_URL, {
+                      proof,
+                      userEmail,
+                      userName,
+                      userPhone,
+                      userWhatsapp,
+                      jobId: hireResult.jobId,
+                    }).catch(e => broLog('webhook_failed', { traceId, error: (e as Error).message }))
+                  : Promise.resolve(),
               ]),
             );
 
@@ -364,7 +429,7 @@ RESPONSE FORMAT:
           { role: 'assistant', content: firstClaudeContent },
           { role: 'user', content: toolResults },
         ],
-        max_tokens: 256,
+        max_tokens: 64,
       });
       if (narrationResponse.ok) {
         const narrationData = await narrationResponse.json() as AnthropicResponse;
@@ -450,7 +515,12 @@ RESPONSE FORMAT:
           input.time_preference,
         );
 
-        toolResultContent = formatTrainsForClaude(rttResult);
+        // If Darwin returned a hard error with no services, surface a user-friendly message
+        if (rttResult.error && rttResult.services.length === 0 && rttResult.error !== 'advance_schedule') {
+          toolResultContent = 'ERROR:DARWIN_UNAVAILABLE';
+        } else {
+          toolResultContent = formatTrainsForClaude(rttResult);
+        }
 
         const dataSource = !rttResult.error ? 'darwin_live'
           : rttResult.error === 'advance_schedule' ? 'national_rail_scheduled'
@@ -580,6 +650,16 @@ RESPONSE FORMAT:
         const agentName = agent?.name ?? skill.displayName;
         const priceStr  = agent?.pricePerTaskUsd ? `$${agent.pricePerTaskUsd.toFixed(2)} USDC` : 'standard rate';
         toolResultContent = `${skill.displayName} is available via ${agentName} at ${priceStr}. Ready to book.`;
+      }
+
+      // Darwin hard failure — return user-friendly error immediately
+      if (toolResultContent === 'ERROR:DARWIN_UNAVAILABLE') {
+        broLog('darwin_unavailable', { traceId, origin: input.origin, destination: input.destination });
+        return c.json({
+          narration: "Having trouble with live times right now. Please try again in a moment.",
+          actions:   [],
+          needsBiometric: false,
+        });
       }
 
       toolResultsForClaude.push({
@@ -839,10 +919,13 @@ function buildJobDescription(
       documentType:   'Document type',
       documentNumber: 'Document number',
       documentExpiry: 'Document expiry',
-      seatPreference: 'Seat preference',
-      classPreference:'Class preference',
-      railcardNumber: 'Railcard',
-      irctcId:        'IRCTC ID',
+      seatPreference:  'Seat preference',
+      classPreference: 'Class preference',
+      railcardType:    'UK Railcard',
+      indiaClassTier:  'India class tier',
+      irctcId:         'IRCTC ID',
+      irctcUsername:   'IRCTC username',
+      irctcPassword:   'IRCTC password',
     };
     for (const [k, v] of Object.entries(scopedProfile)) {
       lines.push(`${labels[k] ?? k}: ${v}`);
@@ -855,11 +938,11 @@ function buildJobDescription(
 async function sendBookingConfirmationEmail(
   resendKey: string | undefined,
   adminEmail: string | undefined,
-  params: { to: string | undefined; name: string | undefined; phone?: string; proof: BookingProof },
+  params: { to: string | undefined; name: string | undefined; phone?: string; irctcUsername?: string; irctcPassword?: string; proof: BookingProof },
 ): Promise<void> {
   if (!resendKey) return;
 
-  const { proof, to, name, phone } = params;
+  const { proof, to, name, phone, irctcUsername, irctcPassword } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = proof.country === 'india';
   const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
@@ -958,8 +1041,20 @@ async function sendBookingConfirmationEmail(
         <tr><td style="padding:6px 0;color:#9ca3af">Phone</td><td style="padding:6px 0">${phone ?? '—'}</td></tr>
       </table>
       <hr style="border:none;border-top:1px solid #1f2937;margin:16px 0">
+      ${isIndia && irctcUsername ? `
+      <div style="background:#111;border:1px solid #292524;border-left:3px solid #f97316;border-radius:6px;padding:14px;margin-bottom:16px">
+        <p style="color:#f97316;font-size:12px;font-weight:700;margin:0 0 10px 0;text-transform:uppercase;letter-spacing:1px">IRCTC Login</p>
+        <table style="border-collapse:collapse">
+          <tr><td style="color:#9ca3af;padding:4px 12px 4px 0;font-size:13px;width:90px">Username</td>
+              <td style="color:#fbbf24;font-family:monospace;font-size:13px;font-weight:700">${irctcUsername}</td></tr>
+          ${irctcPassword ? `<tr><td style="color:#9ca3af;padding:4px 12px 4px 0;font-size:13px">Password</td>
+              <td style="color:#fbbf24;font-family:monospace;font-size:13px;font-weight:700">${irctcPassword}</td></tr>` : ''}
+        </table>
+        <p style="color:#6b7280;font-size:11px;margin:10px 0 0 0">Log into irctc.co.in with these credentials to book on the passenger's behalf.</p>
+      </div>
+      ` : ''}
       <p style="color:#f59e0b;font-size:13px">
-        <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC/IXIGO' : 'Trainline'} and reply to the user with ticket confirmation.<br>
+        <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC' : 'Trainline'} and reply to the user with ticket confirmation.<br>
         Use reference <strong>${proof.bookingRef}</strong> in your reply.
       </p>
     </div>
@@ -979,6 +1074,187 @@ async function sendBookingConfirmationEmail(
   } catch {
     // Best-effort
   }
+}
+
+/**
+ * Fire a structured booking event to the Make.com webhook.
+ * Make.com creates a Google Sheet row (status=PENDING) for manual fulfilment.
+ * OpenClaw monitors the sheet and books on Trainline/IRCTC/MakeMyTrip,
+ * stopping for human payment confirmation before completing.
+ *
+ * Payload columns match the Google Sheet exactly:
+ *   BRO_REF | STATUS | USER_EMAIL | USER_NAME | USER_PHONE |
+ *   ORIGIN | DESTINATION | DATE | DEPARTURE_TIME | ARRIVAL_TIME |
+ *   OPERATOR | TRAIN_NUMBER | CLASS_CODE | PLATFORM |
+ *   ESTIMATED_FARE | CURRENCY | COUNTRY | DATA_SOURCE |
+ *   REAL_TICKET_REF (empty — filled when fulfilled) |
+ *   JOB_ID | BOOKED_AT
+ */
+async function fireOperationsWebhook(
+  webhookUrl: string,
+  params: {
+    proof: BookingProof;
+    userEmail?: string;
+    userName?: string;
+    userPhone?: string;
+    userWhatsapp?: string;
+    jobId: string;
+  },
+): Promise<void> {
+  const { proof, userEmail, userName, userPhone, userWhatsapp, jobId } = params;
+  const isIndia = proof.country === 'india';
+
+  // Extract date from bookedAt (ISO) for the sheet date column
+  const bookedDate = new Date(proof.bookedAt).toISOString().split('T')[0];
+
+  const payload = {
+    BRO_REF:          proof.bookingRef,
+    STATUS:           'PENDING',
+    USER_EMAIL:       userEmail     ?? '',
+    USER_NAME:        userName      ?? '',
+    USER_PHONE:       userPhone     ?? '',
+    USER_WHATSAPP:    userWhatsapp  ?? '',
+    ORIGIN:           proof.fromStation  ?? '',
+    DESTINATION:      proof.toStation    ?? '',
+    DATE:             bookedDate,
+    DEPARTURE_TIME:   proof.departureTime ?? '',
+    ARRIVAL_TIME:     proof.arrivalTime   ?? '',
+    OPERATOR:         proof.operator      ?? '',
+    TRAIN_NUMBER:     proof.trainNumber   ?? '',
+    CLASS_CODE:       proof.classCode     ?? '',
+    PLATFORM:         proof.platform      ?? '',
+    ESTIMATED_FARE:   isIndia
+      ? `₹${proof.fareInr ?? ''}`
+      : `£${proof.fareGbp ?? ''}`,
+    CURRENCY:         isIndia ? 'INR' : 'GBP',
+    COUNTRY:          proof.country ?? 'uk',
+    DATA_SOURCE:      proof.dataSource    ?? '',
+    REAL_TICKET_REF:  '',                   // filled manually / by OpenClaw
+    EMAIL_SENT:       'FALSE',             // Make.com scenario 2 checks this
+    JOB_ID:           jobId,
+    BOOKED_AT:        proof.bookedAt,
+  };
+
+  await fetch(webhookUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+    signal:  AbortSignal.timeout(8_000),
+  });
+}
+
+/**
+ * Send a single WhatsApp message via Twilio.
+ * `to` must be E.164 format: +447700900123
+ */
+async function sendWhatsApp(
+  accountSid: string,
+  authToken:  string,
+  from:       string,   // e.g. "whatsapp:+14155238886"
+  to:         string,   // e.g. "+447700900123"
+  body:       string,
+): Promise<void> {
+  const toWa = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const creds = btoa(`${accountSid}:${authToken}`);
+
+  const form = new URLSearchParams();
+  form.set('From', from);
+  form.set('To',   toWa);
+  form.set('Body', body);
+
+  await fetch(url, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Basic ${creds}`,
+      'Content-Type':  'application/x-www-form-urlencoded',
+    },
+    body:   form.toString(),
+    signal: AbortSignal.timeout(8_000),
+  });
+}
+
+/**
+ * Send WhatsApp booking notifications:
+ * - Admin alert (always, if ADMIN_WHATSAPP_NUMBER is set)
+ * - User confirmation (if proof.whatsappNumber is present)
+ */
+async function sendBookingWhatsApp(
+  env: { TWILIO_ACCOUNT_SID?: string; TWILIO_AUTH_TOKEN?: string; TWILIO_WHATSAPP_FROM?: string; ADMIN_WHATSAPP_NUMBER?: string },
+  params: { proof: BookingProof; userEmail?: string; userName?: string; userPhone?: string; userWhatsapp?: string; irctcUsername?: string },
+): Promise<void> {
+  const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, ADMIN_WHATSAPP_NUMBER } = env;
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) return;
+
+  const { proof, userEmail, userName, userWhatsapp, irctcUsername } = params;
+  const isIndia = proof.country === 'india';
+  const name = userName?.split(' ')[0] ?? 'Passenger';
+
+  // ── Admin alert ────────────────────────────────────────────────────────────
+  if (ADMIN_WHATSAPP_NUMBER) {
+    const adminMsg = isIndia
+      ? [
+          '🚂 *New Bro Booking*',
+          `Ref: ${proof.bookingRef}`,
+          `Route: ${proof.fromStation} → ${proof.toStation}`,
+          `Train: ${proof.trainNumber ?? ''} ${proof.operator}`,
+          `Departs: ${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}`,
+          `Class: ${proof.classCode ?? 'N/A'} · Fare: ₹${proof.fareInr ?? ''}`,
+          `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
+          irctcUsername ? `IRCTC: ${irctcUsername} (password in admin email)` : '',
+          '',
+          'Book on IRCTC then update the sheet.',
+        ].filter(Boolean).join('\n')
+      : [
+          '🚂 *New Bro Booking*',
+          `Ref: ${proof.bookingRef}`,
+          `Route: ${proof.fromStation} → ${proof.toStation}`,
+          `Time: ${proof.departureTime} · ${proof.operator}`,
+          proof.platform ? `Platform: ${proof.platform}` : '',
+          `Fare: £${proof.fareGbp ?? ''}`,
+          `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
+          '',
+          'Book on Trainline then update the sheet.',
+        ].filter(Boolean).join('\n');
+
+    await sendWhatsApp(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, ADMIN_WHATSAPP_NUMBER, adminMsg).catch(() => {});
+  }
+
+  // ── User confirmation ──────────────────────────────────────────────────────
+  const userWaNumber = userWhatsapp ?? '';
+  if (!userWaNumber) return;
+
+  const userMsg = isIndia
+    ? [
+        'Bro 🚂',
+        '',
+        `Hi ${name}, your journey is confirmed.`,
+        '',
+        `*${proof.fromStation} → ${proof.toStation}*`,
+        `${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''} · ${proof.operator}`,
+        proof.classCode ? `Class: ${proof.classCode}` : '',
+        '',
+        `Reference: *${proof.bookingRef}*`,
+        'Your ticket details arrive within 15 minutes.',
+        '',
+        'Reply HELP if you need anything.',
+      ].filter(Boolean).join('\n')
+    : [
+        'Bro 🚂',
+        '',
+        `Hi ${name}, your journey is confirmed.`,
+        '',
+        `*${proof.fromStation} → ${proof.toStation}*`,
+        `${proof.departureTime} · ${proof.operator}`,
+        proof.platform ? `Platform ${proof.platform}` : '',
+        '',
+        `Reference: *${proof.bookingRef}*`,
+        'Your ticket details arrive within 15 minutes.',
+        '',
+        'Reply HELP if you need anything.',
+      ].filter(Boolean).join('\n');
+
+  await sendWhatsApp(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, userWaNumber, userMsg).catch(() => {});
 }
 
 /** Convert a plan item's estimated cost into the user's local currency amount */

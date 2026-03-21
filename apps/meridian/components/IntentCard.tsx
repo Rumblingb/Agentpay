@@ -10,7 +10,6 @@ import type { CoordinationPlan } from '../lib/api';
 
 const CAPABILITY_ICONS: Record<string, string> = {
   flight_booking:  '✈️',
-  hotel_booking:   '🏨',
   transport:       '🚗',
   research:        '🔍',
   writing:         '✍️',

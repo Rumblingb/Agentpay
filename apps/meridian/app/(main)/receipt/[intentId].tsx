@@ -128,21 +128,16 @@ export default function ReceiptScreen() {
     if (!receipt) return;
     await Share.share({
       message: [
-        'Bro Receipt',
-        bookingRef    ? `Booking: ${bookingRef}` : null,
-        fromStation && toStation ? `Journey: ${fromStation} → ${toStation}` : null,
+        'Bro — Booking Confirmed',
+        bookingRef    ? `Reference: ${bookingRef}` : null,
+        fromStation && toStation ? `${fromStation} → ${toStation}` : null,
         departureTime ? `Departs: ${departureTime}` : null,
         platform      ? `Platform: ${platform}`     : null,
-        '',
-        `Job: ${intentId}`,
         fiatAmountNum != null
           ? `Amount: ${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
-          : `Amount: ${fiatSymbol}${receipt.amount}`,
-        `Status: ${receipt.status}`,
-        receipt.verifiedAt ? `Verified: ${new Date(receipt.verifiedAt).toLocaleString()}` : '',
-        `Signature: ${receipt.signature.slice(0, 24)}…`,
+          : null,
         '',
-        'Powered by AgentPay · agentpay.so',
+        'agentpay.so',
       ].filter(Boolean).join('\n'),
     });
   };
@@ -183,18 +178,15 @@ export default function ReceiptScreen() {
                 : `${fiatSymbol}${receipt.amount}`}
             </Text>
             <Text style={styles.subtitle}>
-              {currentAgent ? `via ${currentAgent.name}` : 'Payment verified'}
+              {fromStation && toStation ? `${fromStation} → ${toStation}` : 'Booking confirmed'}
             </Text>
 
             {/* Receipt card */}
             <View style={styles.card}>
-              <Row label="Status"    value={receipt.status}  pill />
-              {receipt.agentId    && <Row label="Agent"    value={shortId(receipt.agentId)} mono />}
-              {receipt.merchantId && <Row label="Merchant" value={shortId(receipt.merchantId)} mono />}
+              <Row label="Status" value="Confirmed" pill />
               {receipt.verifiedAt && (
-                <Row label="Verified" value={new Date(receipt.verifiedAt).toLocaleString()} />
+                <Row label="Processed" value={new Date(receipt.verifiedAt).toLocaleString()} />
               )}
-              <Row label="Intent ID" value={shortId(receipt.intentId)} mono />
             </View>
 
             {/* Journey Details + QR */}
@@ -235,17 +227,6 @@ export default function ReceiptScreen() {
                 )}
               </View>
             )}
-
-            {/* Signature */}
-            <View style={styles.sigCard}>
-              <View style={styles.sigHeader}>
-                <Ionicons name="shield-checkmark" size={13} color="#22c55e" />
-                <Text style={styles.sigLabel}>HMAC-SHA256 · AgentPay Network</Text>
-              </View>
-              <Text style={styles.sigValue} numberOfLines={2}>
-                {receipt.signature}
-              </Text>
-            </View>
 
             {/* Actions */}
             <Pressable onPress={handleShare} style={styles.shareBtn}>
