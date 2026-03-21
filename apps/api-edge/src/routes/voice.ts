@@ -23,12 +23,32 @@ voiceRouter.post('/transcribe', async (c) => {
     return c.json({ error: 'Voice service not configured' }, 503);
   }
 
+  const contentType = c.req.header('content-type') ?? '';
   let audioFile: File | Blob | null = null;
-  try {
-    const formData = await c.req.formData();
-    audioFile = formData.get('audio') as File | null;
-  } catch {
-    return c.json({ error: 'Invalid form data' }, 400);
+
+  if (contentType.includes('application/json')) {
+    // Primary path (React Native client): base64 audio avoids RN FormData
+    // multipart bug that throws "Network request failed" on Android.
+    try {
+      const body = await c.req.json<{ audio?: string; mimeType?: string }>();
+      if (!body.audio) return c.json({ error: 'Missing audio field' }, 400);
+      const binaryStr = atob(body.audio);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      audioFile = new Blob([bytes], { type: body.mimeType ?? 'audio/m4a' });
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+  } else {
+    // Legacy path: multipart/form-data (keep for curl/web clients)
+    try {
+      const formData = await c.req.formData();
+      audioFile = formData.get('audio') as File | null;
+    } catch {
+      return c.json({ error: 'Invalid form data' }, 400);
+    }
   }
 
   if (!audioFile) {

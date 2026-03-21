@@ -323,16 +323,22 @@ export default function ConverseScreen() {
         text = await transcribeAudio(uri);
       } catch (e: any) {
         const msg = (e.message ?? '').toLowerCase();
-        if (msg.includes('timed out') || msg.includes('timeout')) {
+        console.error('[bro/stt]', e.message);
+        if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
           setError('Voice service is slow — try again.');
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
           setError('Voice service not configured — contact support.');
-        } else if (msg.includes('503') || msg.includes('offline')) {
+        } else if (msg.includes('503') || msg.includes('not configured')) {
           setError('Voice service offline — try again in a moment.');
-        } else if (msg.includes('502') || msg.includes('slow') || msg.includes('5')) {
+        } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
+          setError("Didn't catch that — hold and speak clearly.");
+        } else if (msg.includes('network error') || msg.includes('network request')) {
+          setError('Cannot reach voice service — check your connection.');
+        } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
           setError('Voice service error — please try again.');
         } else {
-          setError('No connection — check your internet and try again.');
+          // Show the real error in dev so we can diagnose it
+          setError(__DEV__ ? `STT: ${e.message}` : 'Voice error — try again.');
         }
         return;
       }

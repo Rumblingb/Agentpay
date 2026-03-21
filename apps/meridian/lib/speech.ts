@@ -5,11 +5,17 @@
  * AgentPay API server, which calls OpenAI Whisper server-side.
  * No OpenAI key needed in the app.
  *
+ * Upload strategy: read the file as base64 via expo-file-system and send
+ * as JSON. This avoids React Native's broken FormData multipart upload on
+ * Android (throws "Network request failed" for local file URIs on many
+ * Android versions).
+ *
  * TTS is handled by lib/tts.ts.
  * Re-exported from here for convenience.
  */
 
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 export { speak, stopSpeaking } from './tts';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
@@ -63,17 +69,46 @@ export async function stopRecording(): Promise<string | null> {
 // ── Transcription ─────────────────────────────────────────────────────────────
 
 export async function transcribeAudio(uri: string): Promise<string> {
-  // React Native FormData accepts { uri, type, name } directly.
-  // Never use fetch(dataUri).then(r => r.blob()) — data URI fetch is broken on Android.
-  const form = new FormData();
-  form.append('audio', { uri, type: 'audio/m4a', name: 'audio.m4a' } as any);
+  // 1. Verify the file exists and has content before trying to upload.
+  let info: FileSystem.FileInfo;
+  try {
+    info = await FileSystem.getInfoAsync(uri);
+  } catch (e: any) {
+    throw new Error(`Audio file check failed: ${e.message}`);
+  }
+  if (!info.exists) throw new Error('Audio file missing — try holding longer.');
+  if ((info as any).size === 0) throw new Error('Audio file empty — try holding longer.');
 
-  const res = await fetch(`${BASE}/api/voice/transcribe`, {
-    method: 'POST',
-    body: form,
-  });
+  // 2. Read as base64 — avoids RN FormData multipart bug on Android where
+  //    fetch() throws "Network request failed" for local file:// URIs.
+  let base64Audio: string;
+  try {
+    base64Audio = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  } catch (e: any) {
+    throw new Error(`Failed to read audio: ${e.message}`);
+  }
+
+  // 3. POST base64 JSON to the server-side Whisper proxy.
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api/voice/transcribe`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ audio: base64Audio, mimeType: 'audio/m4a' }),
+      signal:  AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    const msg = (e.message ?? '').toLowerCase();
+    if (msg.includes('timeout') || msg.includes('abort')) {
+      throw new Error('Voice service timed out — try again.');
+    }
+    throw new Error(`Network error: ${e.message}`);
+  }
 
   if (!res.ok) throw new Error(`Transcription failed (${res.status})`);
-  const data = await res.json();
-  return (data.transcript as string).trim();
+  const data = await res.json() as { transcript?: string; error?: string };
+  if (data.error) throw new Error(`Transcription error: ${data.error}`);
+  return (data.transcript ?? '').trim();
 }
