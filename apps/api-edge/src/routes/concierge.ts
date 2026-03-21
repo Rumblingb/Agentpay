@@ -27,6 +27,7 @@ import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
 import { queryRTT, formatTrainsForClaude, LONDON_TERMINI } from '../lib/rtt';
 import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
 import { queryTfLFinalLeg } from '../lib/tfl';
+import { planMetro, formatMetroForClaude } from '../lib/metro';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -185,6 +186,8 @@ HARD RULES — never violate these:
 ROUTING RULES:
 - Use book_train for UK and European routes (London, Manchester, Edinburgh, Paris, Amsterdam, etc.)
 - Use book_train_india for Indian routes (Delhi, Mumbai, Bangalore, Chennai, Kolkata, Hyderabad, etc.)
+- Use plan_metro for Bengaluru metro (Purple/Green line) or Pune metro (Line 1/Line 2). No booking needed — quote route, time, fare, and tell them to just turn up. One short sentence.
+  Metro response format: "Green Line to Kempegowda, switch to Purple — 8 stops to Indiranagar, 22 min, ₹30."
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
 
@@ -553,6 +556,22 @@ RESPONSE FORMAT:
             dataSource:       irDataSource,
           };
         }
+      } else if (toolCall.name === 'plan_metro') {
+        // ── India metro journey planner (Bengaluru + Pune) ────────────────
+        const metroResult = planMetro(input.origin ?? '', input.destination ?? '');
+        toolResultContent = formatMetroForClaude(metroResult);
+        broLog('metro_result', {
+          traceId,
+          origin:       input.origin,
+          destination:  input.destination,
+          city:         metroResult.city,
+          found:        metroResult.found,
+          totalMinutes: metroResult.totalMinutes ?? null,
+          fare:         metroResult.fare ?? null,
+          stops:        metroResult.stops ?? null,
+          legs:         metroResult.legs?.length ?? 0,
+          error:        metroResult.error ?? null,
+        });
       } else {
         // Non-train skills: tell Claude the agent is available
         const agentName = agent?.name ?? skill.displayName;
@@ -604,6 +623,9 @@ RESPONSE FORMAT:
     });
   }
 
+  // Metro-only queries are info responses — no payment, no biometric needed
+  const isMetroOnly = planItems.every(p => p.toolName === 'plan_metro');
+
   broLog('plan_built', {
     traceId,
     itemCount:   planItems.length,
@@ -637,6 +659,10 @@ RESPONSE FORMAT:
 
   const totalUsdc = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
   const totalFiat = planItems.reduce((s, p) => s + planItemFiatAmount(p, currency.code), 0);
+
+  if (isMetroOnly) {
+    return c.json({ narration, actions: [], needsBiometric: false });
+  }
 
   return c.json({
     narration,

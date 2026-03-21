@@ -411,11 +411,57 @@ Researches and summarises information to support booking decisions.
 Returns a concise summary with key facts, relevant links, and recommendations.`,
 };
 
+// ── Metro planning ────────────────────────────────────────────────────────────
+
+const metroSkill: SkillDefinition = {
+  toolName: 'plan_metro',
+  category: 'metro',
+  displayName: 'MetroAgent',
+  description: 'Plan metro journeys in Bengaluru (Purple Line + Green Line) and Pune (Line 1 + Line 2). Returns route, interchange info, journey time, and fare in INR. No booking needed — metro is turn-up-and-go.',
+  requiredProfileFields: [],
+  inputSchema: {
+    type: 'object',
+    required: ['origin', 'destination'],
+    properties: {
+      origin:      { type: 'string', description: 'Metro origin — station name or area (e.g. "Indiranagar", "MG Road", "PCMC", "Deccan")' },
+      destination: { type: 'string', description: 'Metro destination — station name or area (e.g. "Whitefield", "Jayanagar", "Swargate", "Kharadi")' },
+    },
+  },
+  skillDoc: `# MetroAgent
+Plans metro journeys in Bengaluru and Pune.
+
+## Coverage
+- **Bengaluru (BMRCL)**: Purple Line (East–West: Mysore Road ↔ Whitefield) + Green Line (North–South: Nagasandra ↔ Yelachenahalli). Interchange at Kempegowda/Majestic.
+- **Pune (PMRDA)**: Line 1 (PCMC → Swargate) + Line 2 (Vanaz → Ramwadi). Interchange at Shivajinagar.
+
+## Key Bengaluru stations
+- Purple Line: Mysore Road, Vijayanagar, **Kempegowda** (interchange), Cubbon Park, MG Road, Trinity, Halasuru, Indiranagar, Baiyappanahalli, Tin Factory, Whitefield
+- Green Line: Nagasandra, Yeshwanthpur, Rajajinagar, **Kempegowda** (interchange), City Railway Station, KR Market, Lalbagh, Jayanagar, Yelachenahalli
+
+## Key Pune stations
+- Line 1: PCMC, Bhosari, Dapodi, Khadki, **Shivajinagar** (interchange), Civil Court, Budhwar Peth, Swargate
+- Line 2: Vanaz, Nal Stop, Deccan Gymkhana, **Shivajinagar** (interchange), Pune Station, Hadapsar, Magarpatta, Kharadi, Ramwadi
+
+## Fare slabs (2025)
+- Bengaluru: ₹10 (1-2 stops) → ₹20 → ₹30 → ₹40 → ₹50 → ₹60 → ₹70 (21+ stops)
+- Pune: ₹10 → ₹20 → ₹30 → ₹40 → ₹50 (14+ stops)
+
+## Edge cases
+- User says "Majestic" → Kempegowda interchange
+- User says "ITPL" or "Kadugodi" → Whitefield
+- Interchange routes: add ~5 min transfer time at interchange station
+- No booking, no ticket reservation. Just quote route + time + fare.
+
+## Output
+Route with line(s), stops, journey time, fare in INR. For Bro's narration: keep it to one sentence — "Green Line to Kempegowda, switch to Purple, 8 stops to Indiranagar — 22 min, ₹30."`,
+};
+
 // ── Registry export ──────────────────────────────────────────────────────────
 
 export const SKILLS: SkillDefinition[] = [
   trainSkill,
   trainIndiaSkill,
+  metroSkill,
   hotelSkill,
   taxiSkill,
   flightSkill,
