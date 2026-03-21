@@ -135,10 +135,31 @@ curl -X POST https://api.agentpay.so/api/webhooks \\
   }'
 `}</Code>
           <p style={S.p}>
-            Every webhook delivery includes an <code>X-AgentPay-Signature</code> HMAC header
-            so you can verify the payload is genuine. See the{' '}
-            <a href="https://api.agentpay.so" style={{ color: '#10b981' }}>API reference</a> for the signing algorithm.
+            Every delivery includes an <code>X-AgentPay-Signature</code> header —
+            verify it before trusting the payload:
           </p>
+          <Code lang="typescript">{`
+// Node.js / TypeScript — verify webhook signature
+import crypto from 'crypto';
+
+app.post('/hooks/agentpay', express.raw({ type: 'application/json' }), (req, res) => {
+  const sig      = req.headers['x-agentpay-signature'] as string; // "sha256=abc..."
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', process.env.AGENTPAY_WEBHOOK_SECRET!)
+    .update(req.body)           // raw Buffer — must not parse JSON first
+    .digest('hex');
+
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return res.status(401).send('Bad signature');
+  }
+
+  const event = JSON.parse(req.body);
+  if (event.type === 'payment.verified') {
+    console.log('Settled:', event.intentId, event.amount);
+  }
+  res.sendStatus(200);
+});
+`}</Code>
         </div>
       </div>
 
@@ -172,6 +193,60 @@ curl -X POST https://api.agentpay.so/api/v1/agents/register \\
   "passportUrl": "https://api.agentpay.so/api/passport/agt_01J..."
 }
 `}</Code>
+        </div>
+      </div>
+
+      {/* Errors */}
+      <div style={S.step}>
+        <div style={S.num}>5</div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ ...S.h2, marginTop: 0 }}>Error responses</h2>
+          <p style={S.p}>
+            All errors return a JSON body with an <code>error</code> string and an HTTP status code.
+            Never parse the status code alone — always read <code>error</code> for the reason.
+          </p>
+          <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #1f1f1f' }}>
+                  {['Status', 'Code / error string', 'What it means', 'Fix'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', color: '#6b7280', fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['400', 'validation_error', 'Missing or invalid field in the request body', 'Read the error message — it names the bad field'],
+                  ['401', 'unauthorized', 'API key missing or malformed', 'Add Authorization: Bearer sk_live_...'],
+                  ['403', 'forbidden', 'Key valid but lacks permission for this resource', 'Use the key that owns this merchant / agent'],
+                  ['404', 'not_found', 'Resource does not exist', 'Check the ID — agent or intent may not have been created yet'],
+                  ['409', 'conflict', 'Action already taken (e.g. intent already verified)', 'Safe to ignore if idempotent; otherwise check current status'],
+                  ['429', 'rate_limited', 'Too many requests', 'Back off with exponential retry; free tier: 60 req/min'],
+                  ['500', 'internal_error', 'Something went wrong on our side', 'Retry once; if persistent, open a GitHub issue'],
+                  ['503', 'service_unavailable', 'Planned maintenance or upstream outage', 'Check status.agentpay.so; retry with backoff'],
+                ].map(([status, code, meaning, fix]) => (
+                  <tr key={status} style={{ borderBottom: '1px solid #111' }}>
+                    <td style={{ padding: '0.5rem 0.75rem', color: status.startsWith('4') ? '#f87171' : status === '503' ? '#fb923c' : '#fbbf24', fontWeight: 700, fontFamily: 'monospace' }}>{status}</td>
+                    <td style={{ padding: '0.5rem 0.75rem', color: '#e5e7eb', fontFamily: 'monospace', fontSize: '0.75rem' }}>{code}</td>
+                    <td style={{ padding: '0.5rem 0.75rem', color: '#9ca3af' }}>{meaning}</td>
+                    <td style={{ padding: '0.5rem 0.75rem', color: '#6b7280' }}>{fix}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Code lang="json">{`
+// Every error response has this shape:
+{
+  "error":   "not_found",
+  "message": "Payment intent intent_01J... does not exist",
+  "status":  404
+}
+`}</Code>
+          <p style={{ ...S.p, fontSize: '0.875rem', color: '#6b7280' }}>
+            Retryable errors: <code>429</code>, <code>500</code>, <code>503</code>.
+            Use exponential back-off starting at 1s. Non-retryable: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>409</code>.
+          </p>
         </div>
       </div>
 
