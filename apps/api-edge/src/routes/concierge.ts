@@ -243,10 +243,10 @@ PHASE 1 RESPONSE FORMAT:
 - If you cannot help, say so in one sentence and suggest what you can do instead
 
 PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
-- Exactly one sentence. State the booking ref and that email is on its way. Nothing else.
-- Format: "[Ref] is confirmed. Check your email."
-- Example: "BRO-A1B2C3 is confirmed. Check your email."
-- Never say "I've booked" or "I have arranged" — just state the fact. Maximum 10 words.`;
+- Exactly one sentence. State the Bro reference and that the ticket is being secured. Nothing else.
+- Format: "[Ref] — securing your ticket. Details by email."
+- Example: "BRO-A1B2C3 — securing your ticket. Details by email."
+- Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
@@ -299,6 +299,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               trainName:      item.trainDetails.trainName,
               classCode:      item.trainDetails.classCode,
               bookedAt:       new Date().toISOString(),
+              travelDate:      item.trainDetails.travelDate,
               isSimulated:     true,
               dataSource:      item.trainDetails.dataSource,
               finalLegSummary: item.trainDetails.finalLegSummary,
@@ -363,8 +364,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               ? ` Then: ${item.trainDetails.finalLegSummary}.`
               : '';
             const confirmLine = isIndia
-              ? `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.${finalLegLine}`
-              : `Booking request submitted. Reference: ${bookingRef}. ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.${finalLegLine}`;
+              ? `Request received. Bro reference: ${bookingRef}. Securing ticket: ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.${finalLegLine}`
+              : `Request received. Bro reference: ${bookingRef}. Securing ticket: ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.${finalLegLine}`;
 
             toolResults.push({
               type:        'tool_result',
@@ -420,7 +421,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       input: p.input,
     }));
 
-    let narration = 'Done — your booking request has been submitted.';
+    let narration = 'Request in. Securing your ticket — details by email within 15 minutes.';
     try {
       const narrationResponse = await callClaude(anthropicKey, {
         system: systemPrompt,
@@ -549,6 +550,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             estimatedFareGbp: svc.estimatedFareGbp,
             country:          'uk',
             destinationCRS:   rttResult.destinationCRS,
+            travelDate:       rttResult.date.replace(/\//g, '-'),  // YYYY-MM-DD
             dataSource,
           };
 
@@ -612,6 +614,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           const svc = irResult.services[0];
           // Convert INR to USDC for the AgentPay payment layer (≈85 INR per USD)
           const INR_TO_USD = 0.012;
+          // Parse travel date from input (may be ISO, "today", "tomorrow", etc.)
+          const { parseRttDate } = await import('../lib/rtt');
+          const irTravelDate = parseRttDate(input.date).replace(/\//g, '-');
+
           trainDetails = {
             departureTime:    svc.departureTime,
             arrivalTime:      svc.arrivalTime,
@@ -626,6 +632,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             classCode:        svc.classCode,
             fareInr:          svc.estimatedFareInr,
             country:          'india',
+            travelDate:       irTravelDate,
             dataSource:       irDataSource,
           };
         }
@@ -1104,8 +1111,9 @@ async function fireOperationsWebhook(
   const { proof, userEmail, userName, userPhone, userWhatsapp, jobId } = params;
   const isIndia = proof.country === 'india';
 
-  // Extract date from bookedAt (ISO) for the sheet date column
-  const bookedDate = new Date(proof.bookedAt).toISOString().split('T')[0];
+  // Travel date (when the train actually runs) — NOT the booking creation date.
+  // Falls back to bookedAt date only if travelDate was not threaded through.
+  const travelDate = proof.travelDate ?? new Date(proof.bookedAt).toISOString().split('T')[0];
 
   const payload = {
     BRO_REF:          proof.bookingRef,
@@ -1116,7 +1124,7 @@ async function fireOperationsWebhook(
     USER_WHATSAPP:    userWhatsapp  ?? '',
     ORIGIN:           proof.fromStation  ?? '',
     DESTINATION:      proof.toStation    ?? '',
-    DATE:             bookedDate,
+    DATE:             travelDate,
     DEPARTURE_TIME:   proof.departureTime ?? '',
     ARRIVAL_TIME:     proof.arrivalTime   ?? '',
     OPERATOR:         proof.operator      ?? '',
@@ -1345,6 +1353,8 @@ interface TrainDetails {
   dataSource?:      'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
   /** CRS code of the arrival station — used to detect London terminus for TfL final leg */
   destinationCRS?:  string;
+  /** Actual travel date (YYYY-MM-DD) — distinct from booking creation date */
+  travelDate?:      string;
   /** TfL final-leg summary (only present when arriving at a London terminus) */
   finalLegSummary?: string;
   finalLegDuration?: number;
@@ -1396,6 +1406,8 @@ interface BookingProof {
   /** True = synthetic ref — schedule data only, no live provider booking */
   isSimulated?:    boolean;
   dataSource?:     string;
+  /** Actual travel date (YYYY-MM-DD) — NOT the booking creation date */
+  travelDate?:     string;
   /** TfL final-leg summary (e.g. "Piccadilly line (3 stops) → Covent Garden, 12 min") */
   finalLegSummary?: string;
 }

@@ -85,8 +85,8 @@ export default function StatusScreen() {
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
-              ? `Your booking is confirmed. Reference: ${ref.replace(/-/g, ' ')}. Your ticket reference will arrive by email within 15 minutes.`
-              : 'Your booking is confirmed. Your ticket reference will arrive by email within 15 minutes.';
+              ? `Securing your ticket. Bro reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
+              : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
             await speak(doneMsg);
             // Animate success
             Animated.parallel([
@@ -170,12 +170,12 @@ export default function StatusScreen() {
 
         {/* Status text */}
         <Text style={[styles.statusTitle, isDone && styles.statusTitleDone, isError && styles.statusTitleError]}>
-          {isDone ? 'Booked' : isError ? 'Failed' : 'On it…'}
+          {isDone ? 'Securing ticket' : isError ? 'Failed' : 'On it…'}
         </Text>
 
         <Text style={styles.statusSub}>
           {isDone
-            ? 'Your booking is confirmed. Your ticket reference will arrive by email within 15 minutes.'
+            ? 'Your request is in. Ticket details arrive by email within 15 minutes.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is working · ${elapsed}s`}
@@ -184,7 +184,7 @@ export default function StatusScreen() {
         {/* Booking reference pill */}
         {isDone && bookingRef && (
           <View style={styles.bookingRefWrap}>
-            <Text style={styles.bookingRefLabel}>Booking Reference</Text>
+            <Text style={styles.bookingRefLabel}>Bro Reference</Text>
             <Text style={styles.bookingRef}>{bookingRef}</Text>
             {(departureTime || platform || operator) && (
               <View style={styles.journeyMeta}>

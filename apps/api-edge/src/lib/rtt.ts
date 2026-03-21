@@ -269,15 +269,25 @@ function calcDarwinOffset(
   const now = new Date();
   const [y, m, d] = dateStr.split('/').map(Number);
 
-  // Target window start hour (UK local, approximated as UTC for now)
-  let startHour = 6;
-  if (timePreference === 'morning')   startHour = 7;
-  if (timePreference === 'afternoon') startHour = 12;
-  if (timePreference === 'evening')   startHour = 17;
+  const requestedDate = new Date(y, m - 1, d);
+  const todayDate     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const isToday       = requestedDate.getTime() === todayDate.getTime();
 
-  const targetStart = new Date(y, m - 1, d, startHour, 0, 0);
-  const offsetMs    = targetStart.getTime() - now.getTime();
-  const offsetMins  = Math.floor(offsetMs / 60_000);
+  // For "any" / unspecified time on today: use current time (offset=0) so Darwin returns next trains from now.
+  // For time preferences or future dates: use a fixed start hour.
+  let targetStart: Date;
+  if (!timePreference || timePreference === 'any') {
+    targetStart = isToday ? now : new Date(y, m - 1, d, 6, 0, 0);
+  } else {
+    let startHour = 6;
+    if (timePreference === 'morning')   startHour = 7;
+    if (timePreference === 'afternoon') startHour = 12;
+    if (timePreference === 'evening')   startHour = 17;
+    targetStart = new Date(y, m - 1, d, startHour, 0, 0);
+  }
+
+  const offsetMs   = targetStart.getTime() - now.getTime();
+  const offsetMins = Math.floor(offsetMs / 60_000);
 
   if (offsetMins > DARWIN_MAX_OFFSET_MINS) return null;   // beyond Darwin window
   if (offsetMins < -120)                   return null;   // too far in the past
