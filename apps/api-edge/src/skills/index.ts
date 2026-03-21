@@ -458,13 +458,15 @@ Route with line(s), stops, journey time, fare in INR. For Bro's narration: keep 
 
 // ── Registry export ──────────────────────────────────────────────────────────
 
+// Hotel, taxi, and flight skills exist but are not yet active.
+// They will be enabled once manual fulfillment partners are in place.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _COMING_SOON = [hotelSkill, taxiSkill, flightSkill];
+
 export const SKILLS: SkillDefinition[] = [
   trainSkill,
   trainIndiaSkill,
   metroSkill,
-  hotelSkill,
-  taxiSkill,
-  flightSkill,
   researchSkill,
 ];
 

@@ -190,6 +190,7 @@ ROUTING RULES:
   Metro response format: "Green Line to Kempegowda, switch to Purple — 8 stops to Indiranagar, 22 min, ₹30."
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
+- If asked about hotels, taxis, flights, or car hire: say exactly "Hotels and cabs coming soon — trains I can sort right now." Do NOT call any tool. One sentence only.
 
 TIME CLARIFICATION RULE — critical:
 - If the user did NOT specify a time (e.g. "book a train to Manchester"), call the tool with time_preference="any"
@@ -280,12 +281,14 @@ RESPONSE FORMAT:
             // Fire-and-forget: complete the job + send email confirmation
             const userEmail = travelProfile?.email as string | undefined;
             const userName  = travelProfile?.legalName as string | undefined;
+            const userPhone = travelProfile?.phone as string | undefined;
             c.executionCtx.waitUntil(
               Promise.all([
                 autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hireResult.completionSecret ?? hirerId, proof),
-                sendBookingConfirmationEmail(c.env.RESEND_API_KEY, {
+                sendBookingConfirmationEmail(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
                   to:    userEmail,
                   name:  userName,
+                  phone: userPhone,
                   proof,
                 }),
               ]),
@@ -851,11 +854,12 @@ function buildJobDescription(
 
 async function sendBookingConfirmationEmail(
   resendKey: string | undefined,
-  params: { to: string | undefined; name: string | undefined; proof: BookingProof },
+  adminEmail: string | undefined,
+  params: { to: string | undefined; name: string | undefined; phone?: string; proof: BookingProof },
 ): Promise<void> {
-  if (!resendKey || !params.to) return;
+  if (!resendKey) return;
 
-  const { proof, to, name } = params;
+  const { proof, to, name, phone } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = proof.country === 'india';
   const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
@@ -866,11 +870,11 @@ async function sendBookingConfirmationEmail(
 
   const html = isIndia ? `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#f97316">Journey Details — Booking Request</h2>
+      <h2 style="color:#f97316">Your Journey — Bro</h2>
       <p>${greeting}</p>
-      <p>Your booking request has been submitted. Here are your journey details:</p>
+      <p>Your booking is confirmed. Here are your journey details:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">PNR Number</td>
+        <tr><td style="padding:8px 0;color:#666;width:140px">Reference</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#f97316">${proof.bookingRef}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Train</td>
             <td style="padding:8px 0;font-weight:600">${proof.trainNumber} ${proof.trainName}</td></tr>
@@ -881,22 +885,20 @@ async function sendBookingConfirmationEmail(
         <tr><td style="padding:8px 0;color:#666">Class</td>
             <td style="padding:8px 0">${proof.classCode ?? '3A'}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Fare</td>
-            <td style="padding:8px 0">₹${proof.fareInr} (advance estimate)</td></tr>
+            <td style="padding:8px 0">₹${proof.fareInr}</td></tr>
       </table>
       <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
-        Reference number <strong>${proof.bookingRef}</strong> is your Bro request reference. This is a schedule preview — full IRCTC provider integration coming soon.
+        Your Bro concierge is handling this. Ticket details within 15 minutes. Reference: <strong>${proof.bookingRef}</strong>
       </p>
-      <p style="color:#666;font-size:13px">Requested via Bro · AgentPay · ${bookedDate}</p>
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-      <p style="font-size:12px;color:#9ca3af">Schedule data sourced from Indian Railways via IRCTC. This request was submitted by AgentPay on behalf of your Bro concierge.</p>
+      <p style="color:#666;font-size:13px">Bro · ${bookedDate}</p>
     </div>
   ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#16a34a">Journey Details — Booking Request</h2>
+      <h2 style="color:#16a34a">Your Journey — Bro</h2>
       <p>${greeting}</p>
-      <p>Your booking request has been submitted. Here are your journey details:</p>
+      <p>Your booking is confirmed. Here are your journey details:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">Booking Ref</td>
+        <tr><td style="padding:8px 0;color:#666;width:140px">Reference</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${proof.bookingRef}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Route</td>
             <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
@@ -906,32 +908,76 @@ async function sendBookingConfirmationEmail(
         <tr><td style="padding:8px 0;color:#666">Operator</td>
             <td style="padding:8px 0">${proof.operator}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Fare</td>
-            <td style="padding:8px 0">£${proof.fareGbp} (advance estimate)</td></tr>
+            <td style="padding:8px 0">£${proof.fareGbp}</td></tr>
+        ${proof.finalLegSummary ? `<tr><td style="padding:8px 0;color:#666">Onward</td><td style="padding:8px 0;color:#0284c7">${proof.finalLegSummary}</td></tr>` : ''}
       </table>
-      <p style="color:#666;font-size:13px">Requested via Bro · AgentPay · ${bookedDate}</p>
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-      <p style="font-size:12px;color:#9ca3af">Schedule data from National Rail via Realtime Trains API. This is a booking request — provider integration coming soon.</p>
+      <p style="background:#f0fdf4;border-left:3px solid #16a34a;padding:12px;font-size:13px;color:#166534">
+        Your Bro concierge is handling this. Ticket details within 15 minutes. Reference: <strong>${proof.bookingRef}</strong>
+      </p>
+      <p style="color:#666;font-size:13px">Bro · ${bookedDate}</p>
+    </div>
+  `;
+
+  // Send user confirmation email
+  if (to) {
+    try {
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from:    'Bro <bookings@agentpay.so>',
+          to:      [to],
+          subject: `Your journey — ${proof.fromStation} → ${proof.toStation} · ${proof.bookingRef}`,
+          html,
+        }),
+      });
+    } catch {
+      // Best-effort
+    }
+  }
+
+  // Admin fulfillment alert — send to ADMIN_EMAIL so team can manually book
+  const alertTo = adminEmail ?? 'bookings@agentpay.so';
+  const adminHtml = `
+    <div style="font-family:monospace;max-width:600px;margin:0 auto;background:#0a0a0a;color:#e5e5e5;padding:24px;border-radius:8px">
+      <h2 style="color:#10b981;margin-bottom:4px">🟢 New Booking Request</h2>
+      <p style="color:#6b7280;font-size:12px;margin-top:0">${new Date().toISOString()}</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0">
+        <tr><td style="padding:6px 0;color:#9ca3af;width:120px">Ref</td><td style="padding:6px 0;font-weight:700;letter-spacing:2px;color:#10b981">${proof.bookingRef}</td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Route</td><td style="padding:6px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Departs</td><td style="padding:6px 0">${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}${proof.platform ? ` · Platform ${proof.platform}` : ''}</td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Operator</td><td style="padding:6px 0">${proof.operator ?? proof.trainName ?? '—'}</td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Fare</td><td style="padding:6px 0">${isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`}</td></tr>
+        ${proof.classCode ? `<tr><td style="padding:6px 0;color:#9ca3af">Class</td><td style="padding:6px 0">${proof.classCode}</td></tr>` : ''}
+        ${proof.finalLegSummary ? `<tr><td style="padding:6px 0;color:#9ca3af">Onward</td><td style="padding:6px 0;color:#38bdf8">${proof.finalLegSummary}</td></tr>` : ''}
+      </table>
+      <hr style="border:none;border-top:1px solid #1f2937;margin:16px 0">
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:6px 0;color:#9ca3af;width:120px">Name</td><td style="padding:6px 0">${name ?? '—'}</td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Email</td><td style="padding:6px 0"><a href="mailto:${to}" style="color:#60a5fa">${to ?? '—'}</a></td></tr>
+        <tr><td style="padding:6px 0;color:#9ca3af">Phone</td><td style="padding:6px 0">${phone ?? '—'}</td></tr>
+      </table>
+      <hr style="border:none;border-top:1px solid #1f2937;margin:16px 0">
+      <p style="color:#f59e0b;font-size:13px">
+        <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC/IXIGO' : 'Trainline'} and reply to the user with ticket confirmation.<br>
+        Use reference <strong>${proof.bookingRef}</strong> in your reply.
+      </p>
     </div>
   `;
 
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    'Bro <bookings@agentpay.so>',
-        to:      [to],
-        subject: isIndia
-          ? `Train booking request — Ref ${proof.bookingRef}`
-          : `Your train booking request — ${proof.bookingRef}`,
-        html,
+        from:    'Bro Alerts <bookings@agentpay.so>',
+        to:      [alertTo],
+        subject: `[BRO] ${proof.bookingRef} — ${proof.fromStation} → ${proof.toStation} · ${isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`}`,
+        html:    adminHtml,
       }),
     });
   } catch {
-    // Best-effort — request was submitted regardless
+    // Best-effort
   }
 }
 

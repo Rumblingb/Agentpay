@@ -407,9 +407,9 @@ export default function ConverseScreen() {
               Hold the orb. Tell me where you're going.{'\n'}I'll handle the rest.
             </Text>
             <View style={styles.suggestions}>
-              <Suggestion icon="train-outline" text="London to Edinburgh, tomorrow 8am" />
-              <Suggestion icon="bed-outline"   text="Hotel in Manchester, 2 nights" />
-              <Suggestion icon="car-outline"   text="Taxi from King's Cross" />
+              <Suggestion icon="train-outline"  text="London to Edinburgh, tomorrow morning" />
+              <Suggestion icon="train-outline"  text="Next train from Manchester to Derby" />
+              <Suggestion icon="subway-outline" text="Indiranagar to Whitefield by metro" />
             </View>
           </View>
         )}
@@ -440,7 +440,12 @@ export default function ConverseScreen() {
           const fiat    = pendingPlanRef.current?.fiatAmount ?? 0;
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
           const plan    = pendingPlanRef.current?.plan ?? [];
-          const tripDesc = plan[0]?.displayName ?? null;
+          const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
+          const tripOrigin = planInput.origin ?? planInput.from ?? '';
+          const tripDest   = planInput.destination ?? planInput.to ?? '';
+          const tripDesc   = tripOrigin && tripDest
+            ? `${tripOrigin} → ${tripDest}`
+            : plan[0]?.displayName ?? null;
           const finalLegSummary = plan[0]?.finalLegSummary ?? null;
           const dataSource = plan[0]?.dataSource;
           const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'

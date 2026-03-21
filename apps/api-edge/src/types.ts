@@ -143,6 +143,8 @@ export interface Env {
   // ── Email ─────────────────────────────────────────────────────────────────
   /** Resend API key — enables booking confirmation emails from mock agents. */
   RESEND_API_KEY?: string;
+  /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
+  ADMIN_EMAIL?: string;
 
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Anthropic API key — powers the Bro concierge brain. */
