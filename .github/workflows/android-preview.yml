@@ -42,13 +42,18 @@ jobs:
           EXPO_PUBLIC_API_URL: https://api.agentpay.so
         run: npx expo prebuild --platform android --clean --non-interactive
 
-      - name: Build APK
+      - name: Build release APK (signed with debug keystore for sideloading)
         working-directory: apps/meridian/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$HOME/.android/debug.keystore \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: bro-android-${{ github.run_number }}
-          path: apps/meridian/android/app/build/outputs/apk/debug/app-debug.apk
+          path: apps/meridian/android/app/build/outputs/apk/release/app-release.apk
           retention-days: 14
