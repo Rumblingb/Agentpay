@@ -460,16 +460,13 @@ router.post('/hire/:jobId/complete', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/marketplace/stripe-session
+// POST /api/marketplace/checkout-session
 //
-// Creates a Stripe PaymentIntent in GBP for the agreed USDC amount.
-// 1 USDC ≈ £1 for demo purposes.
-// Returns clientSecret for the Bro app to present the PaymentSheet.
-//
-// The payment is authorisation only — money is not captured until
-// the agent completes the job (future: capture-on-delivery).
+// Creates a Stripe Checkout Session (hosted payment page — no native SDK).
+// The app opens session.url in the device browser via Linking.openURL.
+// On completion, the Stripe webhook marks the job stripePaymentConfirmed=true.
 // ---------------------------------------------------------------------------
-router.post('/stripe-session', async (c) => {
+router.post('/checkout-session', async (c) => {
   if (!c.env.STRIPE_SECRET_KEY) {
     return c.json({ error: 'Stripe not configured on this deployment' }, 503);
   }
@@ -477,47 +474,67 @@ router.post('/stripe-session', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { amountUsdc, description } = body;
-  if (typeof amountUsdc !== 'number' || amountUsdc <= 0) {
-    return c.json({ error: 'amountUsdc must be a positive number' }, 400);
+  const { jobId, amountFiat, currencyCode, description } = body;
+  if (!jobId || typeof amountFiat !== 'number' || amountFiat <= 0) {
+    return c.json({ error: 'jobId and amountFiat required' }, 400);
   }
 
-  // 1 USDC = 100 pence for demo. Convert to integer pence (minimum £0.30 per Stripe rules).
-  const amountPence = Math.max(Math.round(amountUsdc * 100), 30);
-  const amountGbp   = (amountPence / 100).toFixed(2);
+  const currency    = (currencyCode ?? 'GBP').toLowerCase();
+  // Stripe amounts are in smallest currency unit. INR and GBP both use 1/100.
+  const amountSmall = Math.max(Math.round(amountFiat * 100), currency === 'inr' ? 5000 : 30);
+  const desc        = description ?? `Bro booking`;
 
-  // Create PaymentIntent via Stripe REST API (no Node SDK — Workers-compatible)
-  const stripeBody = new URLSearchParams({
-    amount:   String(amountPence),
-    currency: 'gbp',
-    'automatic_payment_methods[enabled]': 'true',
-    description: description ?? `AgentPay booking · ${amountGbp} GBP`,
+  const successUrl = `https://agentpay.so/payment/success?jobId=${encodeURIComponent(jobId)}`;
+  const cancelUrl  = `https://agentpay.so/payment/cancel?jobId=${encodeURIComponent(jobId)}`;
+
+  const checkoutBody = new URLSearchParams({
+    mode:                                          'payment',
+    'line_items[0][price_data][currency]':         currency,
+    'line_items[0][price_data][product_data][name]': desc,
+    'line_items[0][price_data][unit_amount]':      String(amountSmall),
+    'line_items[0][quantity]':                     '1',
+    success_url:                                   successUrl,
+    cancel_url:                                    cancelUrl,
+    'metadata[jobId]':                             jobId,
+    'metadata[source]':                            'bro_app',
   });
 
-  const stripeRes = await fetch('https://api.stripe.com/v1/payment_intents', {
+  const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${c.env.STRIPE_SECRET_KEY}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: stripeBody.toString(),
+    body: checkoutBody.toString(),
   });
 
   if (!stripeRes.ok) {
     const err = await stripeRes.json<any>().catch(() => ({}));
-    console.error('[marketplace/stripe-session] stripe error', err);
+    console.error('[marketplace/checkout-session] stripe error', err);
     return c.json({ error: 'Stripe error', details: err?.error?.message }, 502);
   }
 
-  const intent = await stripeRes.json<any>();
+  const session = await stripeRes.json<any>();
+
+  // Store checkout session ID in job metadata so webhook can confirm payment
+  const sql = createDb(c.env);
+  try {
+    await sql`
+      UPDATE payment_intents
+      SET metadata = metadata || ${JSON.stringify({ stripeCheckoutSessionId: session.id })}::jsonb
+      WHERE id = ${jobId}
+        AND metadata->>'protocol' = 'marketplace_hire'
+    `;
+  } catch {
+    // Non-fatal — webhook falls back to session.metadata.jobId
+  } finally {
+    await sql.end().catch(() => {});
+  }
 
   return c.json({
-    success:         true,
-    clientSecret:    intent.client_secret,
-    paymentIntentId: intent.id,
-    amountPence,
-    amountGbp,
-    currency:        'gbp',
+    success:   true,
+    url:       session.url,
+    sessionId: session.id,
   }, 201);
 });
 

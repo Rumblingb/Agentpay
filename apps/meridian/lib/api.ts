@@ -276,12 +276,14 @@ export async function conciergeConfirm(params: {
   });
 }
 
-/** Create a Stripe PaymentIntent for the given USDC amount (1 USDC ≈ £1) */
-export async function createStripeSession(params: {
-  amountUsdc: number;
+/** Create a Stripe Checkout Session — returns a hosted URL, no native SDK needed */
+export async function createCheckoutSession(params: {
+  jobId: string;
+  amountFiat: number;
+  currencyCode?: string;
   description?: string;
-}): Promise<{ clientSecret: string; paymentIntentId: string; amountPence: number; amountGbp: string }> {
-  return apiFetch('/api/marketplace/stripe-session', {
+}): Promise<{ url: string; sessionId: string }> {
+  return apiFetch('/api/marketplace/checkout-session', {
     method: 'POST',
     body: JSON.stringify(params),
   });

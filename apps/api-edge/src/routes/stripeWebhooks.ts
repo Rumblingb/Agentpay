@@ -142,6 +142,25 @@ router.post('/', async (c) => {
             sessionId,
             transactionId: intent.id,
           });
+
+          // Also confirm Bro marketplace jobs linked to this checkout session
+          const broJobId = session.metadata?.jobId as string | undefined;
+          if (broJobId) {
+            const confirmPatch = JSON.stringify({
+              stripePaymentConfirmed: true,
+              stripeCheckoutSessionId: sessionId,
+              stripeConfirmedAt: new Date().toISOString(),
+            });
+            await sql`
+              UPDATE payment_intents
+              SET metadata = metadata || ${confirmPatch}::jsonb
+              WHERE id = ${broJobId}
+                AND metadata->>'protocol' = 'marketplace_hire'
+            `.catch((e: unknown) =>
+              console.error('[stripe-webhook] bro job confirm failed:', e instanceof Error ? e.message : e),
+            );
+            console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, sessionId });
+          }
           break;
         }
 

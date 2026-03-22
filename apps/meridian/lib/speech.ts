@@ -42,9 +42,31 @@ export async function startRecording(): Promise<void> {
 
   if (_startCancelled) return;
 
-  const { recording } = await Audio.Recording.createAsync(
-    Audio.RecordingOptionsPresets.HIGH_QUALITY,
-  );
+  // Speech-optimised: 32kbps mono 16kHz — 5s clip ≈ 20KB vs 80KB at HIGH_QUALITY.
+  // Whisper transcribes speech well below 64kbps; smaller file = faster upload = fewer timeouts.
+  const { recording } = await Audio.Recording.createAsync({
+    android: {
+      extension:        '.m4a',
+      outputFormat:     Audio.AndroidOutputFormat.MPEG_4,
+      audioEncoder:     Audio.AndroidAudioEncoder.AAC,
+      sampleRate:       16000,
+      numberOfChannels: 1,
+      bitRate:          32000,
+    },
+    ios: {
+      extension:        '.m4a',
+      outputFormat:     Audio.IOSOutputFormat.MPEG4AAC,
+      audioQuality:     Audio.IOSAudioQuality.MEDIUM,
+      sampleRate:       16000,
+      numberOfChannels: 1,
+      bitRate:          32000,
+      linearPCMBitDepth:    16,
+      linearPCMIsBigEndian: false,
+      linearPCMIsFloat:     false,
+    },
+    web: { mimeType: 'audio/webm', bitsPerSecond: 32000 },
+    isMeteringEnabled: false,
+  });
 
   if (_startCancelled) {
     // User released before recording was ready — discard immediately
@@ -97,7 +119,7 @@ export async function transcribeAudio(uri: string): Promise<string> {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ audio: base64Audio, mimeType: 'audio/m4a' }),
-      signal:  AbortSignal.timeout(30_000),
+      signal:  AbortSignal.timeout(45_000),
     });
   } catch (e: any) {
     const msg = (e.message ?? '').toLowerCase();

@@ -23,6 +23,9 @@ custom_domain = true
 binding = "HYPERDRIVE"
 id = "be606bac9fde4493b21fff2e085eb82c"
 
+[ai]
+binding = "AI"
+
 [[durable_objects.bindings]]
 name = "SOLANA_LISTENER_DO"
 class_name = "SolanaListenerDO"

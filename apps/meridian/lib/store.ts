@@ -84,6 +84,7 @@ const SESSION_INITIAL = {
   currentAgent: null,
   currentJob: null,
   error: null,
+  turns: [] as HistoryTurn[],
 };
 
 export const useStore = create<MeridianState>((set) => ({

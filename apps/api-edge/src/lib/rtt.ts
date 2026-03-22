@@ -11,7 +11,7 @@
  * For requests further out, falls back to realistic mock schedule data.
  */
 
-const DARWIN_ENDPOINT = 'https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb11.asmx';
+const DARWIN_ENDPOINT = 'https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb12.asmx';
 const DARWIN_MAX_OFFSET_MINS = 479; // Darwin hard limit
 
 // ── Station CRS code lookup ───────────────────────────────────────────────────
@@ -604,8 +604,8 @@ export async function queryRTT(
     const res = await fetch(DARWIN_ENDPOINT, {
       method:  'POST',
       headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction':   'http://thalesgroup.com/RTTI/2021-11-01/ldb/GetDepBoardWithDetails',
+        'Content-Type':  'text/xml; charset=utf-8',
+        'SOAPAction':    '"http://thalesgroup.com/RTTI/2015-05-14/ldb/GetDepBoardWithDetails"',
       },
       body:   soap,
       signal: AbortSignal.timeout(6000),
@@ -615,7 +615,7 @@ export async function queryRTT(
       const errText = await res.text().catch(() => '');
       // 500 from Darwin usually means invalid token or station code
       const fallback = mockSchedule(originCRS, destCRS, origin, destination, date, timePreference);
-      return { ...fallback, error: `Darwin ${res.status}: ${errText.slice(0, 120)}` };
+      return { ...fallback, error: `Darwin ${res.status}: ${errText.slice(0, 500)}` };
     }
 
     const xml = await res.text();

@@ -147,9 +147,11 @@ export interface Env {
   ADMIN_EMAIL?: string;
 
   // ── AI ────────────────────────────────────────────────────────────────────
+  /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
+  AI?: Ai;
   /** Anthropic API key — powers the Bro concierge brain. */
   ANTHROPIC_API_KEY?: string;
-  /** OpenAI API key — powers Whisper STT and TTS-1 for voice proxy. */
+  /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
 
   // ── Darwin (National Rail OpenLDBWS — UK) ────────────────────────────────

@@ -18,58 +18,66 @@ export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Returns: { transcript: string }
 
 voiceRouter.post('/transcribe', async (c) => {
-  const openaiKey = c.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    return c.json({ error: 'Voice service not configured' }, 503);
-  }
-
   const contentType = c.req.header('content-type') ?? '';
-  let audioFile: File | Blob | null = null;
+  let audioBytes: Uint8Array | null = null;
+  let audioBlob: Blob | null = null;
 
   if (contentType.includes('application/json')) {
-    // Primary path (React Native client): base64 audio avoids RN FormData
-    // multipart bug that throws "Network request failed" on Android.
     try {
       const body = await c.req.json<{ audio?: string; mimeType?: string }>();
       if (!body.audio) return c.json({ error: 'Missing audio field' }, 400);
-      const binaryStr = atob(body.audio);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      audioFile = new Blob([bytes], { type: body.mimeType ?? 'audio/m4a' });
+      audioBytes = Uint8Array.from(atob(body.audio), c => c.charCodeAt(0));
+      audioBlob  = new Blob([audioBytes], { type: body.mimeType ?? 'audio/m4a' });
     } catch {
       return c.json({ error: 'Invalid JSON body' }, 400);
     }
   } else {
-    // Legacy path: multipart/form-data (keep for curl/web clients)
     try {
       const formData = await c.req.formData();
-      audioFile = formData.get('audio') as File | null;
+      const file = formData.get('audio') as File | null;
+      if (!file) return c.json({ error: 'Missing audio field' }, 400);
+      audioBytes = new Uint8Array(await file.arrayBuffer());
+      audioBlob  = file;
     } catch {
       return c.json({ error: 'Invalid form data' }, 400);
     }
   }
 
-  if (!audioFile) {
+  if (!audioBytes || !audioBlob) {
     return c.json({ error: 'Missing audio field' }, 400);
   }
 
-  const whisperForm = new FormData();
-  whisperForm.append('file', audioFile, 'audio.m4a');
-  whisperForm.append('model', 'whisper-1');
-  whisperForm.append('language', 'en');
+  // ── Primary: Cloudflare Workers AI Whisper (in-process, no external fetch) ──
+  if (c.env.AI) {
+    try {
+      const result = await (c.env.AI as any).run('@cf/openai/whisper', {
+        audio: [...audioBytes],
+      });
+      const transcript = (result?.text ?? '').trim();
+      if (transcript) return c.json({ transcript });
+      // Empty transcript — fall through to OpenAI
+    } catch (e: any) {
+      console.warn('[voice/transcribe] CF AI failed, trying OpenAI:', e.message);
+    }
+  }
+
+  // ── Fallback: OpenAI Whisper ──────────────────────────────────────────────
+  const openaiKey = c.env.OPENAI_API_KEY;
+  if (!openaiKey) return c.json({ error: 'Voice service not configured' }, 503);
 
   try {
+    const whisperForm = new FormData();
+    whisperForm.append('file', audioBlob, 'audio.m4a');
+    whisperForm.append('model', 'whisper-1');
+    whisperForm.append('language', 'en');
+
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
+      method:  'POST',
       headers: { Authorization: `Bearer ${openaiKey}` },
-      body: whisperForm,
+      body:    whisperForm,
     });
 
-    if (!res.ok) {
-      return c.json({ error: `Whisper error ${res.status}` }, 502);
-    }
+    if (!res.ok) return c.json({ error: `Whisper error ${res.status}` }, 502);
 
     const data = await res.json() as { text: string };
     return c.json({ transcript: (data.text ?? '').trim() });

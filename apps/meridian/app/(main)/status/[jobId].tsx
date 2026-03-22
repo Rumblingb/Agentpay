@@ -20,7 +20,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-import { getIntentStatus } from '../../../lib/api';
+import * as Linking from 'expo-linking';
+import { getIntentStatus, createCheckoutSession } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
@@ -45,6 +46,8 @@ export default function StatusScreen() {
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
   const [finalLegSummary, setFinalLegSummary] = useState<string | null>(null);
+  const [stripeConfirmed, setStripeConfirmed] = useState(false);
+  const [payLoading, setPayLoading]           = useState(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -81,6 +84,7 @@ export default function StatusScreen() {
             if (proof.toStation)     setToStation(proof.toStation);
             // isSimulated is internal — never surface to users
             if (proof.finalLegSummary) setFinalLegSummary(proof.finalLegSummary);
+            if (data.metadata?.stripePaymentConfirmed) setStripeConfirmed(true);
             setStatusPhase('done');
             setPhase('done');
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -121,6 +125,21 @@ export default function StatusScreen() {
 
     return () => clearInterval(t);
   }, [statusPhase, jobId]);
+
+  // ── Payment confirmation poll (runs after job completes, until paid) ──────
+  useEffect(() => {
+    if (statusPhase !== 'done' || stripeConfirmed || !jobId) return;
+    const t = setInterval(async () => {
+      try {
+        const data = await getIntentStatus(jobId);
+        if (data.metadata?.stripePaymentConfirmed) {
+          setStripeConfirmed(true);
+          clearInterval(t);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(t);
+  }, [statusPhase, stripeConfirmed, jobId]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
@@ -208,6 +227,50 @@ export default function StatusScreen() {
                 )}
               </View>
             )}
+          </View>
+        )}
+
+        {/* Payment button — shown until Stripe payment confirmed */}
+        {isDone && !stripeConfirmed && fiatAmount && parseFloat(fiatAmount) > 0 && (
+          <Pressable
+            onPress={async () => {
+              if (payLoading) return;
+              setPayLoading(true);
+              try {
+                const { url } = await createCheckoutSession({
+                  jobId,
+                  amountFiat:   parseFloat(fiatAmount),
+                  currencyCode: paramCode ?? 'GBP',
+                  description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
+                });
+                await Linking.openURL(url);
+              } catch {
+                // If checkout creation fails, show nothing — don't block the booking flow
+              } finally {
+                setPayLoading(false);
+              }
+            }}
+            style={[styles.payBtn, payLoading && { opacity: 0.5 }]}
+          >
+            <LinearGradient
+              colors={['#1e3a5f', '#1d4ed8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.payBtnGrad}
+            >
+              <Ionicons name="card-outline" size={20} color="#93c5fd" />
+              <Text style={styles.payBtnText}>
+                {payLoading ? 'Opening…' : `Pay ${paramSymbol ?? '£'}${parseFloat(fiatAmount).toFixed(2)}`}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        )}
+
+        {/* Payment confirmed badge */}
+        {isDone && stripeConfirmed && (
+          <View style={styles.paidBadge}>
+            <Ionicons name="checkmark-circle" size={16} color="#4ade80" />
+            <Text style={styles.paidBadgeText}>Payment confirmed</Text>
           </View>
         )}
 
@@ -463,4 +526,38 @@ const styles = StyleSheet.create({
 
   retryBtn: { paddingVertical: 16 },
   retryText: { fontSize: 15, color: C.textSecondary },
+
+  payBtn: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowColor: '#1d4ed8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  payBtnGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 18,
+  },
+  payBtnText: { fontSize: 17, fontWeight: '700', color: '#93c5fd', letterSpacing: 0.2 },
+
+  paidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#052e16',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.greenMid,
+  },
+  paidBadgeText: { fontSize: 13, fontWeight: '600', color: C.green },
 });
