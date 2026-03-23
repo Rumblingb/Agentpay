@@ -30,7 +30,7 @@ export interface Env {
    *
    * Always a secret — never put this value in wrangler.toml.
    */
-  DATABASE_URL: string;
+  DATABASE_URL?: string;
 
   /**
    * Cloudflare Hyperdrive binding.
@@ -38,7 +38,7 @@ export interface Env {
    * once Hyperdrive is configured in the Cloudflare dashboard.
    * Uncomment the [[hyperdrive]] block in wrangler.toml to enable.
    */
-  // HYPERDRIVE: Hyperdrive;
+  HYPERDRIVE?: { connectionString?: string };
 
   // ── Required secrets ──────────────────────────────────────────────────────
   /** HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars). */
@@ -143,14 +143,8 @@ export interface Env {
   // ── Email ─────────────────────────────────────────────────────────────────
   /** Resend API key — enables booking confirmation emails from mock agents. */
   RESEND_API_KEY?: string;
-  /** Admin email address — receives new booking alerts requiring manual fulfilment. */
+  /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
   ADMIN_EMAIL?: string;
-  /**
-   * Admin secret for the POST /api/concierge/fulfill/:jobId endpoint.
-   * Make.com sends this when posting the real ticket ref back.
-   * Set via: npx wrangler secret put ADMIN_SECRET
-   */
-  ADMIN_SECRET?: string;
 
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
@@ -226,4 +220,3 @@ export interface MerchantContext {
 export interface Variables {
   merchant: MerchantContext;
 }
-

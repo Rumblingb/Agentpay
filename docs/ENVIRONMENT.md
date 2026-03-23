@@ -11,7 +11,7 @@ AgentPay has two distinct runtime surfaces with separate configuration systems. 
 
 | Surface | Config mechanism | Secret storage |
 |---------|-----------------|----------------|
-| **Cloudflare Workers API** (`apps/api-edge/`) | `wrangler.toml` (non-secrets) + `wrangler secret put` | Cloudflare encrypted secret store |
+| **Cloudflare Workers API** (`apps/api-edge/`) | `apps/api-edge/wrangler.toml` (non-secrets) + `wrangler secret put` | Cloudflare encrypted secret store |
 | **Local Workers dev** | `apps/api-edge/.dev.vars` | Local file — never committed |
 | **Legacy Node.js backend** (`src/`) | `.env` file | Local file — never committed |
 | **Vercel Dashboard** | Vercel project environment variables | Vercel |
@@ -22,7 +22,7 @@ AgentPay has two distinct runtime surfaces with separate configuration systems. 
 
 ### Secrets (production)
 
-Set secrets via the Wrangler CLI or the Cloudflare Workers dashboard. These are encrypted and never appear in source code or `wrangler.toml`.
+Set secrets via the Wrangler CLI or the Cloudflare Workers dashboard. These are encrypted and never appear in source code or `apps/api-edge/wrangler.toml`.
 
 ```bash
 wrangler secret put DATABASE_URL
@@ -46,9 +46,9 @@ wrangler secret put STRIPE_WEBHOOK_SECRET    # optional — required for /webhoo
 
 **Important:** `AGENTPAY_TEST_MODE` must be absent or `"false"` in production. The Workers API enforces this on startup — it will reject requests if test-mode bypass is active in a production environment.
 
-### Non-secret variables (`wrangler.toml [vars]`)
+### Non-secret variables (`apps/api-edge/wrangler.toml [vars]`)
 
-These are non-sensitive and can be committed in `wrangler.toml`. Override them in the Cloudflare Workers dashboard for production.
+These are non-sensitive and can be committed in `apps/api-edge/wrangler.toml`. Override them in the Cloudflare Workers dashboard for production.
 
 | Variable | Example | Description |
 |----------|---------|-------------|
@@ -62,7 +62,7 @@ These are non-sensitive and can be committed in `wrangler.toml`. Override them i
 Hyperdrive is a Cloudflare connection pooler and caching layer that sits between Workers and Supabase. Once configured, it replaces `DATABASE_URL` at runtime with a local connection string.
 
 ```toml
-# wrangler.toml
+# apps/api-edge/wrangler.toml
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "be606bac9fde4493b21fff2e085eb82c"
@@ -148,7 +148,7 @@ The Next.js dashboard is deployed on Vercel. The primary variable that controls 
 
 | Variable | Description |
 |----------|-------------|
-| `AGENTPAY_API_BASE_URL` | Base URL of the API backend. Set to your Workers URL (`https://api.agentpay.so`) or Render URL depending on current cutover state. |
+| `AGENTPAY_API_BASE_URL` | Base URL of the production API backend. Set this to the Workers deployment URL (`https://api.agentpay.so` in production, `http://localhost:8787` locally). |
 
 Set this in the Vercel project dashboard under **Settings → Environment Variables**.
 
@@ -192,7 +192,7 @@ The Workers API will reject requests (HTTP 500) and the legacy backend will refu
 
 ## Summary: Which Config Goes Where
 
-| Variable | Workers `wrangler.toml` | Workers secret | `.dev.vars` | `.env` | Vercel |
+| Variable | Workers `apps/api-edge/wrangler.toml` | Workers secret | `.dev.vars` | `.env` | Vercel |
 |----------|------------------------|---------------|-------------|--------|--------|
 | `DATABASE_URL` | ❌ | ✅ | ✅ | ✅ | ❌ |
 | `WEBHOOK_SECRET` | ❌ | ✅ | ✅ | ✅ | ❌ |

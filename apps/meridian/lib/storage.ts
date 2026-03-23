@@ -1,7 +1,7 @@
 /**
  * storage.ts — persistent credential + preference store
  *
- * Credentials (agentId, agentKey, openaiKey) → expo-secure-store (encrypted)
+ * Credentials (agentId, agentKey) → expo-secure-store (encrypted)
  * Preferences (userName, autoConfirmLimit) → AsyncStorage
  * Conversation history → AsyncStorage (last 50 turns)
  */
@@ -14,7 +14,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEYS = {
   agentId:          'meridian.agentId',
   agentKey:         'meridian.agentKey',
-  openaiKey:        'meridian.openaiKey',
   prefs:            'meridian.prefs',
   history:          'meridian.history',
 } as const;
@@ -24,7 +23,6 @@ const KEYS = {
 export interface StoredCredentials {
   agentId: string;
   agentKey: string;
-  openaiKey?: string; // no longer required — voice is proxied server-side
 }
 
 export interface StoredPrefs {
@@ -61,7 +59,6 @@ export async function clearCredentials(): Promise<void> {
   await Promise.all([
     SecureStore.deleteItemAsync(KEYS.agentId),
     SecureStore.deleteItemAsync(KEYS.agentKey),
-    SecureStore.deleteItemAsync(KEYS.openaiKey),
   ]);
 }
 

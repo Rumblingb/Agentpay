@@ -20,6 +20,45 @@ import { createDb } from '../lib/db';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+router.get('/leaderboard', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10) || 20, 100);
+  const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql`
+      SELECT
+        agent_id AS "agentId",
+        score,
+        grade,
+        transaction_volume AS "transactionVolume",
+        payment_reliability AS "paymentReliability"
+      FROM agentrank_scores
+      ORDER BY score DESC, transaction_volume DESC, agent_id ASC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `.catch(() => []);
+
+    return c.json({
+      success: true,
+      leaderboard: rows.map((row, index) => ({
+        rank: offset + index + 1,
+        agentId: row.agentId,
+        score: Number(row.score ?? 0),
+        grade: row.grade ?? 'U',
+        transactionVolume: Number(row.transactionVolume ?? 0),
+        paymentReliability: Number(row.paymentReliability ?? 0),
+      })),
+      pagination: {
+        limit,
+        offset,
+      },
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 // ---------------------------------------------------------------------------
 // GET /api/passport/:agentId
 // ---------------------------------------------------------------------------

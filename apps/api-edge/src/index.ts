@@ -166,6 +166,7 @@ app.route('/api/receipt', receiptRouter);
 
 // AgentPassport — /api/passport/:agentId and /api/passport/rank/:agentId
 app.route('/api/passport', passportRouter);
+app.route('/api/agentrank', passportRouter);
 
 // Webhook subscription routes — /api/webhooks/*
 app.route('/api/webhooks', webhooksRouter);

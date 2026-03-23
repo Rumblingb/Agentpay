@@ -1,8 +1,8 @@
 /**
  * BFF route: GET /api/health
  *
- * Proxies the Express backend's /health endpoint so the dashboard can check
- * whether Render and Supabase are awake before attempting login.
+ * Proxies the Workers /health endpoint so the dashboard can check
+ * whether the production API is reachable before attempting login.
  * No authentication required — this is intentionally public.
  *
  * Response mirrors the backend shape:
@@ -18,10 +18,7 @@ import { API_BASE } from '@/lib/api';
 export async function GET() {
   try {
     const res = await fetch(`${API_BASE}/health`, {
-      // Render free-tier instances can take 30+ seconds to cold-start.
-      // Use 25 s so the health check survives a cold start without a false
-      // 'unreachable' report reaching the user.
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(10_000),
     });
 
     const data = await res.json();
@@ -31,7 +28,7 @@ export async function GET() {
     return NextResponse.json(
       {
         status: 'unreachable',
-        message: 'The backend could not be reached. Render may be cold-starting — wait 30 seconds and try again.',
+        message: 'The AgentPay API could not be reached. Check the Workers deployment URL and try again.',
       },
       { status: 503 },
     );

@@ -72,7 +72,7 @@ function generateVerificationSignature(intentId: string): string {
 }
 
 async function fetchReceiptData(intentId: string): Promise<ReceiptData | null> {
-  const apiBase = process.env.AGENTPAY_API_BASE_URL ?? 'http://localhost:3001';
+  const apiBase = process.env.AGENTPAY_API_BASE_URL ?? 'http://localhost:8787';
 
   try {
     // Fetch intent — use internal service key if available

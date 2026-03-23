@@ -800,9 +800,9 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 // Sends the confirmed ticket email, marks the job complete, updates the ops sheet.
 
 conciergeRouter.post('/fulfill/:jobId', async (c) => {
-  const adminSecret = c.env.ADMIN_SECRET;
+  const adminSecret = c.env.ADMIN_SECRET_KEY;
   if (!adminSecret) {
-    return c.json({ error: 'Fulfill endpoint not configured (missing ADMIN_SECRET)' }, 503);
+    return c.json({ error: 'Fulfill endpoint not configured (missing ADMIN_SECRET_KEY)' }, 503);
   }
 
   const jobId = c.req.param('jobId');

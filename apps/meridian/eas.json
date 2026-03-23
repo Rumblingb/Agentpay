@@ -7,8 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.agentpay.so",
-        "EXPO_NO_DOCTOR": "1"
+        "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "ios": {
         "simulator": false
@@ -21,8 +20,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.agentpay.so",
-        "EXPO_NO_DOCTOR": "1"
+        "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "ios": {
         "simulator": true
@@ -30,7 +28,7 @@
     },
     "preview": {
       "distribution": "internal",
-"env": {
+      "env": {
         "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "android": {
@@ -43,19 +41,6 @@
         "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
       "autoIncrement": true
-    }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": "your-apple-id@email.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "your-team-id"
-      },
-      "android": {
-        "serviceAccountKeyPath": "./google-service-account.json",
-        "track": "internal"
-      }
     }
   }
 }

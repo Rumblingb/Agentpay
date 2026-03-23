@@ -202,7 +202,7 @@ export default function SettingsScreen() {
         {/* Footer */}
         <Text style={styles.footer}>
           Bro 1.0{'\n'}
-          Powered by AgentPay · agentpay.so
+          Powered by AgentPay · agentpay.gg
         </Text>
 
       </ScrollView>

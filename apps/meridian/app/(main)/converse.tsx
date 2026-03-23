@@ -205,7 +205,7 @@ export default function ConverseScreen() {
           trustScore:      0,
           grade:           'B',
           verified:        true,
-          passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
+          passportUrl:     `https://agentpay.gg/agent/${firstAction.agentId}`,
         });
         setPhase('done');
         const fiat   = pending.fiatAmount;

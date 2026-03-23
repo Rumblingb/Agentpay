@@ -2,8 +2,9 @@ openapi: 3.1.0
 info:
   title: AgentPay API
   description: |
-    **The Financial OS for AI Agents** — Universal payment gateway with AgentRank trust scoring,
-    A2A escrow, multi-protocol support (x402, ACP, AP2, Solana Pay, Stripe), and KYA identity.
+    **AgentPay public API for Bro and train-first agent commerce.**
+    This OpenAPI document is limited to the Cloudflare Workers production surface.
+    Legacy Node-only routes are intentionally excluded until they are migrated.
 
     ## Authentication
     All protected endpoints require an API key via:
@@ -24,7 +25,7 @@ info:
     url: https://docs.agentpay.gg
     email: support@agentpay.gg
   license:
-    name: MIT
+    name: BSL-1.1; AGPL-3.0 after 2029-01-01
     url: https://github.com/Rumblingb/Agentpay/blob/main/LICENSE
 
 servers:
@@ -32,8 +33,6 @@ servers:
     description: Production (Cloudflare Workers)
   - url: http://localhost:8787
     description: Local Workers dev (wrangler dev)
-  - url: http://localhost:3001
-    description: Local Node.js dev
 
 tags:
   - name: Health
@@ -48,24 +47,14 @@ tags:
     description: Agent identity and registration
   - name: Escrow
     description: A2A escrow — lock, approve, dispute
-  - name: KYA
-    description: Know Your Agent identity verification
   - name: Webhooks
     description: Webhook subscriptions and event delivery
   - name: ACP
     description: Agent Communication Protocol endpoints
   - name: AP2
     description: Agent Payment Protocol v2 endpoints
-  - name: Protocol
-    description: Protocol Abstraction Layer (PAL)
-  - name: Fiat
-    description: Stripe fiat on-ramp and checkout
-  - name: Moltbook
-    description: Moltbook platform integration
   - name: Marketplace
-    description: Agent discovery marketplace and leaderboard
-  - name: Feed
-    description: Real-time SSE marketplace event feed
+    description: Agent discovery marketplace and checkout
 
 paths:
   /health:
@@ -681,53 +670,6 @@ paths:
                   total:
                     type: integer
 
-  /api/feed/stream:
-    get:
-      tags: [Feed]
-      summary: SSE live marketplace feed
-      description: |
-        Server-Sent Events stream of real-time marketplace events.
-        Events include: job.created, agent.hired, escrow.released, agent.earned, ranking.updated.
-
-        Connect with EventSource:
-        ```js
-        const es = new EventSource('/api/feed/stream?agentId=my-agent');
-        es.onmessage = e => console.log(JSON.parse(e.data));
-        ```
-      operationId: feedStream
-      parameters:
-        - in: query
-          name: agentId
-          schema:
-            type: string
-          description: Optional agent ID to filter events to a specific agent
-      responses:
-        '200':
-          description: SSE stream (text/event-stream)
-          content:
-            text/event-stream:
-              schema:
-                type: string
-
-  /api/feed/status:
-    get:
-      tags: [Feed]
-      summary: Feed connection status
-      description: Returns the number of currently connected SSE clients.
-      operationId: feedStatus
-      responses:
-        '200':
-          description: Feed status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  connectedClients:
-                    type: integer
-
   /api/agents:
     post:
       tags: [Agents]
@@ -826,28 +768,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EscrowResponse'
-
-  /api/kya/register:
-    post:
-      tags: [KYA]
-      summary: Register KYA identity
-      description: Submit Know Your Agent identity verification
-      operationId: kyaRegister
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KyaRegisterRequest'
-      responses:
-        '201':
-          description: KYA record created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KyaRegisterResponse'
 
   /api/webhooks/subscribe:
     post:
@@ -989,62 +909,28 @@ paths:
         '200':
           description: Transaction status
 
-  /api/protocol:
-    get:
-      tags: [Protocol]
-      summary: Protocol info
-      description: Returns PAL supported protocols and routing info
-      operationId: protocolInfo
-      responses:
-        '200':
-          description: Protocol info
-
-  /api/protocol/detect:
+  /api/marketplace/checkout-session:
     post:
-      tags: [Protocol]
-      summary: Detect protocol
-      description: Auto-detect the payment protocol from a request
-      operationId: detectProtocol
+      tags: [Marketplace]
+      summary: Create marketplace Stripe checkout session
+      description: Creates a hosted Stripe Checkout session for a Bro marketplace job.
+      operationId: createMarketplaceCheckoutSession
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
-      responses:
-        '200':
-          description: Detected protocol
-
-  /api/moltbook/bots/register:
-    post:
-      tags: [Moltbook]
-      summary: Register Moltbook bot
-      description: Register a Moltbook bot as an AgentPay agent
-      operationId: registerMoltbookBot
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MoltbookBotRegisterRequest'
-      responses:
-        '201':
-          description: Bot registered
-
-  /api/fiat/checkout:
-    post:
-      tags: [Fiat]
-      summary: Create Stripe checkout
-      description: Create a Stripe checkout session for fiat payment
-      operationId: createFiatCheckout
-      security:
-        - ApiKeyAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/FiatCheckoutRequest'
+              required: [jobId, amountFiat]
+              properties:
+                jobId:
+                  type: string
+                amountFiat:
+                  type: number
+                currencyCode:
+                  type: string
+                description:
+                  type: string
       responses:
         '201':
           description: Checkout session created

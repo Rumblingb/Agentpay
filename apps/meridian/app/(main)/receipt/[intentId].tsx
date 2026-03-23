@@ -137,7 +137,7 @@ export default function ReceiptScreen() {
           ? `Amount: ${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
           : null,
         '',
-        'agentpay.so',
+        'agentpay.gg',
       ].filter(Boolean).join('\n'),
     });
   };

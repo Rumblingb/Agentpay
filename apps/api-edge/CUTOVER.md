@@ -63,9 +63,9 @@ Before flipping the switch, verify:
 
 In the Vercel dashboard → Your Project → Settings → Environment Variables:
 
-| Variable | Old value | New value |
+| Variable | Historical value | Current value |
 |---|---|---|
-| `AGENTPAY_API_BASE_URL` | `https://agentpay.onrender.com` | `https://agentpay-api.workers.dev` |
+| `AGENTPAY_API_BASE_URL` | historical Render backend | `https://api.agentpay.so` |
 
 Then redeploy the Vercel dashboard (or trigger a redeployment).
 
@@ -151,4 +151,3 @@ The dashboard BFF routes that use `API_BASE` are in `dashboard/app/api/` and
 > 2. Add a graceful degradation path (e.g. return empty data on 501) in the
 >    dashboard BFF route before flipping the env var, OR
 > 3. Add the route to Workers before flipping.
-

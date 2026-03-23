@@ -490,7 +490,7 @@ export default function OnboardScreen() {
                 <PrimaryBtn onPress={handleAcceptPrivacy} label="I understand — continue" />
 
                 <Text style={styles.legalNote}>
-                  By continuing you accept our Terms of Service and Privacy Policy at agentpay.so
+                  By continuing you accept our Terms of Service and Privacy Policy at agentpay.gg
                 </Text>
               </View>
             )}
@@ -882,7 +882,7 @@ export default function OnboardScreen() {
                 </Pressable>
 
                 <Text style={styles.legalNote}>
-                  Payments powered by AgentPay · agentpay.so{'\n'}
+                  Payments powered by AgentPay · agentpay.gg{'\n'}
                   Your agent identity is created automatically.
                 </Text>
               </View>

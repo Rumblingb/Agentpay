@@ -77,9 +77,9 @@ export class EnvValidationError extends Error {
  * @param env  Hono's c.env — the Workers Bindings object
  */
 export function validateEnv(env: Env): void {
-  // DATABASE_URL is always required
-  if (!env.DATABASE_URL) {
-    throw new EnvValidationError('DATABASE_URL is not configured');
+  const hyperdriveConnectionString = env.HYPERDRIVE?.connectionString;
+  if (!hyperdriveConnectionString && !env.DATABASE_URL) {
+    throw new EnvValidationError('DATABASE_URL or HYPERDRIVE is not configured');
   }
 
   // Required HMAC secrets — same rules as src/config/env.ts
