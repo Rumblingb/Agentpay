@@ -1,0 +1,137 @@
+{
+  "name": "Bro — Booking Received",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "parameters": {
+        "hook": 2692246,
+        "maxResults": 1
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {
+          "parameters": {
+            "hook": {
+              "label": "Bro Booking Received",
+              "data": { "editable": "true" }
+            }
+          }
+        },
+        "parameters": [
+          { "name": "hook", "type": "hook:gateway-webhook", "label": "Webhook", "required": true },
+          { "name": "maxResults", "type": "number", "label": "Maximum number of results" }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "module": "google-sheets:addRow",
+      "version": 2,
+      "parameters": {
+        "__IMTCONN__": 6070664
+      },
+      "mapper": {
+        "mode": "select",
+        "insertUnformatted": false,
+        "valueInputOption": "USER_ENTERED",
+        "insertDataOption": "INSERT_ROWS",
+        "from": "drive",
+        "spreadsheetId": "/1Blwge9QgGPMcfMzJYVNolgfAPPNu3nemDruz6u3zT2g",
+        "sheetId": "Sheet1",
+        "includesHeaders": true,
+        "useColumnHeaders": false,
+        "values": {
+          "0": "{{1.BOOKED_AT}}",
+          "1": "{{1.BRO_REF}}",
+          "2": "PENDING",
+          "3": "{{1.USER_EMAIL}}",
+          "4": "{{1.USER_WHATSAPP}}",
+          "5": "{{1.ORIGIN}} → {{1.DESTINATION}}",
+          "6": "{{1.DATE}}",
+          "7": "{{1.DEPARTURE_TIME}}",
+          "8": "{{1.OPERATOR}}",
+          "9": "{{1.ESTIMATED_FARE}}",
+          "10": "",
+          "11": "",
+          "12": "",
+          "13": "",
+          "14": "{{1.JOB_ID}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 300, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": {
+              "label": "My Google connection",
+              "data": { "scoped": "true", "connection": "google" }
+            }
+          },
+          "expect": {
+            "mode": { "label": "Search by path" },
+            "insertUnformatted": { "mode": "chose" },
+            "valueInputOption": { "mode": "chose", "label": "User entered" },
+            "insertDataOption": { "mode": "chose", "label": "Insert rows" },
+            "from": { "label": "My Drive" },
+            "spreadsheetId": { "path": ["Bro Bookings"] },
+            "sheetId": { "label": "Sheet1" },
+            "includesHeaders": { "label": "Yes" },
+            "useColumnHeaders": {
+              "nested": [
+                {
+                  "name": "values",
+                  "label": "Values in columns",
+                  "type": "collection",
+                  "spec": [
+                    { "name": "0",  "label": "Timestamp (A)",               "type": "text" },
+                    { "name": "1",  "label": "BRO Reference (B)",            "type": "text" },
+                    { "name": "2",  "label": "Status (C)",                   "type": "text" },
+                    { "name": "3",  "label": "User Email (D)",               "type": "text" },
+                    { "name": "4",  "label": "User WhatsApp (E)",            "type": "text" },
+                    { "name": "5",  "label": "Route (F)",                    "type": "text" },
+                    { "name": "6",  "label": "Date (G)",                     "type": "text" },
+                    { "name": "7",  "label": "Time (H)",                     "type": "text" },
+                    { "name": "8",  "label": "Operator (I)",                 "type": "text" },
+                    { "name": "9",  "label": "Estimated Fare (J)",           "type": "text" },
+                    { "name": "10", "label": "Real Fare (K)",                "type": "text" },
+                    { "name": "11", "label": "Real Ticket Reference (L)",    "type": "text" },
+                    { "name": "12", "label": "IRCTC Username (M)",           "type": "text" },
+                    { "name": "13", "label": "Notes (N)",                    "type": "text" },
+                    { "name": "14", "label": "Job ID (O)",                   "type": "text" }
+                  ],
+                  "metadata": [[["Timestamp","BRO Reference","Status","User Email","User WhatsApp","Route","Date","Time","Operator","Estimated Fare","Real Fare","Real Ticket Reference","IRCTC Username","Notes","Job ID"]]]
+                }
+              ],
+              "label": "No"
+            }
+          }
+        },
+        "parameters": [
+          { "name": "__IMTCONN__", "type": "account:google", "label": "Connection", "required": true }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "slots": null,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] },
+    "zone": "eu1.make.com",
+    "notes": []
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "name": "Bro — Fulfill Trigger (Real Ticket Ref Entered)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "google-sheets:searchRows",
+      "version": 2,
+      "parameters": {
+        "__IMTCONN__": 6070664
+      },
+      "mapper": {
+        "mode": "select",
+        "from": "drive",
+        "spreadsheetId": "/1Blwge9QgGPMcfMzJYVNolgfAPPNu3nemDruz6u3zT2g",
+        "sheetId": "Sheet1",
+        "includesHeaders": true,
+        "filter": "{{1.`Status`}} = PENDING",
+        "maxResults": 50
+      },
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": {
+              "label": "My Google connection",
+              "data": { "scoped": "true", "connection": "google" }
+            }
+          },
+          "expect": {
+            "mode": { "label": "Search by path" },
+            "from": { "label": "My Drive" },
+            "spreadsheetId": { "path": ["Bro Bookings"] },
+            "sheetId": { "label": "Sheet1" },
+            "includesHeaders": { "label": "Yes" }
+          }
+        },
+        "parameters": [
+          { "name": "__IMTCONN__", "type": "account:google", "label": "Connection", "required": true }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicFilter",
+      "version": 1,
+      "filter": {
+        "name": "Has real ticket ref and job ID",
+        "conditions": [
+          [
+            {
+              "a": "{{1.`Real Ticket Reference`}}",
+              "o": "text:notcontain",
+              "b": ""
+            },
+            {
+              "a": "{{1.`Job ID`}}",
+              "o": "text:notcontain",
+              "b": ""
+            }
+          ]
+        ]
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 300, "y": 0 }
+      }
+    },
+    {
+      "id": 3,
+      "module": "google-sheets:updateRow",
+      "version": 2,
+      "parameters": {
+        "__IMTCONN__": 6070664
+      },
+      "mapper": {
+        "mode": "select",
+        "from": "drive",
+        "spreadsheetId": "/1Blwge9QgGPMcfMzJYVNolgfAPPNu3nemDruz6u3zT2g",
+        "sheetId": "Sheet1",
+        "includesHeaders": true,
+        "rowNumber": "{{1.__ROW_NUMBER__}}",
+        "useColumnHeaders": false,
+        "values": {
+          "2": "PROCESSING"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 600, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": {
+              "label": "My Google connection",
+              "data": { "scoped": "true", "connection": "google" }
+            }
+          },
+          "expect": {
+            "mode": { "label": "Search by path" },
+            "from": { "label": "My Drive" },
+            "spreadsheetId": { "path": ["Bro Bookings"] },
+            "sheetId": { "label": "Sheet1" },
+            "includesHeaders": { "label": "Yes" }
+          }
+        },
+        "parameters": [
+          { "name": "__IMTCONN__", "type": "account:google", "label": "Connection", "required": true }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "mapper": {
+        "url": "https://api.agentpay.so/api/concierge/fulfill/{{1.`Job ID`}}",
+        "method": "POST",
+        "headers": [
+          { "name": "Content-Type", "value": "application/json" }
+        ],
+        "bodyType": "raw",
+        "contentType": "json",
+        "body": "{\"adminSecret\":\"REPLACE_WITH_YOUR_ADMIN_SECRET\",\"realTicketRef\":\"{{1.`Real Ticket Reference`}}\",\"userEmail\":\"{{1.`User Email`}}\",\"userName\":\"{{1.`User WhatsApp`}}\",\"actualFare\":{{if(1.`Real Fare`; parseFloat(replace(1.`Real Fare`; \"£\"; \"\")); 0)}}}"
+      },
+      "metadata": {
+        "designer": { "x": 900, "y": 0 }
+      }
+    },
+    {
+      "id": 5,
+      "module": "google-sheets:updateRow",
+      "version": 2,
+      "parameters": {
+        "__IMTCONN__": 6070664
+      },
+      "filter": {
+        "name": "Fulfill succeeded (2xx)",
+        "conditions": [
+          [
+            {
+              "a": "{{4.statusCode}}",
+              "o": "number:between",
+              "b": "200",
+              "c": "299"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "mode": "select",
+        "from": "drive",
+        "spreadsheetId": "/1Blwge9QgGPMcfMzJYVNolgfAPPNu3nemDruz6u3zT2g",
+        "sheetId": "Sheet1",
+        "includesHeaders": true,
+        "rowNumber": "{{1.__ROW_NUMBER__}}",
+        "useColumnHeaders": false,
+        "values": {
+          "2": "COMPLETE",
+          "13": "Confirmation email sent {{now}}"
+        }
+      },
+      "metadata": {
+        "designer": { "x": 1200, "y": 0 },
+        "restore": {
+          "parameters": {
+            "__IMTCONN__": {
+              "label": "My Google connection",
+              "data": { "scoped": "true", "connection": "google" }
+            }
+          }
+        },
+        "parameters": [
+          { "name": "__IMTCONN__", "type": "account:google", "label": "Connection", "required": true }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": true,
+      "slots": null,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    },
+    "designer": { "orphans": [] },
+    "zone": "eu1.make.com",
+    "notes": [
+      "Runs on schedule (recommended: every 5 minutes).",
+      "Finds PENDING rows where Real Ticket Reference (col L) and Job ID (col O) are filled.",
+      "Marks row PROCESSING immediately (prevents double-run).",
+      "POSTs to /api/concierge/fulfill/:jobId — sends confirmation email + completes job.",
+      "On 2xx: marks row COMPLETE + logs timestamp in Notes (col N).",
+      "On non-2xx: row stays PROCESSING — visible signal of a problem."
+    ]
+  }
+}

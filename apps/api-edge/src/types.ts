@@ -143,8 +143,14 @@ export interface Env {
   // ── Email ─────────────────────────────────────────────────────────────────
   /** Resend API key — enables booking confirmation emails from mock agents. */
   RESEND_API_KEY?: string;
-  /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
+  /** Admin email address — receives new booking alerts requiring manual fulfilment. */
   ADMIN_EMAIL?: string;
+  /**
+   * Admin secret for the POST /api/concierge/fulfill/:jobId endpoint.
+   * Make.com sends this when posting the real ticket ref back.
+   * Set via: npx wrangler secret put ADMIN_SECRET
+   */
+  ADMIN_SECRET?: string;
 
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */

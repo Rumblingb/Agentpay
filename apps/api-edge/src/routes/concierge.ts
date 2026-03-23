@@ -14,7 +14,8 @@
  * Phase 2 (confirmed = true):
  *   1. Receive same payload + confirmed: true + plan from phase 1
  *   2. Execute hires via AgentPay marketplace
- *   3. Auto-complete train jobs with real booking proof (instant delivery)
+ *   3. Train jobs: send "request received" email + ops webhook — job stays escrow_pending
+ *      until a real ticket ref is supplied via POST /api/concierge/fulfill/:jobId
  *   4. Return { narration, actions }
  *
  * GET /api/skills — returns available skill definitions
@@ -276,29 +277,35 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             item.estimatedPriceUsdc,
           );
 
-          // ── Auto-complete train bookings with schedule proof ──────────────
-          // We have live schedule data from Phase 1, but no live provider booking
-          // integration yet. Mark the proof isSimulated=true so the UI shows the
-          // correct "Requested" state rather than claiming a confirmed booking.
+          // ── Pending manual fulfilment — store ops data, send request email ──
+          // Job stays in escrow_pending. Real ticket ref added via /fulfill endpoint.
           if (item.trainDetails) {
-            const isIndia   = item.trainDetails.country === 'india';
-            const bookingRef = isIndia ? generateIndianPNR() : generateBookingRef();
+            const isIndia      = item.trainDetails.country === 'india';
+            const broRef       = isIndia ? generateIndianPNR() : generateBookingRef();
+            const userEmail    = travelProfile?.email          as string | undefined;
+            const userName     = travelProfile?.legalName      as string | undefined;
+            const userPhone    = travelProfile?.phone          as string | undefined;
+            const userWhatsapp = travelProfile?.whatsappNumber as string | undefined;
+            const userIrctcUser = travelProfile?.irctcUsername as string | undefined;
+            const userIrctcPass = travelProfile?.irctcPassword as string | undefined;
+
+            // Build proof for WhatsApp + ops webhook — isSimulated=true signals ticket not yet issued
             const proof: BookingProof = {
-              bookingRef,
-              departureTime:  item.trainDetails.departureTime,
-              arrivalTime:    item.trainDetails.arrivalTime,
-              platform:       item.trainDetails.platform,
-              operator:       item.trainDetails.operator,
-              fromStation:    item.trainDetails.origin,
-              toStation:      item.trainDetails.destination,
-              serviceUid:     item.trainDetails.serviceUid,
-              fareGbp:        item.trainDetails.estimatedFareGbp,
-              country:        item.trainDetails.country,
-              fareInr:        item.trainDetails.fareInr,
-              trainNumber:    item.trainDetails.trainNumber,
-              trainName:      item.trainDetails.trainName,
-              classCode:      item.trainDetails.classCode,
-              bookedAt:       new Date().toISOString(),
+              bookingRef:      broRef,
+              departureTime:   item.trainDetails.departureTime,
+              arrivalTime:     item.trainDetails.arrivalTime,
+              platform:        item.trainDetails.platform,
+              operator:        item.trainDetails.operator,
+              fromStation:     item.trainDetails.origin,
+              toStation:       item.trainDetails.destination,
+              serviceUid:      item.trainDetails.serviceUid,
+              fareGbp:         item.trainDetails.estimatedFareGbp,
+              country:         item.trainDetails.country,
+              fareInr:         item.trainDetails.fareInr,
+              trainNumber:     item.trainDetails.trainNumber,
+              trainName:       item.trainDetails.trainName,
+              classCode:       item.trainDetails.classCode,
+              bookedAt:        new Date().toISOString(),
               travelDate:      item.trainDetails.travelDate,
               isSimulated:     true,
               dataSource:      item.trainDetails.dataSource,
@@ -308,10 +315,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                 : 'Schedule data from National Rail via Realtime Trains API. Provider booking not yet integrated.',
             };
 
-            broLog('auto_complete', {
+            broLog('pending_fulfilment', {
               traceId,
               jobId:       hireResult.jobId,
-              bookingRef,
+              broRef,
               isSimulated: true,
               dataSource:  item.trainDetails.dataSource ?? null,
               hasFinalLeg: !!item.trainDetails.finalLegSummary,
@@ -319,23 +326,45 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               hasEmail:    !!(travelProfile?.email),
             });
 
-            // Fire-and-forget: complete the job + emails + WhatsApp + operations webhook
-            const userEmail        = travelProfile?.email          as string | undefined;
-            const userName         = travelProfile?.legalName      as string | undefined;
-            const userPhone        = travelProfile?.phone          as string | undefined;
-            const userWhatsapp     = travelProfile?.whatsappNumber as string | undefined;
-            const userIrctcUser    = travelProfile?.irctcUsername  as string | undefined;
-            const userIrctcPass    = travelProfile?.irctcPassword  as string | undefined;
+            // Persist ops data in job metadata so /fulfill can retrieve it
+            try {
+              await sql`
+                UPDATE payment_intents
+                SET metadata = metadata || ${JSON.stringify({
+                  broRef,
+                  trainDetails:      item.trainDetails,
+                  userEmail:         userEmail ?? null,
+                  userName:          userName  ?? null,
+                  userPhone:         userPhone ?? null,
+                  pendingFulfilment: true,
+                })}::jsonb
+                WHERE id = ${hireResult.jobId}
+              `;
+            } catch {
+              // Non-fatal — ops data still fires via webhook below
+            }
+
+            // Fire-and-forget: request email + admin alert + WhatsApp + ops webhook
             c.executionCtx.waitUntil(
               Promise.all([
-                autoCompleteJob(c.env.API_BASE_URL, hireResult.jobId, hireResult.completionSecret ?? hirerId, proof),
-                sendBookingConfirmationEmail(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
-                  to:            userEmail,
-                  name:          userName,
-                  phone:         userPhone,
-                  irctcUsername: userIrctcUser,
-                  irctcPassword: userIrctcPass,
-                  proof,
+                sendBookingRequestEmail(c.env.RESEND_API_KEY, {
+                  to:           userEmail,
+                  name:         userName,
+                  broRef,
+                  trainDetails: item.trainDetails,
+                }),
+                sendAdminAlert(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
+                  broRef,
+                  jobId:         hireResult.jobId,
+                  userEmail:     userEmail ?? 'unknown',
+                  userName:      userName  ?? 'unknown',
+                  origin:        item.trainDetails.origin,
+                  destination:   item.trainDetails.destination,
+                  departureTime: item.trainDetails.departureTime,
+                  estimatedFare: isIndia
+                    ? `₹${item.trainDetails.fareInr}`
+                    : `£${item.trainDetails.estimatedFareGbp}`,
+                  country: item.trainDetails.country ?? 'uk',
                 }),
                 // WhatsApp: admin alert + user confirmation (if whatsappNumber in profile)
                 sendBookingWhatsApp(c.env, {
@@ -364,8 +393,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               ? ` Then: ${item.trainDetails.finalLegSummary}.`
               : '';
             const confirmLine = isIndia
-              ? `Request received. Bro reference: ${bookingRef}. Securing ticket: ${item.trainDetails.trainName} departs ${item.trainDetails.departureTime}${item.trainDetails.arrivalTime ? `, arrives ${item.trainDetails.arrivalTime}` : ''}. Class: ${item.trainDetails.classCode}. Estimated fare: ₹${item.trainDetails.fareInr}.${finalLegLine}`
-              : `Request received. Bro reference: ${bookingRef}. Securing ticket: ${item.trainDetails.departureTime} ${item.trainDetails.operator} from ${item.trainDetails.origin}${item.trainDetails.platform ? `, Platform ${item.trainDetails.platform}` : ''}. Estimated fare: £${item.trainDetails.estimatedFareGbp}.${finalLegLine}`;
+              ? `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.trainName} at ${item.trainDetails.departureTime}. Ticket details within 15 minutes.`
+              : `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator}. Ticket details within 15 minutes.`;
 
             toolResults.push({
               type:        'tool_result',
@@ -421,7 +450,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       input: p.input,
     }));
 
-    let narration = 'Request in. Securing your ticket — details by email within 15 minutes.';
+    let narration = 'Request in — securing your ticket now. Details within 15 minutes.';
     try {
       const narrationResponse = await callClaude(anthropicKey, {
         system: systemPrompt,
@@ -766,6 +795,101 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   });
 });
 
+// ── POST /api/concierge/fulfill/:jobId ────────────────────────────────────────
+// Called by Make.com (or admin) once the real ticket has been purchased.
+// Sends the confirmed ticket email, marks the job complete, updates the ops sheet.
+
+conciergeRouter.post('/fulfill/:jobId', async (c) => {
+  const adminSecret = c.env.ADMIN_SECRET;
+  if (!adminSecret) {
+    return c.json({ error: 'Fulfill endpoint not configured (missing ADMIN_SECRET)' }, 503);
+  }
+
+  const jobId = c.req.param('jobId');
+  let body: {
+    adminSecret:   string;
+    realTicketRef: string;
+    userEmail?:    string;
+    userName?:     string;
+    userPhone?:    string;
+    actualFare?:   number;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON' }, 400);
+  }
+
+  if (body.adminSecret !== adminSecret) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  if (!body.realTicketRef) {
+    return c.json({ error: 'realTicketRef required' }, 400);
+  }
+
+  // Load stored ops data from job metadata
+  const sql = createDb(c.env);
+  let broRef       = '';
+  let hirerId      = '';
+  let trainDetails: TrainDetails | undefined;
+  let userEmail    = body.userEmail ?? '';
+  let userName     = body.userName;
+  let userPhone    = body.userPhone ?? '';
+
+  try {
+    const rows = await sql`
+      SELECT metadata FROM payment_intents WHERE id = ${jobId} LIMIT 1
+    `;
+    if (rows.length === 0) return c.json({ error: 'Job not found' }, 404);
+    const meta = rows[0].metadata as Record<string, unknown>;
+    broRef       = (meta.broRef      as string) ?? '';
+    hirerId      = (meta.hirerId     as string) ?? '';
+    trainDetails = (meta.trainDetails as TrainDetails | undefined);
+    if (!userEmail) userEmail = (meta.userEmail as string) ?? '';
+    if (!userName)  userName  = (meta.userName  as string) ?? undefined;
+    if (!userPhone) userPhone = (meta.userPhone  as string) ?? '';
+  } finally {
+    await sql.end();
+  }
+
+  if (!userEmail) return c.json({ error: 'userEmail not found — pass in request body' }, 400);
+
+  const isIndia = trainDetails?.country === 'india';
+  const proof: BookingProof = {
+    bookingRef:    body.realTicketRef,
+    departureTime: trainDetails?.departureTime ?? '',
+    arrivalTime:   trainDetails?.arrivalTime,
+    platform:      trainDetails?.platform,
+    operator:      trainDetails?.operator      ?? '',
+    fromStation:   trainDetails?.origin        ?? '',
+    toStation:     trainDetails?.destination   ?? '',
+    serviceUid:    trainDetails?.serviceUid    ?? '',
+    fareGbp:       body.actualFare ?? trainDetails?.estimatedFareGbp ?? 0,
+    country:       trainDetails?.country,
+    fareInr:       body.actualFare ?? trainDetails?.fareInr,
+    trainNumber:   trainDetails?.trainNumber,
+    trainName:     trainDetails?.trainName,
+    classCode:     trainDetails?.classCode,
+    bookedAt:      new Date().toISOString(),
+    note:          'Manually fulfilled.',
+  };
+
+  // Sheet update (COMPLETE status + real ticket ref) is handled by Make.com Scenario 2
+  // after it receives a 200 from this endpoint — no webhook needed here.
+  await Promise.all([
+    sendTicketConfirmedEmail(c.env.RESEND_API_KEY, {
+      to:            userEmail,
+      name:          userName,
+      broRef,
+      realTicketRef: body.realTicketRef,
+      proof,
+    }),
+    autoCompleteJob(c.env.API_BASE_URL, jobId, hirerId, proof),
+  ]);
+
+  return c.json({ ok: true, jobId, broRef, realTicketRef: body.realTicketRef });
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function callClaude(apiKey: string, body: Record<string, unknown>) {
@@ -942,128 +1066,46 @@ function buildJobDescription(
   return lines.join('\n');
 }
 
-async function sendBookingConfirmationEmail(
+// ── Email 1: sent immediately after biometric confirm ─────────────────────────
+
+async function sendBookingRequestEmail(
   resendKey: string | undefined,
-  adminEmail: string | undefined,
-  params: { to: string | undefined; name: string | undefined; phone?: string; irctcUsername?: string; irctcPassword?: string; proof: BookingProof },
+  params: {
+    to:           string | undefined;
+    name:         string | undefined;
+    broRef:       string;
+    trainDetails: TrainDetails;
+  },
 ): Promise<void> {
   if (!resendKey) return;
 
-  const { proof, to, name, phone, irctcUsername, irctcPassword } = params;
+  const { to, name, broRef, trainDetails } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
-  const isIndia     = proof.country === 'india';
-  const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
-  const bookedDate  = new Date(proof.bookedAt).toLocaleDateString(
-    isIndia ? 'en-IN' : 'en-GB',
-    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' },
-  );
+  const isIndia     = trainDetails.country === 'india';
+  const fareDisplay = isIndia
+    ? `₹${trainDetails.fareInr} (estimated)`
+    : `£${trainDetails.estimatedFareGbp} (estimated)`;
+  const arrivalLine = trainDetails.arrivalTime ? ` → arrives ${trainDetails.arrivalTime}` : '';
 
-  const html = isIndia ? `
+  const html = `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#f97316">Your Journey — Bro</h2>
+      <h2 style="color:#2563eb">Request Received</h2>
       <p>${greeting}</p>
-      <p>Your booking is confirmed. Here are your journey details:</p>
+      <p>We're securing your ticket now. Your real ticket reference will arrive in a separate email within 15 minutes.</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">Reference</td>
-            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#f97316">${proof.bookingRef}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Train</td>
-            <td style="padding:8px 0;font-weight:600">${proof.trainNumber} ${proof.trainName}</td></tr>
+        <tr><td style="padding:8px 0;color:#666;width:140px">BRO Ref</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#2563eb">${broRef}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Route</td>
-            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Departure</td>
-            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Class</td>
-            <td style="padding:8px 0">${proof.classCode ?? '3A'}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Fare</td>
-            <td style="padding:8px 0">₹${proof.fareInr}</td></tr>
+            <td style="padding:8px 0">${trainDetails.origin} → ${trainDetails.destination}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Requested train</td>
+            <td style="padding:8px 0">${trainDetails.departureTime}${arrivalLine} · ${trainDetails.operator}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Est. fare</td>
+            <td style="padding:8px 0">${fareDisplay}</td></tr>
       </table>
-      <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
-        Your Bro concierge is handling this. Ticket details within 15 minutes. Reference: <strong>${proof.bookingRef}</strong>
+      <p style="background:#eff6ff;border-left:3px solid #2563eb;padding:12px;font-size:13px;color:#1e40af">
+        Keep your BRO reference <strong>${broRef}</strong>. Your actual ticket reference will follow once secured.
       </p>
-      <p style="color:#666;font-size:13px">Bro · ${bookedDate}</p>
-    </div>
-  ` : `
-    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#16a34a">Your Journey — Bro</h2>
-      <p>${greeting}</p>
-      <p>Your booking is confirmed. Here are your journey details:</p>
-      <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">Reference</td>
-            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${proof.bookingRef}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Route</td>
-            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Departs</td>
-            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
-        ${proof.platform ? `<tr><td style="padding:8px 0;color:#666">Platform</td><td style="padding:8px 0">${proof.platform}</td></tr>` : ''}
-        <tr><td style="padding:8px 0;color:#666">Operator</td>
-            <td style="padding:8px 0">${proof.operator}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Fare</td>
-            <td style="padding:8px 0">£${proof.fareGbp}</td></tr>
-        ${proof.finalLegSummary ? `<tr><td style="padding:8px 0;color:#666">Onward</td><td style="padding:8px 0;color:#0284c7">${proof.finalLegSummary}</td></tr>` : ''}
-      </table>
-      <p style="background:#f0fdf4;border-left:3px solid #16a34a;padding:12px;font-size:13px;color:#166534">
-        Your Bro concierge is handling this. Ticket details within 15 minutes. Reference: <strong>${proof.bookingRef}</strong>
-      </p>
-      <p style="color:#666;font-size:13px">Bro · ${bookedDate}</p>
-    </div>
-  `;
-
-  // Send user confirmation email
-  if (to) {
-    try {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from:    'Bro <bookings@agentpay.so>',
-          to:      [to],
-          subject: `Your journey — ${proof.fromStation} → ${proof.toStation} · ${proof.bookingRef}`,
-          html,
-        }),
-      });
-    } catch {
-      // Best-effort
-    }
-  }
-
-  // Admin fulfillment alert — send to ADMIN_EMAIL so team can manually book
-  const alertTo = adminEmail ?? 'bookings@agentpay.so';
-  const adminHtml = `
-    <div style="font-family:monospace;max-width:600px;margin:0 auto;background:#0a0a0a;color:#e5e5e5;padding:24px;border-radius:8px">
-      <h2 style="color:#10b981;margin-bottom:4px">🟢 New Booking Request</h2>
-      <p style="color:#6b7280;font-size:12px;margin-top:0">${new Date().toISOString()}</p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0">
-        <tr><td style="padding:6px 0;color:#9ca3af;width:120px">Ref</td><td style="padding:6px 0;font-weight:700;letter-spacing:2px;color:#10b981">${proof.bookingRef}</td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Route</td><td style="padding:6px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Departs</td><td style="padding:6px 0">${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}${proof.platform ? ` · Platform ${proof.platform}` : ''}</td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Operator</td><td style="padding:6px 0">${proof.operator ?? proof.trainName ?? '—'}</td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Fare</td><td style="padding:6px 0">${isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`}</td></tr>
-        ${proof.classCode ? `<tr><td style="padding:6px 0;color:#9ca3af">Class</td><td style="padding:6px 0">${proof.classCode}</td></tr>` : ''}
-        ${proof.finalLegSummary ? `<tr><td style="padding:6px 0;color:#9ca3af">Onward</td><td style="padding:6px 0;color:#38bdf8">${proof.finalLegSummary}</td></tr>` : ''}
-      </table>
-      <hr style="border:none;border-top:1px solid #1f2937;margin:16px 0">
-      <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:6px 0;color:#9ca3af;width:120px">Name</td><td style="padding:6px 0">${name ?? '—'}</td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Email</td><td style="padding:6px 0"><a href="mailto:${to}" style="color:#60a5fa">${to ?? '—'}</a></td></tr>
-        <tr><td style="padding:6px 0;color:#9ca3af">Phone</td><td style="padding:6px 0">${phone ?? '—'}</td></tr>
-      </table>
-      <hr style="border:none;border-top:1px solid #1f2937;margin:16px 0">
-      ${isIndia && irctcUsername ? `
-      <div style="background:#111;border:1px solid #292524;border-left:3px solid #f97316;border-radius:6px;padding:14px;margin-bottom:16px">
-        <p style="color:#f97316;font-size:12px;font-weight:700;margin:0 0 10px 0;text-transform:uppercase;letter-spacing:1px">IRCTC Login</p>
-        <table style="border-collapse:collapse">
-          <tr><td style="color:#9ca3af;padding:4px 12px 4px 0;font-size:13px;width:90px">Username</td>
-              <td style="color:#fbbf24;font-family:monospace;font-size:13px;font-weight:700">${irctcUsername}</td></tr>
-          ${irctcPassword ? `<tr><td style="color:#9ca3af;padding:4px 12px 4px 0;font-size:13px">Password</td>
-              <td style="color:#fbbf24;font-family:monospace;font-size:13px;font-weight:700">${irctcPassword}</td></tr>` : ''}
-        </table>
-        <p style="color:#6b7280;font-size:11px;margin:10px 0 0 0">Log into irctc.co.in with these credentials to book on the passenger's behalf.</p>
-      </div>
-      ` : ''}
-      <p style="color:#f59e0b;font-size:13px">
-        <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC' : 'Trainline'} and reply to the user with ticket confirmation.<br>
-        Use reference <strong>${proof.bookingRef}</strong> in your reply.
-      </p>
+      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
     </div>
   `;
 
@@ -1072,10 +1114,204 @@ async function sendBookingConfirmationEmail(
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    'Bro Alerts <bookings@agentpay.so>',
-        to:      [alertTo],
-        subject: `[BRO] ${proof.bookingRef} — ${proof.fromStation} → ${proof.toStation} · ${isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`}`,
-        html:    adminHtml,
+        from:    'Bro <bookings@agentpay.so>',
+        to:      [to],
+        subject: isIndia
+          ? `Your request is in — BRO ref ${broRef}`
+          : `Your request is in — ${broRef}`,
+        html,
+      }),
+    });
+  } catch {
+    // Best-effort
+  }
+}
+
+// ── Email 2: sent after manual fulfilment via /fulfill endpoint ────────────────
+
+async function sendTicketConfirmedEmail(
+  resendKey: string | undefined,
+  params: {
+    to:            string;
+    name:          string | undefined;
+    broRef:        string;
+    realTicketRef: string;
+    proof:         BookingProof;
+  },
+): Promise<void> {
+  if (!resendKey || !params.to) return;
+
+  const { to, name, broRef, realTicketRef, proof } = params;
+  const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
+  const isIndia     = proof.country === 'india';
+  const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
+  const fareDisplay = isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`;
+
+  const html = isIndia ? `
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+      <h2 style="color:#f97316">Ticket Confirmed ✓</h2>
+      <p>${greeting}</p>
+      <p>Your ticket is confirmed and ready. Here are your journey details:</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0">
+        <tr><td style="padding:8px 0;color:#666;width:140px">PNR Number</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#f97316">${realTicketRef}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Train</td>
+            <td style="padding:8px 0;font-weight:600">${proof.trainNumber ?? ''} ${proof.trainName ?? ''}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Route</td>
+            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Departure</td>
+            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Class</td>
+            <td style="padding:8px 0">${proof.classCode ?? '3A'}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Fare</td>
+            <td style="padding:8px 0">${fareDisplay}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">BRO ref</td>
+            <td style="padding:8px 0;font-family:monospace;color:#999">${broRef}</td></tr>
+      </table>
+      <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
+        Keep your PNR <strong>${realTicketRef}</strong> safe. You'll need it at the station.
+      </p>
+      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
+    </div>
+  ` : `
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+      <h2 style="color:#16a34a">Ticket Confirmed ✓</h2>
+      <p>${greeting}</p>
+      <p>Your ticket is confirmed and ready. Here are your journey details:</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0">
+        <tr><td style="padding:8px 0;color:#666;width:140px">Ticket Ref</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${realTicketRef}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Route</td>
+            <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Departs</td>
+            <td style="padding:8px 0">${proof.departureTime}${arrivalLine}</td></tr>
+        ${proof.platform ? `<tr><td style="padding:8px 0;color:#666">Platform</td><td style="padding:8px 0">${proof.platform}</td></tr>` : ''}
+        <tr><td style="padding:8px 0;color:#666">Operator</td>
+            <td style="padding:8px 0">${proof.operator}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">Fare</td>
+            <td style="padding:8px 0">${fareDisplay}</td></tr>
+        <tr><td style="padding:8px 0;color:#666">BRO ref</td>
+            <td style="padding:8px 0;font-family:monospace;color:#999">${broRef}</td></tr>
+      </table>
+      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+      <p style="font-size:12px;color:#9ca3af">Booked by your Bro concierge via AgentPay.</p>
+    </div>
+  `;
+
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from:    'Bro <bookings@agentpay.so>',
+        to:      [to],
+        subject: isIndia
+          ? `Ticket confirmed — PNR ${realTicketRef}`
+          : `Ticket confirmed — ${realTicketRef}`,
+        html,
+      }),
+    });
+  } catch {
+    // Best-effort
+  }
+}
+
+// ── Ops webhook (Make.com / Google Sheet) ─────────────────────────────────────
+
+async function fireMakeWebhook(
+  webhookUrl: string | undefined,
+  payload: {
+    broRef:        string;
+    jobId:         string;
+    status:        'PENDING' | 'COMPLETE' | 'FAILED';
+    userEmail:     string;
+    userName:      string;
+    userWhatsapp:  string;
+    route:         string;
+    date:          string;
+    time:          string;
+    arrivalTime:   string;
+    operator:      string;
+    platform:      string;
+    estimatedFare: string;
+    currency:      string;
+    country:       string;
+    dataSource:    string;
+    realTicketRef?: string;
+    emailSent?:    boolean;
+    bookedAt:      string;
+  },
+): Promise<void> {
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+  } catch {
+    // Best-effort
+  }
+}
+
+// ── Admin alert email ─────────────────────────────────────────────────────────
+
+async function sendAdminAlert(
+  resendKey:   string | undefined,
+  adminEmail:  string | undefined,
+  params: {
+    broRef:        string;
+    jobId:         string;
+    userEmail:     string;
+    userName:      string;
+    origin:        string;
+    destination:   string;
+    departureTime: string;
+    estimatedFare: string;
+    country:       string;
+  },
+): Promise<void> {
+  if (!resendKey || !adminEmail) return;
+  const isIndia = params.country === 'india';
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from:    'Bro Ops <ops@agentpay.so>',
+        to:      [adminEmail],
+        subject: `🚂 NEW BOOKING — ${params.broRef} | ${params.origin} → ${params.destination} | ${params.estimatedFare}`,
+        html: `
+          <div style="font-family:monospace;max-width:520px;margin:0 auto;color:#111">
+            <h2 style="color:#dc2626">New booking to fulfil</h2>
+            <table style="width:100%;border-collapse:collapse">
+              <tr><td style="padding:6px 0;color:#666;width:120px">BRO Ref</td>
+                  <td style="font-weight:700;color:#dc2626">${params.broRef}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Job ID</td>
+                  <td>${params.jobId}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Customer</td>
+                  <td>${params.userName} · ${params.userEmail}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Route</td>
+                  <td>${params.origin} → ${params.destination}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Departure</td>
+                  <td>${params.departureTime}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Est. fare</td>
+                  <td>${params.estimatedFare}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Market</td>
+                  <td>${isIndia ? '🇮🇳 India (IRCTC)' : '🇬🇧 UK (Trainline)'}</td></tr>
+            </table>
+            <p style="background:#fef2f2;border-left:3px solid #dc2626;padding:12px;margin-top:20px;font-size:13px">
+              <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC' : 'Trainline'} and enter the real ticket ref in the ops sheet to trigger the confirmation email.
+            </p>
+          </div>
+        `,
       }),
     });
   } catch {
