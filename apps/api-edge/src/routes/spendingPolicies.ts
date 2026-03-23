@@ -223,12 +223,9 @@ export async function enforceSpendingPolicy(
   recipientAgentId?: string,
   recipientCategory?: string,
 ): Promise<PolicyBlock | null> {
-  const rows = await attempt(
-    () => sql<AgentPolicyRow[]>`
-      SELECT policy FROM agent_spending_policies WHERE agent_id = ${agentId} LIMIT 1
-    `,
-    [] as AgentPolicyRow[],
-  );
+  const rows = await sql<AgentPolicyRow[]>`
+    SELECT policy FROM agent_spending_policies WHERE agent_id = ${agentId} LIMIT 1
+  `;
 
   if (rows.length === 0 || !rows[0].policy) return null;
   const policy = parseJsonb<Record<string, any> | null>(rows[0].policy, null);
@@ -291,16 +288,13 @@ export async function enforceSpendingPolicy(
   }
 
   if (policy.maxDailyUsdc !== null) {
-    const dailyRows = await attempt(
-      () => sql<Array<{ total: number | string }>>`
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM payment_intents
-        WHERE agent_id = ${agentId}
-          AND status IN ('completed','confirmed','wallet_spend')
-          AND created_at >= NOW() - INTERVAL '24 hours'
-      `,
-      [] as Array<{ total: number | string }>,
-    );
+    const dailyRows = await sql<Array<{ total: number | string }>>`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_intents
+      WHERE agent_id = ${agentId}
+        AND status IN ('completed','confirmed','wallet_spend')
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `;
     const dailySpent = Number(dailyRows[0]?.total ?? 0);
     if (dailySpent + amountUsdc > policy.maxDailyUsdc) {
       return {
@@ -312,16 +306,13 @@ export async function enforceSpendingPolicy(
   }
 
   if (policy.maxMonthlyUsdc !== null) {
-    const monthlyRows = await attempt(
-      () => sql<Array<{ total: number | string }>>`
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM payment_intents
-        WHERE agent_id = ${agentId}
-          AND status IN ('completed','confirmed','wallet_spend')
-          AND date_trunc('month', created_at) = date_trunc('month', NOW())
-      `,
-      [] as Array<{ total: number | string }>,
-    );
+    const monthlyRows = await sql<Array<{ total: number | string }>>`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_intents
+      WHERE agent_id = ${agentId}
+        AND status IN ('completed','confirmed','wallet_spend')
+        AND date_trunc('month', created_at) = date_trunc('month', NOW())
+    `;
     const monthlySpent = Number(monthlyRows[0]?.total ?? 0);
     if (monthlySpent + amountUsdc > policy.maxMonthlyUsdc) {
       return {

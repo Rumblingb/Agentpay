@@ -34,6 +34,27 @@ jobs:
       - name: Run release smoke tests
         run: npm run test:smoke
 
+  workers:
+    name: Workers
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Typecheck Workers API
+        run: npm run typecheck --workspace @agentpay/api-edge
+
   dashboard:
     name: Dashboard
     runs-on: ubuntu-latest

@@ -1114,7 +1114,7 @@ async function sendBookingRequestEmail(
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    'Bro <bookings@agentpay.so>',
+        from:    'Bro <bookings@agentpay.gg>',
         to:      [to],
         subject: isIndia
           ? `Your request is in — BRO ref ${broRef}`
@@ -1207,7 +1207,7 @@ async function sendTicketConfirmedEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from:    'Bro <bookings@agentpay.so>',
+        from:    'Bro <bookings@agentpay.gg>',
         to:      [to],
         subject: isIndia
           ? `Ticket confirmed — PNR ${realTicketRef}`
@@ -1285,7 +1285,7 @@ async function sendAdminAlert(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from:    'Bro Ops <ops@agentpay.so>',
+        from:    'Bro Ops <ops@agentpay.gg>',
         to:      [adminEmail],
         subject: `🚂 NEW BOOKING — ${params.broRef} | ${params.origin} → ${params.destination} | ${params.estimatedFare}`,
         html: `

@@ -14,6 +14,7 @@
 
 import React, { useState, useRef } from 'react';
 import {
+  Alert,
   View,
   Text,
   TextInput,
@@ -57,6 +58,8 @@ import { OrbAnimation } from '../components/OrbAnimation';
 import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const TERMS_URL = 'https://agentpay.gg/terms';
+const PRIVACY_URL = 'https://agentpay.gg/privacy';
 
 type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
 
@@ -123,6 +126,14 @@ export default function OnboardScreen() {
   React.useEffect(() => {
     getBiometricLabel().then(setBioLabel);
   }, []);
+
+  const openLegalUrl = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Link unavailable', 'We could not open that document right now. Please try again later.');
+    }
+  };
 
   const fadeToNext = (next: Step) => {
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
@@ -490,7 +501,15 @@ export default function OnboardScreen() {
                 <PrimaryBtn onPress={handleAcceptPrivacy} label="I understand — continue" />
 
                 <Text style={styles.legalNote}>
-                  By continuing you accept our Terms of Service and Privacy Policy at agentpay.gg
+                  By continuing you accept our{' '}
+                  <Text style={styles.legalLink} onPress={() => { void openLegalUrl(TERMS_URL); }}>
+                    Terms of Service
+                  </Text>
+                  {' '}and{' '}
+                  <Text style={styles.legalLink} onPress={() => { void openLegalUrl(PRIVACY_URL); }}>
+                    Privacy Policy
+                  </Text>
+                  .
                 </Text>
               </View>
             )}
@@ -1111,6 +1130,7 @@ const styles = StyleSheet.create({
 
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
+  legalLink:{ color: '#818cf8', textDecorationLine: 'underline' },
 });
 
 // ── Demo screen styles ────────────────────────────────────────────────────

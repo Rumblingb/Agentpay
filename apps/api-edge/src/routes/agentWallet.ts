@@ -68,13 +68,11 @@ async function verifyAgentKey(
 }
 
 async function ensureWallet(sql: ReturnType<typeof createDb>, agentId: string): Promise<void> {
-  try {
-    await sql`
-      INSERT INTO agent_wallets (agent_id, balance_usdc, reserved_usdc, updated_at)
-      VALUES (${agentId}, 0, 0, NOW())
-      ON CONFLICT (agent_id) DO NOTHING
-    `;
-  } catch {}
+  await sql`
+    INSERT INTO agent_wallets (agent_id, balance_usdc, reserved_usdc, updated_at)
+    VALUES (${agentId}, 0, 0, NOW())
+    ON CONFLICT (agent_id) DO NOTHING
+  `;
 }
 
 router.get('/', async (c) => {
@@ -184,35 +182,40 @@ router.post('/deposit', async (c) => {
 
     const depositId = `wdep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
-    try {
-      await sql`
+    const rows = await sql<WalletRow[]>`
+      WITH updated_wallet AS (
+        UPDATE agent_wallets
+        SET balance_usdc = balance_usdc + ${amountUsdc},
+            updated_at = NOW()
+        WHERE agent_id = ${agentId}
+        RETURNING balance_usdc, reserved_usdc, updated_at
+      ),
+      inserted_intent AS (
         INSERT INTO payment_intents
           (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
-        VALUES
-          (${depositId}, NULL, ${agentId}, ${amountUsdc}, ${'USDC'}, ${'wallet_deposit'},
-           ${depositId}, NOW() + INTERVAL '10 years',
-           ${JSON.stringify({
-             walletTxType: 'deposit',
-             walletTxHash: txHash ?? null,
-             creditedToAgentId: agentId,
-           })}::jsonb)
-      `;
-    } catch {}
-
-    await sql`
-      UPDATE agent_wallets
-      SET balance_usdc = balance_usdc + ${amountUsdc},
-          updated_at = NOW()
-      WHERE agent_id = ${agentId}
+        SELECT
+          ${depositId},
+          NULL,
+          ${agentId},
+          ${amountUsdc},
+          ${'USDC'},
+          ${'wallet_deposit'},
+          ${depositId},
+          NOW() + INTERVAL '10 years',
+          ${JSON.stringify({
+            walletTxType: 'deposit',
+            walletTxHash: txHash ?? null,
+            creditedToAgentId: agentId,
+          })}::jsonb
+        FROM updated_wallet
+      )
+      SELECT balance_usdc, reserved_usdc, updated_at
+      FROM updated_wallet
     `;
 
-    const rows = await attempt(
-      () => sql<WalletRow[]>`
-        SELECT balance_usdc, reserved_usdc, updated_at
-        FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
-      `,
-      [] as WalletRow[],
-    );
+    if (rows.length === 0) {
+      throw new Error(`Failed to credit wallet for agent ${agentId}`);
+    }
 
     return c.json(
       {
@@ -260,64 +263,62 @@ router.post('/spend', async (c) => {
 
     await ensureWallet(sql, agentId);
 
-    const rows = await attempt(
-      () => sql<WalletRow[]>`
-        SELECT balance_usdc, reserved_usdc, updated_at
-        FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
-      `,
-      [] as WalletRow[],
-    );
+    const spendId = `wspd_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const newRows = await sql<WalletRow[]>`
+      WITH updated_wallet AS (
+        UPDATE agent_wallets
+        SET balance_usdc = balance_usdc - ${amountUsdc},
+            updated_at = NOW()
+        WHERE agent_id = ${agentId}
+          AND balance_usdc - reserved_usdc >= ${amountUsdc}
+        RETURNING balance_usdc, reserved_usdc, updated_at
+      ),
+      inserted_intent AS (
+        INSERT INTO payment_intents
+          (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
+        SELECT
+          ${spendId},
+          NULL,
+          ${agentId},
+          ${amountUsdc},
+          ${'USDC'},
+          ${'wallet_spend'},
+          ${spendId},
+          NOW() + INTERVAL '10 years',
+          ${JSON.stringify({
+            walletTxType: 'spend',
+            description,
+            recipientAgentId: recipientAgentId ?? null,
+            spentByAgentId: agentId,
+          })}::jsonb
+        FROM updated_wallet
+      )
+      SELECT balance_usdc, reserved_usdc, updated_at
+      FROM updated_wallet
+    `;
 
-    if (rows.length === 0) return c.json({ error: 'WALLET_NOT_FOUND' }, 404);
-
-    const balance = Number(rows[0].balance_usdc);
-    const reserved = Number(rows[0].reserved_usdc);
-    const available = balance - reserved;
-
-    if (amountUsdc > available) {
+    if (newRows.length === 0) {
+      const currentRows = await attempt(
+        () => sql<WalletRow[]>`
+          SELECT balance_usdc, reserved_usdc, updated_at
+          FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
+        `,
+        [] as WalletRow[],
+      );
+      const available =
+        currentRows.length > 0
+          ? Number(currentRows[0].balance_usdc) - Number(currentRows[0].reserved_usdc)
+          : 0;
       return c.json(
         {
           error: 'INSUFFICIENT_BALANCE',
-          availableUsdc: available,
+          availableUsdc: Math.max(0, available),
           requestedUsdc: amountUsdc,
-          message: `Insufficient balance. Available: ${available} USDC, requested: ${amountUsdc} USDC.`,
+          message: `Insufficient balance. Available: ${Math.max(0, available)} USDC, requested: ${amountUsdc} USDC.`,
         },
         402,
       );
     }
-
-    const spendId = `wspd_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
-    try {
-      await sql`
-        INSERT INTO payment_intents
-          (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
-        VALUES
-          (${spendId}, NULL, ${agentId}, ${amountUsdc}, ${'USDC'}, ${'wallet_spend'},
-           ${spendId}, NOW() + INTERVAL '10 years',
-           ${JSON.stringify({
-             walletTxType: 'spend',
-             description,
-             recipientAgentId: recipientAgentId ?? null,
-             spentByAgentId: agentId,
-           })}::jsonb)
-      `;
-    } catch {}
-
-    await sql`
-      UPDATE agent_wallets
-      SET balance_usdc = balance_usdc - ${amountUsdc},
-          updated_at = NOW()
-      WHERE agent_id = ${agentId}
-    `;
-
-    const newRows = await attempt(
-      () => sql<WalletRow[]>`
-        SELECT balance_usdc, reserved_usdc, updated_at
-        FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
-      `,
-      [] as WalletRow[],
-    );
 
     return c.json({
       success: true,
@@ -367,51 +368,60 @@ router.post('/withdraw', async (c) => {
 
     await ensureWallet(sql, agentId);
 
-    const rows = await attempt(
-      () => sql<WalletRow[]>`
-        SELECT balance_usdc, reserved_usdc, updated_at
-        FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
-      `,
-      [] as WalletRow[],
-    );
+    const withdrawalId = `wwth_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const reservedRows = await sql<WalletRow[]>`
+      WITH updated_wallet AS (
+        UPDATE agent_wallets
+        SET reserved_usdc = reserved_usdc + ${amountUsdc},
+            updated_at = NOW()
+        WHERE agent_id = ${agentId}
+          AND balance_usdc - reserved_usdc >= ${amountUsdc}
+        RETURNING balance_usdc, reserved_usdc, updated_at
+      ),
+      inserted_intent AS (
+        INSERT INTO payment_intents
+          (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
+        SELECT
+          ${withdrawalId},
+          NULL,
+          ${agentId},
+          ${amountUsdc},
+          ${'USDC'},
+          ${'withdrawal_queued'},
+          ${withdrawalId},
+          NOW() + INTERVAL '10 years',
+          ${JSON.stringify({
+            walletTxType: 'withdrawal',
+            destinationAddress,
+            queuedAt: new Date().toISOString(),
+          })}::jsonb
+        FROM updated_wallet
+      )
+      SELECT balance_usdc, reserved_usdc, updated_at
+      FROM updated_wallet
+    `;
 
-    if (rows.length === 0) return c.json({ error: 'WALLET_NOT_FOUND' }, 404);
-
-    const available = Number(rows[0].balance_usdc) - Number(rows[0].reserved_usdc);
-    if (amountUsdc > available) {
+    if (reservedRows.length === 0) {
+      const currentRows = await attempt(
+        () => sql<WalletRow[]>`
+          SELECT balance_usdc, reserved_usdc, updated_at
+          FROM agent_wallets WHERE agent_id = ${agentId} LIMIT 1
+        `,
+        [] as WalletRow[],
+      );
+      const available =
+        currentRows.length > 0
+          ? Number(currentRows[0].balance_usdc) - Number(currentRows[0].reserved_usdc)
+          : 0;
       return c.json(
         {
           error: 'INSUFFICIENT_BALANCE',
-          availableUsdc: available,
+          availableUsdc: Math.max(0, available),
           requestedUsdc: amountUsdc,
         },
         402,
       );
     }
-
-    const withdrawalId = `wwth_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
-    try {
-      await sql`
-        INSERT INTO payment_intents
-          (id, merchant_id, agent_id, amount, currency, status, verification_token, expires_at, metadata)
-        VALUES
-          (${withdrawalId}, NULL, ${agentId}, ${amountUsdc}, ${'USDC'}, ${'withdrawal_queued'},
-           ${withdrawalId}, NOW() + INTERVAL '10 years',
-           ${JSON.stringify({
-             walletTxType: 'withdrawal',
-             destinationAddress,
-             queuedAt: new Date().toISOString(),
-           })}::jsonb)
-      `;
-    } catch {}
-
-    await sql`
-      UPDATE agent_wallets
-      SET reserved_usdc = reserved_usdc + ${amountUsdc},
-          updated_at = NOW()
-      WHERE agent_id = ${agentId}
-    `;
 
     return c.json(
       {
