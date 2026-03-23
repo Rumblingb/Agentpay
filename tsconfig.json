@@ -3,7 +3,10 @@
     "target": "ES2020",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2020", "DOM"],
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
     "outDir": "./dist",
     "rootDir": ".",
     "strict": true,
@@ -17,7 +20,10 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*", "infra/**/*"],
+  "include": [
+    "src/**/*",
+    "infra/**/*"
+  ],
   "exclude": [
     "node_modules",
     "dist",
@@ -30,5 +36,6 @@
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node"
-  }
+  },
+  "extends": "expo/tsconfig.base"
 }

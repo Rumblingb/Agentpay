@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/visha/agentpay -type f \\\\\\(-name *swagger* -o -name *openapi* -o -name *.yaml -o -name *.yml \\\\\\))",
+      "Bash(curl -s -X POST \"https://agentpay-api.apaybeta.workers.dev/api/v1/payment-intents\" -H \"Content-Type: application/json\" -d '{\"\"merchantId\"\":\"\"c65208a9-6a58-4a4c-8fcd-3d68723ec937\"\",\"\"agentId\"\":\"\"founder-test-agent-01\"\",\"\"amount\"\":0.10,\"\"currency\"\":\"\"USDC\"\"}')",
+      "Bash(curl -s \"https://agentpay-api.apaybeta.workers.dev/api/health\")",
+      "Bash(npx wrangler:*)",
+      "Bash(python3 -m json.tool)"
+    ]
+  }
+}
