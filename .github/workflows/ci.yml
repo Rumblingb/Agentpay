@@ -17,19 +17,16 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/agentpay_ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
 
       - name: Install root dependencies
         run: npm ci
-
-      - name: Generate Prisma client
-        run: npm run prisma:generate
 
       - name: Run release smoke tests
         run: npm run test:smoke
@@ -41,10 +38,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -71,10 +68,10 @@ jobs:
       DASHBOARD_SESSION_SECRET: ci-dashboard-session-secret-32-characters-minimum
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
