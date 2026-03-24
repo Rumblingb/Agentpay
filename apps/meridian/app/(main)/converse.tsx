@@ -21,7 +21,6 @@ import {
   ScrollView,
   Pressable,
   SafeAreaView,
-  Linking,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -310,21 +309,7 @@ export default function ConverseScreen() {
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
   const handleUpiPay = useCallback(async () => {
-    const pending = pendingPlanRef.current;
-    if (!pending) return;
-
-    // fiatAmount is already in INR when currencyCode === 'INR'
-    const amountInr = pending.fiatCode === 'INR'
-      ? Math.round(pending.fiatAmount)
-      : Math.round(pending.fiatAmount * 84); // fallback: convert USD→INR
-    const upiDeepLink = `upi://pay?pa=agentpay@razorpay&pn=AgentPay&am=${amountInr}&cu=INR&tn=${encodeURIComponent('Train booking via Bro')}`;
-
-    const canOpen = await Linking.canOpenURL(upiDeepLink);
-    if (canOpen) {
-      await Linking.openURL(upiDeepLink);
-    } else {
-      await speak('No UPI app found — use fingerprint to confirm instead.');
-    }
+    await speak('Payment happens after Bro creates the booking request.');
   }, []);
 
   // ── Hold-to-talk (press = start recording, release = send) ──────────────
@@ -631,12 +616,12 @@ export default function ConverseScreen() {
               </Pressable>
               {isIndia && (
                 <View style={styles.upiSection}>
-                  <Text style={styles.upiLabel}>or pay with UPI</Text>
+                  <Text style={styles.upiLabel}>India payments happen on the next screen</Text>
                   <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
                     <Ionicons name="qr-code-outline" size={16} color="#f97316" />
-                    <Text style={styles.upiBtnText}>Open UPI App</Text>
+                    <Text style={styles.upiBtnText}>Why</Text>
                   </Pressable>
-                  <Text style={styles.upiHint}>Google Pay · PhonePe · Paytm · BHIM</Text>
+                  <Text style={styles.upiHint}>Bro creates the job first, then collects UPI against that job.</Text>
                 </View>
               )}
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>

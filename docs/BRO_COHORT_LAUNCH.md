@@ -39,6 +39,8 @@ Go only if all of the following are true:
 - iOS and Android export sanity checks pass
 - Dashboard build passes
 - UK and India happy-path booking flows are manually exercised
+- Stripe hosted checkout confirms the Bro job and re-opens the app correctly
+- India UPI confirms the Bro job through the Razorpay webhook, not a blind deep link
 - Journey reopen works for `securing`, `attention`, and `ticketed`
 - Receipt fallback renders local journey details when receipt fetch fails
 - There is a human support path for cohort testers

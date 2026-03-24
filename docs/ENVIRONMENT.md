@@ -32,6 +32,17 @@ wrangler secret put VERIFICATION_SECRET
 wrangler secret put ADMIN_SECRET_KEY
 wrangler secret put STRIPE_SECRET_KEY        # optional — enables Stripe routes
 wrangler secret put STRIPE_WEBHOOK_SECRET    # optional — required for /webhooks/stripe
+wrangler secret put STRIPE_SUCCESS_URL       # optional — checkout success redirect base URL
+wrangler secret put STRIPE_CANCEL_URL        # optional — checkout cancel redirect base URL
+wrangler secret put MAKECOM_WEBHOOK_URL      # optional — Bro ops Google Sheet ingestion
+wrangler secret put BRO_CLIENT_KEY           # optional — locks Bro app traffic to known builds
+wrangler secret put OPENCLAW_API_URL         # optional — auto-dispatch paid Bro jobs
+wrangler secret put OPENCLAW_API_KEY         # optional — auto-dispatch paid Bro jobs
+wrangler secret put RESEND_API_KEY           # optional — Bro booking emails
+wrangler secret put ADMIN_EMAIL              # optional — Bro ops alert inbox
+wrangler secret put RAZORPAY_KEY_ID          # optional — India UPI payment links
+wrangler secret put RAZORPAY_KEY_SECRET      # optional — India UPI payment links
+wrangler secret put RAZORPAY_WEBHOOK_SECRET  # optional — /webhooks/razorpay verification
 ```
 
 | Secret | Description |
@@ -43,6 +54,17 @@ wrangler secret put STRIPE_WEBHOOK_SECRET    # optional — required for /webhoo
 | `ADMIN_SECRET_KEY` | Bearer token for admin-only API endpoints (`x-admin-key` header). |
 | `STRIPE_SECRET_KEY` | Stripe API key (`sk_live_*` or `sk_test_*`). Optional — leave unset to disable Stripe routes. |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (`whsec_*`). Required if Stripe is enabled. |
+| `STRIPE_SUCCESS_URL` | Base success redirect URL for Bro hosted checkout. Example: `https://agentpay.so/payment/success` |
+| `STRIPE_CANCEL_URL` | Base cancel redirect URL for Bro hosted checkout. Example: `https://agentpay.so/payment/cancel` |
+| `MAKECOM_WEBHOOK_URL` | Bro operations webhook that creates a Google Sheet row for manual fulfillment. |
+| `BRO_CLIENT_KEY` | Shared static client key between the Bro app and Workers API. |
+| `OPENCLAW_API_URL` | OpenClaw base URL for automated post-payment dispatch. |
+| `OPENCLAW_API_KEY` | OpenClaw API key for automated post-payment dispatch. |
+| `RESEND_API_KEY` | Enables Bro booking emails and operator alerts. |
+| `ADMIN_EMAIL` | Address that receives Bro booking alert emails. |
+| `RAZORPAY_KEY_ID` | Enables live India UPI payment links. |
+| `RAZORPAY_KEY_SECRET` | Paired secret for `RAZORPAY_KEY_ID`. |
+| `RAZORPAY_WEBHOOK_SECRET` | HMAC secret used to verify `/webhooks/razorpay`. |
 
 **Important:** `AGENTPAY_TEST_MODE` must be absent or `"false"` in production. The Workers API enforces this on startup — it will reject requests if test-mode bypass is active in a production environment.
 

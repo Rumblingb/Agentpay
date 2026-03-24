@@ -9,6 +9,8 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createUpiPaymentLink, verifyRazorpayWebhook } from '../lib/razorpay';
+import { createDb } from '../lib/db';
+import { dispatchToOpenClaw } from '../lib/openclaw';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -124,13 +126,60 @@ router.post('/', async (c) => {
 
     const paymentLinkId = paymentLinkEntity?.id  as string | undefined;
     const paymentId     = paymentEntity?.id       as string | undefined;
+    const notes         = paymentLinkEntity?.notes as Record<string, unknown> | undefined;
+    const referenceId   = paymentLinkEntity?.reference_id as string | undefined;
+    const jobId         = (notes?.jobId as string | undefined) ?? referenceId;
 
     console.info('[razorpay-webhook] payment_link.paid confirmed', {
       paymentLinkId: paymentLinkId ?? 'unknown',
       paymentId:     paymentId     ?? 'unknown',
+      jobId:         jobId         ?? 'unknown',
     });
 
-    // TODO Phase 2: update job status to 'paid', trigger booking confirmation flow
+    if (jobId) {
+      const sql = createDb(c.env);
+      try {
+        const paidAt = new Date().toISOString();
+        await sql`
+          UPDATE payment_intents
+          SET metadata = metadata || ${JSON.stringify({
+            paymentConfirmed: true,
+            paymentProvider: 'razorpay',
+            paymentConfirmedAt: paidAt,
+            razorpayPaymentConfirmed: true,
+            razorpayPaidAt: paidAt,
+            razorpayPaymentId: paymentId ?? null,
+            razorpayPaymentLinkId: paymentLinkId ?? null,
+          })}::jsonb
+          WHERE id = ${jobId}
+            AND metadata->>'protocol' = 'marketplace_hire'
+        `;
+
+        if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
+          const jobRows = await sql<any[]>`
+            SELECT metadata FROM payment_intents WHERE id = ${jobId} LIMIT 1
+          `.catch(() => []);
+
+          if (jobRows.length) {
+            const jobMeta = jobRows[0].metadata ?? {};
+            const clawResult = await dispatchToOpenClaw(c.env, jobId, jobMeta);
+            const clawPatch = JSON.stringify({
+              openclawDispatched: clawResult.status === 'dispatched',
+              openclawJobId: clawResult.openclawJobId ?? null,
+              openclawDispatchedAt: clawResult.dispatchedAt,
+              openclawError: clawResult.error ?? null,
+            });
+            await sql`
+              UPDATE payment_intents
+              SET metadata = metadata || ${clawPatch}::jsonb
+              WHERE id = ${jobId}
+            `.catch(() => {});
+          }
+        }
+      } finally {
+        await sql.end().catch(() => {});
+      }
+    }
   }
 
   return c.json({ success: true, received: true, event: eventName ?? 'unknown' });

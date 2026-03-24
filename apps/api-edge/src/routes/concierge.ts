@@ -101,7 +101,7 @@ conciergeRouter.get('/bro-ops', async (c) => {
         metadata->>'currency'                           AS "currency",
         metadata->>'hirerId'                            AS "hirerId",
         metadata->>'jobDescription'                     AS "jobDescription",
-        metadata->>'stripePaymentConfirmed'             AS "stripeConfirmed",
+        COALESCE(metadata->>'paymentConfirmed', metadata->>'stripePaymentConfirmed') AS "stripeConfirmed",
         metadata->>'openclawDispatched'                 AS "openclawDispatched",
         metadata->>'openclawJobId'                      AS "openclawJobId",
         metadata->>'openclawDispatchedAt'               AS "openclawDispatchedAt",

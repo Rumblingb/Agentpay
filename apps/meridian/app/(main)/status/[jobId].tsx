@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
-import { getIntentStatus, createCheckoutSession } from '../../../lib/api';
+import { getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { saveActiveTrip } from '../../../lib/storage';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
@@ -47,7 +47,7 @@ export default function StatusScreen() {
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
   const [finalLegSummary, setFinalLegSummary] = useState<string | null>(null);
-  const [stripeConfirmed, setStripeConfirmed] = useState(false);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [payLoading, setPayLoading]           = useState(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
@@ -105,7 +105,9 @@ export default function StatusScreen() {
             if (proof.toStation)     setToStation(proof.toStation);
             // isSimulated is internal — never surface to users
             if (proof.finalLegSummary) setFinalLegSummary(proof.finalLegSummary);
-            if (data.metadata?.stripePaymentConfirmed) setStripeConfirmed(true);
+            if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+              setPaymentConfirmed(true);
+            }
             setStatusPhase('done');
             setPhase('done');
             void saveActiveTrip({
@@ -198,18 +200,18 @@ export default function StatusScreen() {
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   useEffect(() => {
-    if (statusPhase !== 'done' || stripeConfirmed || !jobId) return;
+    if (statusPhase !== 'done' || paymentConfirmed || !jobId) return;
     const t = setInterval(async () => {
       try {
         const data = await getIntentStatus(jobId);
-        if (data.metadata?.stripePaymentConfirmed) {
-          setStripeConfirmed(true);
+        if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+          setPaymentConfirmed(true);
           clearInterval(t);
         }
       } catch {}
     }, 3000);
     return () => clearInterval(t);
-  }, [statusPhase, stripeConfirmed, jobId]);
+  }, [statusPhase, paymentConfirmed, jobId]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
@@ -224,7 +226,7 @@ export default function StatusScreen() {
   const isError      = statusPhase === 'error';
   // Only show full green success once payment is confirmed (or no payment needed)
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
-  const isFullyDone  = isDone && (!needsPayment || stripeConfirmed);
+  const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -250,7 +252,7 @@ export default function StatusScreen() {
               <LinearGradient colors={[C.emDim, C.greenMid]} style={[styles.orb, { shadowColor: C.green }]}>
                 <Ionicons name="checkmark" size={52} color={C.green} />
               </LinearGradient>
-            ) : isDone && needsPayment && !stripeConfirmed ? (
+            ) : isDone && needsPayment && !paymentConfirmed ? (
               <LinearGradient colors={['#451a03', '#92400e']} style={[styles.orb, { shadowColor: '#f59e0b' }]}>
                 <Ionicons name="card-outline" size={44} color="#fbbf24" />
               </LinearGradient>
@@ -266,9 +268,9 @@ export default function StatusScreen() {
 
         {/* Status text */}
         <Text style={[styles.statusTitle, isFullyDone && styles.statusTitleDone, isError && styles.statusTitleError,
-          isDone && needsPayment && !stripeConfirmed && { color: '#fbbf24' }]}>
+          isDone && needsPayment && !paymentConfirmed && { color: '#fbbf24' }]}>
           {isFullyDone ? 'Journey in hand'
-            : isDone && needsPayment && !stripeConfirmed ? 'Request received'
+            : isDone && needsPayment && !paymentConfirmed ? 'Request received'
             : isError ? 'Needs attention'
             : 'Working on it'}
         </Text>
@@ -276,7 +278,7 @@ export default function StatusScreen() {
         <Text style={styles.statusSub}>
           {isFullyDone
             ? 'Bro has your journey moving. Ticket details arrive by email shortly.'
-            : isDone && needsPayment && !stripeConfirmed
+            : isDone && needsPayment && !paymentConfirmed
             ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
@@ -314,19 +316,28 @@ export default function StatusScreen() {
         )}
 
         {/* Payment button — shown until Stripe payment confirmed */}
-        {isDone && !stripeConfirmed && fiatAmount && parseFloat(fiatAmount) > 0 && (
+        {isDone && !paymentConfirmed && fiatAmount && parseFloat(fiatAmount) > 0 && (
           <Pressable
             onPress={async () => {
               if (payLoading) return;
               setPayLoading(true);
               try {
-                const { url } = await createCheckoutSession({
-                  jobId,
-                  amountFiat:   parseFloat(fiatAmount),
-                  currencyCode: paramCode ?? 'GBP',
-                  description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
-                });
-                await Linking.openURL(url);
+                if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
+                  const { shortUrl } = await createUpiPaymentLink({
+                    jobId,
+                    amountInr: Math.round(parseFloat(fiatAmount)),
+                    description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Bro booking',
+                  });
+                  await Linking.openURL(shortUrl);
+                } else {
+                  const { url } = await createCheckoutSession({
+                    jobId,
+                    amountFiat:   parseFloat(fiatAmount),
+                    currencyCode: paramCode ?? 'GBP',
+                    description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
+                  });
+                  await Linking.openURL(url);
+                }
               } catch {
                 // If checkout creation fails, show nothing — don't block the booking flow
               } finally {
@@ -350,7 +361,7 @@ export default function StatusScreen() {
         )}
 
         {/* Payment confirmed badge */}
-        {isDone && stripeConfirmed && (
+        {isDone && paymentConfirmed && (
           <View style={styles.paidBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#4ade80" />
             <Text style={styles.paidBadgeText}>Payment confirmed</Text>

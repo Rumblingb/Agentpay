@@ -290,3 +290,17 @@ export async function createCheckoutSession(params: {
     body: JSON.stringify(params),
   });
 }
+
+export async function createUpiPaymentLink(params: {
+  jobId: string;
+  amountInr: number;
+  description?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+}): Promise<{ shortUrl: string; paymentLinkId: string; upiQrString: string }> {
+  return apiFetch('/api/marketplace/upi-payment-link', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}

@@ -17,6 +17,9 @@ export interface CreateUpiPaymentLinkParams {
   customerPhone?: string;
   customerEmail?: string;
   receipt: string;
+  referenceId?: string;
+  notes?: Record<string, string>;
+  callbackUrl?: string;
 }
 
 export interface UpiPaymentLinkResult {
@@ -34,11 +37,21 @@ export async function createUpiPaymentLink(
   env: Env,
   params: CreateUpiPaymentLinkParams,
 ): Promise<UpiPaymentLinkResult> {
-  const { amountInr, description, customerName, customerPhone, customerEmail, receipt } = params;
+  const {
+    amountInr,
+    description,
+    customerName,
+    customerPhone,
+    customerEmail,
+    receipt,
+    referenceId,
+    notes,
+    callbackUrl,
+  } = params;
 
   const credentials = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
 
-  const body = {
+  const body: Record<string, unknown> = {
     upi_link: true,
     amount: Math.round(amountInr * 100), // paise
     currency: 'INR',
@@ -55,6 +68,13 @@ export async function createUpiPaymentLink(
     },
     reminder_enable: false,
   };
+
+  if (referenceId) body.reference_id = referenceId;
+  if (notes && Object.keys(notes).length > 0) body.notes = notes;
+  if (callbackUrl) {
+    body.callback_url = callbackUrl;
+    body.callback_method = 'get';
+  }
 
   const res = await fetch('https://api.razorpay.com/v1/payment_links', {
     method:  'POST',

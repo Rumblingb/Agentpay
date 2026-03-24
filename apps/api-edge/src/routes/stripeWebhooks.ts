@@ -149,8 +149,11 @@ router.post('/', async (c) => {
           if (broJobId) {
             // Step 1: mark payment confirmed
             const confirmPatch = JSON.stringify({
+              paymentConfirmed: true,
+              paymentProvider: 'stripe',
               stripePaymentConfirmed: true,
               stripeCheckoutSessionId: sessionId,
+              paymentConfirmedAt: new Date().toISOString(),
               stripeConfirmedAt: new Date().toISOString(),
             });
             await sql`
@@ -215,7 +218,10 @@ router.post('/', async (c) => {
 
           if (jobRows.length) {
             const confirmPatch = JSON.stringify({
+              paymentConfirmed: true,
+              paymentProvider: 'stripe',
               stripePaymentConfirmed: true,
+              paymentConfirmedAt: new Date().toISOString(),
               stripeConfirmedAt: new Date().toISOString(),
             });
             await sql`

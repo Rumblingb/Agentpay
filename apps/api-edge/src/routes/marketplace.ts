@@ -19,12 +19,19 @@ import type { Env, Variables } from '../types';
 import { createDb, parseJsonb } from '../lib/db';
 import { MARKETPLACE_TAKE_RATE_BPS } from '../lib/feeLedger';
 import { recordFloatAccrual } from '../lib/floatYield';
+import { createUpiPaymentLink } from '../lib/razorpay';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function isPaymentConfirmed(metadata: Record<string, unknown> | null | undefined): boolean {
+  return metadata?.paymentConfirmed === true ||
+    metadata?.stripePaymentConfirmed === true ||
+    metadata?.razorpayPaymentConfirmed === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,8 +264,10 @@ router.post('/hire', async (c) => {
            hiredAt: new Date().toISOString(),
            callbackUrl: callbackUrl ?? null,
            completionSecretHash,
+           paymentConfirmed: false,
            stripePaymentIntentId: stripePaymentIntentId ?? null,
            stripePaymentConfirmed: false,
+           razorpayPaymentConfirmed: false,
          })}::jsonb)
     `.catch(() => {});
   } finally {
@@ -413,8 +422,8 @@ router.post('/hire/:jobId/complete', async (c) => {
     }
     // hirerId alone is the weakest auth path — require confirmed payment before completion.
     // completionSecret / agentKey paths are trusted internal callers (can complete without Stripe).
-    if (callerIsHirer && !callerHasSecret && !callerIsAgent && !job.metadata?.stripePaymentConfirmed) {
-      return c.json({ error: 'Payment not confirmed. Provide completionSecret or complete Stripe payment first.' }, 402);
+    if (callerIsHirer && !callerHasSecret && !callerIsAgent && !isPaymentConfirmed(job.metadata ?? null)) {
+      return c.json({ error: 'Payment not confirmed. Provide completionSecret or complete payment first.' }, 402);
     }
     if (job.status !== 'escrow_pending') {
       return c.json({ error: `Job is already in status: ${job.status}` }, 409);
@@ -506,8 +515,8 @@ router.post('/checkout-session', async (c) => {
   const amountSmall = Math.max(Math.round(amountFiat * 100), currency === 'inr' ? 5000 : 30);
   const desc        = description ?? `Bro booking`;
 
-  const successUrl = `https://agentpay.so/payment/success?jobId=${encodeURIComponent(jobId)}`;
-  const cancelUrl  = `https://agentpay.so/payment/cancel?jobId=${encodeURIComponent(jobId)}`;
+  const successUrl = `${c.env.STRIPE_SUCCESS_URL ?? 'https://agentpay.so/payment/success'}?jobId=${encodeURIComponent(jobId)}`;
+  const cancelUrl  = `${c.env.STRIPE_CANCEL_URL ?? 'https://agentpay.so/payment/cancel'}?jobId=${encodeURIComponent(jobId)}`;
 
   const checkoutBody = new URLSearchParams({
     mode:                                          'payment',
@@ -543,7 +552,10 @@ router.post('/checkout-session', async (c) => {
   try {
     await sql`
       UPDATE payment_intents
-      SET metadata = metadata || ${JSON.stringify({ stripeCheckoutSessionId: session.id })}::jsonb
+      SET metadata = metadata || ${JSON.stringify({
+        paymentProvider: 'stripe',
+        stripeCheckoutSessionId: session.id,
+      })}::jsonb
       WHERE id = ${jobId}
         AND metadata->>'protocol' = 'marketplace_hire'
     `;
@@ -558,6 +570,57 @@ router.post('/checkout-session', async (c) => {
     url:       session.url,
     sessionId: session.id,
   }, 201);
+});
+
+router.post('/upi-payment-link', async (c) => {
+  if (!c.env.RAZORPAY_KEY_ID || !c.env.RAZORPAY_KEY_SECRET) {
+    return c.json({ error: 'Razorpay not configured on this deployment' }, 503);
+  }
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const { jobId, amountInr, description, customerName, customerPhone, customerEmail } = body;
+  if (!jobId || typeof amountInr !== 'number' || amountInr <= 0) {
+    return c.json({ error: 'jobId and amountInr required' }, 400);
+  }
+
+  const successUrl = `${c.env.STRIPE_SUCCESS_URL ?? 'https://agentpay.so/payment/success'}?jobId=${encodeURIComponent(jobId)}`;
+
+  try {
+    const result = await createUpiPaymentLink(c.env, {
+      amountInr,
+      description: description ?? 'Bro booking',
+      receipt: jobId,
+      referenceId: jobId,
+      notes: { jobId, source: 'bro_app' },
+      callbackUrl: successUrl,
+      customerName: typeof customerName === 'string' ? customerName : undefined,
+      customerPhone: typeof customerPhone === 'string' ? customerPhone : undefined,
+      customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
+    });
+
+    const sql = createDb(c.env);
+    try {
+      await sql`
+        UPDATE payment_intents
+        SET metadata = metadata || ${JSON.stringify({
+          paymentProvider: 'razorpay',
+          razorpayPaymentLinkId: result.paymentLinkId,
+          razorpayReferenceId: jobId,
+        })}::jsonb
+        WHERE id = ${jobId}
+          AND metadata->>'protocol' = 'marketplace_hire'
+      `;
+    } finally {
+      await sql.end().catch(() => {});
+    }
+
+    return c.json({ success: true, ...result, amountInr }, 201);
+  } catch (err: unknown) {
+    console.error('[marketplace/upi-payment-link] razorpay error', err);
+    return c.json({ error: 'Razorpay error' }, 502);
+  }
 });
 
 export { router as marketplaceRouter };
