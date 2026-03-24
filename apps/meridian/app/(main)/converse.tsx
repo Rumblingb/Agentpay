@@ -587,6 +587,12 @@ export default function ConverseScreen() {
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
               )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={{ fontSize: 11, color: '#6b7280' }}>Service fee </Text>
+                <View style={{ backgroundColor: '#052e16', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Free · Beta</Text>
+                </View>
+              </View>
               <Text style={styles.confirmReason}>
                 {isIndia
                   ? 'Best balance of speed, certainty, and payment flow for this trip.'

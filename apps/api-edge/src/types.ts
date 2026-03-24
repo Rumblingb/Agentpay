@@ -154,6 +154,15 @@ export interface Env {
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
 
+  // ── Bro app client auth ───────────────────────────────────────────────────
+  /**
+   * Static key sent by the Bro app in `x-bro-key` header.
+   * If set, /api/concierge/intent rejects requests without this header.
+   * Set via: npx wrangler secret put BRO_CLIENT_KEY
+   * Add to EAS build env as: EXPO_PUBLIC_BRO_KEY
+   */
+  BRO_CLIENT_KEY?: string;
+
   // ── Darwin (National Rail OpenLDBWS — UK) ────────────────────────────────
   /**
    * Darwin API token — live UK train departure boards.

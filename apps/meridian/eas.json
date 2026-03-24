@@ -40,7 +40,15 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.agentpay.so"
       },
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release",
+        "credentialsSource": "remote"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "credentialsSource": "remote"
+      }
     }
   }
 }

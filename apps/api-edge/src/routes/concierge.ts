@@ -99,6 +99,15 @@ conciergeRouter.get('/skills', (c) => {
 // ── POST /api/concierge/intent ────────────────────────────────────────────────
 
 conciergeRouter.post('/intent', async (c) => {
+  // Lightweight client auth — rejects requests not from the Bro app.
+  // Only enforced when BRO_CLIENT_KEY secret is set (allows testing without it).
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+
   const anthropicKey = c.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
     return c.json({ error: 'Concierge not configured (missing ANTHROPIC_API_KEY)' }, 503);
@@ -1056,7 +1065,6 @@ function buildJobDescription(
       indiaClassTier:  'India class tier',
       irctcId:         'IRCTC ID',
       irctcUsername:   'IRCTC username',
-      irctcPassword:   'IRCTC password',
     };
     for (const [k, v] of Object.entries(scopedProfile)) {
       lines.push(`${labels[k] ?? k}: ${v}`);
