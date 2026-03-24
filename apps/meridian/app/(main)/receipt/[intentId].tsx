@@ -19,15 +19,17 @@ import {
   Modal,
   Image,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import { getReceipt, type Receipt } from '../../../lib/api';
+import { getReceipt, type Receipt, reportIssue } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
+import { scheduleJourneyNotifications, requestNotificationPermission } from '../../../lib/notifications';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -60,7 +62,7 @@ export default function ReceiptScreen() {
   const fiatSymbol   = symParam  ?? '£';
   const fiatCode     = codeParam ?? 'GBP';
   const fiatAmountNum = fiatAmountParam ? parseFloat(fiatAmountParam) : null;
-  const { reset, currentAgent } = useStore();
+  const { reset, currentAgent, agentId } = useStore();
   const [receipt,     setReceipt]     = useState<Receipt | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
@@ -68,6 +70,10 @@ export default function ReceiptScreen() {
   const [qrLocalUri,  setQrLocalUri]  = useState<string | null>(null);
   const [qrLoading,   setQrLoading]   = useState(false);
   const [preservedFinalLegSummary, setPreservedFinalLegSummary] = useState<string | null>(finalLegSummary ?? null);
+  const [showIssue,    setShowIssue]    = useState(false);
+  const [issueText,    setIssueText]    = useState('');
+  const [issueSending, setIssueSending] = useState(false);
+  const [issueSent,    setIssueSent]    = useState(false);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
 
@@ -149,6 +155,17 @@ export default function ReceiptScreen() {
     });
   }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode]);
 
+  // ── Schedule departure notifications ─────────────────────────────────────
+  useEffect(() => {
+    if (!intentId || !departureTime) return;
+    const route = fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey';
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleJourneyNotifications(intentId, departureTime, route, platform ?? null);
+    })();
+  }, [intentId, departureTime, fromStation, toStation, platform]);
+
   const handleShare = async () => {
     await Share.share({
       message: [
@@ -170,6 +187,25 @@ export default function ReceiptScreen() {
   const handleDone = () => {
     reset();
     router.replace('/(main)/converse');
+  };
+
+  const handleReportIssue = async () => {
+    if (!issueText.trim() || issueSending) return;
+    setIssueSending(true);
+    try {
+      await reportIssue({
+        intentId: intentId ?? '',
+        bookingRef: bookingRef ?? null,
+        description: issueText.trim(),
+        hirerId: agentId ?? '',
+      });
+      setIssueSent(true);
+      setIssueText('');
+    } catch {
+      // silently fail — issue logged on retry
+    } finally {
+      setIssueSending(false);
+    }
   };
 
   return (
@@ -271,6 +307,11 @@ export default function ReceiptScreen() {
               <Text style={styles.shareBtnText}>Share Receipt</Text>
             </Pressable>
 
+            <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
+              <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
+              <Text style={styles.issueBtnText}>Problem with this booking?</Text>
+            </Pressable>
+
             <Pressable onPress={handleDone} style={styles.doneBtn}>
               <Text style={styles.doneBtnText}>New Request</Text>
             </Pressable>
@@ -326,6 +367,57 @@ export default function ReceiptScreen() {
             </Pressable>
 
           </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* ── Issue report modal ──────────────────────────────────────── */}
+      <Modal
+        visible={showIssue}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowIssue(false)}
+      >
+        <View style={issueStyles.container}>
+          <View style={issueStyles.handle} />
+          <Text style={issueStyles.title}>Report an issue</Text>
+          <Text style={issueStyles.subtitle}>
+            Describe the problem and Bro will look into it.
+          </Text>
+          {issueSent ? (
+            <View style={issueStyles.sentBox}>
+              <Ionicons name="checkmark-circle" size={32} color="#4ade80" />
+              <Text style={issueStyles.sentText}>Got it — we'll look into this.</Text>
+              <Pressable onPress={() => { setShowIssue(false); setIssueSent(false); }} style={issueStyles.closeBtn}>
+                <Text style={issueStyles.closeBtnText}>Close</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={issueStyles.input}
+                placeholder="e.g. Wrong platform, booking not confirmed…"
+                placeholderTextColor="#4b5563"
+                multiline
+                numberOfLines={4}
+                value={issueText}
+                onChangeText={setIssueText}
+                autoFocus
+              />
+              <Pressable
+                onPress={handleReportIssue}
+                style={[issueStyles.submitBtn, (!issueText.trim() || issueSending) && issueStyles.submitBtnDisabled]}
+                disabled={!issueText.trim() || issueSending}
+              >
+                {issueSending
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={issueStyles.submitBtnText}>Send report</Text>
+                }
+              </Pressable>
+              <Pressable onPress={() => setShowIssue(false)} style={issueStyles.cancelBtn}>
+                <Text style={issueStyles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </Modal>
     </SafeAreaView>
@@ -524,6 +616,19 @@ const styles = StyleSheet.create({
   doneBtn:     { width: '100%', alignItems: 'center', paddingVertical: 14 },
   doneBtnText: { fontSize: 14, color: '#4b5563' },
 
+  issueBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  issueBtnText: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+
   errorBox:  { marginTop: 60, padding: 20 },
   errorText: { fontSize: 14, color: '#f87171', textAlign: 'center', lineHeight: 21 },
 });
@@ -595,6 +700,93 @@ const ticketStyles = StyleSheet.create({
   closeText: {
     fontSize: 15,
     color: '#374151',
+    fontWeight: '600',
+  },
+});
+
+const issueStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0d0d0d',
+    padding: 24,
+    paddingTop: 16,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    backgroundColor: '#2d2d2d',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#f9fafb',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  input: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#262626',
+    minHeight: 120,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  submitBtn: {
+    backgroundColor: '#4f46e5',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  submitBtnDisabled: {
+    opacity: 0.4,
+  },
+  submitBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  cancelBtnText: {
+    fontSize: 14,
+    color: '#4b5563',
+  },
+  sentBox: {
+    alignItems: 'center',
+    paddingTop: 40,
+    gap: 16,
+  },
+  sentText: {
+    fontSize: 16,
+    color: '#d1d5db',
+    textAlign: 'center',
+  },
+  closeBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  closeBtnText: {
+    fontSize: 15,
+    color: '#9ca3af',
     fontWeight: '600',
   },
 });

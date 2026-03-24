@@ -304,3 +304,15 @@ export async function createUpiPaymentLink(params: {
     body: JSON.stringify(params),
   });
 }
+
+export async function reportIssue(params: {
+  intentId: string;
+  bookingRef?: string | null;
+  description: string;
+  hirerId: string;
+}): Promise<void> {
+  await apiFetch('/api/support/issue', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}

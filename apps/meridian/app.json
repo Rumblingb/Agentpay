@@ -62,7 +62,9 @@
       "permissions": [
         "android.permission.USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
       ]
     },
     "plugins": [
@@ -83,7 +85,8 @@
           }
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-notifications"
     ],
     "scheme": "meridian",
     "web": {

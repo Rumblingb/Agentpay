@@ -71,6 +71,19 @@ const PHASE_LABEL: Record<string, string> = {
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
+function getCountdown(departureTime: string | null | undefined): string | null {
+  if (!departureTime) return null;
+  const d = new Date(departureTime);
+  if (isNaN(d.getTime())) return null;
+  const diffMs = d.getTime() - Date.now();
+  if (diffMs <= 0 || diffMs > 24 * 60 * 60 * 1000) return null;
+  const hours = Math.floor(diffMs / 3_600_000);
+  const mins  = Math.floor((diffMs % 3_600_000) / 60_000);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0)  return `${mins}m`;
+  return 'Now';
+}
+
 export default function ConverseScreen() {
   const {
     phase, setPhase,
@@ -106,6 +119,7 @@ export default function ConverseScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
+  const [, setCountdownTick] = useState(0);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -137,6 +151,11 @@ export default function ConverseScreen() {
       active = false;
     };
   }, []));
+
+  useEffect(() => {
+    const id = setInterval(() => setCountdownTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -514,7 +533,12 @@ export default function ConverseScreen() {
                     ? 'Bro is securing this journey now.'
                     : activeTrip.finalLegSummary
                     ? activeTrip.finalLegSummary
-                    : [activeTrip.departureTime, activeTrip.platform ? `Platform ${activeTrip.platform}` : null].filter(Boolean).join(' · ') || 'Open for journey details'}
+                    : (() => {
+                        const countdown = getCountdown(activeTrip.departureTime);
+                        const platformPart = activeTrip.platform ? `Platform ${activeTrip.platform}` : null;
+                        if (countdown) return [platformPart ? `Leaves in ${countdown} · ${platformPart}` : `Leaves in ${countdown}`].join('');
+                        return [activeTrip.departureTime, platformPart].filter(Boolean).join(' · ') || 'Open for journey details';
+                      })()}
                 </Text>
               </Pressable>
             )}
