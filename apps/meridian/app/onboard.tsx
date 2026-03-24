@@ -537,7 +537,7 @@ export default function OnboardScreen() {
                   <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
                   <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
                   <PromiseRow icon="person"         text="Shared only when you choose to book" />
-                  <PromiseRow icon="checkmark-done" text="Shared only with the agent you select" />
+                  <PromiseRow icon="checkmark-done" text="Shared only to secure the booking you confirm" />
                   <PromiseRow icon="server"         text="Never stored on our servers" />
                   <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
                 </View>
@@ -795,7 +795,7 @@ export default function OnboardScreen() {
                     color="#4b5563"
                   />
                   <Text style={profileStyles.docsToggleText}>
-                    Travel document — required for Eurostar & flights only
+                    Travel document — required for Eurostar and some IRCTC bookings
                   </Text>
                 </Pressable>
 
@@ -901,7 +901,7 @@ export default function OnboardScreen() {
 
                 <FieldLabel
                   text="Auto-approve limit (USDC)"
-                  hint="I'll hire agents automatically up to this amount."
+                  hint="Bro will secure bookings automatically up to this amount."
                 />
                 <View style={styles.chipRow}>
                   {['2', '5', '10', '25'].map((v) => (
@@ -961,7 +961,7 @@ export default function OnboardScreen() {
 
                 <Text style={styles.legalNote}>
                   Payments powered by AgentPay · agentpay.gg{'\n'}
-                  Your agent identity is created automatically.
+                  Your Bro setup is created automatically.
                 </Text>
               </View>
             )}
@@ -993,13 +993,13 @@ function getDemoResponse(transcript: string, nationality: Nationality): string {
     return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
   }
   if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
-    return "Cabs and hotels are coming soon — trains I can sort right now. Try asking for a train journey.";
+    return "Bro is focused on trains right now. Try asking for a rail journey and I'll take it from there.";
   }
   if (t.match(/hotel|room|stay|night|accommodation|b&b|inn|flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
-    return "Hotels and flights are coming soon — trains I can sort right now. Try asking for a train journey.";
+    return "Bro is train-first right now. Ask for a train journey and I'll line up the best option.";
   }
   if (t.match(/food|restaurant|eat|dinner|lunch|table|reservation/)) {
-    return "Table booked at a highly-rated spot nearby. I'm not just for travel — whatever you need, just ask.";
+    return "Bro is focused on getting you there by train first. Ask for the journey and I'll handle the rail part beautifully.";
   }
   const preview = transcript.trim().slice(0, 35);
   return `Heard "${preview}…". In the real app, I'd find the best option and book it — fingerprint to confirm.`;

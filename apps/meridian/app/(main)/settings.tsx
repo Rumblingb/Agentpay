@@ -16,11 +16,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
-import { savePrefs, clearCredentials, clearHistory } from '../../lib/storage';
+import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
 import { hasProfile, deleteProfile } from '../../lib/profile';
 
 export default function SettingsScreen() {
-  const { userName, autoConfirmLimitUsdc, agentId, setPrefs, reset } = useStore();
+  const { userName, autoConfirmLimitUsdc, setPrefs, reset } = useStore();
   const [name, setName]           = useState(userName);
   const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
   const [saved, setSaved]         = useState(false);
@@ -42,14 +42,14 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       'Reset Bro',
-      'This will clear your agent identity, history, and all credentials. You will need to set up again.',
+      'This will clear your Bro setup, recent journeys, and local credentials. You will need to set up again.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset',
           style: 'destructive',
           onPress: async () => {
-            await Promise.all([clearCredentials(), clearHistory()]);
+            await Promise.all([clearCredentials(), clearHistory(), clearActiveTrip()]);
             reset();
             router.replace('/onboard');
           },
@@ -61,7 +61,7 @@ export default function SettingsScreen() {
   const handleClearHistory = () => {
     Alert.alert(
       'Clear History',
-      'Clear all conversation history? Your agent identity will be preserved.',
+      'Clear all conversation history? Your Bro setup will be preserved.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -108,8 +108,8 @@ export default function SettingsScreen() {
 
         {/* Auto-confirm spending limit */}
         <Section
-          label="SPENDING LIMIT"
-          hint="Bro will book automatically below this amount. Above it, you'll confirm with fingerprint."
+          label="BOOKING LIMIT"
+          hint="Bro will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
         >
           <View style={styles.budgetRow}>
             {['2', '5', '10', '25'].map((v) => (
@@ -175,16 +175,6 @@ export default function SettingsScreen() {
               </Pressable>
             )}
           </View>
-        </Section>
-
-        {/* Advanced */}
-        <Section label="ADVANCED">
-          {agentId && (
-            <View style={styles.identityRow}>
-              <Ionicons name="key-outline" size={14} color="#374151" />
-              <Text style={styles.identityText} numberOfLines={1}>{agentId}</Text>
-            </View>
-          )}
         </Section>
 
         {/* Data */}

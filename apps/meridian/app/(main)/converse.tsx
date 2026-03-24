@@ -142,7 +142,7 @@ export default function ConverseScreen() {
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
   const handleIntent = useCallback(async (text: string) => {
-    if (!agentId) throw new Error('No agent identity. Please restart the app.');
+    if (!agentId) throw new Error('Bro is not ready yet. Please restart the app.');
 
     setTranscript(text);
     const userTurn = { role: 'user' as const, text, ts: Date.now() };
