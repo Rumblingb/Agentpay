@@ -7,8 +7,8 @@ function SuccessContent() {
   const params = useSearchParams();
   const jobId  = params.get('jobId') ?? '';
 
-  // Deep-link back into the Bro app (custom scheme registered in app.json)
-  const broDeepLink = `so.agentpay.meridian://status/${jobId}`;
+  // Deep-link back into the Bro app — scheme is "meridian" as registered in app.json
+  const broDeepLink = `meridian://status/${jobId}`;
 
   return (
     <main style={styles.page}>

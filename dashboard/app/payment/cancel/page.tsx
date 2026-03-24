@@ -7,9 +7,10 @@ function CancelContent() {
   const params = useSearchParams();
   const jobId  = params.get('jobId') ?? '';
 
+  // scheme is "meridian" as registered in app.json — NOT "so.agentpay.meridian"
   const broDeepLink = jobId
-    ? `so.agentpay.meridian://status/${jobId}`
-    : `so.agentpay.meridian://`;
+    ? `meridian://status/${jobId}`
+    : `meridian://`;
 
   return (
     <main style={styles.page}>
