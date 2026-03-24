@@ -57,6 +57,11 @@ export default function WalletScreen() {
     });
   };
 
+  const handleCopyAddress = async () => {
+    if (!depositAddress) return;
+    await Share.share({ message: depositAddress });
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
@@ -66,7 +71,9 @@ export default function WalletScreen() {
             <Ionicons name="arrow-back" size={20} color="#6b7280" />
           </Pressable>
           <Text style={styles.headerTitle}>Wallet</Text>
-          <View style={{ width: 20 }} />
+          <Pressable onPress={() => { setLoading(true); getWallet(agentId!).then(res => { setWallet(res.wallet); setDepositAddress((res as any).depositAddress); setDepositMemo((res as any).depositMemo); }).catch(console.error).finally(() => setLoading(false)); }} hitSlop={12}>
+            <Ionicons name="refresh-outline" size={18} color="#6b7280" />
+          </Pressable>
         </View>
 
         {loading && <ActivityIndicator color="#6366f1" style={{ marginTop: 40 }} />}
@@ -109,10 +116,16 @@ export default function WalletScreen() {
                   <Text style={styles.fieldValue}>{depositMemo}</Text>
                 </View>
 
-                <Pressable onPress={handleShareDeposit} style={styles.shareBtn}>
-                  <Ionicons name="share-outline" size={15} color="#6366f1" />
-                  <Text style={styles.shareBtnText}>Share deposit details</Text>
-                </Pressable>
+                <View style={styles.depositActions}>
+                  <Pressable onPress={handleShareDeposit} style={styles.shareBtn}>
+                    <Ionicons name="share-outline" size={15} color="#6366f1" />
+                    <Text style={styles.shareBtnText}>Share details</Text>
+                  </Pressable>
+                  <Pressable onPress={handleCopyAddress} style={styles.copyBtn}>
+                    <Ionicons name="copy-outline" size={15} color="#6b7280" />
+                    <Text style={styles.copyBtnText}>Copy address</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
 
@@ -176,14 +189,26 @@ const styles = StyleSheet.create({
   },
   fieldLabel: { fontSize: 11, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.4 },
   fieldValue: { fontSize: 13, color: '#d1d5db', fontFamily: 'monospace' },
+  depositActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 6,
+  },
   shareBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 6,
     paddingVertical: 8,
   },
   shareBtnText: { fontSize: 14, color: '#6366f1' },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+  },
+  copyBtnText: { fontSize: 14, color: '#6b7280' },
   policyCard: {
     flexDirection: 'row',
     alignItems: 'center',

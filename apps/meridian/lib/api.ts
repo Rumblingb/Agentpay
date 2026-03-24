@@ -316,3 +316,10 @@ export async function reportIssue(params: {
     body: JSON.stringify(params),
   });
 }
+
+export async function registerJobWatch(jobId: string, pushToken: string): Promise<void> {
+  await apiFetch('/api/concierge/watch', {
+    method: 'POST',
+    body: JSON.stringify({ jobId, pushToken }),
+  }).catch(() => {}); // fire-and-forget — never block receipt display
+}

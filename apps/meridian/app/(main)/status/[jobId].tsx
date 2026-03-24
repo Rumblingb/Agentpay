@@ -201,9 +201,14 @@ export default function StatusScreen() {
   }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
+  // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
   useEffect(() => {
     if (statusPhase !== 'done' || paymentConfirmed || !jobId) return;
+    let polls = 0;
+    const MAX_POLLS = 200; // 200 × 3s = 600s = 10 min
     const t = setInterval(async () => {
+      polls += 1;
+      if (polls >= MAX_POLLS) { clearInterval(t); return; }
       try {
         const data = await getIntentStatus(jobId);
         if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
@@ -340,8 +345,8 @@ export default function StatusScreen() {
                   });
                   await Linking.openURL(url);
                 }
-              } catch {
-                // If checkout creation fails, show nothing — don't block the booking flow
+              } catch (e: any) {
+                setErrorMsg(e?.message ?? 'Could not open payment — please try again.');
               } finally {
                 setPayLoading(false);
               }

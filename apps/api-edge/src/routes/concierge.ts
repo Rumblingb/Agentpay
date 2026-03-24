@@ -131,6 +131,57 @@ conciergeRouter.get('/bro-ops', async (c) => {
   }
 });
 
+/**
+ * POST /api/concierge/watch
+ * Registers a push token and activates platform change monitoring for a job.
+ * Called by the Bro app after a booking is confirmed and the receipt is shown.
+ */
+conciergeRouter.post('/watch', async (c) => {
+  // Auth gate
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+
+  const { jobId, pushToken } = await c.req.json<{ jobId: string; pushToken: string }>();
+  if (!jobId || !pushToken) {
+    return c.json({ error: 'jobId and pushToken required' }, 400);
+  }
+
+  const connectionString = c.env.HYPERDRIVE?.connectionString ?? c.env.DATABASE_URL;
+  if (!connectionString) return c.json({ error: 'DB not configured' }, 503);
+  const sql = createDb(c.env);
+  try {
+
+    // Fetch current metadata to get departureDatetime
+    const rows = await sql<{ metadata: Record<string, unknown> }[]>`
+      SELECT metadata FROM payment_intents WHERE id = ${jobId} LIMIT 1
+    `;
+    if (rows.length === 0) return c.json({ error: 'Job not found' }, 404);
+
+    const meta = rows[0].metadata as any;
+    const departureDatetime = meta.trainDetails?.departureDatetime ?? null;
+
+    await sql`
+      UPDATE payment_intents
+      SET metadata = metadata || ${JSON.stringify({
+        pushToken,
+        platformWatchActive: departureDatetime ? true : false,
+        departureDatetime,
+        platformWatchRegisteredAt: new Date().toISOString(),
+      })}::jsonb
+      WHERE id = ${jobId}
+    `;
+
+    broLog('platform_watch_registered', { jobId, hasDepartureDatetime: !!departureDatetime });
+    return c.json({ ok: true, watching: !!departureDatetime });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 // ── GET /api/skills ───────────────────────────────────────────────────────────
 
 conciergeRouter.get('/skills', (c) => {

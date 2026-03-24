@@ -22,6 +22,7 @@
 import type { Env } from '../types';
 import { runLiquidityCron } from './liquidity';
 import { runReconciliation } from './reconciliation';
+import { runPlatformWatch } from './platformWatch';
 
 /**
  * Routes a scheduled cron event to the correct handler by its cron expression.
@@ -39,6 +40,7 @@ export async function scheduledHandler(
   switch (event.cron) {
     case '*/5 * * * *':
       ctx.waitUntil(runLiquidityCron(env));
+      ctx.waitUntil(runPlatformWatch(env));
       break;
 
     case '*/15 * * * *':

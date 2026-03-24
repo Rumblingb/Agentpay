@@ -26,10 +26,10 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import { getReceipt, type Receipt, reportIssue } from '../../../lib/api';
+import { getReceipt, type Receipt, reportIssue, registerJobWatch } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
-import { scheduleJourneyNotifications, requestNotificationPermission } from '../../../lib/notifications';
+import { scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -167,6 +167,9 @@ export default function ReceiptScreen() {
       const granted = await requestNotificationPermission();
       if (!granted) return;
       await scheduleJourneyNotifications(intentId, depStr, route, platform ?? null);
+      // Register for platform change push notifications
+      const token = await getExpoPushToken();
+      if (token) await registerJobWatch(intentId, token);
     })();
   }, [intentId, departureTime, fromStation, toStation, platform]);
 

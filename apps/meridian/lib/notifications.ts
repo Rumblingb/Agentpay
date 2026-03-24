@@ -89,6 +89,21 @@ export async function scheduleJourneyNotifications(
   }
 }
 
+import Constants from 'expo-constants';
+
+export async function getExpoPushToken(): Promise<string | null> {
+  try {
+    const granted = await requestNotificationPermission();
+    if (!granted) return null;
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    if (!projectId) return null;
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export async function cancelJourneyNotifications(intentId: string): Promise<void> {
   await Promise.allSettled([
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '60min')),
