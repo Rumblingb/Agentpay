@@ -58,8 +58,6 @@ import { OrbAnimation } from '../components/OrbAnimation';
 import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const TERMS_URL = 'https://agentpay.gg/terms';
-const PRIVACY_URL = 'https://agentpay.gg/privacy';
 
 type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
 
@@ -153,14 +151,6 @@ export default function OnboardScreen() {
   React.useEffect(() => {
     getBiometricLabel().then(setBioLabel);
   }, []);
-
-  const openLegalUrl = async (url: string) => {
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert('Link unavailable', 'We could not open that document right now. Please try again later.');
-    }
-  };
 
   const fadeToNext = (next: Step) => {
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
@@ -561,11 +551,11 @@ export default function OnboardScreen() {
 
                 <Text style={styles.legalNote}>
                   By continuing you accept our{' '}
-                  <Text style={styles.legalLink} onPress={() => { void openLegalUrl(TERMS_URL); }}>
+                  <Text style={styles.legalLink} onPress={() => router.push('/legal/terms')}>
                     Terms of Service
                   </Text>
                   {' '}and{' '}
-                  <Text style={styles.legalLink} onPress={() => { void openLegalUrl(PRIVACY_URL); }}>
+                  <Text style={styles.legalLink} onPress={() => router.push('/legal/privacy')}>
                     Privacy Policy
                   </Text>
                   .

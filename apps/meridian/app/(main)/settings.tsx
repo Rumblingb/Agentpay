@@ -189,6 +189,26 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
+        <Section
+          label="LEGAL"
+          hint="Review what Bro stores locally and what it sends only when you confirm a journey."
+        >
+          <Pressable onPress={() => router.push('/legal/terms')} style={styles.linkRow}>
+            <View style={styles.linkCopy}>
+              <Text style={styles.linkTitle}>Terms of Service</Text>
+              <Text style={styles.linkSubtitle}>How bookings, confirmations, and early-release limits work</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6b7280" />
+          </Pressable>
+          <Pressable onPress={() => router.push('/legal/privacy')} style={[styles.linkRow, { marginTop: 10 }]}>
+            <View style={styles.linkCopy}>
+              <Text style={styles.linkTitle}>Privacy Policy</Text>
+              <Text style={styles.linkSubtitle}>What stays on your device and what Bro shares only when needed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6b7280" />
+          </Pressable>
+        </Section>
+
         {/* Footer */}
         <Text style={styles.footer}>
           Bro 1.0{'\n'}
@@ -297,6 +317,31 @@ const styles = StyleSheet.create({
     borderBottomColor: '#111',
   },
   dangerText: { fontSize: 14, color: '#6b7280' },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#111',
+  },
+  linkCopy: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  linkTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#f9fafb',
+    marginBottom: 4,
+  },
+  linkSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
 
   footer: {
     fontSize: 11,
