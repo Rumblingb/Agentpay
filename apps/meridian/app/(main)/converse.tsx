@@ -460,7 +460,7 @@ export default function ConverseScreen() {
             {activeTrip && (
               <Pressable
                 onPress={() => {
-                  if (activeTrip.status === 'securing' && activeTrip.jobId) {
+                  if ((activeTrip.status === 'securing' || activeTrip.status === 'attention') && activeTrip.jobId) {
                     const params: Record<string, string> = { jobId: activeTrip.jobId };
                     if (activeTrip.fiatAmount != null) params.fiatAmount = String(activeTrip.fiatAmount);
                     if (activeTrip.currencySymbol) params.currencySymbol = activeTrip.currencySymbol;
@@ -479,6 +479,7 @@ export default function ConverseScreen() {
                       departureTime: activeTrip.departureTime ?? undefined,
                       platform: activeTrip.platform ?? undefined,
                       operator: activeTrip.operator ?? undefined,
+                      finalLegSummary: activeTrip.finalLegSummary ?? undefined,
                       fiatAmount: activeTrip.fiatAmount != null ? String(activeTrip.fiatAmount) : undefined,
                       currencySymbol: activeTrip.currencySymbol ?? undefined,
                       currencyCode: activeTrip.currencyCode ?? undefined,

@@ -17,7 +17,8 @@ const KEYS = {
   prefs:            'meridian.prefs',
   history:          'meridian.history',
   activeTrip:       'meridian.activeTrip',
-  trips:            'bro.trips',
+  trips:            'meridian.trips',
+  legacyTrips:      'bro.trips',
 } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -165,7 +166,9 @@ export async function clearActiveTrip(): Promise<void> {
 export async function loadTrips(): Promise<TripEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(KEYS.trips);
-    return raw ? (JSON.parse(raw) as TripEntry[]) : [];
+    if (raw) return JSON.parse(raw) as TripEntry[];
+    const legacyRaw = await AsyncStorage.getItem(KEYS.legacyTrips);
+    return legacyRaw ? (JSON.parse(legacyRaw) as TripEntry[]) : [];
   } catch {
     return [];
   }
@@ -175,5 +178,7 @@ export async function upsertTrip(entry: TripEntry): Promise<void> {
   const trips = await loadTrips();
   const filtered = trips.filter((trip) => trip.intentId !== entry.intentId);
   filtered.unshift(entry);
-  await AsyncStorage.setItem(KEYS.trips, JSON.stringify(filtered.slice(0, 30)));
+  const serialized = JSON.stringify(filtered.slice(0, 30));
+  await AsyncStorage.setItem(KEYS.trips, serialized);
+  await AsyncStorage.setItem(KEYS.legacyTrips, serialized);
 }

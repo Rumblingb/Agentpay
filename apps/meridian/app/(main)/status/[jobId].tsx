@@ -356,6 +356,7 @@ export default function StatusScreen() {
                 if (operator)      qs.set('operator', operator);
                 if (fromStation)   qs.set('fromStation', fromStation);
                 if (toStation)     qs.set('toStation', toStation);
+                if (finalLegSummary) qs.set('finalLegSummary', finalLegSummary);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
               if (paramCode)   qs.set('currencyCode',   paramCode);
