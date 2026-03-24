@@ -153,6 +153,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** Google Gemini API key — free tier (1,500 req/day) for extraction tasks. Get at aistudio.google.com */
+  GEMINI_API_KEY?: string;
 
   // ── Bro app client auth ───────────────────────────────────────────────────
   /**

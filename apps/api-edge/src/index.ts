@@ -42,6 +42,7 @@ import { escrowRouter } from './routes/escrow';
 import { voiceRouter } from './routes/voice';
 import { conciergeRouter } from './routes/concierge';
 import { paymentsUpiRouter } from './routes/paymentsUpi';
+import { crewRouter } from './routes/crew';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -148,6 +149,9 @@ app.route('/api/escrow', escrowRouter);
 
 // Voice proxy — /api/voice/transcribe, /api/voice/tts
 app.route('/api/voice', voiceRouter);
+
+// Multi-model crew routes — /api/crew/classify, /api/crew/extract, /api/crew/reason
+app.route('/api/crew', crewRouter);
 
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
