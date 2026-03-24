@@ -11,7 +11,9 @@ export default function RootLayout() {
     const sub = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data as any;
       if (data?.intentId && data?.screen === 'receipt') {
-        router.push({ pathname: '/(main)/receipt/[intentId]', params: { intentId: data.intentId } });
+        const params: Record<string, string> = { intentId: data.intentId };
+        if (data?.action === 'cancelled') params.cancelled = 'true';
+        router.push({ pathname: '/(main)/receipt/[intentId]', params });
       }
     });
     return () => sub.remove();

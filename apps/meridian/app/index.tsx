@@ -37,6 +37,8 @@ export default function BootScreen() {
           autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc,
           onboarded:            prefs.onboarded,
           turns:                history,
+          homeStation:          prefs.homeStation,
+          workStation:          prefs.workStation,
         });
 
         router.replace('/(main)/converse');

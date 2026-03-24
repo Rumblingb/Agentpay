@@ -52,13 +52,17 @@ export default function ReceiptScreen() {
     fiatAmount?: string;
     currencySymbol?: string;
     currencyCode?: string;
+    cancelled?: string;
   }>();
   const {
     intentId, bookingRef, departureTime, departureDatetime, platform, operator,
     fromStation, toStation,
     finalLegSummary,
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
+    cancelled,
   } = params;
+
+  const isCancelled = cancelled === 'true';
 
   // Fiat display: prefer URL params (passed from booking flow), fall back to receipt.amount
   const fiatSymbol   = symParam  ?? '£';
@@ -228,6 +232,26 @@ export default function ReceiptScreen() {
         {error && !hasJourneyDetails && (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {/* Cancellation banner — shown when notification tap carries action=cancelled */}
+        {isCancelled && (
+          <View style={styles.cancelBanner}>
+            <Ionicons name="warning" size={18} color="#fbbf24" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cancelBannerTitle}>Train cancelled</Text>
+              <Text style={styles.cancelBannerBody}>Ask Bro for the next available service on this route.</Text>
+            </View>
+            <Pressable
+              style={styles.cancelBannerBtn}
+              onPress={() => {
+                const query = fromStation && toStation ? `${fromStation} to ${toStation} next available` : undefined;
+                router.replace({ pathname: '/(main)/converse', params: query ? { prefill: query } : undefined } as any);
+              }}
+            >
+              <Text style={styles.cancelBannerBtnText}>Ask Bro</Text>
+            </Pressable>
           </View>
         )}
 
@@ -474,6 +498,29 @@ const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: '#080808' },
   container: { padding: 24, alignItems: 'center', paddingBottom: 60 },
   back:      { alignSelf: 'flex-start', marginBottom: 32 },
+
+  cancelBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#451a03',
+    borderWidth: 1,
+    borderColor: '#92400e',
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 24,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  cancelBannerTitle: { fontSize: 14, fontWeight: '700', color: '#fbbf24', marginBottom: 2 },
+  cancelBannerBody:  { fontSize: 12, color: '#d97706', lineHeight: 17 },
+  cancelBannerBtn: {
+    backgroundColor: '#78350f',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  cancelBannerBtnText: { fontSize: 13, fontWeight: '700', color: '#fbbf24' },
 
   badge: {
     marginBottom: 20,

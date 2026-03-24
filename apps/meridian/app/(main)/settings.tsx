@@ -18,11 +18,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
 import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
 import { hasProfile, deleteProfile } from '../../lib/profile';
+import { UK_STATIONS } from '../../lib/stationGeo';
 
 export default function SettingsScreen() {
-  const { userName, autoConfirmLimitUsdc, setPrefs, reset } = useStore();
+  const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset } = useStore();
   const [name, setName]           = useState(userName);
   const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
+  const [home, setHome]           = useState(homeStation ?? '');
+  const [work, setWork]           = useState(workStation ?? '');
   const [saved, setSaved]         = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
 
@@ -31,10 +34,12 @@ export default function SettingsScreen() {
   }, []);
 
   const handleSave = async () => {
-    const budgetN = parseFloat(budget) || 5;
-    const newName = name.trim() || 'there';
-    setPrefs({ userName: newName, autoConfirmLimitUsdc: budgetN });
-    await savePrefs({ userName: newName, autoConfirmLimitUsdc: budgetN });
+    const budgetN   = parseFloat(budget) || 5;
+    const newName   = name.trim() || 'there';
+    const newHome   = home.trim() || undefined;
+    const newWork   = work.trim() || undefined;
+    setPrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome ?? null, workStation: newWork ?? null });
+    await savePrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome, workStation: newWork });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -122,6 +127,29 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
           </View>
+        </Section>
+
+        {/* Quick routes */}
+        <Section
+          label="QUICK ROUTES"
+          hint="Set your home and work stations for one-tap shortcuts on the main screen."
+        >
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={home}
+            onChangeText={setHome}
+            placeholder="Home station (e.g. Derby)"
+            placeholderTextColor="#374151"
+            autoCapitalize="words"
+          />
+          <TextInput
+            style={styles.input}
+            value={work}
+            onChangeText={setWork}
+            placeholder="Work station (e.g. London St Pancras)"
+            placeholderTextColor="#374151"
+            autoCapitalize="words"
+          />
         </Section>
 
         {/* Travel Profile */}

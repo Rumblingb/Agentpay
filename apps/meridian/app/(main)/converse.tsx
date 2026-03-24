@@ -37,6 +37,8 @@ import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storag
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
+import { getNearestStation } from '../../lib/location';
+import type { StationGeo } from '../../lib/stationGeo';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -95,6 +97,8 @@ export default function ConverseScreen() {
     autoConfirmLimitUsdc,
     currencySymbol,
     currencyCode,
+    homeStation,
+    workStation,
     setCurrency,
     setCurrentAgent,
     reset,
@@ -120,6 +124,7 @@ export default function ConverseScreen() {
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
   const [, setCountdownTick] = useState(0);
+  const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -151,6 +156,15 @@ export default function ConverseScreen() {
       active = false;
     };
   }, []));
+
+  // Detect nearest station on mount (fire-and-forget, best-effort)
+  useEffect(() => {
+    let active = true;
+    getNearestStation().then((s) => {
+      if (active) setNearestStation(s);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setCountdownTick(t => t + 1), 60_000);
@@ -449,7 +463,13 @@ export default function ConverseScreen() {
           <View style={styles.headerDot} />
           <Text style={styles.headerTitle}>bro</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 22 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          {nearestStation && (
+            <View style={styles.nearBadge}>
+              <Ionicons name="location-outline" size={11} color="#818cf8" />
+              <Text style={styles.nearBadgeText}>{nearestStation.name.replace(/^London /, '')}</Text>
+            </View>
+          )}
           <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12}>
             <Ionicons name="time-outline" size={19} color={C.textMuted} />
           </Pressable>
@@ -551,6 +571,34 @@ export default function ConverseScreen() {
                 />
               ))}
             </View>
+            {(homeStation || workStation) && (isIdle || isError) && (
+              <View style={styles.quickRoutes}>
+                {homeStation && (
+                  <Pressable
+                    style={styles.quickBtn}
+                    onPress={() => {
+                      const from = nearestStation ? ` from ${nearestStation.name}` : '';
+                      handleIntent(`Get me home to ${homeStation}${from}`);
+                    }}
+                  >
+                    <Ionicons name="home-outline" size={14} color="#818cf8" />
+                    <Text style={styles.quickBtnText}>Home · {homeStation}</Text>
+                  </Pressable>
+                )}
+                {workStation && (
+                  <Pressable
+                    style={styles.quickBtn}
+                    onPress={() => {
+                      const from = nearestStation ? ` from ${nearestStation.name}` : '';
+                      handleIntent(`Get me to work at ${workStation}${from}`);
+                    }}
+                  >
+                    <Ionicons name="business-outline" size={14} color="#818cf8" />
+                    <Text style={styles.quickBtnText}>Work · {workStation}</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -763,6 +811,16 @@ const styles = StyleSheet.create({
     color: C.textPrimary,
     letterSpacing: -0.3,
   },
+  nearBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.indigoDim,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  nearBadgeText: { fontSize: 11, color: '#818cf8', fontWeight: '600' },
 
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
@@ -835,6 +893,24 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   suggestions: {},
+  quickRoutes: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 12,
+  },
+  quickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: C.indigoDim,
+    borderWidth: 1,
+    borderColor: '#312e81',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  quickBtnText: { fontSize: 13, color: '#818cf8', fontWeight: '600' },
 
   bubble: {
     maxWidth: '85%',

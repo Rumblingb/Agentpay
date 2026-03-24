@@ -196,13 +196,16 @@ export const LONDON_TERMINI = new Set([
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TrainService {
-  departureTime:    string;   // HH:MM
-  arrivalTime?:     string;   // HH:MM at destination
-  platform?:        string;
-  operator:         string;
-  serviceUid:       string;
-  destination:      string;
-  estimatedFareGbp: number;
+  departureTime:          string;   // HH:MM effective (etd if a time, else std)
+  scheduledDepartureTime?: string;  // HH:MM std — always the timetable time
+  arrivalTime?:           string;   // HH:MM at destination
+  platform?:              string;
+  operator:               string;
+  serviceUid:             string;
+  destination:            string;
+  estimatedFareGbp:       number;
+  isCancelled?:           boolean;
+  delayMinutes?:          number;   // positive = late; 0 = on time
 }
 
 export interface RttQueryResult {
@@ -372,7 +375,11 @@ function parseDarwinResponse(
     const svcId    = xmlFirst(svc, 'serviceID') || xmlFirst(svc, 'rsid') || std;
 
     if (!std) continue;
-    if (etd.toLowerCase() === 'cancelled') continue;
+
+    const isCancelled = etd.toLowerCase() === 'cancelled';
+
+    // Filter cancelled services for normal search (they clutter results)
+    if (isCancelled) continue;
 
     // Filter by time preference
     const depHour = parseInt(std.slice(0, 2), 10);
@@ -397,15 +404,30 @@ function parseDarwinResponse(
 
     // Effective departure (use etd if it's a time, else std)
     const depRaw = (etd && /^\d{2}:\d{2}$/.test(etd)) ? etd : std;
+    const stdParsed = parseTime(std);
+    const etdParsed = parseTime(depRaw);
+
+    // Compute delay in minutes
+    let delayMinutes: number | undefined;
+    if (/^\d{2}:\d{2}$/.test(std) && /^\d{2}:\d{2}$/.test(depRaw) && depRaw !== std) {
+      const [sh, sm] = std.split(':').map(Number);
+      const [eh, em] = depRaw.split(':').map(Number);
+      const diff = (eh * 60 + em) - (sh * 60 + sm);
+      if (diff > 0) delayMinutes = diff;
+    } else if (etd === 'On time') {
+      delayMinutes = 0;
+    }
 
     services.push({
-      departureTime:    parseTime(depRaw),
+      departureTime:          etdParsed,
+      scheduledDepartureTime: stdParsed,
       arrivalTime,
-      platform:         platform || undefined,
+      platform:               platform || undefined,
       operator,
-      serviceUid:       svcId,
-      destination:      destLabel,
-      estimatedFareGbp: fare,
+      serviceUid:             svcId,
+      destination:            destLabel,
+      estimatedFareGbp:       fare,
+      delayMinutes,
     });
 
     if (services.length >= 5) break;
@@ -638,6 +660,97 @@ export async function queryRTT(
   } catch (e: any) {
     const fallback = mockSchedule(originCRS, destCRS, origin, destination, date, timePreference);
     return { ...fallback, error: e.message ?? 'Darwin fetch failed' };
+  }
+}
+
+// ── Service status check (for platform/cancellation/delay watch) ─────────────
+
+export interface ServiceStatus {
+  platform?:      string;
+  isCancelled:    boolean;
+  delayMinutes?:  number;
+  etd:            string;   // raw etd from Darwin
+}
+
+/**
+ * Checks the current real-time status of a specific service.
+ * Used by the platformWatch cron — parses ALL services including cancelled ones.
+ * Returns null if Darwin is unavailable or service not found.
+ */
+export async function checkServiceStatus(
+  env: { DARWIN_API_KEY?: string },
+  originCRS: string,
+  destCRS: string,
+  serviceUid: string,
+  departureDatetime: string,   // ISO string
+): Promise<ServiceStatus | null> {
+  if (!env.DARWIN_API_KEY) return null;
+
+  const dep = new Date(departureDatetime);
+  const timeOffset = Math.floor((dep.getTime() - Date.now()) / 60_000);
+  // Only check if departure is within the next 4 hours (platformWatch scope)
+  if (timeOffset < -30 || timeOffset > 240) return null;
+
+  try {
+    const soap = buildDarwinSoap(
+      env.DARWIN_API_KEY,
+      originCRS.toUpperCase(),
+      destCRS.toUpperCase(),
+      Math.max(timeOffset - 10, 0),  // small window around departure
+      30,
+    );
+
+    const res = await fetch(DARWIN_ENDPOINT, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'text/xml; charset=utf-8',
+        'SOAPAction':    '"http://thalesgroup.com/RTTI/2015-05-14/ldb/GetDepBoardWithDetails"',
+      },
+      body:   soap,
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!res.ok) return null;
+    const xml = await res.text();
+    if (xml.includes('faultstring') || xml.includes('Fault')) return null;
+
+    const serviceBlocks = xmlBlocks(xml, 'service');
+
+    for (const svc of serviceBlocks) {
+      const std    = xmlFirst(svc, 'std');
+      const etd    = xmlFirst(svc, 'etd');
+      const svcId  = xmlFirst(svc, 'serviceID') || xmlFirst(svc, 'rsid') || std;
+      const plat   = xmlFirst(svc, 'platform') || undefined;
+
+      if (!std) continue;
+
+      // Match by serviceUid or by scheduled departure time (± 1 min)
+      const isMatch = svcId === serviceUid || (() => {
+        const [dh, dm] = std.split(':').map(Number);
+        const [th, tm] = [dep.getHours(), dep.getMinutes()];
+        return Math.abs((dh * 60 + dm) - (th * 60 + tm)) <= 1;
+      })();
+
+      if (!isMatch) continue;
+
+      const isCancelled = etd.toLowerCase() === 'cancelled';
+      let delayMinutes: number | undefined;
+
+      if (!isCancelled && /^\d{2}:\d{2}$/.test(etd) && etd !== std) {
+        const [sh, sm] = std.split(':').map(Number);
+        const [eh, em] = etd.split(':').map(Number);
+        const diff = (eh * 60 + em) - (sh * 60 + sm);
+        if (diff > 0) delayMinutes = diff;
+      } else if (etd === 'On time') {
+        delayMinutes = 0;
+      }
+
+      return { platform: plat, isCancelled, delayMinutes, etd };
+    }
+
+    return null;
+  } catch {
+    return null;
   }
 }
 

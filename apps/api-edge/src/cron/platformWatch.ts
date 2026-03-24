@@ -1,8 +1,11 @@
 /**
- * platformWatch.ts — Darwin platform change detection cron
+ * platformWatch.ts — Darwin disruption detection cron
  *
  * Runs every 5 minutes. Queries for upcoming booked journeys, polls Darwin
- * for their current platform, and pushes a notification via Expo if changed.
+ * for their current status, and pushes a notification via Expo if:
+ *   - Platform has changed
+ *   - Service has been cancelled
+ *   - Service is running > 10 minutes late (sent once)
  *
  * Job metadata schema expected:
  *   platformWatchActive: true
@@ -11,6 +14,7 @@
  *   trainDetails.origin: station name  (used for CRS lookup)
  *   trainDetails.serviceUid: "Lxxxxx"
  *   trainDetails.platform: last known platform
+ *   delayNotified: true  (set after delay push sent, to avoid repeat)
  */
 
 import type { Env } from '../types';
@@ -55,57 +59,104 @@ export async function runPlatformWatch(env: Env): Promise<void> {
 
     broLog('platform_watch_check', { count: rows.length });
 
-    const { queryRTT } = await import('../lib/rtt');
+    const { checkServiceStatus, stationToCRS } = await import('../lib/rtt');
 
     for (const row of rows) {
       const meta = row.metadata as any;
-      const pushToken: string | undefined = meta.pushToken;
-      const serviceUid: string | undefined = meta.trainDetails?.serviceUid;
-      const origin: string | undefined = meta.trainDetails?.origin;
-      const destination: string | undefined = meta.trainDetails?.destination;
+      const pushToken: string | undefined         = meta.pushToken;
+      const serviceUid: string | undefined        = meta.trainDetails?.serviceUid;
+      const origin: string | undefined            = meta.trainDetails?.origin;
+      const destination: string | undefined       = meta.trainDetails?.destination;
       const departureDatetime: string | undefined = meta.departureDatetime;
-      const lastPlatform: string | undefined = meta.trainDetails?.platform;
+      const lastPlatform: string | undefined      = meta.trainDetails?.platform;
+      const delayNotified: boolean                = meta.delayNotified === true;
 
       if (!pushToken || !serviceUid || !origin || !departureDatetime) continue;
 
+      const originCRS = stationToCRS(origin);
+      const destCRS   = destination ? stationToCRS(destination) : '';
+      if (!originCRS) continue;
+
       try {
-        // Parse date and time from ISO string
-        const dep = new Date(departureDatetime);
-        const dateStr = `${dep.getFullYear()}/${String(dep.getMonth() + 1).padStart(2, '0')}/${String(dep.getDate()).padStart(2, '0')}`;
-        const timeStr = `${String(dep.getHours()).padStart(2, '0')}${String(dep.getMinutes()).padStart(2, '0')}`;
-
-        const result = await queryRTT(env, origin, destination ?? '', dateStr, timeStr);
-        if (!result || result.error || result.services.length === 0) continue;
-
-        // Find our specific service by serviceUid
-        const svc = result.services.find((s: any) => s.serviceUid === serviceUid)
-          ?? result.services[0]; // fallback to first service if uid not matched
-
-        const currentPlatform: string | undefined = svc?.platform;
-        if (!currentPlatform || currentPlatform === lastPlatform) continue;
-
-        // Platform changed! Push notification
-        const route = destination ? `${origin} → ${destination}` : origin;
-        broLog('platform_changed', {
-          jobId: row.id, serviceUid, from: lastPlatform ?? 'unknown', to: currentPlatform,
-        });
-
-        await sendExpoPush(
-          pushToken,
-          '🚂 Platform changed',
-          `${route} · Now Platform ${currentPlatform}`,
-          { intentId: row.id, screen: 'receipt' },
+        const status = await checkServiceStatus(
+          env,
+          originCRS,
+          destCRS ?? originCRS,
+          serviceUid,
+          departureDatetime,
         );
 
-        // Update stored platform in metadata so we don't re-notify
-        await sql`
-          UPDATE payment_intents
-          SET metadata = metadata || ${JSON.stringify({
-            trainDetails: { ...meta.trainDetails, platform: currentPlatform },
-            platformLastChecked: new Date().toISOString(),
-          })}::jsonb
-          WHERE id = ${row.id}
-        `;
+        if (!status) continue;
+
+        const route = destination ? `${origin} → ${destination}` : origin;
+        const metaUpdates: Record<string, unknown> = {
+          platformLastChecked: new Date().toISOString(),
+        };
+        let needsUpdate = false;
+
+        // ── Cancellation ─────────────────────────────────────────────────────
+        if (status.isCancelled && !meta.cancellationNotified) {
+          broLog('service_cancelled', { jobId: row.id, serviceUid });
+
+          await sendExpoPush(
+            pushToken,
+            '⚠️ Train cancelled',
+            `${route} has been cancelled · Ask Bro for alternatives`,
+            { intentId: row.id, screen: 'receipt', action: 'cancelled' },
+          );
+
+          metaUpdates.cancellationNotified = true;
+          // Deactivate watch — journey is cancelled
+          metaUpdates.platformWatchActive = 'false';
+          needsUpdate = true;
+        }
+
+        // ── Platform change ───────────────────────────────────────────────────
+        if (!status.isCancelled && status.platform && status.platform !== lastPlatform) {
+          broLog('platform_changed', {
+            jobId: row.id, serviceUid,
+            from: lastPlatform ?? 'unknown', to: status.platform,
+          });
+
+          await sendExpoPush(
+            pushToken,
+            '🚂 Platform changed',
+            `${route} · Now Platform ${status.platform}`,
+            { intentId: row.id, screen: 'receipt' },
+          );
+
+          // Update stored platform to prevent re-notify
+          metaUpdates['trainDetails'] = { ...meta.trainDetails, platform: status.platform };
+          needsUpdate = true;
+        }
+
+        // ── Delay > 10 min (notify once) ─────────────────────────────────────
+        if (
+          !status.isCancelled &&
+          !delayNotified &&
+          status.delayMinutes !== undefined &&
+          status.delayMinutes >= 10
+        ) {
+          broLog('service_delayed', { jobId: row.id, serviceUid, delayMinutes: status.delayMinutes });
+
+          await sendExpoPush(
+            pushToken,
+            `⏱ Running ${status.delayMinutes} min late`,
+            `${route} · Expected delay: ${status.delayMinutes} minutes`,
+            { intentId: row.id, screen: 'receipt' },
+          );
+
+          metaUpdates.delayNotified = true;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          await sql`
+            UPDATE payment_intents
+            SET metadata = metadata || ${JSON.stringify(metaUpdates)}::jsonb
+            WHERE id = ${row.id}
+          `;
+        }
       } catch (e: any) {
         broLog('platform_watch_error', { jobId: row.id, error: e.message });
       }

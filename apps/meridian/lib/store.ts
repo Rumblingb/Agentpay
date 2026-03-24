@@ -33,6 +33,9 @@ interface MeridianState {
   /** Local currency detected from server (cfCountry). Default GBP. */
   currencySymbol: string;
   currencyCode: string;
+  /** Saved home/work stations for quick-book shortcuts */
+  homeStation: string | null;
+  workStation: string | null;
 
   // ── Current session ───────────────────────────────────────────────────────
   phase: AppPhase;
@@ -58,10 +61,12 @@ interface MeridianState {
     autoConfirmLimitUsdc: number;
     onboarded: boolean;
     turns: HistoryTurn[];
+    homeStation?: string | null;
+    workStation?: string | null;
   }) => void;
 
   setCredentials: (agentId: string, agentKey: string) => void;
-  setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean }) => void;
+  setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean; homeStation?: string | null; workStation?: string | null }) => void;
   setCurrency: (symbol: string, code: string) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
@@ -98,6 +103,8 @@ export const useStore = create<MeridianState>((set) => ({
   onboarded: false,
   currencySymbol: '£',
   currencyCode: 'GBP',
+  homeStation: null,
+  workStation: null,
 
   // Session
   ...SESSION_INITIAL,
@@ -106,8 +113,8 @@ export const useStore = create<MeridianState>((set) => ({
   turns: [],
   wallet: null,
 
-  hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }) =>
-    set({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns }),
+  hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns, homeStation, workStation }) =>
+    set({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns, homeStation: homeStation ?? null, workStation: workStation ?? null }),
 
   setCurrency: (currencySymbol, currencyCode) => set({ currencySymbol, currencyCode }),
 
@@ -118,6 +125,8 @@ export const useStore = create<MeridianState>((set) => ({
     userName: prefs.userName ?? s.userName,
     autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc ?? s.autoConfirmLimitUsdc,
     onboarded: prefs.onboarded ?? s.onboarded,
+    homeStation: 'homeStation' in prefs ? (prefs.homeStation ?? null) : s.homeStation,
+    workStation: 'workStation' in prefs ? (prefs.workStation ?? null) : s.workStation,
   })),
 
   setPhase: (phase) => set({ phase }),

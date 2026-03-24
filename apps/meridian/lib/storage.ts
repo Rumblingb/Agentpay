@@ -32,6 +32,8 @@ export interface StoredPrefs {
   userName: string;
   autoConfirmLimitUsdc: number; // auto-hire below this; voice-confirm above
   onboarded: boolean;
+  homeStation?: string;         // "Derby", "London St Pancras", etc.
+  workStation?: string;
 }
 
 export interface HistoryTurn {
