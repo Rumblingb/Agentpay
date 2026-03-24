@@ -378,7 +378,7 @@ export default function ConverseScreen() {
         if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
           setError('Voice service is slow — try again.');
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
-          setError('Voice service not configured — contact support.');
+          setError('Voice service is unavailable right now — try again shortly.');
         } else if (msg.includes('503') || msg.includes('not configured')) {
           setError('Voice service offline — try again in a moment.');
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
