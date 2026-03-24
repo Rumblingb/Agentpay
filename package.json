@@ -9,6 +9,7 @@
     "bootstrap": "npm install --workspaces",
     "test": "jest --runInBand",
     "test:smoke": "jest --runInBand tests/api-status.test.ts tests/routes/verify.test.ts tests/routes/receipt.test.ts",
+    "test:workers-critical": "jest --runInBand tests/routes/wallets.test.ts tests/moltbook/spending-policy.test.ts tests/routes/verify.test.ts tests/routes/receipt.test.ts tests/api-status.test.ts",
     "typecheck": "pnpm -r -w --parallel run typecheck || (tsc -b --verbose)",
     "clean": "rm -rf dist",
     "prisma:generate": "prisma generate --schema=infra/prisma/schema.prisma",

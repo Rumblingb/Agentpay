@@ -55,6 +55,9 @@ jobs:
       - name: Typecheck Workers API
         run: npm run typecheck --workspace @agentpay/api-edge
 
+      - name: Run Workers critical tests
+        run: npm run test:workers-critical
+
   dashboard:
     name: Dashboard
     runs-on: ubuntu-latest
