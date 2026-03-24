@@ -4,16 +4,20 @@ export interface LegalDoc {
   title: string;
   updatedAt: string;
   intro: string;
+  supportEmail: string;
   sections: Array<{
     heading: string;
     body: string[];
   }>;
 }
 
+export const LEGAL_SUPPORT_EMAIL = 'bro@agentpay.gg';
+
 export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
   terms: {
     title: 'Terms of Service',
     updatedAt: 'March 24, 2026',
+    supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
       'These terms govern your use of Bro during this early train-first release. Bro helps you plan and secure journeys, but a journey is only confirmed once Bro shows a real booking confirmation or reference.',
     sections: [
@@ -56,6 +60,7 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
   privacy: {
     title: 'Privacy Policy',
     updatedAt: 'March 24, 2026',
+    supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
       'Bro is designed to keep your train booking flow calm, safe, and minimal. This screen explains what stays on your device and what is shared only when needed to complete your journey.',
     sections: [

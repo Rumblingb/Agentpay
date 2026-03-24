@@ -526,9 +526,9 @@ export default function OnboardScreen() {
                 <View style={styles.promiseList}>
                   <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
                   <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
-                  <PromiseRow icon="person"         text="Shared only when you choose to book" />
+                  <PromiseRow icon="person"         text="Only the details needed for your journey are shared" />
                   <PromiseRow icon="checkmark-done" text="Shared only to secure the booking you confirm" />
-                  <PromiseRow icon="server"         text="Never stored on our servers" />
+                  <PromiseRow icon="server"         text="Trip and receipt records may be kept so Bro can reopen your journey" />
                   <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
                 </View>
 

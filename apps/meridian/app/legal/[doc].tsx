@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,15 @@ export default function LegalDocScreen() {
   const params = useLocalSearchParams<{ doc?: string }>();
   const key = getDocKey(params.doc);
   const doc = LEGAL_DOCS[key];
+
+  const openSupportEmail = async () => {
+    const url = `mailto:${doc.supportEmail}?subject=${encodeURIComponent(`Bro ${doc.title}`)}`;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Email unavailable', `Email us at ${doc.supportEmail}`);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -46,6 +55,10 @@ export default function LegalDocScreen() {
           <Text style={styles.footerText}>
             Bro is currently focused on train journeys. If something in the app looks unclear, pause and review before confirming a booking.
           </Text>
+          <Pressable onPress={() => { void openSupportEmail(); }} style={styles.supportBtn}>
+            <Ionicons name="mail-outline" size={16} color="#cbd5e1" />
+            <Text style={styles.supportBtnText}>{doc.supportEmail}</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -118,5 +131,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     color: '#9ca3af',
+  },
+  supportBtn: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#374151',
+    backgroundColor: '#0f172a',
+  },
+  supportBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#cbd5e1',
   },
 });
