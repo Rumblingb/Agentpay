@@ -24,10 +24,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
+import { saveActiveTrip, upsertTrip } from '../../../lib/storage';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -115,14 +115,23 @@ export default function ReceiptScreen() {
       currencyCode:  fiatCode,
       savedAt:       new Date().toISOString(),
     };
-    AsyncStorage.getItem('bro.trips').then(raw => {
-      const trips: typeof entry[] = raw ? JSON.parse(raw) : [];
-      // Deduplicate by intentId
-      const filtered = trips.filter(t => t.intentId !== intentId);
-      filtered.unshift(entry);
-      AsyncStorage.setItem('bro.trips', JSON.stringify(filtered.slice(0, 30)));
-    }).catch(() => {});
-  }, [receipt]);
+    void upsertTrip(entry);
+    void saveActiveTrip({
+      intentId,
+      status: 'ticketed',
+      title: fromStation && toStation ? `${fromStation} → ${toStation}` : 'Train journey',
+      fromStation: fromStation ?? null,
+      toStation: toStation ?? null,
+      departureTime: departureTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? null,
+      bookingRef: bookingRef ?? null,
+      fiatAmount: fiatAmountNum,
+      currencySymbol: fiatSymbol,
+      currencyCode: fiatCode,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, platform, operator, fiatAmountNum, fiatSymbol, fiatCode]);
 
   const handleShare = async () => {
     if (!receipt) return;

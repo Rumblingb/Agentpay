@@ -18,24 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-interface TripEntry {
-  intentId:      string;
-  bookingRef:    string | null;
-  fromStation:   string | null;
-  toStation:     string | null;
-  departureTime: string | null;
-  platform:      string | null;
-  operator:      string | null;
-  amount:        string | number;
-  currency:      string;
-  /** Fiat display fields — always shown to user, never USDC */
-  fiatAmount?:     number | null;
-  currencySymbol?: string | null;
-  currencyCode?:   string | null;
-  savedAt:       string;
-}
+import { loadTrips as loadTripsFromStorage, type TripEntry } from '../../lib/storage';
 
 export default function TripsScreen() {
   const [trips,     setTrips]     = useState<TripEntry[]>([]);
@@ -44,8 +27,7 @@ export default function TripsScreen() {
 
   const loadTrips = async () => {
     try {
-      const raw = await AsyncStorage.getItem('bro.trips');
-      setTrips(raw ? JSON.parse(raw) : []);
+      setTrips(await loadTripsFromStorage());
     } catch {
       setTrips([]);
     } finally {
@@ -82,17 +64,17 @@ export default function TripsScreen() {
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color="#4b5563" />
         </Pressable>
-        <Text style={styles.title}>My Trips</Text>
+        <Text style={styles.title}>Journeys</Text>
         <View style={{ width: 22 }} />
       </View>
 
       {trips.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>🚂</Text>
-          <Text style={styles.emptyTitle}>No trips yet</Text>
-          <Text style={styles.emptyBody}>Your travel requests will appear here.</Text>
+          <Text style={styles.emptyTitle}>No journeys yet</Text>
+          <Text style={styles.emptyBody}>When Bro books a trip for you, it will live here.</Text>
           <Pressable onPress={() => router.replace('/(main)/converse')} style={styles.bookBtn}>
-            <Text style={styles.bookBtnText}>Book a trip</Text>
+            <Text style={styles.bookBtnText}>Start with Bro</Text>
           </Pressable>
         </View>
       ) : (
@@ -131,7 +113,7 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
             {trip.fromStation} → {trip.toStation}
           </Text>
         ) : (
-          <Text style={styles.cardRoute} numberOfLines={1}>Train booking</Text>
+          <Text style={styles.cardRoute} numberOfLines={1}>Train journey</Text>
         )}
         <View style={styles.cardMeta}>
           {trip.departureTime && (

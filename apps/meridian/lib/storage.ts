@@ -16,6 +16,8 @@ const KEYS = {
   agentKey:         'meridian.agentKey',
   prefs:            'meridian.prefs',
   history:          'meridian.history',
+  activeTrip:       'meridian.activeTrip',
+  trips:            'bro.trips',
 } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,6 +37,40 @@ export interface HistoryTurn {
   role: 'user' | 'meridian';
   text: string;
   ts: number;
+}
+
+export interface ActiveTrip {
+  intentId: string;
+  jobId?: string | null;
+  status: 'securing' | 'ticketed' | 'attention';
+  title: string;
+  fromStation?: string | null;
+  toStation?: string | null;
+  departureTime?: string | null;
+  platform?: string | null;
+  operator?: string | null;
+  bookingRef?: string | null;
+  finalLegSummary?: string | null;
+  fiatAmount?: number | null;
+  currencySymbol?: string | null;
+  currencyCode?: string | null;
+  updatedAt: string;
+}
+
+export interface TripEntry {
+  intentId: string;
+  bookingRef: string | null;
+  fromStation: string | null;
+  toStation: string | null;
+  departureTime: string | null;
+  platform: string | null;
+  operator: string | null;
+  amount: string | number;
+  currency: string;
+  fiatAmount?: number | null;
+  currencySymbol?: string | null;
+  currencyCode?: string | null;
+  savedAt: string;
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
@@ -107,4 +143,37 @@ export async function appendHistory(turn: HistoryTurn): Promise<void> {
 
 export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(KEYS.history);
+}
+
+export async function loadActiveTrip(): Promise<ActiveTrip | null> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.activeTrip);
+    return raw ? (JSON.parse(raw) as ActiveTrip) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveActiveTrip(trip: ActiveTrip): Promise<void> {
+  await AsyncStorage.setItem(KEYS.activeTrip, JSON.stringify(trip));
+}
+
+export async function clearActiveTrip(): Promise<void> {
+  await AsyncStorage.removeItem(KEYS.activeTrip);
+}
+
+export async function loadTrips(): Promise<TripEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.trips);
+    return raw ? (JSON.parse(raw) as TripEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertTrip(entry: TripEntry): Promise<void> {
+  const trips = await loadTrips();
+  const filtered = trips.filter((trip) => trip.intentId !== entry.intentId);
+  filtered.unshift(entry);
+  await AsyncStorage.setItem(KEYS.trips, JSON.stringify(filtered.slice(0, 30)));
 }

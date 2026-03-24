@@ -23,7 +23,7 @@ import {
   SafeAreaView,
   Linking,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,7 +34,7 @@ import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speak, stopSpeaking } from '../../lib/tts';
-import { appendHistory } from '../../lib/storage';
+import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
@@ -106,6 +106,7 @@ export default function ConverseScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
+  const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -126,6 +127,17 @@ export default function ConverseScreen() {
       active = false;
     };
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    (async () => {
+      const trip = await loadActiveTrip();
+      if (active) setActiveTrip(trip);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []));
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -411,7 +423,6 @@ export default function ConverseScreen() {
   const isConfirming = phase === 'confirming';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
   const idleSuggestions = MARKET_SUGGESTIONS[marketNationality];
-
   return (
     <SafeAreaView style={styles.safe}>
 
@@ -444,8 +455,68 @@ export default function ConverseScreen() {
               {userName !== 'there' ? `Hello, ${userName}.` : 'Hello.'}
             </Text>
             <Text style={styles.emptyHint}>
-              Hold the orb. Tell me where you're going.{'\n'}I'll handle the rest.
+              Hold the orb. Tell me where you're going.{'\n'}Bro will handle the rest.
             </Text>
+            {activeTrip && (
+              <Pressable
+                onPress={() => {
+                  if (activeTrip.status === 'securing' && activeTrip.jobId) {
+                    const params: Record<string, string> = { jobId: activeTrip.jobId };
+                    if (activeTrip.fiatAmount != null) params.fiatAmount = String(activeTrip.fiatAmount);
+                    if (activeTrip.currencySymbol) params.currencySymbol = activeTrip.currencySymbol;
+                    if (activeTrip.currencyCode) params.currencyCode = activeTrip.currencyCode;
+                    router.push({ pathname: '/(main)/status/[jobId]', params });
+                    return;
+                  }
+
+                  router.push({
+                    pathname: '/(main)/receipt/[intentId]',
+                    params: {
+                      intentId: activeTrip.intentId,
+                      bookingRef: activeTrip.bookingRef ?? undefined,
+                      fromStation: activeTrip.fromStation ?? undefined,
+                      toStation: activeTrip.toStation ?? undefined,
+                      departureTime: activeTrip.departureTime ?? undefined,
+                      platform: activeTrip.platform ?? undefined,
+                      operator: activeTrip.operator ?? undefined,
+                      fiatAmount: activeTrip.fiatAmount != null ? String(activeTrip.fiatAmount) : undefined,
+                      currencySymbol: activeTrip.currencySymbol ?? undefined,
+                      currencyCode: activeTrip.currencyCode ?? undefined,
+                    },
+                  });
+                }}
+                style={styles.activeTripCard}
+              >
+                <View style={styles.activeTripTop}>
+                  <View style={[
+                    styles.activeTripPill,
+                    activeTrip.status === 'attention' && styles.activeTripPillWarn,
+                    activeTrip.status === 'ticketed' && styles.activeTripPillDone,
+                  ]}>
+                    <Text style={[
+                      styles.activeTripPillText,
+                      activeTrip.status === 'attention' && styles.activeTripPillTextWarn,
+                      activeTrip.status === 'ticketed' && styles.activeTripPillTextDone,
+                    ]}>
+                      {activeTrip.status === 'securing'
+                        ? 'In progress'
+                        : activeTrip.status === 'ticketed'
+                        ? 'Latest journey'
+                        : 'Needs attention'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                </View>
+                <Text style={styles.activeTripTitle} numberOfLines={1}>{activeTrip.title}</Text>
+                <Text style={styles.activeTripMeta} numberOfLines={2}>
+                  {activeTrip.status === 'securing'
+                    ? 'Bro is securing this journey now.'
+                    : activeTrip.finalLegSummary
+                    ? activeTrip.finalLegSummary
+                    : [activeTrip.departureTime, activeTrip.platform ? `Platform ${activeTrip.platform}` : null].filter(Boolean).join(' · ') || 'Open for journey details'}
+                </Text>
+              </Pressable>
+            )}
             <View style={styles.suggestions}>
               {idleSuggestions.map((suggestion, index) => (
                 <Suggestion
@@ -515,6 +586,11 @@ export default function ConverseScreen() {
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
               )}
+              <Text style={styles.confirmReason}>
+                {isIndia
+                  ? 'Best balance of speed, certainty, and payment flow for this trip.'
+                  : 'Best balance of timing, fare, and journey simplicity.'}
+              </Text>
               {finalLegSummary && (
                 <View style={styles.finalLegRow}>
                   <Ionicons name="subway-outline" size={13} color={C.sky} style={{ marginRight: 6 }} />
@@ -528,7 +604,7 @@ export default function ConverseScreen() {
                   style={styles.confirmBtnGrad}
                 >
                   <Ionicons name="finger-print-outline" size={20} color={C.emBright} />
-                  <Text style={styles.confirmText}>Confirm with fingerprint</Text>
+                  <Text style={styles.confirmText}>Book this journey</Text>
                 </LinearGradient>
               </Pressable>
               {isIndia && (
@@ -672,9 +748,60 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontSize: 16,
     color: C.textMuted,
-    marginBottom: 32,
+    marginBottom: 20,
     lineHeight: 26,
     letterSpacing: 0.1,
+  },
+  activeTripCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.borderMd,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 22,
+  },
+  activeTripTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  activeTripPill: {
+    backgroundColor: C.indigoDim,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  activeTripPillWarn: {
+    backgroundColor: '#2b1111',
+  },
+  activeTripPillDone: {
+    backgroundColor: '#0c2417',
+  },
+  activeTripPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#b8c4ff',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  activeTripPillTextWarn: {
+    color: '#fca5a5',
+  },
+  activeTripPillTextDone: {
+    color: '#86efac',
+  },
+  activeTripTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: C.textPrimary,
+    marginBottom: 6,
+    letterSpacing: -0.3,
+  },
+  activeTripMeta: {
+    fontSize: 13,
+    color: C.textMuted,
+    lineHeight: 19,
   },
   suggestions: {},
 
@@ -769,6 +896,13 @@ const styles = StyleSheet.create({
     color: C.textPrimary,
     textAlign: 'center',
     letterSpacing: -1.5,
+  },
+  confirmReason: {
+    fontSize: 13,
+    color: C.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: -6,
   },
   finalLegRow: {
     flexDirection: 'row',
