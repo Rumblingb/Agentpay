@@ -29,14 +29,36 @@ function notifId(intentId: string, tag: string): string {
   return `bro_${intentId}_${tag}`;
 }
 
+/**
+ * Parses departure time. Accepts:
+ *   - Full ISO string ("2026-03-24T17:42:00")   ← preferred, passed when travelDate is available
+ *   - HH:MM only ("17:42")                       ← Darwin fallback; assumed today, bumped to tomorrow if past
+ */
+function parseDeparture(s: string): Date | null {
+  const iso = new Date(s);
+  if (!isNaN(iso.getTime())) return iso;
+
+  const hhmm = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (hhmm) {
+    const now = new Date();
+    const d = new Date(
+      now.getFullYear(), now.getMonth(), now.getDate(),
+      parseInt(hhmm[1], 10), parseInt(hhmm[2], 10),
+    );
+    if (d.getTime() < now.getTime() - 60_000) d.setDate(d.getDate() + 1);
+    return d;
+  }
+  return null;
+}
+
 export async function scheduleJourneyNotifications(
   intentId: string,
   departureISO: string,
   route: string,
   platform: string | null,
 ): Promise<void> {
-  const departure = new Date(departureISO);
-  if (isNaN(departure.getTime())) return;
+  const departure = parseDeparture(departureISO);
+  if (!departure) return;
   const platformSuffix = platform ? ` · Platform ${platform}` : '';
   const now = Date.now();
 

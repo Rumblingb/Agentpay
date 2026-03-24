@@ -46,7 +46,8 @@ export default function StatusScreen() {
   const [operator, setOperator]         = useState<string | null>(null);
   const [fromStation, setFromStation]   = useState<string | null>(null);
   const [toStation, setToStation]       = useState<string | null>(null);
-  const [finalLegSummary, setFinalLegSummary] = useState<string | null>(null);
+  const [finalLegSummary, setFinalLegSummary]       = useState<string | null>(null);
+  const [departureDatetime, setDepartureDatetime]   = useState<string | null>(null);
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [payLoading, setPayLoading]           = useState(false);
 
@@ -104,7 +105,8 @@ export default function StatusScreen() {
             if (proof.fromStation)   setFromStation(proof.fromStation);
             if (proof.toStation)     setToStation(proof.toStation);
             // isSimulated is internal — never surface to users
-            if (proof.finalLegSummary) setFinalLegSummary(proof.finalLegSummary);
+            if (proof.finalLegSummary)   setFinalLegSummary(proof.finalLegSummary);
+            if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
@@ -380,7 +382,8 @@ export default function StatusScreen() {
                 if (operator)      qs.set('operator', operator);
                 if (fromStation)   qs.set('fromStation', fromStation);
                 if (toStation)     qs.set('toStation', toStation);
-                if (finalLegSummary) qs.set('finalLegSummary', finalLegSummary);
+                if (finalLegSummary)   qs.set('finalLegSummary',   finalLegSummary);
+                if (departureDatetime) qs.set('departureDatetime', departureDatetime);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
               if (paramCode)   qs.set('currencyCode',   paramCode);

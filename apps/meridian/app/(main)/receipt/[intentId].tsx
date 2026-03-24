@@ -43,6 +43,7 @@ export default function ReceiptScreen() {
     intentId: string;
     bookingRef?: string;
     departureTime?: string;
+    departureDatetime?: string;
     platform?: string;
     operator?: string;
     finalLegSummary?: string;
@@ -53,7 +54,8 @@ export default function ReceiptScreen() {
     currencyCode?: string;
   }>();
   const {
-    intentId, bookingRef, departureTime, platform, operator, fromStation, toStation,
+    intentId, bookingRef, departureTime, departureDatetime, platform, operator,
+    fromStation, toStation,
     finalLegSummary,
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
   } = params;
@@ -156,13 +158,15 @@ export default function ReceiptScreen() {
   }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
+  // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
   useEffect(() => {
-    if (!intentId || !departureTime) return;
+    const depStr = departureDatetime ?? departureTime;
+    if (!intentId || !depStr) return;
     const route = fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey';
     void (async () => {
       const granted = await requestNotificationPermission();
       if (!granted) return;
-      await scheduleJourneyNotifications(intentId, departureTime, route, platform ?? null);
+      await scheduleJourneyNotifications(intentId, depStr, route, platform ?? null);
     })();
   }, [intentId, departureTime, fromStation, toStation, platform]);
 

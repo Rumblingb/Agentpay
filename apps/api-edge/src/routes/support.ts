@@ -10,9 +10,15 @@ function broLog(event: string, data: Record<string, unknown>) {
 /**
  * POST /api/support/issue
  * Accepts an issue report from the Bro app and fires to Make.com webhook.
- * No auth required — intentId is the correlation handle.
+ * Authenticated via x-bro-key (same gate as /api/concierge/intent).
  */
 supportRouter.post('/issue', async (c) => {
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
   const body = await c.req.json<{
     intentId: string;
     bookingRef?: string | null;

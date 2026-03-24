@@ -350,8 +350,9 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
             // Build proof for WhatsApp + ops webhook — isSimulated=true signals ticket not yet issued
             const proof: BookingProof = {
-              bookingRef:      broRef,
-              departureTime:   item.trainDetails.departureTime,
+              bookingRef:         broRef,
+              departureTime:      item.trainDetails.departureTime,
+              departureDatetime:  item.trainDetails.departureDatetime,
               arrivalTime:     item.trainDetails.arrivalTime,
               platform:        item.trainDetails.platform,
               operator:        item.trainDetails.operator,
@@ -627,18 +628,20 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
         if (rttResult.services.length > 0) {
           const svc = rttResult.services[0];
+          const ukTravelDate = rttResult.date.replace(/\//g, '-');
           trainDetails = {
-            departureTime:    svc.departureTime,
-            arrivalTime:      svc.arrivalTime,
-            platform:         svc.platform,
-            operator:         svc.operator,
-            serviceUid:       svc.serviceUid,
-            origin:           rttResult.origin,
-            destination:      rttResult.destination,
-            estimatedFareGbp: svc.estimatedFareGbp,
-            country:          'uk',
-            destinationCRS:   rttResult.destinationCRS,
-            travelDate:       rttResult.date.replace(/\//g, '-'),  // YYYY-MM-DD
+            departureTime:      svc.departureTime,
+            arrivalTime:        svc.arrivalTime,
+            platform:           svc.platform,
+            operator:           svc.operator,
+            serviceUid:         svc.serviceUid,
+            origin:             rttResult.origin,
+            destination:        rttResult.destination,
+            estimatedFareGbp:   svc.estimatedFareGbp,
+            country:            'uk',
+            destinationCRS:     rttResult.destinationCRS,
+            travelDate:         ukTravelDate,
+            departureDatetime:  `${ukTravelDate}T${svc.departureTime}:00`,
             dataSource,
           };
 
@@ -707,21 +710,22 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           const irTravelDate = parseRttDate(input.date).replace(/\//g, '-');
 
           trainDetails = {
-            departureTime:    svc.departureTime,
-            arrivalTime:      svc.arrivalTime,
-            platform:         undefined, // platform not known in advance for Indian rail
-            operator:         `${svc.trainNumber} ${svc.trainName}`,
-            serviceUid:       svc.trainNumber,
-            origin:           irResult.origin,
-            destination:      irResult.destination,
-            estimatedFareGbp: Math.round(svc.estimatedFareInr * INR_TO_USD * 100) / 100,
-            trainNumber:      svc.trainNumber,
-            trainName:        svc.trainName,
-            classCode:        svc.classCode,
-            fareInr:          svc.estimatedFareInr,
-            country:          'india',
-            travelDate:       irTravelDate,
-            dataSource:       irDataSource,
+            departureTime:      svc.departureTime,
+            arrivalTime:        svc.arrivalTime,
+            platform:           undefined, // platform not known in advance for Indian rail
+            operator:           `${svc.trainNumber} ${svc.trainName}`,
+            serviceUid:         svc.trainNumber,
+            origin:             irResult.origin,
+            destination:        irResult.destination,
+            estimatedFareGbp:   Math.round(svc.estimatedFareInr * INR_TO_USD * 100) / 100,
+            trainNumber:        svc.trainNumber,
+            trainName:          svc.trainName,
+            classCode:          svc.classCode,
+            fareInr:            svc.estimatedFareInr,
+            country:            'india',
+            travelDate:         irTravelDate,
+            departureDatetime:  `${irTravelDate}T${svc.departureTime}:00`,
+            dataSource:         irDataSource,
           };
         }
       } else if (toolCall.name === 'plan_metro') {
@@ -1649,6 +1653,8 @@ interface TrainDetails {
   destinationCRS?:  string;
   /** Actual travel date (YYYY-MM-DD) — distinct from booking creation date */
   travelDate?:      string;
+  /** Full ISO departure datetime — combines travelDate + departureTime for notification scheduling */
+  departureDatetime?: string;
   /** TfL final-leg summary (only present when arriving at a London terminus) */
   finalLegSummary?: string;
   finalLegDuration?: number;
@@ -1680,8 +1686,10 @@ interface ActionResult {
 }
 
 interface BookingProof {
-  bookingRef:     string;
-  departureTime:  string;
+  bookingRef:         string;
+  departureTime:      string;
+  /** Full ISO departure datetime — used by Bro app for notification scheduling */
+  departureDatetime?: string;
   arrivalTime?:   string;
   platform?:      string;
   operator:       string;

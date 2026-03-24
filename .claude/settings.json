@@ -145,7 +145,12 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''workspaces'''',{}\\).get\\(''''packages'''',[]\\) or d.get\\(''''workspaces'''',[]\\)\\)\\)\")",
       "Bash(node -e \"const d=require\\(''./package.json''\\); console.log\\(JSON.stringify\\(d.workspaces||{}\\)\\)\")",
       "Bash(grep -l \"POST\\\\|GET\" /c/Users/visha/agentpay/apps/api-edge/src/routes/*.ts)",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(grep -r \"localhost\\\\|sk_test_\\\\|test_key\\\\|TODO\\\\|FIXME\" c:/Users/visha/agentpay/apps/meridian/app --include=*.tsx --include=*.ts)",
+      "Bash(grep -r \"localhost\\\\|sk_test_\\\\|test_key\\\\|TODO\\\\|FIXME\" c:/Users/visha/agentpay/apps/api-edge/src --include=*.ts)",
+      "Bash(find c:/Users/visha/agentpay -name *.env* -type f)",
+      "Bash(grep \"agentpay\\\\.gg\\\\|agentpay\\\\.so\" c:/Users/visha/agentpay/apps/meridian/app/\\\\\\(main\\\\\\)/receipt/[intentId].tsx)",
+      "Bash(npm --prefix apps/api-edge run typecheck)"
     ]
   }
 }
