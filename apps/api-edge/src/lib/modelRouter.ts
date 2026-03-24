@@ -2,17 +2,18 @@
  * Model Router — picks the best LLM for a given task type.
  *
  * Cost tiers (cheapest first):
- *   FREE  — CF Workers AI Llama 3.3 70B (included in Workers plan)
- *   FREE  — Gemini 1.5 Flash (Google AI Studio: 1,500 req/day free)
+ *   FREE  — CF Workers AI Llama 3.3 70B (included in Workers plan, no RPD limit)
+ *   PAID  — Gemini 2.0 Flash (opt-in: set GEMINI_API_KEY + enable billing, ~$0.10/1M)
  *   CHEAP — Claude Haiku 4.5  ($0.80/$4 per 1M — simple turns)
- *   CHEAP — GPT-4o-mini       ($0.15/$0.60 per 1M — extraction)
+ *   CHEAP — GPT-4o-mini       ($0.15/$0.60 per 1M — extraction fallback)
  *   FULL  — Claude Opus 4.6   ($15/$75 per 1M — complex reasoning only)
- *   FULL  — GPT-4o            ($5/$15 per 1M — structured extraction)
+ *   FULL  — GPT-4o            ($5/$15 per 1M — code generation)
  *
- * Routing strategy:
- *   classify  → CF Workers AI Llama (free) → GPT-4o-mini fallback
- *   followup  → Claude Haiku (cheap: ~$0.002/turn)
- *   extract   → GPT-4o-mini or Gemini Flash (cheap/free)
+ * Routing strategy (Gemini-free by default — no RPD limits):
+ *   classify  → CF Workers AI Llama (free) → GPT-4o-mini → Haiku
+ *   followup  → Claude Haiku (~$0.002/turn)
+ *   extract   → CF Workers AI Llama (free) → GPT-4o-mini → Haiku
+ *   extract-gemini → Gemini 2.0 Flash (opt-in, only if GEMINI_API_KEY set)
  *   reason    → Claude Opus (full power, only for booking decisions)
  *   code      → GPT-4o (best for structured output)
  *
@@ -22,11 +23,12 @@
 
 import type { Env } from '../types';
 
-export type TaskType = 'reason' | 'followup' | 'extract' | 'classify' | 'code';
+export type TaskType = 'reason' | 'followup' | 'extract' | 'extract-gemini' | 'classify' | 'code';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const OPENAI_URL    = 'https://api.openai.com/v1/chat/completions';
-const GEMINI_URL    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+// Use gemini-2.0-flash for higher RPM/RPD limits vs 2.5-flash-lite (20 RPD free cap)
+const GEMINI_URL    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 // ── Claude call ───────────────────────────────────────────────────────────────
 
@@ -61,13 +63,14 @@ async function callWorkersAI(
   ai: Ai,
   system: string,
   user: string,
+  maxTokens = 512,
 ): Promise<string> {
   const result = await (ai as any).run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    max_tokens: 256,
+    max_tokens: maxTokens,
   }) as { response?: string };
   return result?.response ?? '';
 }
@@ -170,12 +173,12 @@ export async function routeToModel(
       return { model: 'claude-haiku-4-5', output };
     }
 
-    // ── FREE→CHEAP: Gemini Flash → GPT-4o-mini for extraction ───────────────
+    // ── FREE: CF Workers AI Llama for extraction (no RPD limit) ────────────
     case 'extract': {
-      if (env.GEMINI_API_KEY) {
+      if (env.AI) {
         try {
-          const output = await callGemini(env.GEMINI_API_KEY, system, user, maxTokens);
-          if (output) return { model: 'gemini-1.5-flash', output };
+          const output = await callWorkersAI(env.AI, system, user);
+          if (output) return { model: 'llama-3.3-70b (workers-ai)', output };
         } catch { /* fall through */ }
       }
       if (env.OPENAI_API_KEY) {
@@ -187,6 +190,20 @@ export async function routeToModel(
         return { model: 'claude-haiku-4-5 (fallback)', output };
       }
       throw new Error('No model available for extract');
+    }
+
+    // ── OPT-IN: Gemini 2.0 Flash (paid billing, higher quality extraction) ──
+    // Use this task type only after enabling Google AI billing — avoids free-tier RPD limits.
+    case 'extract-gemini': {
+      if (!env.GEMINI_API_KEY) {
+        // Fall back to standard extract if key not set
+        return routeToModel(env, 'extract', system, user, opts);
+      }
+      try {
+        const output = await callGemini(env.GEMINI_API_KEY, system, user, maxTokens);
+        if (output) return { model: 'gemini-2.0-flash', output };
+      } catch { /* fall through */ }
+      return routeToModel(env, 'extract', system, user, opts);
     }
 
     // ── FULL: GPT-4o for code generation ────────────────────────────────────

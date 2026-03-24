@@ -153,8 +153,14 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
-  /** Google Gemini API key — free tier (1,500 req/day) for extraction tasks. Get at aistudio.google.com */
+  /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
+
+  // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
+  /** OpenClaw API base URL — e.g. https://api.openclaw.io */
+  OPENCLAW_API_URL?: string;
+  /** OpenClaw API key — authenticates fulfillment dispatch requests. npx wrangler secret put OPENCLAW_API_KEY */
+  OPENCLAW_API_KEY?: string;
 
   // ── Bro app client auth ───────────────────────────────────────────────────
   /**

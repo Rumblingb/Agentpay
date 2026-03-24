@@ -81,6 +81,56 @@ conciergeRouter.get('/bro-jobs', async (c) => {
   }
 });
 
+// ── GET /api/admin/bro-ops ────────────────────────────────────────────────────
+// Rich ops view for the founder dashboard — summary + per-job payment & OpenClaw status.
+// Protected by x-admin-key header.
+
+conciergeRouter.get('/bro-ops', async (c) => {
+  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
+  if (!adminKey || adminKey !== c.env.ADMIN_SECRET_KEY) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<any[]>`
+      SELECT
+        id                                              AS "jobId",
+        status,
+        amount                                          AS "amount",
+        metadata->>'currency'                           AS "currency",
+        metadata->>'hirerId'                            AS "hirerId",
+        metadata->>'jobDescription'                     AS "jobDescription",
+        metadata->>'stripePaymentConfirmed'             AS "stripeConfirmed",
+        metadata->>'openclawDispatched'                 AS "openclawDispatched",
+        metadata->>'openclawJobId'                      AS "openclawJobId",
+        metadata->>'openclawDispatchedAt'               AS "openclawDispatchedAt",
+        metadata->>'openclawError'                      AS "openclawError",
+        metadata->>'completedAt'                        AS "completedAt",
+        metadata->>'dispatchStatus'                     AS "dispatchStatus",
+        created_at                                      AS "createdAt"
+      FROM payment_intents
+      WHERE metadata->>'protocol' = 'marketplace_hire'
+      ORDER BY created_at DESC
+      LIMIT 100
+    `.catch(() => []);
+
+    const total     = rows.length;
+    const paid      = rows.filter(r => r.stripeConfirmed === 'true').length;
+    const pending   = rows.filter(r => r.stripeConfirmed !== 'true' && r.status !== 'failed').length;
+    const dispatched = rows.filter(r => r.openclawDispatched === 'true').length;
+    const fulfilled  = rows.filter(r => r.status === 'completed').length;
+    const failed     = rows.filter(r => r.status === 'failed').length;
+
+    return c.json({
+      summary: { total, paid, pending, dispatched, fulfilled, failed },
+      jobs: rows,
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 // ── GET /api/skills ───────────────────────────────────────────────────────────
 
 conciergeRouter.get('/skills', (c) => {

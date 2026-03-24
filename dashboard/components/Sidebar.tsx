@@ -15,10 +15,12 @@ import {
   Store,
   Zap,
   ChevronRight,
+  Train,
 } from 'lucide-react';
 
 const coreNav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/bro-jobs', label: 'Bro Bookings', icon: Train },
   { href: '/intents', label: 'Intents', icon: ArrowLeftRight },
   { href: '/escrow', label: 'Escrow', icon: Shield },
 ];

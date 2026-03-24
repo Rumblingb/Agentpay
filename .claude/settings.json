@@ -141,7 +141,11 @@
       "Bash(taskkill /PID 34852 /F)",
       "Bash(cmd /c \"taskkill /PID 34852 /F\")",
       "Bash(echo \"exit: $?\")",
-      "Bash(powershell -Command \"Stop-Process -Id 34852 -Force\")"
+      "Bash(powershell -Command \"Stop-Process -Id 34852 -Force\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''workspaces'''',{}\\).get\\(''''packages'''',[]\\) or d.get\\(''''workspaces'''',[]\\)\\)\\)\")",
+      "Bash(node -e \"const d=require\\(''./package.json''\\); console.log\\(JSON.stringify\\(d.workspaces||{}\\)\\)\")",
+      "Bash(grep -l \"POST\\\\|GET\" /c/Users/visha/agentpay/apps/api-edge/src/routes/*.ts)",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }

@@ -34,6 +34,7 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
+import { dispatchToOpenClaw } from '../lib/openclaw';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -146,6 +147,7 @@ router.post('/', async (c) => {
           // Also confirm Bro marketplace jobs linked to this checkout session
           const broJobId = session.metadata?.jobId as string | undefined;
           if (broJobId) {
+            // Step 1: mark payment confirmed
             const confirmPatch = JSON.stringify({
               stripePaymentConfirmed: true,
               stripeCheckoutSessionId: sessionId,
@@ -160,6 +162,31 @@ router.post('/', async (c) => {
               console.error('[stripe-webhook] bro job confirm failed:', e instanceof Error ? e.message : e),
             );
             console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, sessionId });
+
+            // Step 2: auto-dispatch to OpenClaw if configured
+            if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
+              const jobRows = await sql<any[]>`
+                SELECT metadata FROM payment_intents WHERE id = ${broJobId} LIMIT 1
+              `.catch(() => []);
+
+              if (jobRows.length) {
+                const jobMeta = jobRows[0].metadata ?? {};
+                const clawResult = await dispatchToOpenClaw(c.env, broJobId, jobMeta);
+
+                // Persist dispatch outcome back to job metadata
+                const clawPatch = JSON.stringify({
+                  openclawDispatched: clawResult.status === 'dispatched',
+                  openclawJobId: clawResult.openclawJobId ?? null,
+                  openclawDispatchedAt: clawResult.dispatchedAt,
+                  openclawError: clawResult.error ?? null,
+                });
+                await sql`
+                  UPDATE payment_intents
+                  SET metadata = metadata || ${clawPatch}::jsonb
+                  WHERE id = ${broJobId}
+                `.catch(() => {});
+              }
+            }
           }
           break;
         }
