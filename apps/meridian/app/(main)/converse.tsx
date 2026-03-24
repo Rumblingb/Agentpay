@@ -423,6 +423,19 @@ export default function ConverseScreen() {
   const isConfirming = phase === 'confirming';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
   const idleSuggestions = MARKET_SUGGESTIONS[marketNationality];
+
+  // Time-aware greeting
+  const timeGreeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  })();
+
+  // Last route suggestion — "Same route as last time?"
+  const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
+    ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
+    : null;
   return (
     <SafeAreaView style={styles.safe}>
 
@@ -452,10 +465,12 @@ export default function ConverseScreen() {
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyGreeting}>
-              {userName !== 'there' ? `Hello, ${userName}.` : 'Hello.'}
+              {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
             </Text>
             <Text style={styles.emptyHint}>
-              Hold the orb. Tell me where you're going.{'\n'}Bro will handle the rest.
+              {lastRouteHint
+                ? `${lastRouteHint}\nHold the orb and I'll sort it.`
+                : `Hold the orb. Tell me where you're going.\nBro will handle the rest.`}
             </Text>
             {activeTrip && (
               <Pressable
