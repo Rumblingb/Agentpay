@@ -13,7 +13,7 @@
  * Phases: idle → listening → thinking → confirming → done | error
  */
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -38,6 +38,26 @@ import { appendHistory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
+
+type MarketNationality = 'uk' | 'india' | 'other';
+
+const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
+  uk: [
+    'London to Edinburgh, tomorrow morning',
+    'Next train from Manchester to Derby',
+    'Best route from Birmingham to Euston tonight',
+  ],
+  india: [
+    'Delhi to Agra tomorrow morning',
+    'Mumbai to Pune this evening',
+    'Indiranagar to Whitefield by metro',
+  ],
+  other: [
+    'Book a train tomorrow morning',
+    'Find the fastest rail option into the city',
+    'Check the next departure and fare',
+  ],
+};
 
 // ── Phase labels ──────────────────────────────────────────────────────────────
 
@@ -85,10 +105,27 @@ export default function ConverseScreen() {
   } | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
+  const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const profile = await loadProfileRaw();
+        if (!active || !profile?.nationality) return;
+        setMarketNationality(profile.nationality);
+      } catch {
+        // Keep the default UK launch market if the profile is unavailable.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -373,6 +410,7 @@ export default function ConverseScreen() {
   const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
+  const idleSuggestions = MARKET_SUGGESTIONS[marketNationality];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -409,9 +447,13 @@ export default function ConverseScreen() {
               Hold the orb. Tell me where you're going.{'\n'}I'll handle the rest.
             </Text>
             <View style={styles.suggestions}>
-              <Suggestion icon="train-outline"  text="London to Edinburgh, tomorrow morning" />
-              <Suggestion icon="train-outline"  text="Next train from Manchester to Derby" />
-              <Suggestion icon="subway-outline" text="Indiranagar to Whitefield by metro" />
+              {idleSuggestions.map((suggestion, index) => (
+                <Suggestion
+                  key={suggestion}
+                  icon={marketNationality === 'india' && index === 2 ? 'subway-outline' : 'train-outline'}
+                  text={suggestion}
+                />
+              ))}
             </View>
           </View>
         )}
