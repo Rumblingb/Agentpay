@@ -16,11 +16,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
-import { savePrefs, clearCredentials, clearHistory } from '../../lib/storage';
+import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
 import { hasProfile, deleteProfile } from '../../lib/profile';
 
 export default function SettingsScreen() {
-  const { userName, autoConfirmLimitUsdc, agentId, setPrefs, reset } = useStore();
+  const { userName, autoConfirmLimitUsdc, setPrefs, reset } = useStore();
   const [name, setName]           = useState(userName);
   const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
   const [saved, setSaved]         = useState(false);
@@ -42,14 +42,14 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       'Reset Bro',
-      'This will clear your agent identity, history, and all credentials. You will need to set up again.',
+      'This will clear your Bro setup, recent journeys, and local credentials. You will need to set up again.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset',
           style: 'destructive',
           onPress: async () => {
-            await Promise.all([clearCredentials(), clearHistory()]);
+            await Promise.all([clearCredentials(), clearHistory(), clearActiveTrip()]);
             reset();
             router.replace('/onboard');
           },
@@ -61,7 +61,7 @@ export default function SettingsScreen() {
   const handleClearHistory = () => {
     Alert.alert(
       'Clear History',
-      'Clear all conversation history? Your agent identity will be preserved.',
+      'Clear all conversation history? Your Bro setup will be preserved.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -108,8 +108,8 @@ export default function SettingsScreen() {
 
         {/* Auto-confirm spending limit */}
         <Section
-          label="SPENDING LIMIT"
-          hint="Bro will book automatically below this amount. Above it, you'll confirm with fingerprint."
+          label="BOOKING LIMIT"
+          hint="Bro will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
         >
           <View style={styles.budgetRow}>
             {['2', '5', '10', '25'].map((v) => (
@@ -177,16 +177,6 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        {/* Advanced */}
-        <Section label="ADVANCED">
-          {agentId && (
-            <View style={styles.identityRow}>
-              <Ionicons name="key-outline" size={14} color="#374151" />
-              <Text style={styles.identityText} numberOfLines={1}>{agentId}</Text>
-            </View>
-          )}
-        </Section>
-
         {/* Data */}
         <Section label="DATA">
           <Pressable onPress={handleClearHistory} style={styles.dangerRow}>
@@ -199,10 +189,30 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
+        <Section
+          label="LEGAL"
+          hint="Review what Bro stores locally and what it sends only when you confirm a journey."
+        >
+          <Pressable onPress={() => router.push('/legal/terms')} style={styles.linkRow}>
+            <View style={styles.linkCopy}>
+              <Text style={styles.linkTitle}>Terms of Service</Text>
+              <Text style={styles.linkSubtitle}>How bookings, confirmations, and early-release limits work</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6b7280" />
+          </Pressable>
+          <Pressable onPress={() => router.push('/legal/privacy')} style={[styles.linkRow, { marginTop: 10 }]}>
+            <View style={styles.linkCopy}>
+              <Text style={styles.linkTitle}>Privacy Policy</Text>
+              <Text style={styles.linkSubtitle}>What stays on your device and what Bro shares only when needed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#6b7280" />
+          </Pressable>
+        </Section>
+
         {/* Footer */}
         <Text style={styles.footer}>
           Bro 1.0{'\n'}
-          Powered by AgentPay · agentpay.so
+          Powered by AgentPay · agentpay.gg
         </Text>
 
       </ScrollView>
@@ -307,6 +317,31 @@ const styles = StyleSheet.create({
     borderBottomColor: '#111',
   },
   dangerText: { fontSize: 14, color: '#6b7280' },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#111',
+  },
+  linkCopy: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  linkTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#f9fafb',
+    marginBottom: 4,
+  },
+  linkSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
 
   footer: {
     fontSize: 11,

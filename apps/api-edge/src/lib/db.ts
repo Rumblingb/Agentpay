@@ -46,10 +46,13 @@ export type Sql = ReturnType<typeof postgres>;
 
 
 export function createDb(env: Env): Sql {
-  const hyperdrive = (env as unknown as Record<string, { connectionString?: string }>)["HYPERDRIVE"]?.connectionString;
+  const hyperdrive = env.HYPERDRIVE?.connectionString;
 
   const connectionString = hyperdrive ?? env.DATABASE_URL;
   const usingHyperdrive = Boolean(hyperdrive);
+  if (!connectionString) {
+    throw new Error('DATABASE_URL or HYPERDRIVE connectionString is required');
+  }
 
   return postgres(connectionString, usingHyperdrive
     ? {

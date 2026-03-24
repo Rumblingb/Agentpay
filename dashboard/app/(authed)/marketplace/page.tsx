@@ -39,11 +39,12 @@ interface LeaderboardEntry {
   tasksCompleted: number;
 }
 
-interface FeedEvent {
-  id: string;
-  type: 'job.created' | 'agent.hired' | 'escrow.released' | 'ranking.updated';
-  data: Record<string, unknown>;
-  ts: number;
+interface ActivityEntry {
+  id?: string;
+  paymentId?: string;
+  status?: string;
+  amountUsdc?: number;
+  updatedAt?: string;
 }
 
 interface Category {
@@ -76,11 +77,12 @@ const GRADE_BADGE: Record<string, string> = {
   F: 'bg-red-500/20 text-red-400 border border-red-500/40',
 };
 
-const FEED_BADGE: Record<FeedEvent['type'], string> = {
-  'job.created': 'bg-emerald-500/20 text-emerald-400',
-  'agent.hired': 'bg-blue-500/20 text-blue-400',
-  'escrow.released': 'bg-purple-500/20 text-purple-400',
-  'ranking.updated': 'bg-yellow-500/20 text-yellow-400',
+const ACTIVITY_BADGE: Record<string, string> = {
+  confirmed: 'bg-emerald-500/20 text-emerald-400',
+  completed: 'bg-emerald-500/20 text-emerald-400',
+  pending: 'bg-amber-500/20 text-amber-400',
+  failed: 'bg-red-500/20 text-red-400',
+  expired: 'bg-slate-500/20 text-slate-300',
 };
 
 const PAGE_SIZE = 12;
@@ -88,47 +90,55 @@ const PAGE_SIZE = 12;
 // ─── Live Feed Panel ──────────────────────────────────────────────────────────
 
 function LiveFeedPanel() {
-  const [events, setEvents] = useState<FeedEvent[]>([]);
+  const [events, setEvents] = useState<ActivityEntry[]>([]);
   const [connected, setConnected] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const es = new EventSource('/api/feed/stream');
-    esRef.current = es;
-
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-
-    const handleEvent = (type: FeedEvent['type']) => (e: MessageEvent) => {
-      let data: Record<string, unknown> = {};
+    const load = async () => {
       try {
-        data = JSON.parse(e.data);
+        const res = await fetch('/api/activity');
+        if (!res.ok) throw new Error('offline');
+        const data = await res.json();
+        setEvents((data.activity ?? []).slice(0, 10));
+        setConnected(true);
       } catch {
-        data = { raw: e.data };
+        setConnected(false);
       }
-      setEvents((prev) => [
-        { id: `${Date.now()}-${Math.random()}`, type, data, ts: Date.now() },
-        ...prev.slice(0, 9),
-      ]);
     };
 
-    es.addEventListener('job.created', handleEvent('job.created'));
-    es.addEventListener('agent.hired', handleEvent('agent.hired'));
-    es.addEventListener('escrow.released', handleEvent('escrow.released'));
-    es.addEventListener('ranking.updated', handleEvent('ranking.updated'));
+    void load();
+    pollRef.current = setInterval(() => {
+      void load();
+    }, 15000);
 
     return () => {
-      es.close();
-      esRef.current = null;
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
     };
   }, []);
+
+  const badgeClass = (status?: string) => ACTIVITY_BADGE[status ?? ''] ?? 'bg-slate-500/20 text-slate-300';
+
+  const labelFor = (event: ActivityEntry) => {
+    if (event.status === 'confirmed' || event.status === 'completed') return 'settled';
+    if (event.status === 'pending') return 'pending';
+    if (event.status === 'failed') return 'failed';
+    return event.status ?? 'update';
+  };
+
+  const detailFor = (event: ActivityEntry) => {
+    const amount = typeof event.amountUsdc === 'number' ? `${event.amountUsdc} USDC` : null;
+    const ref = event.paymentId ?? event.id ?? 'payment';
+    return [amount, ref].filter(Boolean).join(' · ');
+  };
 
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-full min-h-[400px]">
       <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity size={14} className="text-emerald-400" />
-          <span className="text-sm font-semibold">Live Feed</span>
+          <span className="text-sm font-semibold">Recent Activity</span>
         </div>
         <span
           className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}
@@ -136,29 +146,24 @@ function LiveFeedPanel() {
       </div>
       <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50">
         {events.length === 0 ? (
-          <div className="p-4 text-xs text-slate-500 text-center">Waiting for events…</div>
+          <div className="p-4 text-xs text-slate-500 text-center">No recent activity yet.</div>
         ) : (
-          events.map((ev) => (
+          events.map((ev, index) => (
             <div
-              key={ev.id}
+              key={ev.id ?? ev.paymentId ?? String(index)}
               className="px-4 py-2.5 space-y-1 animate-in fade-in duration-300"
             >
               <div className="flex items-center gap-2">
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${FEED_BADGE[ev.type]}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeClass(ev.status)}`}
                 >
-                  {ev.type}
+                  {labelFor(ev)}
                 </span>
                 <span className="text-[10px] text-slate-500">
-                  {new Date(ev.ts).toLocaleTimeString()}
+                  {ev.updatedAt ? new Date(ev.updatedAt).toLocaleTimeString() : 'recent'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 truncate">
-                {Object.entries(ev.data)
-                  .slice(0, 2)
-                  .map(([k, v]) => `${k}: ${v}`)
-                  .join(' · ')}
-              </p>
+              <p className="text-xs text-slate-400 truncate">{detailFor(ev)}</p>
             </div>
           ))
         )}

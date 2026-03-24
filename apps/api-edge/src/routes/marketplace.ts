@@ -55,6 +55,28 @@ router.get('/schema', (c) =>
   }),
 );
 
+router.get('/categories', async (c) => {
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql.unsafe<Array<{ category: string | null }>>(
+      `SELECT DISTINCT NULLIF(TRIM(metadata->>'category'), '') AS category
+       FROM agent_identities
+       WHERE metadata ? 'category'
+       ORDER BY category ASC`,
+    ).catch(() => []);
+
+    return c.json({
+      success: true,
+      categories: rows
+        .map((row) => row.category)
+        .filter((category): category is string => Boolean(category))
+        .map((category) => ({ id: category, name: category })),
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 // ---------------------------------------------------------------------------
 // GET /api/marketplace/discover
 // ---------------------------------------------------------------------------

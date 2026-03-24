@@ -208,7 +208,7 @@ router.post('/', async (c) => {
     const merchantRow = merchantRows[0];
 
     // Enforce per-agent spending policy (caps, pauses, recipient lists)
-    const policyBlock = await enforceSpendingPolicy(sql, agentId as string, amount as number).catch(() => null);
+    const policyBlock = await enforceSpendingPolicy(sql, agentId as string, amount as number);
     if (policyBlock) {
       return c.json({
         error: 'SPENDING_POLICY_VIOLATION',

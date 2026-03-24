@@ -14,6 +14,7 @@
 
 import React, { useState, useRef } from 'react';
 import {
+  Alert,
   View,
   Text,
   TextInput,
@@ -59,6 +60,32 @@ import type { AppPhase } from '../lib/store';
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
 type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
+
+const MARKET_COPY: Record<Nationality, {
+  intro: string;
+  fallback: string;
+  demoPrompt: string;
+  setupTagline: string;
+}> = {
+  uk: {
+    intro: 'Hey. I book UK trains by voice. Hold the orb and try me.',
+    fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and book it with your fingerprint.",
+    demoPrompt: 'book a train to London tomorrow',
+    setupTagline: 'UK trains, voice-first, with railcards and station-to-station booking handled for you.',
+  },
+  india: {
+    intro: 'Hey. I book Indian trains by voice. Hold the orb and try me.',
+    fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and get you through payment fast.",
+    demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
+    setupTagline: 'India rail, voice-first, with IRCTC and UPI-ready booking where it matters.',
+  },
+  other: {
+    intro: 'Hey. I book trains by voice. Hold the orb and try me.',
+    fallback: "Need a train? I'd find the best route, quote the fare, and book it with your fingerprint.",
+    demoPrompt: 'book a train tomorrow morning',
+    setupTagline: 'Bro is train-first right now. Pick your market so the experience matches how you travel.',
+  },
+};
 
 export default function OnboardScreen() {
   const { hydrate } = useStore();
@@ -118,6 +145,7 @@ export default function OnboardScreen() {
   const demoIntroPlayedRef = useRef(false);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const marketCopy = MARKET_COPY[nationality];
 
   // Load biometric label on mount
   React.useEffect(() => {
@@ -138,6 +166,20 @@ export default function OnboardScreen() {
     setNationality(nat);
     setDocType(defaultDocumentType(nat));
     setDocNumber('');
+    setDocExpiry('');
+
+    if (nat !== 'uk') {
+      setRailcardType('none');
+    }
+
+    if (nat !== 'india') {
+      setIndiaClassTier('standard');
+      setIrctcId('');
+      setIrctcUsername('');
+      setIrctcPassword('');
+      setShowIrctcPass(false);
+      setUpiId('');
+    }
   };
 
   // ── Demo: Bro speaks first on welcome screen ─────────────────────────────
@@ -146,11 +188,11 @@ export default function OnboardScreen() {
     if (step !== 'welcome' || demoIntroPlayedRef.current) return;
     demoIntroPlayedRef.current = true;
     const t = setTimeout(async () => {
-      await speak("Hey. I book trains — all by voice. Hold the orb and try me.");
+      await speak(marketCopy.intro);
       setDemoPhase('ready');
     }, 600);
     return () => clearTimeout(t);
-  }, [step]);
+  }, [marketCopy.intro, step]);
 
   const handleDemoPressIn = React.useCallback(async () => {
     if (demoPhase !== 'ready') return;
@@ -158,12 +200,12 @@ export default function OnboardScreen() {
     setDemoPhase('listening');
     await startRecording().catch(async () => {
       // Mic denied — show scripted demo so user still gets the wow moment
-      const fallback = "Train to London? I'd find the best route, quote the price, and book it with your fingerprint.";
+      const fallback = marketCopy.fallback;
       setDemoResponse(fallback);
       setDemoPhase('done');
       await speak(fallback);
     });
-  }, [demoPhase]);
+  }, [demoPhase, marketCopy.fallback]);
 
   const handleDemoPressOut = React.useCallback(async () => {
     if (demoPhase !== 'listening') return;
@@ -172,22 +214,22 @@ export default function OnboardScreen() {
       const uri = await stopRecording();
       let transcript = '';
       if (uri) transcript = await transcribeAudio(uri).catch(() => '');
-      if (!transcript) transcript = 'book a train to London tomorrow';
+      if (!transcript) transcript = marketCopy.demoPrompt;
 
       // Small thinking pause — feels real
       await new Promise(r => setTimeout(r, 700));
 
-      const response = getDemoResponse(transcript);
+      const response = getDemoResponse(transcript, nationality);
       setDemoResponse(response);
       setDemoPhase('done');
       await speak(response);
     } catch {
-      const fallback = "Heard you. In the real app, I'd find the best option and book it — just like that.";
+      const fallback = marketCopy.fallback;
       setDemoResponse(fallback);
       setDemoPhase('done');
       await speak(fallback);
     }
-  }, [demoPhase]);
+  }, [demoPhase, marketCopy.demoPrompt, marketCopy.fallback, nationality]);
 
   const handleVoiceFill = async () => {
     setVoiceFilling(true);
@@ -267,12 +309,12 @@ export default function OnboardScreen() {
         documentExpiry: docExpiry.trim() || undefined,
         seatPreference:  seatPref,
         classPreference: classPref,
-        railcardType:    railcardType !== 'none' ? railcardType : undefined,
+        railcardType:    nationality === 'uk' && railcardType !== 'none' ? railcardType : undefined,
         indiaClassTier:  nationality === 'india' ? indiaClassTier : undefined,
-        irctcId:         irctcId.trim()        || undefined,
-        irctcUsername:   irctcUsername.trim()  || undefined,
-        irctcPassword:   irctcPassword.trim()  || undefined,
-        upiId:           upiId.trim()          || undefined,
+        irctcId:         nationality === 'india' ? irctcId.trim() || undefined : undefined,
+        irctcUsername:   nationality === 'india' ? irctcUsername.trim() || undefined : undefined,
+        irctcPassword:   nationality === 'india' ? irctcPassword.trim() || undefined : undefined,
+        upiId:           nationality === 'india' ? upiId.trim() || undefined : undefined,
         whatsappNumber:  whatsapp.trim()        || undefined,
         savedAt:         new Date().toISOString(),
       };
@@ -351,6 +393,24 @@ export default function OnboardScreen() {
 
                 {/* Wordmark */}
                 <Text style={demoStyles.wordmark}>bro</Text>
+
+                <View style={demoStyles.marketWrap}>
+                  <Text style={demoStyles.marketLabel}>Choose your rail market</Text>
+                  <View style={styles.chipRow}>
+                    {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
+                      <Pressable
+                        key={nat}
+                        onPress={() => handleNationality(nat)}
+                        style={[styles.chip, nationality === nat && styles.chipActive, demoStyles.marketChip]}
+                      >
+                        <Text style={[styles.chipText, nationality === nat && styles.chipTextActive]}>
+                          {nat === 'uk' ? '🇬🇧 UK' : nat === 'india' ? '🇮🇳 India' : '🌍 Other'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={demoStyles.marketHint}>{marketCopy.setupTagline}</Text>
+                </View>
 
                 {/* Orb — passive during intro, interactive when ready */}
                 <View style={demoStyles.orbArea}>
@@ -466,9 +526,9 @@ export default function OnboardScreen() {
                 <View style={styles.promiseList}>
                   <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
                   <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
-                  <PromiseRow icon="person"         text="Shared only when you choose to book" />
-                  <PromiseRow icon="checkmark-done" text="Shared only with the agent you select" />
-                  <PromiseRow icon="server"         text="Never stored on our servers" />
+                  <PromiseRow icon="person"         text="Only the details needed for your journey are shared" />
+                  <PromiseRow icon="checkmark-done" text="Shared only to secure the booking you confirm" />
+                  <PromiseRow icon="server"         text="Trip and receipt records may be kept so Bro can reopen your journey" />
                   <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
                 </View>
 
@@ -490,7 +550,15 @@ export default function OnboardScreen() {
                 <PrimaryBtn onPress={handleAcceptPrivacy} label="I understand — continue" />
 
                 <Text style={styles.legalNote}>
-                  By continuing you accept our Terms of Service and Privacy Policy at agentpay.so
+                  By continuing you accept our{' '}
+                  <Text style={styles.legalLink} onPress={() => router.push('/legal/terms')}>
+                    Terms of Service
+                  </Text>
+                  {' '}and{' '}
+                  <Text style={styles.legalLink} onPress={() => router.push('/legal/privacy')}>
+                    Privacy Policy
+                  </Text>
+                  .
                 </Text>
               </View>
             )}
@@ -717,7 +785,7 @@ export default function OnboardScreen() {
                     color="#4b5563"
                   />
                   <Text style={profileStyles.docsToggleText}>
-                    Travel document — required for Eurostar & flights only
+                    Travel document — required for Eurostar and some IRCTC bookings
                   </Text>
                 </Pressable>
 
@@ -823,7 +891,7 @@ export default function OnboardScreen() {
 
                 <FieldLabel
                   text="Auto-approve limit (USDC)"
-                  hint="I'll hire agents automatically up to this amount."
+                  hint="Bro will secure bookings automatically up to this amount."
                 />
                 <View style={styles.chipRow}>
                   {['2', '5', '10', '25'].map((v) => (
@@ -882,8 +950,8 @@ export default function OnboardScreen() {
                 </Pressable>
 
                 <Text style={styles.legalNote}>
-                  Payments powered by AgentPay · agentpay.so{'\n'}
-                  Your agent identity is created automatically.
+                  Payments powered by AgentPay · agentpay.gg{'\n'}
+                  Your Bro setup is created automatically.
                 </Text>
               </View>
             )}
@@ -906,19 +974,22 @@ function demoPhaseTo(dp: string): AppPhase {
 }
 
 /** Generate a convincing scripted mock response based on what the user said */
-function getDemoResponse(transcript: string): string {
+function getDemoResponse(transcript: string, nationality: Nationality): string {
   const t = transcript.toLowerCase();
+  if (nationality === 'india' && t.match(/train|rail|delhi|agra|mumbai|bangalore|bengaluru|chennai|kolkata|pune|hyderabad|irctc|upi|metro/)) {
+    return "Found a strong rail option and I can carry it through with your IRCTC details, then hand you off to UPI or fingerprint confirmation.";
+  }
   if (t.match(/train|rail|london|manchester|birmingham|derby|euston|paddington|victoria|liverpool|edinburgh|glasgow/)) {
     return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
   }
   if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
-    return "Cabs and hotels are coming soon — trains I can sort right now. Try asking for a train journey.";
+    return "Bro is focused on trains right now. Try asking for a rail journey and I'll take it from there.";
   }
   if (t.match(/hotel|room|stay|night|accommodation|b&b|inn|flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
-    return "Hotels and flights are coming soon — trains I can sort right now. Try asking for a train journey.";
+    return "Bro is train-first right now. Ask for a train journey and I'll line up the best option.";
   }
   if (t.match(/food|restaurant|eat|dinner|lunch|table|reservation/)) {
-    return "Table booked at a highly-rated spot nearby. I'm not just for travel — whatever you need, just ask.";
+    return "Bro is focused on getting you there by train first. Ask for the journey and I'll handle the rail part beautifully.";
   }
   const preview = transcript.trim().slice(0, 35);
   return `Heard "${preview}…". In the real app, I'd find the best option and book it — fingerprint to confirm.`;
@@ -1111,6 +1182,7 @@ const styles = StyleSheet.create({
 
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
+  legalLink:{ color: '#818cf8', textDecorationLine: 'underline' },
 });
 
 // ── Demo screen styles ────────────────────────────────────────────────────
@@ -1131,8 +1203,33 @@ const demoStyles = StyleSheet.create({
     letterSpacing: 5,
     textTransform: 'lowercase',
   },
+  marketWrap: {
+    position: 'absolute',
+    top: 78,
+    left: 28,
+    right: 28,
+  },
+  marketLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4b5563',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  marketChip: {
+    marginBottom: 0,
+  },
+  marketHint: {
+    marginTop: -6,
+    marginBottom: 10,
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 19,
+  },
   orbArea: {
     marginBottom: 32,
+    marginTop: 124,
   },
   label: {
     fontSize: 17,

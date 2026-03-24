@@ -4,6 +4,15 @@
   "private": true,
   "description": "Voice-first agentic commerce — powered by AgentPay",
   "main": "expo-router/entry",
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "expo-av"
+        ]
+      }
+    }
+  },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -12,16 +21,16 @@
     "postinstall": "node scripts/patch-expo-modules.js"
   },
   "dependencies": {
-    "@expo/vector-icons": "^14.0.0",
-    "@react-native-async-storage/async-storage": "2.1.0",
+    "@expo/vector-icons": "~14.0.4",
+    "@react-native-async-storage/async-storage": "1.23.1",
     "expo": "~52.0.0",
-    "expo-asset": "~10.0.0",
+    "expo-asset": "~11.0.5",
     "expo-av": "~15.0.0",
     "expo-blur": "~14.0.0",
     "expo-build-properties": "~0.13.0",
     "expo-constants": "~17.0.0",
     "expo-dev-client": "~5.0.0",
-    "expo-file-system": "~17.0.0",
+    "expo-file-system": "~18.0.12",
     "expo-haptics": "~14.0.0",
     "expo-linear-gradient": "~14.0.0",
     "expo-linking": "~7.0.0",
@@ -31,7 +40,7 @@
     "expo-speech": "~13.0.0",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
-    "react-native": "0.76.5",
+    "react-native": "0.76.9",
     "react-native-gesture-handler": "~2.20.0",
     "react-native-reanimated": "~3.16.0",
     "react-native-safe-area-context": "4.12.0",

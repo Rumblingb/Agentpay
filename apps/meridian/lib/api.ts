@@ -3,7 +3,8 @@
  * Thin fetch wrapper over api.agentpay.so
  */
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -13,6 +14,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       signal: init?.signal ?? AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
+        ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
         ...(init?.headers ?? {}),
       },
     });

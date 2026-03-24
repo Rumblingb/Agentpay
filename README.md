@@ -77,7 +77,7 @@ GET /api/receipt/:intentId
 
 ## API reference
 
-Full spec: [`openapi.yaml`](openapi.yaml) — browsable at `/api/docs` on the Workers deployment.
+Full spec: [`openapi.yaml`](openapi.yaml) — committed in-repo and kept aligned to the Workers API surface.
 
 Base URL: `https://api.agentpay.so`
 
@@ -97,6 +97,8 @@ Base URL: `https://api.agentpay.so`
 | `GET /api/receipt/:intentId` | none | Get settlement receipt |
 | `GET /api/verify/:txHash` | none | Verify by transaction hash (HMAC-signed) |
 | `GET /api/health` | none | Health check |
+| `GET /api/agentrank/leaderboard` | none | Public trust leaderboard |
+| `GET /api/marketplace/categories` | none | Marketplace category list |
 
 Authentication: `Authorization: Bearer <api_key>` or `X-Api-Key: <api_key>`
 
@@ -105,7 +107,7 @@ Authentication: `Authorization: Bearer <api_key>` or `X-Api-Key: <api_key>`
 ## Architecture
 
 ```
-Cloudflare Workers (apps/api-edge)   ← public API surface
+Cloudflare Workers (apps/api-edge)   ← authoritative public API surface
   ├── Hono router
   ├── PBKDF2 auth middleware
   ├── Policy engine (AgentPassport)
@@ -113,7 +115,7 @@ Cloudflare Workers (apps/api-edge)   ← public API surface
   ├── Fee ledger outbox (fee_ledger_entries)
   └── Cron triggers (*/5 balance alerts, */15 reconciliation)
 
-Node.js backend (src/)              ← services that need Node APIs
+Node.js backend (src/)              ← legacy/internal services retained during migration
   ├── Solana listener (30s poll)    ← confirms on-chain payments
   ├── Reconciliation daemon (15m)
   └── Webhook delivery
@@ -172,11 +174,11 @@ scripts/           One-time ops scripts
 ## npm packages
 
 ```bash
-npm install @agentpayxyz/sdk        # JavaScript / TypeScript SDK
+npm install @agentpay/sdk           # JavaScript / TypeScript SDK
 npx @agentpayxyz/mcp-server         # MCP server for Claude Desktop
 ```
 
-> **Note:** The npm scope is `@agentpayxyz` while an `@agentpay` org claim is pending with npm. The package names and APIs will not change when the scope transfers.
+> `@agentpay/sdk` is the monorepo's current canonical JS SDK package. Legacy `@agentpayxyz/*` references remain only where the published package has not been cut over yet.
 
 ---
 
@@ -193,4 +195,4 @@ Business Source License 1.1 (BSL-1.1) — converts to AGPL-3.0 on 2029-01-01.
 
 You may use, modify, and distribute this software for any non-commercial purpose. You may not use it to provide a competing hosted payment service. See [LICENSE](LICENSE) for full terms.
 
-Enterprise licenses (for internal deployment or use cases approaching the Additional Use Grant boundary) are available — email enterprise@agentpay.so.
+Enterprise licenses (for internal deployment or use cases approaching the Additional Use Grant boundary) are available — email enterprise@agentpay.gg.

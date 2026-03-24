@@ -215,7 +215,7 @@ export function buildBookingContext(profile: TravelProfile): string {
  */
 const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
   book_train:          ['legalName', 'email', 'phone', 'whatsappNumber', 'seatPreference', 'classPreference', 'railcardType'],
-  book_train_india:    ['legalName', 'email', 'phone', 'whatsappNumber', 'seatPreference', 'classPreference', 'indiaClassTier', 'irctcId', 'irctcUsername', 'irctcPassword', 'upiId'],
+  book_train_india:    ['legalName', 'email', 'phone', 'whatsappNumber', 'seatPreference', 'classPreference', 'indiaClassTier', 'irctcId', 'irctcUsername', 'upiId'],
   book_taxi:      ['legalName', 'phone'],
   search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
   research:       [],

@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
 import { getIntentStatus, createCheckoutSession } from '../../../lib/api';
+import { saveActiveTrip } from '../../../lib/storage';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
@@ -62,6 +63,26 @@ export default function StatusScreen() {
 
   // ── Status polling ────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!jobId) return;
+    void saveActiveTrip({
+      intentId: jobId,
+      jobId,
+      status: 'securing',
+      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+      fromStation: fromStation ?? null,
+      toStation: toStation ?? null,
+      departureTime: departureTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? null,
+      finalLegSummary: finalLegSummary ?? null,
+      fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+      currencySymbol: paramSymbol ?? null,
+      currencyCode: paramCode ?? null,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode]);
+
+  useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
 
     const t = setInterval(async () => {
@@ -87,6 +108,23 @@ export default function StatusScreen() {
             if (data.metadata?.stripePaymentConfirmed) setStripeConfirmed(true);
             setStatusPhase('done');
             setPhase('done');
+            void saveActiveTrip({
+              intentId: jobId,
+              jobId,
+              status: 'ticketed',
+              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Train journey',
+              fromStation: proof.fromStation ?? null,
+              toStation: proof.toStation ?? null,
+              departureTime: proof.departureTime ?? null,
+              platform: proof.platform ?? null,
+              operator: proof.operator ?? null,
+              bookingRef: ref,
+              finalLegSummary: proof.finalLegSummary ?? null,
+              fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+              currencySymbol: paramSymbol ?? null,
+              currencyCode: paramCode ?? null,
+              updatedAt: new Date().toISOString(),
+            });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
               ? `Securing your ticket. Bro reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
@@ -108,6 +146,22 @@ export default function StatusScreen() {
             : 'Booking couldn\'t be completed. Please try again.';
           setErrorMsg(errMsg);
           setPhase('error');
+          void saveActiveTrip({
+            intentId: jobId,
+            jobId,
+            status: 'attention',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            updatedAt: new Date().toISOString(),
+          });
           await speak(errMsg);
         } else if (elapsed >= POLL_TIMEOUT_S) {
           // Booking confirmation is taking too long — auto-complete may have failed.
@@ -116,6 +170,22 @@ export default function StatusScreen() {
           setStatusPhase('error');
           setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
           setPhase('error');
+          void saveActiveTrip({
+            intentId: jobId,
+            jobId,
+            status: 'attention',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            updatedAt: new Date().toISOString(),
+          });
           await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
         }
       } catch {
@@ -124,7 +194,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId]);
+  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   useEffect(() => {
@@ -150,8 +220,11 @@ export default function StatusScreen() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isDone  = statusPhase === 'done';
-  const isError = statusPhase === 'error';
+  const isDone       = statusPhase === 'done';
+  const isError      = statusPhase === 'error';
+  // Only show full green success once payment is confirmed (or no payment needed)
+  const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
+  const isFullyDone  = isDone && (!needsPayment || stripeConfirmed);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -173,10 +246,14 @@ export default function StatusScreen() {
         {/* Main orb visual */}
         <View style={styles.orbWrap}>
           <Animated.View style={{ transform: [{ scale: orbScale }] }}>
-            {isDone ? (
+            {isFullyDone ? (
               <LinearGradient colors={[C.emDim, C.greenMid]} style={[styles.orb, { shadowColor: C.green }]}>
-                  <Ionicons name="checkmark" size={52} color={C.green} />
-                </LinearGradient>
+                <Ionicons name="checkmark" size={52} color={C.green} />
+              </LinearGradient>
+            ) : isDone && needsPayment && !stripeConfirmed ? (
+              <LinearGradient colors={['#451a03', '#92400e']} style={[styles.orb, { shadowColor: '#f59e0b' }]}>
+                <Ionicons name="card-outline" size={44} color="#fbbf24" />
+              </LinearGradient>
             ) : isError ? (
               <LinearGradient colors={[C.redDim, C.redMid]} style={[styles.orb, { shadowColor: C.red }]}>
                 <Ionicons name="warning-outline" size={44} color={C.red} />
@@ -188,16 +265,22 @@ export default function StatusScreen() {
         </View>
 
         {/* Status text */}
-        <Text style={[styles.statusTitle, isDone && styles.statusTitleDone, isError && styles.statusTitleError]}>
-          {isDone ? 'Securing ticket' : isError ? 'Failed' : 'On it…'}
+        <Text style={[styles.statusTitle, isFullyDone && styles.statusTitleDone, isError && styles.statusTitleError,
+          isDone && needsPayment && !stripeConfirmed && { color: '#fbbf24' }]}>
+          {isFullyDone ? 'Journey in hand'
+            : isDone && needsPayment && !stripeConfirmed ? 'Request received'
+            : isError ? 'Needs attention'
+            : 'Working on it'}
         </Text>
 
         <Text style={styles.statusSub}>
-          {isDone
-            ? 'Your request is in. Ticket details arrive by email within 15 minutes.'
+          {isFullyDone
+            ? 'Bro has your journey moving. Ticket details arrive by email shortly.'
+            : isDone && needsPayment && !stripeConfirmed
+            ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
-            : `${currentAgent?.name ?? 'Bro'} is working · ${elapsed}s`}
+            : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
         </Text>
 
         {/* Booking reference pill */}
@@ -275,7 +358,7 @@ export default function StatusScreen() {
         )}
 
         {/* CTA */}
-        {isDone && (
+        {isFullyDone && (
           <Animated.View style={[styles.ctaWrap, { opacity: fadeSuccess }]}>
             <Pressable
               onPress={() => {
@@ -286,6 +369,7 @@ export default function StatusScreen() {
                 if (operator)      qs.set('operator', operator);
                 if (fromStation)   qs.set('fromStation', fromStation);
                 if (toStation)     qs.set('toStation', toStation);
+                if (finalLegSummary) qs.set('finalLegSummary', finalLegSummary);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
               if (paramCode)   qs.set('currencyCode',   paramCode);

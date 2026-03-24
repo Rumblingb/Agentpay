@@ -35,11 +35,8 @@ The session signing uses **HMAC-SHA256** via the Web Crypto API (works in both N
 Copy `dashboard/.env.example` to `dashboard/.env.local`:
 
 ```env
-# Public URL of the AgentPay backend (used by client-side code)
-NEXT_PUBLIC_API_URL=http://localhost:3001
-
-# Server-side URL of the AgentPay backend (may differ in production)
-AGENTPAY_API_BASE_URL=http://localhost:3001
+# Server-side URL of the Workers API
+AGENTPAY_API_BASE_URL=http://localhost:8787
 
 # Secret for HMAC-signing the session cookie (min 32 chars)
 # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -51,11 +48,13 @@ For Vercel deployment these are configured in the Vercel dashboard or `dashboard
 ## Local Development
 
 ```bash
-# From the repo root, start the backend first:
-npm run dev          # starts backend on :3001
+# From apps/api-edge, start the Workers API first:
+cd apps/api-edge
+npm install
+npm run dev          # starts Workers on :8787
 
 # Then start the dashboard:
-cd dashboard
+cd ../../dashboard
 npm install
 npm run dev          # starts dashboard on :3000
 ```

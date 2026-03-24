@@ -176,7 +176,7 @@ async function sendConfirmationEmail(opts: {
     </div>
 
     <div style="font-size:12px;color:#374151;text-align:center;line-height:18px;">
-      Booked by Bro on your behalf · agentpay.so<br>
+      Booked by Bro on your behalf · agentpay.gg<br>
       Your payment was held in escrow and released on delivery.
     </div>
   </div>
@@ -190,7 +190,7 @@ async function sendConfirmationEmail(opts: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Bro <bookings@agentpay.so>',
+      from: 'Bro <bookings@agentpay.gg>',
       to: [opts.to],
       subject: `${opts.bookingRef} — Train from ${opts.from} to ${opts.to_station}`,
       html,
@@ -344,6 +344,9 @@ router.post('/booking-email', async (c) => {
       from:       fromStation ?? 'Origin',
       to_station: toStation ?? 'Destination',
       departure:  departure ?? 'Tomorrow',
+      departureTime: body.departureTime ?? 'TBD',
+      platform:      body.platform ?? 'TBD',
+      operator:      body.operator ?? 'National Rail',
       class_:     classPref ?? 'Standard',
       agentName:  agentName ?? 'TrainAgent',
       priceUsdc:  priceUsdc ?? 0,

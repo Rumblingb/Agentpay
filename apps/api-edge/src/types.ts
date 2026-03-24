@@ -30,7 +30,7 @@ export interface Env {
    *
    * Always a secret — never put this value in wrangler.toml.
    */
-  DATABASE_URL: string;
+  DATABASE_URL?: string;
 
   /**
    * Cloudflare Hyperdrive binding.
@@ -38,7 +38,7 @@ export interface Env {
    * once Hyperdrive is configured in the Cloudflare dashboard.
    * Uncomment the [[hyperdrive]] block in wrangler.toml to enable.
    */
-  // HYPERDRIVE: Hyperdrive;
+  HYPERDRIVE?: { connectionString?: string };
 
   // ── Required secrets ──────────────────────────────────────────────────────
   /** HMAC-SHA256 secret for signing outgoing webhook payloads (≥32 chars). */
@@ -154,6 +154,15 @@ export interface Env {
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
 
+  // ── Bro app client auth ───────────────────────────────────────────────────
+  /**
+   * Static key sent by the Bro app in `x-bro-key` header.
+   * If set, /api/concierge/intent rejects requests without this header.
+   * Set via: npx wrangler secret put BRO_CLIENT_KEY
+   * Add to EAS build env as: EXPO_PUBLIC_BRO_KEY
+   */
+  BRO_CLIENT_KEY?: string;
+
   // ── Darwin (National Rail OpenLDBWS — UK) ────────────────────────────────
   /**
    * Darwin API token — live UK train departure boards.
@@ -220,4 +229,3 @@ export interface MerchantContext {
 export interface Variables {
   merchant: MerchantContext;
 }
-

@@ -9,7 +9,7 @@
 // NEXT_PUBLIC_ variable would leak it into client-side bundles.
 export const API_BASE =
   process.env.AGENTPAY_API_BASE_URL ||
-  'http://localhost:3001';
+  'http://localhost:8787';
 
 export interface MerchantProfile {
   id: string;

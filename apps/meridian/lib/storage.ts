@@ -1,7 +1,7 @@
 /**
  * storage.ts — persistent credential + preference store
  *
- * Credentials (agentId, agentKey, openaiKey) → expo-secure-store (encrypted)
+ * Credentials (agentId, agentKey) → expo-secure-store (encrypted)
  * Preferences (userName, autoConfirmLimit) → AsyncStorage
  * Conversation history → AsyncStorage (last 50 turns)
  */
@@ -14,9 +14,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEYS = {
   agentId:          'meridian.agentId',
   agentKey:         'meridian.agentKey',
-  openaiKey:        'meridian.openaiKey',
   prefs:            'meridian.prefs',
   history:          'meridian.history',
+  activeTrip:       'meridian.activeTrip',
+  trips:            'meridian.trips',
+  legacyTrips:      'bro.trips',
 } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -24,7 +26,6 @@ const KEYS = {
 export interface StoredCredentials {
   agentId: string;
   agentKey: string;
-  openaiKey?: string; // no longer required — voice is proxied server-side
 }
 
 export interface StoredPrefs {
@@ -37,6 +38,40 @@ export interface HistoryTurn {
   role: 'user' | 'meridian';
   text: string;
   ts: number;
+}
+
+export interface ActiveTrip {
+  intentId: string;
+  jobId?: string | null;
+  status: 'securing' | 'ticketed' | 'attention';
+  title: string;
+  fromStation?: string | null;
+  toStation?: string | null;
+  departureTime?: string | null;
+  platform?: string | null;
+  operator?: string | null;
+  bookingRef?: string | null;
+  finalLegSummary?: string | null;
+  fiatAmount?: number | null;
+  currencySymbol?: string | null;
+  currencyCode?: string | null;
+  updatedAt: string;
+}
+
+export interface TripEntry {
+  intentId: string;
+  bookingRef: string | null;
+  fromStation: string | null;
+  toStation: string | null;
+  departureTime: string | null;
+  platform: string | null;
+  operator: string | null;
+  amount: string | number;
+  currency: string;
+  fiatAmount?: number | null;
+  currencySymbol?: string | null;
+  currencyCode?: string | null;
+  savedAt: string;
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
@@ -61,7 +96,6 @@ export async function clearCredentials(): Promise<void> {
   await Promise.all([
     SecureStore.deleteItemAsync(KEYS.agentId),
     SecureStore.deleteItemAsync(KEYS.agentKey),
-    SecureStore.deleteItemAsync(KEYS.openaiKey),
   ]);
 }
 
@@ -110,4 +144,41 @@ export async function appendHistory(turn: HistoryTurn): Promise<void> {
 
 export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(KEYS.history);
+}
+
+export async function loadActiveTrip(): Promise<ActiveTrip | null> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.activeTrip);
+    return raw ? (JSON.parse(raw) as ActiveTrip) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveActiveTrip(trip: ActiveTrip): Promise<void> {
+  await AsyncStorage.setItem(KEYS.activeTrip, JSON.stringify(trip));
+}
+
+export async function clearActiveTrip(): Promise<void> {
+  await AsyncStorage.removeItem(KEYS.activeTrip);
+}
+
+export async function loadTrips(): Promise<TripEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.trips);
+    if (raw) return JSON.parse(raw) as TripEntry[];
+    const legacyRaw = await AsyncStorage.getItem(KEYS.legacyTrips);
+    return legacyRaw ? (JSON.parse(legacyRaw) as TripEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertTrip(entry: TripEntry): Promise<void> {
+  const trips = await loadTrips();
+  const filtered = trips.filter((trip) => trip.intentId !== entry.intentId);
+  filtered.unshift(entry);
+  const serialized = JSON.stringify(filtered.slice(0, 30));
+  await AsyncStorage.setItem(KEYS.trips, serialized);
+  await AsyncStorage.setItem(KEYS.legacyTrips, serialized);
 }

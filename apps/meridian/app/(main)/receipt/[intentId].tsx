@@ -24,10 +24,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt } from '../../../lib/api';
 import { useStore } from '../../../lib/store';
+import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -43,6 +43,7 @@ export default function ReceiptScreen() {
     departureTime?: string;
     platform?: string;
     operator?: string;
+    finalLegSummary?: string;
     fromStation?: string;
     toStation?: string;
     fiatAmount?: string;
@@ -51,6 +52,7 @@ export default function ReceiptScreen() {
   }>();
   const {
     intentId, bookingRef, departureTime, platform, operator, fromStation, toStation,
+    finalLegSummary,
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
   } = params;
 
@@ -65,6 +67,7 @@ export default function ReceiptScreen() {
   const [showTicket,  setShowTicket]  = useState(false);
   const [qrLocalUri,  setQrLocalUri]  = useState<string | null>(null);
   const [qrLoading,   setQrLoading]   = useState(false);
+  const [preservedFinalLegSummary, setPreservedFinalLegSummary] = useState<string | null>(finalLegSummary ?? null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
 
@@ -76,6 +79,18 @@ export default function ReceiptScreen() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [intentId]);
+
+  useEffect(() => {
+    if (finalLegSummary) {
+      setPreservedFinalLegSummary(finalLegSummary);
+      return;
+    }
+    void loadActiveTrip().then((trip) => {
+      if (trip?.intentId === intentId && trip.finalLegSummary) {
+        setPreservedFinalLegSummary(trip.finalLegSummary);
+      }
+    });
+  }, [finalLegSummary, intentId]);
 
   // ── Cache QR image locally for offline use ───────────────────────────────
   useEffect(() => {
@@ -115,29 +130,39 @@ export default function ReceiptScreen() {
       currencyCode:  fiatCode,
       savedAt:       new Date().toISOString(),
     };
-    AsyncStorage.getItem('bro.trips').then(raw => {
-      const trips: typeof entry[] = raw ? JSON.parse(raw) : [];
-      // Deduplicate by intentId
-      const filtered = trips.filter(t => t.intentId !== intentId);
-      filtered.unshift(entry);
-      AsyncStorage.setItem('bro.trips', JSON.stringify(filtered.slice(0, 30)));
-    }).catch(() => {});
-  }, [receipt]);
+    void upsertTrip(entry);
+    void saveActiveTrip({
+      intentId,
+      status: 'ticketed',
+      title: fromStation && toStation ? `${fromStation} → ${toStation}` : 'Train journey',
+      fromStation: fromStation ?? null,
+      toStation: toStation ?? null,
+      departureTime: departureTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? null,
+      bookingRef: bookingRef ?? null,
+      finalLegSummary: preservedFinalLegSummary,
+      fiatAmount: fiatAmountNum,
+      currencySymbol: fiatSymbol,
+      currencyCode: fiatCode,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode]);
 
   const handleShare = async () => {
-    if (!receipt) return;
     await Share.share({
       message: [
-        'Bro — Booking Confirmed',
+        receipt ? 'Bro — Booking Confirmed' : 'Bro — Journey details',
         bookingRef    ? `Reference: ${bookingRef}` : null,
         fromStation && toStation ? `${fromStation} → ${toStation}` : null,
         departureTime ? `Departs: ${departureTime}` : null,
         platform      ? `Platform: ${platform}`     : null,
+        preservedFinalLegSummary ? `Next: ${preservedFinalLegSummary}` : null,
         fiatAmountNum != null
           ? `Amount: ${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
           : null,
         '',
-        'agentpay.so',
+        'agentpay.gg',
       ].filter(Boolean).join('\n'),
     });
   };
@@ -157,13 +182,13 @@ export default function ReceiptScreen() {
 
         {loading && <ActivityIndicator color="#6366f1" style={{ marginTop: 80 }} />}
 
-        {error && (
+        {error && !hasJourneyDetails && (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
 
-        {receipt && !loading && (
+        {((receipt && !loading) || (!loading && hasJourneyDetails)) && (
           <>
             {/* Success badge */}
             <View style={styles.badge}>
@@ -175,17 +200,28 @@ export default function ReceiptScreen() {
             <Text style={styles.amount}>
               {fiatAmountNum != null
                 ? `${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
-                : `${fiatSymbol}${receipt.amount}`}
+                : receipt
+                ? `${fiatSymbol}${receipt.amount}`
+                : 'Journey ready'}
             </Text>
             <Text style={styles.subtitle}>
-              {fromStation && toStation ? `${fromStation} → ${toStation}` : 'Booking confirmed'}
+              {fromStation && toStation
+                ? `${fromStation} → ${toStation}`
+                : receipt
+                ? 'Booking confirmed'
+                : 'Saved on this device'}
             </Text>
 
             {/* Receipt card */}
             <View style={styles.card}>
-              <Row label="Status" value="Confirmed" pill />
-              {receipt.verifiedAt && (
+              <Row label="Status" value={receipt ? 'Confirmed' : 'Saved locally'} pill />
+              {receipt?.verifiedAt && (
                 <Row label="Processed" value={new Date(receipt.verifiedAt).toLocaleString()} />
+              )}
+              {error && (
+                <Text style={styles.localNotice}>
+                  Live receipt lookup is unavailable right now. Bro is showing the journey details saved on this device.
+                </Text>
               )}
             </View>
 
@@ -210,6 +246,7 @@ export default function ReceiptScreen() {
                 {departureTime && <Row label="Departs"  value={departureTime} />}
                 {platform      && <Row label="Platform" value={platform} />}
                 {operator      && <Row label="Operator" value={operator} />}
+                {preservedFinalLegSummary && <Row label="Next step" value={preservedFinalLegSummary} />}
 
                 {/* Show Ticket button — full-screen QR */}
                 {bookingRef && (
@@ -366,6 +403,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1a1a1a',
     marginBottom: 12,
+  },
+  localNotice: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#6b7280',
+    lineHeight: 18,
   },
 
   journeyCard: {
