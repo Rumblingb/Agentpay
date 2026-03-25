@@ -40,6 +40,7 @@ import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/
 import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getNearestStation } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
+import { fetchRate } from '../../lib/currency';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -89,6 +90,30 @@ function getCountdown(departureTime: string | null | undefined): string | null {
   return 'Now';
 }
 
+function getConfirmBaseGbp(plan: ConciergePlanItem[]): number | null {
+  const total = plan.reduce((sum, item) => {
+    if (item.toolName === 'book_train_india' && typeof item.estimatedPriceUsdc === 'number') {
+      return sum + item.estimatedPriceUsdc;
+    }
+    const trainFare = (item as ConciergePlanItem & {
+      trainDetails?: { estimatedFareGbp?: number };
+    }).trainDetails?.estimatedFareGbp;
+    if (typeof trainFare === 'number') {
+      return sum + trainFare;
+    }
+    return sum + item.estimatedPriceUsdc;
+  }, 0);
+
+  return total > 0 ? total : null;
+}
+
+function formatConfirmAmount(amount: number, currency: string): string {
+  if (currency === 'INR') {
+    return Math.round(amount).toLocaleString('en-IN');
+  }
+  return amount.toFixed(2);
+}
+
 export default function ConverseScreen() {
   const {
     phase, setPhase,
@@ -129,6 +154,7 @@ export default function ConverseScreen() {
   const [, setCountdownTick] = useState(0);
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -188,6 +214,40 @@ export default function ConverseScreen() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    if (phase !== 'confirming') {
+      setConfirmFxRate(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const pending = pendingPlanRef.current;
+    const targetCurrency = pending?.fiatCode ?? currencyCode;
+    const baseGbp = getConfirmBaseGbp(pending?.plan ?? []);
+
+    if (!baseGbp || targetCurrency === 'GBP') {
+      setConfirmFxRate(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    fetchRate('GBP', targetCurrency)
+      .then((rate) => {
+        if (active) setConfirmFxRate(rate);
+      })
+      .catch(() => {
+        if (active) setConfirmFxRate(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [phase, currencyCode]);
 
   const speakIfEnabled = useCallback(async (text: string) => {
     if (!voiceEnabled) return;
@@ -653,6 +713,7 @@ export default function ConverseScreen() {
         {isConfirming && (() => {
           const fiat    = pendingPlanRef.current?.fiatAmount ?? 0;
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
+          const code    = pendingPlanRef.current?.fiatCode ?? currencyCode;
           const plan    = pendingPlanRef.current?.plan ?? [];
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
@@ -667,11 +728,21 @@ export default function ConverseScreen() {
                             : dataSource === 'irctc_live'             ? 'IRCTC · Live'
                             : dataSource === 'estimated'              ? 'Estimated fare'
                             : null;
-          // Format: no decimals for INR (large numbers), 2 decimals for others
-          const fiatStr = sym === '₹'
-            ? Math.round(fiat).toLocaleString('en-IN')
-            : fiat.toFixed(2);
-          const priceLabel = fiat > 0 ? `${sym}${fiatStr}` : null;
+          const baseGbp = getConfirmBaseGbp(plan);
+          const localAmount = baseGbp && confirmFxRate ? baseGbp * confirmFxRate : null;
+          const priceLabel = (() => {
+            if (code !== 'GBP' && baseGbp) {
+              const baseLabel = `£${formatConfirmAmount(baseGbp, 'GBP')}`;
+              if (localAmount) {
+                return `${baseLabel} · ${sym}${formatConfirmAmount(localAmount, code)}`;
+              }
+              return baseLabel;
+            }
+            if (fiat > 0) {
+              return `${sym}${formatConfirmAmount(fiat, code)}`;
+            }
+            return null;
+          })();
           return (
             <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
               {tripDesc && (

@@ -155,6 +155,8 @@ export interface Env {
   OPENAI_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
+  /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */
+  FIRECRAWL_API_KEY?: string;
 
   // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
   /** OpenClaw API base URL — e.g. https://api.openclaw.io */

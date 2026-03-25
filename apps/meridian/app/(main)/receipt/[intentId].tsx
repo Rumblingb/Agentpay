@@ -30,6 +30,7 @@ import { getReceipt, type Receipt, reportIssue, registerJobWatch } from '../../.
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
+import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -80,6 +81,7 @@ export default function ReceiptScreen() {
   const [issueText,    setIssueText]    = useState('');
   const [issueSending, setIssueSending] = useState(false);
   const [issueSent,    setIssueSent]    = useState(false);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
 
@@ -103,6 +105,29 @@ export default function ReceiptScreen() {
       }
     });
   }, [finalLegSummary, intentId]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!fromStation) {
+      setWeather(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    fetchWeatherForStation(fromStation)
+      .then((result) => {
+        if (active) setWeather(result);
+      })
+      .catch(() => {
+        if (active) setWeather(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fromStation]);
 
   // ── Cache QR image locally for offline use ───────────────────────────────
   useEffect(() => {
@@ -310,7 +335,21 @@ export default function ReceiptScreen() {
                 {fromStation && toStation && (
                   <Row label="Route" value={`${fromStation} → ${toStation}`} />
                 )}
-                {departureTime && <Row label="Departs"  value={departureTime} />}
+                {departureTime && (
+                  <View style={rowStyles.row}>
+                    <Text style={rowStyles.label}>Departs</Text>
+                    <View style={styles.departureMeta}>
+                      <Text style={rowStyles.value}>{departureTime}</Text>
+                      {weather && (
+                        <View style={styles.weatherPill}>
+                          <Text style={styles.weatherPillText}>
+                            {`${Math.round(weather.tempC)}°C · ${weather.description}`}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
                 {platform      && <Row label="Platform" value={platform} />}
                 {operator      && <Row label="Operator" value={operator} />}
                 {preservedFinalLegSummary && <Row label="Next step" value={preservedFinalLegSummary} />}
@@ -602,6 +641,24 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     letterSpacing: 2.5,
     fontFamily: 'monospace',
+  },
+  departureMeta: {
+    alignItems: 'flex-end',
+    gap: 6,
+    maxWidth: '60%',
+  },
+  weatherPill: {
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  weatherPillText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
   },
 
   showTicketBtn: {

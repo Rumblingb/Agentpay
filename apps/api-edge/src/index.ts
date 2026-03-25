@@ -44,6 +44,7 @@ import { conciergeRouter } from './routes/concierge';
 import { paymentsUpiRouter } from './routes/paymentsUpi';
 import { crewRouter } from './routes/crew';
 import { supportRouter } from './routes/support';
+import { scrapeRouter } from './routes/scrape';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -156,6 +157,9 @@ app.route('/api/crew', crewRouter);
 
 // Support / issue reports — /api/support/issue
 app.route('/api/support', supportRouter);
+
+// Firecrawl scrape proxy — /api/scrape
+app.route('/api/scrape', scrapeRouter);
 
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
