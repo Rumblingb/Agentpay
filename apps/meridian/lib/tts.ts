@@ -1,42 +1,76 @@
-/**
- * tts.ts — server-proxied TTS (OpenAI nova voice)
- *
- * Calls /api/voice/tts on the AgentPay server which calls OpenAI TTS-1.
- * Falls back to expo-speech if the server is unavailable or returns no audio.
- * No OpenAI key needed in the app.
- */
-
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
-import * as Speech from 'expo-speech';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+export const ELEVENLABS_BRO_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
 
-let _sound: Audio.Sound | null = null;
+let activeSound: Audio.Sound | null = null;
+let activeUri: string | null = null;
 
-export async function speak(text: string): Promise<void> {
-  await stopSpeaking();
+function encodeBase64(bytes: Uint8Array): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let output = '';
+
+  for (let index = 0; index < bytes.length; index += 3) {
+    const byte1 = bytes[index] ?? 0;
+    const byte2 = bytes[index + 1] ?? 0;
+    const byte3 = bytes[index + 2] ?? 0;
+    const combined = (byte1 << 16) | (byte2 << 8) | byte3;
+
+    output += alphabet[(combined >> 18) & 63];
+    output += alphabet[(combined >> 12) & 63];
+    output += index + 1 < bytes.length ? alphabet[(combined >> 6) & 63] : '=';
+    output += index + 2 < bytes.length ? alphabet[combined & 63] : '=';
+  }
+
+  return output;
+}
+
+async function stopActivePlayback(): Promise<void> {
+  if (activeSound) {
+    try {
+      await activeSound.stopAsync();
+      await activeSound.unloadAsync();
+    } catch {}
+    activeSound = null;
+  }
+
+  if (activeUri) {
+    FileSystem.deleteAsync(activeUri, { idempotent: true }).catch(() => {});
+    activeUri = null;
+  }
+}
+
+export async function speakBro(text: string): Promise<void> {
+  const apiKey = process.env.EXPO_PUBLIC_ELEVENLABS_KEY;
+  if (!apiKey || !text.trim()) {
+    return;
+  }
+
+  await stopActivePlayback();
 
   try {
-    const res = await fetch(`${BASE}/api/voice/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_BRO_VOICE_ID}/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+          Accept: 'audio/mpeg',
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+        }),
+      },
+    );
 
-    // 204 = server TTS not configured — fall back to system voice
-    if (res.status === 204 || !res.ok) {
-      await new Promise<void>((resolve) => {
-        Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
-      });
+    if (!response.ok) {
       return;
     }
 
-    const { audio } = await res.json() as { audio: string };
-    if (!audio) {
-      await new Promise<void>((resolve) => {
-        Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
-      });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length === 0) {
       return;
     }
 
@@ -46,44 +80,38 @@ export async function speak(text: string): Promise<void> {
       staysActiveInBackground: false,
     });
 
-    const uri = `${FileSystem.cacheDirectory}meridian_tts_${Date.now()}.mp3`;
-    await FileSystem.writeAsStringAsync(uri, audio, {
+    const uri = `${FileSystem.cacheDirectory}bro_elevenlabs_${Date.now()}.mp3`;
+    await FileSystem.writeAsStringAsync(uri, encodeBase64(bytes), {
       encoding: FileSystem.EncodingType.Base64,
     });
+    activeUri = uri;
 
     const { sound } = await Audio.Sound.createAsync(
       { uri },
-      { shouldPlay: false, volume: 1.0 },
+      { shouldPlay: true, volume: 1.0 },
     );
-    _sound = sound;
+    activeSound = sound;
 
-    // Await audio completion before returning — ensures UI changes (confirm card,
-    // biometric prompt) only appear after Bro has finished speaking.
     await new Promise<void>((resolve) => {
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
-          sound.unloadAsync().catch(() => {});
-          FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-          _sound = null;
-          resolve();
+          void stopActivePlayback().finally(resolve);
         }
       });
-      sound.playAsync().catch(() => resolve());
     });
   } catch {
-    await new Promise<void>((resolve) => {
-      Speech.speak(text, { rate: 1.0, language: 'en-US', onDone: resolve, onError: () => resolve() });
-    });
+    await stopActivePlayback();
   }
 }
 
+export function cancelSpeech(): void {
+  void stopActivePlayback();
+}
+
+export async function speak(text: string): Promise<void> {
+  await speakBro(text);
+}
+
 export async function stopSpeaking(): Promise<void> {
-  Speech.stop();
-  if (_sound) {
-    try {
-      await _sound.stopAsync();
-      await _sound.unloadAsync();
-    } catch {}
-    _sound = null;
-  }
+  cancelSpeech();
 }

@@ -1,40 +1,33 @@
-/**
- * location.ts — GPS wrapper for nearest-station detection
- *
- * Wraps expo-location. Asks for permission only if not yet granted.
- * Returns the nearest UK station or null (user out of range / no permission).
- */
-
 import * as Location from 'expo-location';
+
 import { findNearestStation, type StationGeo } from './stationGeo';
 
-/**
- * Get the user's nearest station.
- * Silently returns null if permission denied or outside UK.
- */
 export async function getNearestStation(): Promise<StationGeo | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return null;
+    if (status !== 'granted') {
+      return null;
+    }
 
-    const loc = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced, // fast enough; no need for GPS precision
+    const position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
     });
 
-    return findNearestStation(loc.coords.latitude, loc.coords.longitude);
+    return findNearestStation(position.coords.latitude, position.coords.longitude);
   } catch {
     return null;
   }
 }
 
-/**
- * Check if permission is already granted without prompting.
- */
-export async function hasLocationPermission(): Promise<boolean> {
+export async function getLocationPermissionStatus(): Promise<'granted' | 'denied' | 'undetermined'> {
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
-    return status === 'granted';
+    if (status === 'granted' || status === 'denied' || status === 'undetermined') {
+      return status;
+    }
   } catch {
-    return false;
+    return 'undetermined';
   }
+
+  return 'undetermined';
 }

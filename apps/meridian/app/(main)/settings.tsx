@@ -18,7 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
 import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
 import { hasProfile, deleteProfile } from '../../lib/profile';
-import { UK_STATIONS } from '../../lib/stationGeo';
 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset } = useStore();
@@ -32,6 +31,18 @@ export default function SettingsScreen() {
   useEffect(() => {
     hasProfile().then(setProfileSaved).catch(() => setProfileSaved(false));
   }, []);
+
+  const handleHomeChange = async (value: string) => {
+    setHome(value);
+    setPrefs({ homeStation: value || null });
+    await savePrefs({ homeStation: value.trim() || undefined });
+  };
+
+  const handleWorkChange = async (value: string) => {
+    setWork(value);
+    setPrefs({ workStation: value || null });
+    await savePrefs({ workStation: value.trim() || undefined });
+  };
 
   const handleSave = async () => {
     const budgetN   = parseFloat(budget) || 5;
@@ -109,6 +120,24 @@ export default function SettingsScreen() {
             placeholderTextColor="#374151"
             autoCapitalize="words"
           />
+          <Text style={styles.fieldLabel}>Home station</Text>
+          <TextInput
+            style={[styles.input, { marginTop: 10 }]}
+            value={home}
+            onChangeText={(value) => { void handleHomeChange(value); }}
+            placeholder="e.g. Derby"
+            placeholderTextColor="#374151"
+            autoCapitalize="words"
+          />
+          <Text style={styles.fieldLabel}>Work station</Text>
+          <TextInput
+            style={[styles.input, { marginTop: 10 }]}
+            value={work}
+            onChangeText={(value) => { void handleWorkChange(value); }}
+            placeholder="e.g. London St Pancras"
+            placeholderTextColor="#374151"
+            autoCapitalize="words"
+          />
         </Section>
 
         {/* Auto-confirm spending limit */}
@@ -127,29 +156,6 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
           </View>
-        </Section>
-
-        {/* Quick routes */}
-        <Section
-          label="QUICK ROUTES"
-          hint="Set your home and work stations for one-tap shortcuts on the main screen."
-        >
-          <TextInput
-            style={[styles.input, { marginBottom: 10 }]}
-            value={home}
-            onChangeText={setHome}
-            placeholder="Home station (e.g. Derby)"
-            placeholderTextColor="#374151"
-            autoCapitalize="words"
-          />
-          <TextInput
-            style={styles.input}
-            value={work}
-            onChangeText={setWork}
-            placeholder="Work station (e.g. London St Pancras)"
-            placeholderTextColor="#374151"
-            autoCapitalize="words"
-          />
         </Section>
 
         {/* Travel Profile */}
@@ -279,6 +285,14 @@ const styles = StyleSheet.create({
   title:       { fontSize: 18, fontWeight: '700', color: '#f9fafb' },
   saveBtn:     { fontSize: 15, fontWeight: '600', color: '#818cf8' },
   saveBtnDone: { color: '#4ade80' },
+  fieldLabel: {
+    fontSize: 11,
+    color: '#4b5563',
+    marginTop: 12,
+    marginBottom: -2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
 
   input: {
     backgroundColor: '#111',

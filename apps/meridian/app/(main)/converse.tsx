@@ -27,12 +27,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, PHASE_LABEL_COLOR } from '../../lib/theme';
 
 import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
-import { speak, stopSpeaking } from '../../lib/tts';
+import { speakBro, cancelSpeech } from '../../lib/tts';
 import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
@@ -72,6 +73,8 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 // ── Main screen ───────────────────────────────────────────────────────────────
+
+const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
 
 function getCountdown(departureTime: string | null | undefined): string | null {
   if (!departureTime) return null;
@@ -125,6 +128,7 @@ export default function ConverseScreen() {
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
   const [, setCountdownTick] = useState(0);
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -170,6 +174,25 @@ export default function ConverseScreen() {
     const id = setInterval(() => setCountdownTick(t => t + 1), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(VOICE_ENABLED_KEY);
+        if (!active || stored == null) return;
+        setVoiceEnabled(stored !== 'false');
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const speakIfEnabled = useCallback(async (text: string) => {
+    if (!voiceEnabled) return;
+    await speakBro(text);
+  }, [voiceEnabled]);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -220,7 +243,7 @@ export default function ConverseScreen() {
     };
     addTurn(meridianTurn);
     await appendHistory(meridianTurn);
-    await speak(response.narration);
+    await speakIfEnabled(response.narration);
 
     // Persist detected currency to store (used everywhere in app)
     if (response.currencySymbol && response.currencyCode) {
@@ -252,7 +275,7 @@ export default function ConverseScreen() {
 
     // No action needed (research, clarification, or error from Claude)
     setPhase('idle');
-  }, [agentId, autoConfirmLimitUsdc]);
+  }, [agentId, autoConfirmLimitUsdc, speakIfEnabled]);
 
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
@@ -272,7 +295,7 @@ export default function ConverseScreen() {
       const meridianTurn = { role: 'meridian' as const, text: response.narration, ts: Date.now() };
       addTurn(meridianTurn);
       await appendHistory(meridianTurn);
-      await speak(response.narration);
+      await speakIfEnabled(response.narration);
 
       if (response.actions.length > 0) {
         const firstAction = response.actions[0];
@@ -299,9 +322,9 @@ export default function ConverseScreen() {
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
       setError(msg);
-      await speak(`Sorry — ${msg}`);
+      await speakIfEnabled(`Sorry — ${msg}`);
     }
-  }, [agentId]);
+  }, [agentId, speakIfEnabled]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
 
@@ -311,7 +334,7 @@ export default function ConverseScreen() {
 
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
-      await speak('Payment cancelled.');
+      await speakIfEnabled('Payment cancelled.');
       addTurn({ role: 'meridian', text: 'Payment cancelled.', ts: Date.now() });
       pendingPlanRef.current = null;
       setPhase('idle');
@@ -328,22 +351,22 @@ export default function ConverseScreen() {
     }
 
     await executePhase2(pending);
-  }, [agentId, executePhase2]);
+  }, [agentId, executePhase2, speakIfEnabled]);
 
   // ── Cancel confirmation ───────────────────────────────────────────────────
 
   const handleCancelConfirm = useCallback(async () => {
     pendingPlanRef.current = null;
-    await speak('OK, cancelled.');
+    await speakIfEnabled('OK, cancelled.');
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
-  }, []);
+  }, [speakIfEnabled]);
 
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
   const handleUpiPay = useCallback(async () => {
-    await speak('Payment happens after Bro creates the booking request.');
-  }, []);
+    await speakIfEnabled('Payment happens after Bro creates the booking request.');
+  }, [speakIfEnabled]);
 
   // ── Hold-to-talk (press = start recording, release = send) ──────────────
   // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
@@ -354,7 +377,7 @@ export default function ConverseScreen() {
 
   const handlePressIn = useCallback(async () => {
     if (phase !== 'idle' && phase !== 'error') return;
-    await stopSpeaking();
+    cancelSpeech();
     if (phase === 'error') reset();
     pressStartRef.current    = Date.now();
     recordingReadyRef.current = false;
@@ -366,7 +389,7 @@ export default function ConverseScreen() {
     } catch {
       setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
     }
-  }, [phase]);
+  }, [phase, reset]);
 
   const handlePressOut = useCallback(async () => {
     if (phase !== 'listening') return;
@@ -432,6 +455,24 @@ export default function ConverseScreen() {
     }
   }, [phase, handleIntent]);
 
+  const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
+    if (!nearestStation) return;
+    const text =
+      kind === 'home'
+        ? `Get me home from ${nearestStation.name} to ${destination}`
+        : `Get to work from ${nearestStation.name} to ${destination}`;
+    await handleIntent(text);
+  }, [handleIntent, nearestStation]);
+
+  const handleVoiceToggle = useCallback(async () => {
+    const next = !voiceEnabled;
+    setVoiceEnabled(next);
+    if (!next) cancelSpeech();
+    try {
+      await AsyncStorage.setItem(VOICE_ENABLED_KEY, String(next));
+    } catch {}
+  }, [voiceEnabled]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const phaseLabel = PHASE_LABEL[phase] ?? '';
@@ -463,17 +504,23 @@ export default function ConverseScreen() {
           <View style={styles.headerDot} />
           <Text style={styles.headerTitle}>bro</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <View style={styles.headerActions}>
           {nearestStation && (
             <View style={styles.nearBadge}>
-              <Ionicons name="location-outline" size={11} color="#818cf8" />
-              <Text style={styles.nearBadgeText}>{nearestStation.name.replace(/^London /, '')}</Text>
+              <Text style={styles.nearBadgeText}>{`📍 ${nearestStation.name}`}</Text>
             </View>
           )}
-          <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12}>
+          <Pressable onPress={() => { void handleVoiceToggle(); }} hitSlop={12} style={styles.headerIconBtn}>
+            <Ionicons
+              name={voiceEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
+              size={19}
+              color={voiceEnabled ? C.emBright : C.textMuted}
+            />
+          </Pressable>
+          <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12} style={styles.headerIconBtn}>
             <Ionicons name="time-outline" size={19} color={C.textMuted} />
           </Pressable>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
+          <Pressable onPress={() => router.push('/settings')} hitSlop={12} style={styles.headerIconBtn}>
             <Ionicons name="settings-outline" size={19} color={C.textMuted} />
           </Pressable>
         </View>
@@ -488,6 +535,7 @@ export default function ConverseScreen() {
       >
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
+            <Text style={styles.emptyEyebrow}>Voice-first rail concierge</Text>
             <Text style={styles.emptyGreeting}>
               {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
             </Text>
@@ -562,43 +610,21 @@ export default function ConverseScreen() {
                 </Text>
               </Pressable>
             )}
-            <View style={styles.suggestions}>
-              {idleSuggestions.map((suggestion, index) => (
-                <Suggestion
-                  key={suggestion}
-                  icon={marketNationality === 'india' && index === 2 ? 'subway-outline' : 'train-outline'}
-                  text={suggestion}
-                />
-              ))}
-            </View>
-            {(homeStation || workStation) && (isIdle || isError) && (
-              <View style={styles.quickRoutes}>
-                {homeStation && (
-                  <Pressable
-                    style={styles.quickBtn}
-                    onPress={() => {
-                      const from = nearestStation ? ` from ${nearestStation.name}` : '';
-                      handleIntent(`Get me home to ${homeStation}${from}`);
-                    }}
-                  >
-                    <Ionicons name="home-outline" size={14} color="#818cf8" />
-                    <Text style={styles.quickBtnText}>Home · {homeStation}</Text>
-                  </Pressable>
-                )}
-                {workStation && (
-                  <Pressable
-                    style={styles.quickBtn}
-                    onPress={() => {
-                      const from = nearestStation ? ` from ${nearestStation.name}` : '';
-                      handleIntent(`Get me to work at ${workStation}${from}`);
-                    }}
-                  >
-                    <Ionicons name="business-outline" size={14} color="#818cf8" />
-                    <Text style={styles.quickBtnText}>Work · {workStation}</Text>
-                  </Pressable>
-                )}
+            <View style={styles.suggestionsCard}>
+              <View style={styles.suggestionsHeader}>
+                <Text style={styles.suggestionsEyebrow}>Try one of these</Text>
+                <Text style={styles.suggestionsHint}>One sentence is enough. Bro will work out the route.</Text>
               </View>
-            )}
+              <View style={styles.suggestions}>
+                {idleSuggestions.map((suggestion, index) => (
+                  <Suggestion
+                    key={suggestion}
+                    icon={marketNationality === 'india' && index === 2 ? 'subway-outline' : 'train-outline'}
+                    text={suggestion}
+                  />
+                ))}
+              </View>
+            </View>
           </View>
         )}
 
@@ -715,6 +741,29 @@ export default function ConverseScreen() {
 
       {/* Orb + label */}
       <View style={styles.orbArea}>
+        {nearestStation && (homeStation || workStation) && (isIdle || isError) && (
+          <View style={styles.shortcutRow}>
+            {homeStation && (
+              <Pressable
+                style={styles.shortcutBtn}
+                onPress={() => { void handleShortcutIntent(homeStation, 'home'); }}
+              >
+                <Ionicons name="home-outline" size={13} color="#94a3b8" />
+                <Text style={styles.shortcutBtnText}>Get me home</Text>
+              </Pressable>
+            )}
+            {workStation && (
+              <Pressable
+                style={styles.shortcutBtn}
+                onPress={() => { void handleShortcutIntent(workStation, 'work'); }}
+              >
+                <Ionicons name="business-outline" size={13} color="#94a3b8" />
+                <Text style={styles.shortcutBtnText}>Get to work</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
         <Text style={[styles.phaseLabel, { color: PHASE_LABEL_COLOR[phase] ?? C.textMuted }]}>
           {phaseLabel}
         </Text>
@@ -795,6 +844,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   headerDot: {
     width: 7,
     height: 7,
@@ -812,20 +866,37 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   nearBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: C.indigoDim,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    backgroundColor: '#111111',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  nearBadgeText: { fontSize: 11, color: '#818cf8', fontWeight: '600' },
+  nearBadgeText: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  headerIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  emptyState:    { paddingTop: 44, paddingBottom: 20 },
+  emptyState:    { paddingTop: 32, paddingBottom: 20 },
+  emptyEyebrow: {
+    fontSize: 11,
+    color: C.emBright,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 10,
+  },
   emptyGreeting: {
     fontSize: 34,
     fontWeight: '800',
@@ -837,7 +908,7 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontSize: 16,
     color: C.textMuted,
-    marginBottom: 20,
+    marginBottom: 18,
     lineHeight: 26,
     letterSpacing: 0.1,
   },
@@ -892,25 +963,50 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     lineHeight: 19,
   },
+  suggestionsCard: {
+    marginTop: 2,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 18,
+    padding: 16,
+  },
+  suggestionsHeader: {
+    marginBottom: 10,
+  },
+  suggestionsEyebrow: {
+    fontSize: 11,
+    color: C.textMuted,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  suggestionsHint: {
+    fontSize: 13,
+    color: C.textSecondary,
+    lineHeight: 19,
+  },
   suggestions: {},
-  quickRoutes: {
+  shortcutRow: {
     flexDirection: 'row',
     gap: 10,
     flexWrap: 'wrap',
-    marginTop: 12,
+    justifyContent: 'center',
+    marginBottom: 14,
   },
-  quickBtn: {
+  shortcutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    backgroundColor: C.indigoDim,
+    backgroundColor: '#111111',
     borderWidth: 1,
-    borderColor: '#312e81',
+    borderColor: '#1e293b',
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  quickBtnText: { fontSize: 13, color: '#818cf8', fontWeight: '600' },
+  shortcutBtnText: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
 
   bubble: {
     maxWidth: '85%',
