@@ -72,7 +72,7 @@ export async function scheduleJourneyNotifications(
         body: `${route}${platformSuffix}`,
         data: { intentId },
       },
-      trigger: { seconds: t60secs },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t60secs },
     });
   }
 
@@ -85,7 +85,7 @@ export async function scheduleJourneyNotifications(
         body: `${route} · 15 minutes${platformSuffix}`,
         data: { intentId },
       },
-      trigger: { seconds: t15secs },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t15secs },
     });
   }
 }

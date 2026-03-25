@@ -1007,14 +1007,24 @@ conciergeRouter.post('/fulfill/:jobId', async (c) => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function callClaude(apiKey: string, body: Record<string, unknown>) {
+  // Wrap system string in cache_control block — 90% savings on cache hits.
+  // The system prompt is large (~2k tokens) and identical across all Bro calls
+  // for the same user session. Caching pays back after the first request.
+  const bodyWithCache = { ...body };
+  if (typeof bodyWithCache.system === 'string') {
+    bodyWithCache.system = [
+      { type: 'text', text: bodyWithCache.system, cache_control: { type: 'ephemeral' } },
+    ];
+  }
   return fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta':    'prompt-caching-2024-07-31',
       'content-type':      'application/json',
     },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', ...body }),
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', ...bodyWithCache }),
     // 25s — Workers have a 30s CPU wall; leave headroom for DB + RTT
     signal: AbortSignal.timeout(25_000),
   });
