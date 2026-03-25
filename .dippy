@@ -1,0 +1,30 @@
+# Dippy config for AgentPay / Bro
+# https://github.com/ldayton/Dippy
+
+# Always allow these patterns without prompting
+allow:
+  - "npx wrangler *"
+  - "npx eas *"
+  - "npx tsc *"
+  - "npx eslint *"
+  - "git status"
+  - "git log *"
+  - "git diff *"
+  - "git add *"
+  - "git commit *"
+  - "git push *"
+  - "npm install *"
+  - "npm run *"
+  - "curl -s https://api.agentpay.so/*"
+  - "ccusage *"
+
+# Always block these — require explicit user approval
+deny:
+  - message: "Destructive git operation — confirm you want to do this"
+    pattern: "git reset --hard *"
+  - message: "Force push without lease — high risk of data loss"
+    pattern: "git push *--force"
+  - message: "Deleting wrangler secret — cannot be undone"
+    pattern: "npx wrangler secret delete *"
+  - message: "Deleting Workers deployment"
+    pattern: "npx wrangler delete *"
