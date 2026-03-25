@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "voice-mcp": {
+      "command": "C:\\Users\\visha\\.local\\bin\\voice-mcp.exe",
+      "env": {
+        "OPENAI_API_KEY": "REPLACE_WITH_OPENAI_KEY_OR_REMOVE_IF_USING_LOCAL_WHISPER",
+        "VOICE_MCP_STT_PROVIDER": "openai",
+        "VOICE_MCP_TTS_PROVIDER": "openai"
+      },
+      "disabled": true
+    }
+  }
+}
