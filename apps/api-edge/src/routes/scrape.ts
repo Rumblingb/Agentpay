@@ -5,7 +5,6 @@ export const scrapeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 interface ScrapeRequestBody {
   url?: string;
-  prompt?: string;
 }
 
 interface FirecrawlResponse {
@@ -19,11 +18,12 @@ interface FirecrawlResponse {
 }
 
 scrapeRouter.post('/', async (c) => {
-  if (c.env.BRO_CLIENT_KEY) {
-    const clientKey = c.req.header('x-bro-key') ?? '';
-    if (clientKey !== c.env.BRO_CLIENT_KEY) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
+  if (!c.env.BRO_CLIENT_KEY) {
+    return c.json({ error: 'Service unavailable' }, 503);
+  }
+  const clientKey = c.req.header('x-bro-key') ?? '';
+  if (clientKey !== c.env.BRO_CLIENT_KEY) {
+    return c.json({ error: 'Unauthorized' }, 401);
   }
 
   if (!c.env.FIRECRAWL_API_KEY) {
@@ -38,9 +38,8 @@ scrapeRouter.post('/', async (c) => {
   }
 
   const url = body.url?.trim();
-  const prompt = body.prompt?.trim();
-  if (!url || !prompt) {
-    return c.json({ error: 'url and prompt required' }, 400);
+  if (!url) {
+    return c.json({ error: 'url required' }, 400);
   }
 
   try {

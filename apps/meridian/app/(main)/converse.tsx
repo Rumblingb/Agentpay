@@ -92,9 +92,8 @@ function getCountdown(departureTime: string | null | undefined): string | null {
 
 function getConfirmBaseGbp(plan: ConciergePlanItem[]): number | null {
   const total = plan.reduce((sum, item) => {
-    if (item.toolName === 'book_train_india' && typeof item.estimatedPriceUsdc === 'number') {
-      return sum + item.estimatedPriceUsdc;
-    }
+    // India rail has no GBP equivalent — skip to avoid labelling USDC as £
+    if (item.toolName === 'book_train_india') return sum;
     const trainFare = (item as ConciergePlanItem & {
       trainDetails?: { estimatedFareGbp?: number };
     }).trainDetails?.estimatedFareGbp;
