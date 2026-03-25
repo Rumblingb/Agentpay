@@ -1,52 +1,34 @@
 # RIPER Workflow
 
-Enforce strict phase separation for this task. Move through each phase completely before advancing.
+**R**esearch → **I**nnovate → **P**lan → **E**xecute → **R**eview
 
-## Phases
+Use the sub-commands for phase-specific control:
 
-### R — RESEARCH
-Gather all information needed before proposing anything.
-- Read all relevant files
-- Check git history for context
-- Identify the exact scope of the problem
-- List all unknowns and dependencies
-- **Do not propose solutions yet**
+```
+/riper:research <task>   — investigate codebase (read-only)
+/riper:plan <task>       — create implementation plan
+/riper:execute [step]    — implement the plan
+/riper:review            — validate against plan
+```
 
-### I — INNOVATE
-Generate options and evaluate trade-offs.
-- List 2-3 possible approaches
-- For each: pros, cons, risk level
-- Consider edge cases and failure modes
-- Consider cost (API calls, tokens, compute)
-- **Do not write code yet**
+## Full Session for: $ARGUMENTS
 
-### P — PLAN
-Write a precise, step-by-step implementation plan.
-- List every file that will change
-- List every file that will be created
-- Identify the exact order of operations
-- Call out any secrets / config needed
-- Get user confirmation before proceeding
+If arguments provided, run all phases in sequence:
 
-### E — EXECUTE
-Implement exactly what was planned. No scope creep.
-- Work one file at a time
-- Mark each step complete as done
-- If a blocker is hit, stop and return to PLAN
-- **Do not add features not in the plan**
+1. Start with `/riper:research $ARGUMENTS`
+2. Review findings, then run `/riper:plan $ARGUMENTS`
+3. Confirm the plan, then run `/riper:execute`
+4. When done, run `/riper:review`
 
-### R — REVIEW
-Verify the implementation is correct and complete.
-- Run TypeScript check: `npx tsc --noEmit`
-- Run relevant tests if they exist
-- Verify API endpoints respond correctly
-- Check for security issues (injection, auth bypass, secret exposure)
-- Confirm all planned files are changed
+## When to Use RIPER
 
----
+**Use RIPER for:**
+- New API routes or Workers integrations
+- Adding a new travel vertical (EU rail, Duffel flights)
+- Payment or webhook changes
+- Any multi-file feature touching >3 files
 
-## Task
-
-$ARGUMENTS
-
-Start in **RESEARCH** phase. Report your findings before moving to INNOVATE.
+**Skip RIPER for:**
+- Single-line bug fixes
+- Updating a constant or config value
+- Adding a comment or type annotation
