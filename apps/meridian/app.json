@@ -43,6 +43,27 @@
               "E174.1",
               "85F4.1"
             ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1",
+              "0A2A.1",
+              "3B52.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "E174.1",
+              "85F4.1"
+            ]
           }
         ]
       },
@@ -50,7 +71,8 @@
         "NSMicrophoneUsageDescription": "Bro uses your microphone to capture voice requests.",
         "NSSpeechRecognitionUsageDescription": "Bro uses speech recognition to understand your requests.",
         "NSFaceIDUsageDescription": "Bro uses Face ID to protect your stored credentials.",
-        "NSLocationWhenInUseUsageDescription": "Bro uses your location to find your nearest station and suggest quick routes."
+        "NSLocationWhenInUseUsageDescription": "Bro uses your location to find your nearest station and suggest quick routes.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -67,7 +89,8 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [

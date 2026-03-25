@@ -1,6 +1,8 @@
 node_modules/
 .env
 .DS_Store
+# Claude Code agent worktrees — temporary, never commit
+.claude/worktrees/
 dist/
 dashboard/.next/
 dashboard/node_modules/
