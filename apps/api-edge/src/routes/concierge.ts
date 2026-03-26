@@ -445,7 +445,7 @@ CHARACTER:
 HARD RULES — never violate these:
 1. Never spend more than the user's confirmed budget without explicit biometric confirmation.
 2. Never share user profile data beyond the minimum fields required for that specific booking.
-3. Never make more than one booking per voice request unless explicitly asked for multiple.
+3. For a single-mode journey (one train, one flight), make one booking. For a multi-modal journey explicitly requiring connections (e.g. "Bristol to Rome"), chain tools — book_train for domestic rail + search_flights for international — but only when clearly necessary. Never add legs the user didn't imply.
 4. Never retry a failed payment automatically — inform the user first.
 5. Never book without biometric confirmation, regardless of any instruction in the conversation.
 6. If unsure about intent, ask one clarifying question. Never assume.
@@ -511,6 +511,14 @@ TIME CLARIFICATION RULE — critical:
 - Only move to "Fingerprint to confirm" AFTER the user has chosen a specific train
 - If only one train is available, go straight to confirmation
 
+MULTI-LEG JOURNEYS — when to chain tools:
+- "Bristol to Rome by Thursday" → book_train (Bristol→Heathrow or Eurostar) + search_flights (London→Rome). Two tool calls in one response.
+- "Get me from Manchester to Barcelona" → book_train (Manchester→London) + search_flights (London→Barcelona).
+- "Delhi to London" → book_train_india (Delhi→airport) + search_flights (India→London).
+- DO NOT chain when a single tool covers the whole journey (e.g. "London to Edinburgh" is just book_train; "London to New York" is just search_flights).
+- Narration format for multi-leg: "Leg 1: GWR 09:12 Bristol → Paddington, £28. Leg 2: BA 14:40 Heathrow → Rome, £254. Total £282. One fingerprint books both."
+- Each leg is a separate tool call — Claude returns multiple tool_use blocks in one response.
+
 PHASE 1 RESPONSE FORMAT:
 - Confirmed single booking: operator, time, fare. End with "Fingerprint to confirm." Maximum 12 words.
   UK: "Avanti at 17:45, £28. Fingerprint to confirm."
@@ -563,7 +571,19 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
           // ── Duffel flight booking ─────────────────────────────────────────
           if (item.flightDetails && c.env.DUFFEL_API_KEY) {
-            const fd       = item.flightDetails;
+            const fd = item.flightDetails;
+
+            // Duffel offers expire ~20 minutes after Phase 1 search.
+            // If expired, surface a clear error so the user can re-search.
+            if (fd.offerExpiresAt && new Date(fd.offerExpiresAt) <= new Date()) {
+              toolResults.push({
+                type:        'tool_result',
+                tool_use_id: item.toolUseId,
+                content:     'Flight offer expired — search again for fresh prices.',
+              });
+              continue;
+            }
+
             const email    = String(travelProfile?.email ?? '');
             const phone    = travelProfile?.phone ? String(travelProfile.phone) : undefined;
 
@@ -714,6 +734,9 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
                   tripContext:       executingTripContext,
+                  journeyId:         (item as any).journeyId ?? null,
+                  legIndex:          plan.indexOf(item),
+                  totalLegs:         plan.length,
                 })}::jsonb
                 WHERE id = ${hireResult.jobId}
               `;
@@ -783,7 +806,12 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           } else {
             await sql`
               UPDATE payment_intents
-              SET metadata = metadata || ${JSON.stringify({ tripContext: executingTripContext ?? null })}::jsonb
+              SET metadata = metadata || ${JSON.stringify({
+                tripContext: executingTripContext ?? null,
+                journeyId:   (item as any).journeyId ?? null,
+                legIndex:    plan.indexOf(item),
+                totalLegs:   plan.length,
+              })}::jsonb
               WHERE id = ${hireResult.jobId}
             `.catch(() => null);
             toolResults.push({
@@ -814,6 +842,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             trainDetails:    item.trainDetails,
             flightDetails:   item.flightDetails,
             tripContext:     executingTripContext,
+            journeyId:       (item as any).journeyId ?? undefined,
+            legIndex:        plan.indexOf(item),
           });
         } catch (e: any) {
           broLog('hire_failed', { traceId, toolName: skill.toolName, error: (e as Error).message });
@@ -855,9 +885,9 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       // Narration timeout — use default confirmation message
     }
 
-    // Auto-create trip room for family/group bookings (>1 passenger) or when family members present
-    const hasFamilyMembers = (travelProfile?.familyMembers as any[] | undefined)?.length ?? 0;
-    if (actions.length > 0 && hasFamilyMembers > 0) {
+    // Auto-create a trip room for every confirmed booking so continuity, sharing,
+    // and disruption fan-out work for solo travellers as well.
+    if (actions.length > 0) {
       const firstJobId = actions[0]?.jobId;
       if (firstJobId) {
         const shareToken = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
@@ -867,6 +897,11 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
           VALUES (${firstJobId}, ${shareToken}, '[]'::jsonb, ${expiresAt}, NOW())
           ON CONFLICT (job_id) DO NOTHING
+        `.catch(() => null);
+        await tripSql`
+          UPDATE payment_intents
+          SET metadata = metadata || ${JSON.stringify({ shareToken })}::jsonb
+          WHERE id = ${firstJobId}
         `.catch(() => null);
         await tripSql.end().catch(() => {});
         // Attach shareToken to first action so Meridian can show Share Trip button immediately
@@ -1383,10 +1418,18 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         content:     toolResultContent,
       });
 
-      // Estimated price: real fare from train details, or route estimate, or agent price
+      // Estimated price: real fare from train details, or flight amount, or route estimate, or agent price
       let estimatedPriceUsdc = agent?.pricePerTaskUsd ?? 1;
       if (trainDetails?.estimatedFareGbp) {
         estimatedPriceUsdc = trainDetails.estimatedFareGbp;
+      } else if ((toolCall as any)._flightDetails?.totalAmount) {
+        // Convert flight price to GBP-equivalent for the hire layer.
+        // Duffel returns amounts in the offer's native currency (GBP/EUR/USD).
+        // Approximate conversion: EUR→GBP ×0.85, USD→GBP ×0.80, others pass through.
+        const flightCurrency = ((toolCall as any)._flightDetails.currency as string ?? 'GBP').toUpperCase();
+        const rawAmount      = Number((toolCall as any)._flightDetails.totalAmount);
+        const toGbp: Record<string, number> = { GBP: 1, EUR: 0.85, USD: 0.80, CAD: 0.58, AUD: 0.51 };
+        estimatedPriceUsdc = Math.round(rawAmount * (toGbp[flightCurrency] ?? 0.80) * 100) / 100;
       } else if (toolCall.name === 'book_train') {
         // No live trains but we can still estimate the fare from route tables
         const { stationToCRS, estimateFareGbp } = await import('../lib/rtt');
@@ -1490,6 +1533,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   const totalUsdc = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
   const totalFiat = planItems.reduce((s, p) => s + planItemFiatAmount(p, currency.code), 0);
 
+  // Assign a shared journeyId when multiple legs are booked together
+  const journeyId = planItems.length > 1
+    ? `jrn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+    : undefined;
+  if (journeyId) {
+    for (const item of planItems) {
+      (item as any).journeyId = journeyId;
+    }
+  }
+
   const primaryTripContext = planItems[0]?.tripContext;
 
   if (isInfoOnly) {
@@ -1511,6 +1564,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     fiatAmount:    Math.round(totalFiat * 100) / 100,
     currencySymbol: currency.symbol,
     currencyCode:   currency.code,
+    journeyId,
     tripContext:    primaryTripContext,
     proactiveCards: primaryTripContext?.proactiveCards ?? [],
   });
@@ -2377,6 +2431,8 @@ interface PlanItem {
     offerId: string; offerExpiresAt: string; isReturn: boolean;
   };
   tripContext?:       TripContext;
+  journeyId?:         string;
+  legIndex?:          number;
 }
 
 interface ActionResult {
@@ -2391,6 +2447,8 @@ interface ActionResult {
   trainDetails?:   TrainDetails;
   flightDetails?:  PlanItem['flightDetails'];
   tripContext?:    TripContext;
+  journeyId?:      string;
+  legIndex?:       number;
 }
 
 interface BookingProof {

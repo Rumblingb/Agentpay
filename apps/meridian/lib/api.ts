@@ -226,6 +226,9 @@ export interface ConciergeAction {
   input: Record<string, unknown>;
   status: 'hired' | 'failed';
   tripContext?: TripContext;
+  shareToken?: string;
+  journeyId?: string;
+  legIndex?: number;
 }
 
 export interface ConciergePlanItem {
@@ -264,6 +267,10 @@ export interface ConciergePlanItem {
     pnr?: string;
   };
   tripContext?: TripContext;
+  /** Shared ID linking all legs of a multi-modal journey */
+  journeyId?: string;
+  /** Zero-based position of this leg in a multi-modal journey */
+  legIndex?: number;
 }
 
 export interface ConciergeResponse {
@@ -278,6 +285,8 @@ export interface ConciergeResponse {
   fiatAmount?: number;
   currencySymbol?: string;
   currencyCode?: string;
+  /** Shared ID linking all legs of a multi-modal journey — present when plan.length > 1 */
+  journeyId?: string;
   tripContext?: TripContext;
   proactiveCards?: ProactiveCard[];
 }

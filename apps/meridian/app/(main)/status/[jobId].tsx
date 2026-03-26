@@ -35,8 +35,9 @@ const POLL_MS = 3000;
 type StatusPhase = 'executing' | 'done' | 'error';
 
 export default function StatusScreen() {
-  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken } =
-    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string }>();
+  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
+    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
+  const totalLegs = paramTotalLegs ? Number(paramTotalLegs) : 1;
   const { currentAgent, setPhase } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
@@ -85,9 +86,10 @@ export default function StatusScreen() {
       currencySymbol: paramSymbol ?? null,
       currencyCode: paramCode ?? null,
       tripContext,
+      shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext]);
+  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -127,7 +129,8 @@ export default function StatusScreen() {
             if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
             if (data.metadata?.flightDetails) setFlightData(JSON.stringify(data.metadata.flightDetails));
             // Trip room share token (auto-created for family bookings in Phase 2)
-            if (data.metadata?.shareToken && !shareToken) setShareToken(data.metadata.shareToken);
+            const resolvedShareToken = data.metadata?.shareToken ?? shareToken ?? null;
+            if (resolvedShareToken && resolvedShareToken !== shareToken) setShareToken(resolvedShareToken);
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
@@ -164,6 +167,7 @@ export default function StatusScreen() {
               currencySymbol: paramSymbol ?? null,
               currencyCode: paramCode ?? null,
               tripContext: nextTripContext,
+              shareToken: resolvedShareToken,
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -204,6 +208,7 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            shareToken,
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
@@ -231,6 +236,7 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            shareToken,
             updatedAt: new Date().toISOString(),
           });
           await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
@@ -328,13 +334,21 @@ export default function StatusScreen() {
 
         <Text style={styles.statusSub}>
           {isFullyDone
-            ? 'Bro has your journey moving. Ticket details arrive by email shortly.'
+            ? totalLegs > 1
+              ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
+              : 'Bro has your journey moving. Ticket details arrive by email shortly.'
             : isDone && needsPayment && !paymentConfirmed
             ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
         </Text>
+        {totalLegs > 1 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
+            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg 1 of {totalLegs}</Text>
+          </View>
+        )}
 
         {/* Booking reference pill */}
         {isDone && bookingRef && (
@@ -446,8 +460,9 @@ export default function StatusScreen() {
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
               if (paramCode)   qs.set('currencyCode',   paramCode);
               if (tripContext) qs.set('tripContext', JSON.stringify(tripContext));
+              if (shareToken) qs.set('shareToken', shareToken);
               router.push(`/receipt/${jobId}?${qs.toString()}`);
-              }}
+            }}
               style={styles.receiptBtn}
             >
               <LinearGradient

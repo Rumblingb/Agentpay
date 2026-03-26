@@ -396,6 +396,10 @@ export default function ConverseScreen() {
         if ((firstAction as any).shareToken) {
           qs.set('shareToken', (firstAction as any).shareToken);
         }
+        if (firstAction.journeyId) {
+          qs.set('journeyId', firstAction.journeyId);
+          qs.set('totalLegs', String(response.actions.length));
+        }
         router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
       } else {
         setPhase('idle');
@@ -754,6 +758,16 @@ export default function ConverseScreen() {
           const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
           const nearbyPlaces = tripContext?.nearbyPlaces ?? plan[0]?.nearbyPlaces ?? null;
           const cards = tripCards(tripContext);
+
+          // Flight offer expiry: find the soonest expiry across all flight legs
+          const flightExpiresAt = plan
+            .map(p => p.flightDetails?.offerExpiresAt)
+            .filter(Boolean)
+            .sort()[0] ?? null;
+          const flightExpiryMins = flightExpiresAt
+            ? Math.max(0, Math.floor((new Date(flightExpiresAt).getTime() - Date.now()) / 60000))
+            : null;
+
           const dataSource = plan[0]?.dataSource;
           const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'
                             : dataSource === 'national_rail_scheduled' ? 'National Rail · Scheduled'
@@ -775,17 +789,64 @@ export default function ConverseScreen() {
             }
             return null;
           })();
+          // Multi-leg journey helper
+          const isMultiLeg = plan.length > 1;
+          const legIcon = (toolName: string) =>
+            toolName === 'search_flights' ? '✈️'
+            : toolName === 'plan_metro'   ? '🚇'
+            : '🚆';
+          const legLabel = (item: typeof plan[0]) => {
+            const inp = item.input as Record<string, string>;
+            const from = inp.origin ?? inp.from ?? '';
+            const to   = inp.destination ?? inp.to ?? '';
+            if (item.flightDetails) {
+              const dep = item.flightDetails.departureAt?.slice(11, 16) ?? '';
+              return `${item.flightDetails.carrier} ${item.flightDetails.flightNumber} · ${dep}  ${from}→${to}`;
+            }
+            const td = (item as any).trainDetails as { departureTime?: string; operator?: string } | undefined;
+            const time = td?.departureTime ?? '';
+            const op   = td?.operator ?? item.displayName;
+            return `${op}${time ? ` · ${time}` : ''}  ${from}→${to}`;
+          };
+
           return (
             <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
-              {sourceLabel && (
+
+              {/* Multi-leg journey timeline */}
+              {isMultiLeg && (
+                <View style={styles.legTimeline}>
+                  {plan.map((item, idx) => {
+                    const itemFiat = item.estimatedPriceUsdc; // GBP amount stored here
+                    const legFiatStr = itemFiat > 0 ? `${sym}${formatConfirmAmount(itemFiat, code)}` : '';
+                    return (
+                      <View key={idx} style={styles.legRow}>
+                        <View style={styles.legConnector}>
+                          <Text style={styles.legIconText}>{legIcon(item.toolName)}</Text>
+                          {idx < plan.length - 1 && <View style={styles.legLine} />}
+                        </View>
+                        <View style={styles.legBody}>
+                          <Text style={styles.legLabelText} numberOfLines={1}>{legLabel(item)}</Text>
+                          {legFiatStr ? <Text style={styles.legFareText}>{legFiatStr}</Text> : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                  <View style={styles.legTotalRow}>
+                    <Text style={styles.legTotalLabel}>Total</Text>
+                    <Text style={styles.legTotalAmount}>{priceLabel ?? ''}</Text>
+                  </View>
+                </View>
+              )}
+
+              {sourceLabel && !isMultiLeg && (
                 <View style={styles.sourceBadge}>
                   <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
                 </View>
               )}
-              {priceLabel && (
+              {priceLabel && !isMultiLeg && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
               )}
               {passengers && passengers.length > 1 && (
@@ -812,6 +873,16 @@ export default function ConverseScreen() {
                       </View>
                     );
                   })}
+                </View>
+              )}
+              {flightExpiryMins !== null && flightExpiryMins <= 15 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#431407', borderRadius: 8, padding: 8, marginBottom: 8 }}>
+                  <Ionicons name="time-outline" size={13} color="#fb923c" />
+                  <Text style={{ fontSize: 12, color: '#fb923c', flex: 1 }}>
+                    {flightExpiryMins <= 0
+                      ? 'Price expired — go back and search again.'
+                      : `Price holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'} — confirm now.`}
+                  </Text>
                 </View>
               )}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
@@ -1399,4 +1470,17 @@ const styles = StyleSheet.create({
   passengerPill: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#1e293b' },
   passengerPillText: { fontSize: 12, color: '#f8fafc' },
   passengerFare: { fontSize: 12, color: '#94a3b8' },
+
+  // Multi-leg journey timeline
+  legTimeline:    { marginBottom: 12, borderWidth: 1, borderColor: '#1e293b', borderRadius: 10, padding: 12 },
+  legRow:         { flexDirection: 'row', marginBottom: 4 },
+  legConnector:   { width: 28, alignItems: 'center' },
+  legIconText:    { fontSize: 16, lineHeight: 22 },
+  legLine:        { width: 1, flex: 1, backgroundColor: '#1e293b', marginTop: 2, marginBottom: -4, minHeight: 10 },
+  legBody:        { flex: 1, paddingLeft: 8, paddingBottom: 10 },
+  legLabelText:   { fontSize: 12, color: '#f8fafc', lineHeight: 18 },
+  legFareText:    { fontSize: 12, color: '#94a3b8', marginTop: 1 },
+  legTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 8, marginTop: 4 },
+  legTotalLabel:  { fontSize: 12, color: '#6b7280', fontWeight: '600' },
+  legTotalAmount: { fontSize: 13, color: '#f8fafc', fontWeight: '700' },
 });
