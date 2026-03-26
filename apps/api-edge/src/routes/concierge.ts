@@ -771,8 +771,9 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                     duffelOrderId: order.orderId,
                     passengerName: order.passengerName,
                   },
-                  bookingReference:  order.bookingReference,
-                  pendingFulfilment: false,
+                  bookingReference:    order.bookingReference,
+                  flightWatchActive:   'true',
+                  pendingFulfilment:   false,
                   tripContext: toCompletedTripContext(executingTripContext, {
                     bookingRef: order.bookingReference,
                     origin: order.origin,

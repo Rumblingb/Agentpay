@@ -181,6 +181,12 @@ export interface Env {
    * npx wrangler secret put DUFFEL_API_KEY
    */
   DUFFEL_API_KEY?: string;
+  /**
+   * Aviationstack flight status API — gate changes, delays, cancellations for booked flights.
+   * Free: 500 req/mo.  Paid: $9.99/mo (10,000 req).
+   * npx wrangler secret put AVIATIONSTACK_API_KEY
+   */
+  AVIATIONSTACK_API_KEY?: string;
 
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */

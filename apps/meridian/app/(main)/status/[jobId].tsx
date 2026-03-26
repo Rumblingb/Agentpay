@@ -34,6 +34,13 @@ const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
+type HotelDetails = {
+  city: string;
+  checkIn: string;
+  checkOut: string;
+  bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string };
+};
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
@@ -57,6 +64,7 @@ export default function StatusScreen() {
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
   const [suggestedEvent, setSuggestedEvent]   = useState<{ name: string; venue: string; date: string; price?: string; url?: string } | null>(null);
+  const [hotelDetails, setHotelDetails]       = useState<HotelDetails | null>(null);
 
   const [countdown, setCountdown]       = useState<string | null>(null);
   const spokenRef   = useRef({ t30: false, t10: false, arrived: false });
@@ -132,6 +140,7 @@ export default function StatusScreen() {
             if (proof.finalLegSummary)   setFinalLegSummary(proof.finalLegSummary);
             if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
             if (data.metadata?.flightDetails) setFlightData(JSON.stringify(data.metadata.flightDetails));
+            if (data.metadata?.hotelDetails) setHotelDetails(data.metadata.hotelDetails as HotelDetails);
             // Trip room share token (auto-created for family bookings in Phase 2)
             const resolvedShareToken = data.metadata?.shareToken ?? shareToken ?? null;
             if (resolvedShareToken && resolvedShareToken !== shareToken) setShareToken(resolvedShareToken);
@@ -429,6 +438,24 @@ export default function StatusScreen() {
                 )}
               </View>
             )}
+          </View>
+        )}
+
+        {/* Hotel booking card */}
+        {isDone && hotelDetails?.bestOption && (
+          <View style={[styles.bookingRefWrap, { borderColor: '#1e3a5f', marginTop: 8 }]}>
+            <Text style={styles.bookingRefLabel}>🏨 {hotelDetails.bestOption.name}</Text>
+            <View style={styles.journeyMeta}>
+              <View style={styles.journeyBadge}>
+                <Text style={styles.journeyBadgeText}>Check-in {hotelDetails.checkIn}</Text>
+              </View>
+              <View style={styles.journeyBadge}>
+                <Text style={styles.journeyBadgeText}>Check-out {hotelDetails.checkOut}</Text>
+              </View>
+              <Text style={[styles.journeyOperator, { color: '#4ade80' }]}>
+                {hotelDetails.bestOption.currency} {hotelDetails.bestOption.ratePerNight}/night · {hotelDetails.city}
+              </Text>
+            </View>
           </View>
         )}
 

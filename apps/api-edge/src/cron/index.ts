@@ -23,6 +23,7 @@ import type { Env } from '../types';
 import { runLiquidityCron } from './liquidity';
 import { runReconciliation } from './reconciliation';
 import { runPlatformWatch } from './platformWatch';
+import { runFlightWatch } from './flightWatch';
 import { runMondayPattern } from './mondayPattern';
 
 /**
@@ -42,6 +43,7 @@ export async function scheduledHandler(
     case '*/5 * * * *':
       ctx.waitUntil(runLiquidityCron(env));
       ctx.waitUntil(runPlatformWatch(env));
+      ctx.waitUntil(runFlightWatch(env));
       break;
 
     case '*/15 * * * *':
