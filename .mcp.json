@@ -1,5 +1,16 @@
 {
   "mcpServers": {
+    "stitch": {
+      "command": "npx",
+      "args": ["-y", "@_davideast/stitch-mcp"]
+    },
+    "nano-banana": {
+      "command": "npx",
+      "args": ["-y", "@nanana-ai/mcp-server-nano-banana"],
+      "env": {
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}"
+      }
+    },
     "voice-mcp": {
       "command": "C:\\Users\\visha\\.local\\bin\\voice-mcp.exe",
       "env": {

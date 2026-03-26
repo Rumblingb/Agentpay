@@ -57,9 +57,12 @@ const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
     'Indiranagar to Whitefield by metro',
   ],
   other: [
-    'Book a train tomorrow morning',
-    'Find the fastest rail option into the city',
-    'Check the next departure and fare',
+    'Tokyo to Osaka tomorrow, Shinkansen',
+    'London to Edinburgh cheapest — bus or train?',
+    'Bangkok to Chiang Mai tomorrow',
+    'New York to Washington fastest',
+    'Seoul to Busan on KTX Friday',
+    'Singapore to Kuala Lumpur by bus',
   ],
 };
 
@@ -623,7 +626,7 @@ export default function ConverseScreen() {
       >
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEyebrow}>Voice-first rail concierge</Text>
+            <Text style={styles.emptyEyebrow}>Voice-first travel concierge</Text>
             <Text style={styles.emptyGreeting}>
               {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
             </Text>
@@ -772,6 +775,12 @@ export default function ConverseScreen() {
           const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'
                             : dataSource === 'national_rail_scheduled' ? 'National Rail · Scheduled'
                             : dataSource === 'irctc_live'             ? 'IRCTC · Live'
+                            : dataSource === 'eu_live'                ? 'EU Rail · Live'
+                            : dataSource === 'eu_scheduled'           ? 'EU Rail · Scheduled'
+                            : dataSource === 'global_rail_live'       ? 'Global Rail · Live'
+                            : dataSource === 'global_rail_scheduled'  ? 'Global Rail · Scheduled'
+                            : dataSource === 'bus_live'               ? 'Coach · Live'
+                            : dataSource === 'bus_scheduled'          ? 'Coach · Scheduled'
                             : dataSource === 'estimated'              ? 'Estimated fare'
                             : null;
           const baseGbp = getConfirmBaseGbp(plan);
@@ -793,6 +802,7 @@ export default function ConverseScreen() {
           const isMultiLeg = plan.length > 1;
           const legIcon = (toolName: string) =>
             toolName === 'search_flights' ? '✈️'
+            : toolName === 'book_bus'     ? '🚌'
             : toolName === 'plan_metro'   ? '🚇'
             : '🚆';
           const legLabel = (item: typeof plan[0]) => {

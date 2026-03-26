@@ -31,7 +31,7 @@ const trainSkill: SkillDefinition = {
   toolName: 'book_train',
   category: 'rail',
   displayName: 'TrainAgent',
-  description: 'Search and book UK and European train journeys. Handles single tickets, returns, railcard discounts, first class, business class, and seat reservations. Covers National Rail, Eurostar, TGV, ICE, Frecciarossa, AVE, and all major European operators.',
+  description: 'Search and book UK, European, and major global train journeys. Handles single tickets, returns, railcard discounts, first class, business class, and seat reservations. Covers National Rail, Eurostar, TGV, ICE, Frecciarossa, AVE, Amtrak, VIA Rail, Shinkansen, KTX, and other major intercity corridors.',
   requiredProfileFields: ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardType'],
   inputSchema: {
     type: 'object',
@@ -48,7 +48,7 @@ const trainSkill: SkillDefinition = {
     },
   },
   skillDoc: `# TrainAgent
-Searches and books UK and European rail journeys.
+Searches and books UK, European, and major global rail journeys.
 
 ## Coverage
 - **UK**: All National Rail services (live via Darwin). 200+ stations.
@@ -62,6 +62,8 @@ Searches and books UK and European rail journeys.
 - **Switzerland (SBB)**: Zurich ↔ Geneva / Basel / Bern / Milan / Munich.
 - **Czech Republic**: Prague ↔ Vienna / Berlin.
 - **Scandinavia**: Stockholm ↔ Gothenburg / Copenhagen / Oslo.
+- **North America**: New York ↔ Boston / Washington / Philadelphia, Toronto ↔ Montreal, Vancouver ↔ Seattle.
+- **Asia**: Tokyo ↔ Kyoto / Osaka / Nagoya, Seoul ↔ Busan, Bangkok ↔ Chiang Mai, Singapore ↔ Kuala Lumpur.
 
 ## Class tiers
 - **standard** — economy / 2nd class. Default.
@@ -125,8 +127,9 @@ Searches and books UK and European rail journeys.
 → Abandon current plan, start fresh with the new request.
 
 ## Output
-Returns booking reference, departure time, platform (if known), operator, price (£ UK, € EU), and confirmation email status.
-For EU routes: mention that booking is via Rail Europe / Trainline partner and will be confirmed by email.`,
+Returns booking reference, departure time, platform (if known), operator, price (£ UK/global, € EU), and confirmation email status.
+For EU routes: mention that booking is via Rail Europe / Trainline partner and will be confirmed by email.
+For global routes outside Europe: mention that schedules may be partner-fed and ticketing may be confirmed by email.`,
 };
 
 // ── Luxury rail booking ───────────────────────────────────────────────────────
@@ -412,6 +415,76 @@ Returns vehicle type, driver details (on day of travel), pickup time confirmed, 
 };
 
 // ── Flight search ────────────────────────────────────────────────────────────
+
+const busSkill: SkillDefinition = {
+  toolName: 'book_bus',
+  category: 'bus',
+  displayName: 'BusAgent',
+  description: 'Search and book intercity buses and coaches worldwide. UK: National Express and Megabus between 25+ cities (London, Manchester, Birmingham, Bristol, Edinburgh, Glasgow, Cardiff, Leeds, York, Oxford, Cambridge, Brighton, Bath, Sheffield, Liverpool, Newcastle, Exeter, etc.). EU: FlixBus across all major corridors. USA/Canada: Greyhound, FlixBus USA, Northeast corridor. SE Asia: Bangkok–Chiang Mai/Phuket, Singapore–KL/Penang, Ho Chi Minh–Hanoi, Jakarta–Bali/Yogya. Cheaper than rail on many routes — always check when user asks for budget options.',
+  requiredProfileFields: ['legalName', 'email', 'phone'],
+  inputSchema: {
+    type: 'object',
+    required: ['origin', 'destination'],
+    properties: {
+      origin:          { type: 'string', description: 'Departure city or coach station' },
+      destination:     { type: 'string', description: 'Arrival city or coach station' },
+      date:            { type: 'string', description: 'Travel date - ISO or natural language' },
+      time_preference: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'any'], description: 'Preferred departure window' },
+      comfort:         { type: 'string', enum: ['standard', 'premium', 'sleeper'], description: 'Coach comfort preference' },
+    },
+  },
+  skillDoc: `# BusAgent
+Searches and books intercity buses and coaches worldwide.
+
+## Coverage
+
+### UK (National Express / Megabus / FlixBus UK)
+London Victoria ↔ Manchester, Birmingham, Bristol, Edinburgh, Glasgow, Cardiff, Leeds, York, Oxford, Cambridge, Brighton, Bath, Sheffield, Liverpool, Newcastle, Exeter, Nottingham, Coventry, Portsmouth, Southampton, and more.
+Fares from £3 advance (London–Oxford, London–Brighton). Typical London–Manchester: £8–15. London–Edinburgh: £18–30.
+
+### EU (FlixBus / BlaBlaCar Bus / Eurolines)
+Paris–Amsterdam, Paris–Berlin, Paris–Brussels, Frankfurt–Berlin, Munich–Vienna, Prague–Berlin/Vienna, Rome–Milan, Barcelona–Madrid, London–Paris/Amsterdam (via ferry + coach).
+
+### USA / Canada (Greyhound / FlixBus USA / Trailways)
+New York–Boston, New York–Washington DC, New York–Philadelphia, Los Angeles–San Francisco, LA–Las Vegas, Seattle–Portland. Toronto–Montreal, Vancouver–Seattle.
+
+### SE Asia (regional operators)
+Bangkok–Chiang Mai (10h, ฿300), Bangkok–Phuket (12h, ฿700), Singapore–KL (6h, S$25), Ho Chi Minh–Hanoi (overnight, ₫350k), Jakarta–Yogyakarta (8h, Rp150k), Jakarta–Bali (via ferry, Rp200k).
+
+## Operators
+UK: National Express, Megabus, FlixBus UK
+EU: FlixBus (dominant), BlaBlaCar Bus, Eurolines
+USA: Greyhound, FlixBus USA, Megabus USA
+SE Asia: Nakhon Chai Air (Thailand), Transnational (Malaysia/SG), Sinh Tourist (Vietnam), PO Rosalia Indah (Indonesia)
+
+## When to use buses over trains
+- Budget queries ("cheapest way", "how cheap can I get")
+- UK routes under 4h where train would be 3–5× more
+- SE Asia where rail is slower or limited
+- Overnight routes where sleeper coach saves hotel cost
+
+## Cannot handle
+- Local city buses (use navigate or metro instead)
+- Charter coach hire
+- Tour buses
+
+## Edge cases
+
+**"Cheapest way from X to Y"**
+→ Always check bus before flights. Present fare comparison: "Train £28, Bus £8 (3h longer)."
+
+**No time given**
+→ Return up to 4 departures spread through the day, ask which one.
+
+**Short local bus request**
+→ Do not use this tool. Use navigate or metro instead.
+
+**Overnight journey**
+→ Mention sleep opportunity: "Overnight coach — arrives 06:30, saves a night's hotel."
+
+## Output
+Returns operator, departure time, arrival time, journey duration, coach amenities (WiFi/USB/AC), and fare in local currency.`,
+};
 
 const flightSkill: SkillDefinition = {
   toolName: 'search_flights',
@@ -710,6 +783,7 @@ export const SKILLS: SkillDefinition[] = [
   trainSkill,           // UK + EU rail (Darwin live + EU Rail Europe/Trainline/mock)
   luxuryRailSkill,      // Orient Express, Royal Scotsman, Caledonian Sleeper, etc.
   trainIndiaSkill,      // Indian Railways IRCTC
+  busSkill,             // Intercity coaches and buses
   flightSkill,          // Flights — Duffel 350+ airlines
   metroSkill,           // Bengaluru + Pune metro
   hotelSkill,           // Hotels — manual fulfillment via ops team
