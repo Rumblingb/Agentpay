@@ -1,14 +1,14 @@
-/**
- * Trip Rooms — shared live journey for family/group travel
+﻿/**
+ * Trip Rooms â€” shared live journey for family/group travel
  *
  * A trip room is created when a job is confirmed. It has a short share token
- * that anyone can join with one tap — no account needed.
+ * that anyone can join with one tap â€” no account needed.
  *
  * Routes:
- *   POST /api/trip-rooms               — create a room for a job (called after Phase 2 confirm)
- *   POST /api/trip-rooms/:token/join   — add a member (push token) to a room
- *   GET  /api/trip-rooms/:token        — get room status (used by joinable web view + Meridian)
- *   GET  /trip/:token                  — lightweight HTML page for non-app users (no auth)
+ *   POST /api/trip-rooms               â€” create a room for a job (called after Phase 2 confirm)
+ *   POST /api/trip-rooms/:token/join   â€” add a member (push token) to a room
+ *   GET  /api/trip-rooms/:token        â€” get room status (used by joinable web view + Meridian)
+ *   GET  /trip/:token                  â€” lightweight HTML page for non-app users (no auth)
  *
  * Fan-out: when Darwin pushes a platform change / delay / cancel, stripeWebhooks.ts
  * also queries trip_rooms WHERE job_id = ? and fans out to all member push tokens.
@@ -148,10 +148,33 @@ function buildJourneyLeg(job: { id: string; status: string; metadata: any }): Jo
   };
 }
 
+function deriveRoomExpiry(legs: JourneyLegView[], now = Date.now()): string {
+  const minExpiry = now + 48 * 60 * 60 * 1000;
+  const latestTravelInstant = legs.reduce<number | null>((latest, leg) => {
+    const candidates = [leg.departureTime, leg.arrivalTime]
+      .map((value) => (value ? Date.parse(value) : Number.NaN))
+      .filter((value) => Number.isFinite(value));
+    const legLatest = candidates.length ? Math.max(...candidates) : null;
+    if (legLatest == null) return latest;
+    return latest == null ? legLatest : Math.max(latest, legLatest);
+  }, null);
+  const tripAwareExpiry = latestTravelInstant != null
+    ? latestTravelInstant + 18 * 60 * 60 * 1000
+    : minExpiry;
+  return new Date(Math.max(minExpiry, tripAwareExpiry)).toISOString();
+}
+
+function deriveJourneyStatus(legs: JourneyLegView[], fallback: string): string {
+  if (legs.length === 0) return fallback;
+  if (legs.some(l => ['failed', 'expired', 'rejected'].includes(l.status))) return 'failed';
+  if (legs.every(l => ['completed', 'confirmed', 'verified'].includes(l.status))) return 'completed';
+  return fallback;
+}
+
 async function loadJourneyLegs(
   sql: ReturnType<typeof createDb>,
   jobId: string,
-): Promise<{ journeyId: string | null; legs: JourneyLegView[]; anchorMetadata: any; anchorStatus: string }> {
+): Promise<{ journeyId: string | null; legs: JourneyLegView[]; anchorMetadata: any; anchorStatus: string; journeyStatus: string }> {
   const anchorRows = await sql<{ id: string; status: string; metadata: any }[]>`
     SELECT id, status, metadata
     FROM payment_intents
@@ -161,16 +184,18 @@ async function loadJourneyLegs(
 
   const anchor = anchorRows[0];
   if (!anchor) {
-    return { journeyId: null, legs: [], anchorMetadata: {}, anchorStatus: 'unknown' };
+    return { journeyId: null, legs: [], anchorMetadata: {}, anchorStatus: 'unknown', journeyStatus: 'unknown' };
   }
 
   const journeyId = (anchor.metadata?.journeyId as string | undefined) ?? null;
   if (!journeyId) {
+    const legs = [buildJourneyLeg(anchor)];
     return {
       journeyId: null,
-      legs: [buildJourneyLeg(anchor)],
+      legs,
       anchorMetadata: anchor.metadata ?? {},
       anchorStatus: anchor.status,
+      journeyStatus: deriveJourneyStatus(legs, anchor.status),
     };
   }
 
@@ -183,11 +208,13 @@ async function loadJourneyLegs(
       created_at ASC
   `.catch(() => anchorRows as any);
 
+  const legs = journeyRows.map((row: { id: string; status: string; metadata: any }) => buildJourneyLeg(row));
   return {
     journeyId,
-    legs: journeyRows.map((row: { id: string; status: string; metadata: any }) => buildJourneyLeg(row)),
+    legs,
     anchorMetadata: anchor.metadata ?? {},
     anchorStatus: anchor.status,
+    journeyStatus: deriveJourneyStatus(legs, anchor.status),
   };
 }
 
@@ -229,17 +256,22 @@ export async function createOrReuseTripRoom(
   jobId: string,
   ownerPushToken?: string,
 ): Promise<{ room: TripRoomRow; created: boolean; memberCount: number }> {
+  const journey = await loadJourneyLegs(sql, jobId);
+  const expiresAt = deriveRoomExpiry(journey.legs);
   const existing = await loadRoomForJob(sql, jobId);
   if (existing) {
     const currentMembers = normalizeMembers(existing.members);
     const ownerUpdate = appendMemberIfNeeded(currentMembers, ownerPushToken, 'Owner', 'owner');
-    if (ownerUpdate.added) {
+    const shouldRefreshExpiry = new Date(existing.expires_at).getTime() < Date.parse(expiresAt);
+    if (ownerUpdate.added || shouldRefreshExpiry) {
       await sql`
         UPDATE trip_rooms
-        SET members = ${JSON.stringify(ownerUpdate.members)}::jsonb
+        SET members = ${JSON.stringify(ownerUpdate.members)}::jsonb,
+            expires_at = ${expiresAt}
         WHERE id = ${existing.id}
       `;
       existing.members = ownerUpdate.members;
+      existing.expires_at = expiresAt;
     }
     return {
       room: existing,
@@ -249,7 +281,6 @@ export async function createOrReuseTripRoom(
   }
 
   const shareToken = makeShareToken();
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
   const members = ownerPushToken
     ? [{
         pushToken: ownerPushToken,
@@ -271,8 +302,8 @@ export async function createOrReuseTripRoom(
   };
 }
 
-// ── POST /api/trip-rooms ──────────────────────────────────────────────────────
-// Create a trip room for a confirmed job. Idempotent — returns existing if already created.
+// â”€â”€ POST /api/trip-rooms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Create a trip room for a confirmed job. Idempotent â€” returns existing if already created.
 
 tripRoomsRouter.post('/', async (c) => {
   if (!authCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
@@ -312,7 +343,7 @@ tripRoomsRouter.post('/', async (c) => {
   }
 });
 
-// ── POST /api/trip-rooms/:token/join ─────────────────────────────────────────
+// â”€â”€ POST /api/trip-rooms/:token/join â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Add a member to a room. Called when someone taps the shared link.
 
 tripRoomsRouter.post('/:token/join', async (c) => {
@@ -353,7 +384,7 @@ tripRoomsRouter.post('/:token/join', async (c) => {
       jobId: room.job_id,
       journeyId: journey.journeyId,
       memberCount: nextMembers.length,
-      jobStatus: journey.anchorStatus ?? null,
+      jobStatus: journey.journeyStatus ?? null,
       trainDetails: anchorMeta.trainDetails ?? null,
       flightDetails: anchorMeta.flightDetails ?? null,
       bookingRef: anchorMeta.broRef ?? anchorMeta.bookingReference ?? null,
@@ -364,7 +395,7 @@ tripRoomsRouter.post('/:token/join', async (c) => {
   }
 });
 
-// ── GET /api/trip-rooms/:token ────────────────────────────────────────────────
+// â”€â”€ GET /api/trip-rooms/:token â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Fetch live trip room status. Used by the Meridian app + the joinable web view.
 
 tripRoomsRouter.get('/:token', async (c) => {
@@ -388,7 +419,7 @@ tripRoomsRouter.get('/:token', async (c) => {
       shareToken:   token,
       jobId:        room.job_id,
       journeyId:    journey.journeyId,
-      status:       journey.anchorStatus ?? 'unknown',
+      status:       journey.journeyStatus ?? 'unknown',
       memberCount:  members.length,
       members:      members.map((m: any) => ({ name: m.name ?? 'Guest', joinedAt: m.joinedAt })),
       expiresAt:    room.expires_at,
@@ -418,8 +449,8 @@ tripRoomsRouter.get('/:token', async (c) => {
   }
 });
 
-// ── GET /trip/:token — joinable HTML web view ─────────────────────────────────
-// Rendered without auth — for people who don't have the Bro app.
+// â”€â”€ GET /trip/:token â€” joinable HTML web view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Rendered without auth â€” for people who don't have the Bro app.
 // Returns a simple HTML page that auto-refreshes every 30s.
 
 tripRoomsRouter.get('/view/:token', async (c) => {
@@ -439,7 +470,7 @@ tripRoomsRouter.get('/view/:token', async (c) => {
     const train  = meta.trainDetails ?? null;
     const flight = meta.flightDetails ?? null;
     const hotel  = meta.hotelDetails  ?? null;
-    const status = journey.anchorStatus ?? 'unknown';
+    const status = journey.journeyStatus ?? 'unknown';
     const ref    = meta.broRef ?? meta.bookingReference ?? null;
 
     const html = tripRoomHtml({
@@ -458,7 +489,7 @@ tripRoomsRouter.get('/view/:token', async (c) => {
   }
 });
 
-// ── Internal: fan-out push to all room members ────────────────────────────────
+// â”€â”€ Internal: fan-out push to all room members â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Called by stripeWebhooks.ts (Darwin disruption polling) to notify all room members.
 
 export async function fanOutToTripRoom(
@@ -490,12 +521,21 @@ export async function fanOutToTripRoom(
 
     console.info(JSON.stringify({ bro: true, event: 'trip_room_fanout', jobId, roomJobId: room.job_id, memberCount: pushTokens.length }));
   } catch {
-    // Fire-and-forget — never block the main flow
+    // Fire-and-forget â€” never block the main flow
   }
 }
 
-// ── HTML templates ────────────────────────────────────────────────────────────
+// â”€â”€ HTML templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+function legModeStyle(mode: JourneyLegView['mode']): { icon: string; color: string; label: string } {
+  switch (mode) {
+    case 'rail': return { icon: '🚂', color: '#4ade80', label: 'Rail' };
+    case 'bus': return { icon: '🚌', color: '#fb923c', label: 'Coach' };
+    case 'flight': return { icon: '✈️', color: '#60a5fa', label: 'Flight' };
+    case 'hotel': return { icon: '🏨', color: '#a78bfa', label: 'Hotel' };
+    default: return { icon: '📍', color: '#94a3b8', label: 'Journey' };
+  }
+}
 function notFoundHtml(message = 'This trip may have ended or the link is invalid.'): string {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trip not found</title>
 <style>body{background:#080808;color:#f8fafc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
@@ -525,51 +565,174 @@ function formatLegTime(value?: string | null): string {
 }
 
 function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, legs = [] }: TripHtmlParams): string {
-  const statusLabel = status === 'completed' ? 'Ticketed' : status === 'failed' ? 'Failed' : 'Securing';
+  void token;
+
+  function legDotColor(legStatus: string): string {
+    if (['completed', 'confirmed', 'verified'].includes(legStatus)) return '#4ade80';
+    if (['failed', 'expired', 'rejected'].includes(legStatus)) return '#f87171';
+    return '#facc15';
+  }
+
+  const anchorLeg = legs[0] ?? null;
+  const anchorMode: JourneyLegView['mode'] = anchorLeg?.mode
+    ?? (flight ? 'flight' : hotel ? 'hotel' : train?.transportMode === 'bus' ? 'bus' : train ? 'rail' : 'other');
+  const anchorModeMeta = legModeStyle(anchorMode);
+  const statusSubject = anchorMode === 'hotel'
+    ? 'Stay'
+    : anchorMode === 'flight'
+    ? 'Flight'
+    : anchorMode === 'bus'
+    ? 'Coach'
+    : anchorMode === 'rail'
+    ? 'Rail'
+    : 'Journey';
+  const statusLabel = status === 'completed'
+    ? `${statusSubject} confirmed`
+    : status === 'failed'
+    ? `${statusSubject} failed`
+    : `${statusSubject} securing`;
   const statusColor = status === 'completed' ? '#4ade80' : status === 'failed' ? '#f87171' : '#facc15';
 
-  let journeyHtml = '';
+  const anchorDeparture = anchorLeg?.departureTime
+    ?? train?.departureDatetime
+    ?? train?.departureTime
+    ?? flight?.departureAt
+    ?? null;
+  const anchorDepartureMs = anchorDeparture ? Date.parse(anchorDeparture) : Number.NaN;
+  const countdownWithin4Hours = ['rail', 'bus', 'flight'].includes(anchorMode)
+    && Number.isFinite(anchorDepartureMs)
+    && anchorDepartureMs > Date.now()
+    && anchorDepartureMs - Date.now() <= 4 * 60 * 60 * 1000;
+  const countdownWithin2Hours = countdownWithin4Hours && anchorDepartureMs - Date.now() <= 2 * 60 * 60 * 1000;
+  const countdownIso = countdownWithin4Hours ? new Date(anchorDepartureMs).toISOString() : null;
+
+  const modeBadge = `<span class="mode-badge" style="background:${anchorModeMeta.color}18;color:${anchorModeMeta.color};border:1px solid ${anchorModeMeta.color}30">${anchorModeMeta.icon} ${anchorModeMeta.label}</span>`;
+  const transit = train ?? (anchorLeg && ['rail', 'bus'].includes(anchorLeg.mode)
+    ? {
+        origin: anchorLeg.from,
+        destination: anchorLeg.to,
+        departureTime: anchorLeg.departureTime,
+        departureDatetime: anchorLeg.departureTime,
+        arrivalTime: anchorLeg.arrivalTime,
+        operator: anchorLeg.operator,
+        platform: null,
+        transportMode: anchorLeg.mode,
+      }
+    : null);
+  const transitMode: JourneyLegView['mode'] = transit?.transportMode === 'bus' ? 'bus' : 'rail';
+  const transitModeMeta = legModeStyle(transitMode);
   const timelineHtml = legs.length > 1
-    ? `<div class="timeline">${legs.map((leg, index) => `
-        <div class="timeline-leg">
-          <div class="timeline-top">
-            <span class="timeline-index">Leg ${index + 1}</span>
-            <span class="timeline-mode">${leg.mode}</span>
-          </div>
-          <div class="timeline-label">${leg.label}</div>
-          ${(leg.from || leg.to) ? `<div class="timeline-route">${leg.from ?? ''}${leg.from || leg.to ? ' &rarr; ' : ''}${leg.to ?? ''}</div>` : ''}
-          ${(leg.departureTime || leg.arrivalTime) ? `<div class="timeline-time">${formatLegTime(leg.departureTime)}${leg.arrivalTime ? ` -> ${formatLegTime(leg.arrivalTime)}` : ''}</div>` : ''}
+    ? `<div class="journey-summary">
+        <div>
+          <div class="summary-title">Journey summary</div>
+          <div class="summary-subtitle">${legs.length} legs in this live trip room</div>
         </div>
-      `).join('')}</div>`
+        <span class="status-badge">${statusLabel}</span>
+      </div>
+      <div class="timeline">${legs.map((leg, index) => {
+        const modeMeta = legModeStyle(leg.mode);
+        const route = leg.from || leg.to ? `${leg.from ?? ''} &rarr; ${leg.to ?? ''}` : '';
+        return `<div class="timeline-leg">
+          <div class="timeline-leg-header">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="mode-badge" style="background:${modeMeta.color}18;color:${modeMeta.color};border:1px solid ${modeMeta.color}30">${modeMeta.icon} ${modeMeta.label}</span>
+              <span class="timeline-index">Leg ${index + 1}</span>
+            </div>
+            <span class="leg-status-dot" style="background:${legDotColor(leg.status)}"></span>
+          </div>
+          <div class="timeline-label">${leg.operator ?? leg.label ?? modeMeta.label}</div>
+          ${route ? `<div class="timeline-route">${route}</div>` : ''}
+          ${(leg.departureTime || leg.arrivalTime) ? `<div class="timeline-time">${formatLegTime(leg.departureTime) || 'TBC'}${leg.arrivalTime ? ` &rarr; ${formatLegTime(leg.arrivalTime)}` : ''}</div>` : ''}
+          ${leg.bookingRef ? `<div class="timeline-ref">Ref: ${leg.bookingRef}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`
     : '';
 
-  if (train) {
-    const dep = train.departureTime ?? '';
-    const arr = train.arrivalTime   ?? '';
-    journeyHtml = `
-      <div class="row"><span class="label">Route</span><span class="val">${train.origin ?? ''} → ${train.destination ?? ''}</span></div>
-      ${dep ? `<div class="row"><span class="label">Departs</span><span class="val">${dep}</span></div>` : ''}
-      ${arr ? `<div class="row"><span class="label">Arrives</span><span class="val">${arr}</span></div>` : ''}
-      ${train.platform ? `<div class="row"><span class="label">Platform</span><span class="val">${train.platform}</span></div>` : ''}
-      ${train.operator ? `<div class="row"><span class="label">Operator</span><span class="val">${train.operator}</span></div>` : ''}
-    `;
-  } else if (flight) {
-    journeyHtml = `
-      <div class="row"><span class="label">Route</span><span class="val">${flight.origin ?? ''} → ${flight.destination ?? ''}</span></div>
-      <div class="row"><span class="label">Flight</span><span class="val">${flight.carrier ?? ''} ${flight.flightNumber ?? ''}</span></div>
-      ${flight.departureAt ? `<div class="row"><span class="label">Departs</span><span class="val">${new Date(flight.departureAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span></div>` : ''}
-      ${flight.pnr ? `<div class="row"><span class="label">PNR</span><span class="val" style="color:#4ade80;font-weight:700;letter-spacing:2px">${flight.pnr}</span></div>` : ''}
-    `;
-  } else if (hotel?.bestOption) {
-    const h = hotel.bestOption;
-    journeyHtml = `
-      <div class="row"><span class="label">Hotel</span><span class="val">${h.name ?? ''}</span></div>
-      <div class="row"><span class="label">City</span><span class="val">${hotel.city ?? ''}</span></div>
-      <div class="row"><span class="label">Check-in</span><span class="val">${hotel.checkIn ?? ''}</span></div>
-      <div class="row"><span class="label">Check-out</span><span class="val">${hotel.checkOut ?? ''}</span></div>
-      <div class="row"><span class="label">Rate</span><span class="val">${h.currency ?? ''} ${h.ratePerNight ?? ''}/night</span></div>
-    `;
+  let journeyHtml = '';
+  if (legs.length <= 1) {
+    if (flight) {
+      const pnr = flight.pnr ?? ref ?? anchorLeg?.bookingRef ?? null;
+      const route = flight.origin || flight.destination ? `${flight.origin ?? ''} &rarr; ${flight.destination ?? ''}` : '';
+      const gate = flight.gate ?? flight.metadata?.gate ?? null;
+      journeyHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px">
+          ${modeBadge}
+          <span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span>
+        </div>
+        ${pnr ? `<div class="pnr-hero"><div class="pnr-hero-label">PNR / Booking ref</div><div class="pnr-hero-val">${pnr}</div></div>` : ''}
+        ${route ? `<div class="hero-route">${route}</div>` : ''}
+        <div class="row"><span class="label">Carrier</span><span class="val">${[flight.carrier, flight.flightNumber].filter(Boolean).join(' ')}</span></div>
+        ${flight.departureAt ? `<div class="row"><span class="label">Departs</span><span class="val">${formatLegTime(flight.departureAt)}</span></div>` : ''}
+        ${flight.arrivalAt ? `<div class="row"><span class="label">Arrives</span><span class="val">${formatLegTime(flight.arrivalAt)}</span></div>` : ''}
+        ${gate ? `<div class="row"><span class="label">Gate</span><span class="val">${gate}</span></div>` : ''}
+        ${countdownIso ? `<div id="countdown" class="countdown"></div>` : ''}
+      `;
+    } else if (hotel?.bestOption) {
+      const hotelOption = hotel.bestOption;
+      const hotelStars = Number(hotelOption.stars);
+      journeyHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px">
+          ${modeBadge}
+          <span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="hotel-name">${hotelOption.name ?? hotel.city ?? 'Hotel'}</div>
+        ${hotel.city ? `<div class="timeline-route" style="margin-bottom:12px">${hotel.city}</div>` : ''}
+        ${hotel.checkIn ? `<div class="row"><span class="label">Check-in</span><span class="val checkin-highlight">${hotel.checkIn}</span></div>` : ''}
+        ${hotel.checkOut ? `<div class="row"><span class="label">Check-out</span><span class="val">${hotel.checkOut}</span></div>` : ''}
+        ${(hotelOption.currency || hotelOption.ratePerNight) ? `<div class="row"><span class="label">Rate</span><span class="val">${hotelOption.currency ?? ''} ${hotelOption.ratePerNight ?? ''}/night</span></div>` : ''}
+        ${Number.isFinite(hotelStars) && hotelStars > 0 ? `<div class="row"><span class="label">Stars</span><span class="val">${'★'.repeat(hotelStars)}</span></div>` : ''}
+      `;
+    } else if (transit) {
+      const route = transit.origin || transit.destination ? `${transit.origin ?? ''} &rarr; ${transit.destination ?? ''}` : '';
+      const departure = transit.departureDatetime ?? transit.departureTime ?? null;
+      journeyHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px">
+          ${modeBadge}
+          <span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span>
+        </div>
+        ${route ? `<div class="hero-route">${transitModeMeta.icon} ${route}</div>` : ''}
+        ${departure ? `<div class="row"><span class="label">Departs</span><span class="val">${formatLegTime(departure)}</span></div>` : ''}
+        ${transit.arrivalTime ? `<div class="row"><span class="label">Arrives</span><span class="val">${formatLegTime(transit.arrivalTime)}</span></div>` : ''}
+        ${transit.platform ? `<div class="row"><span class="label">Platform</span><span class="val" style="color:${transitModeMeta.color};font-weight:700">${transit.platform}</span></div>` : ''}
+        ${transit.operator ? `<div class="row"><span class="label">Operator</span><span class="val">${transit.operator}</span></div>` : ''}
+        ${(ref ?? anchorLeg?.bookingRef) ? `<div class="row"><span class="label">Ref</span><span class="val">${ref ?? anchorLeg?.bookingRef}</span></div>` : ''}
+        ${countdownWithin2Hours ? `<div id="countdown" class="countdown"></div>` : ''}
+      `;
+    } else if (anchorLeg) {
+      const route = anchorLeg.from || anchorLeg.to ? `${anchorLeg.from ?? ''} &rarr; ${anchorLeg.to ?? ''}` : '';
+      journeyHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px">
+          ${modeBadge}
+          <span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span>
+        </div>
+        ${anchorLeg.label ? `<div class="hero-route">${anchorLeg.label}</div>` : ''}
+        ${route ? `<div class="row"><span class="label">Route</span><span class="val">${route}</span></div>` : ''}
+        ${anchorLeg.departureTime ? `<div class="row"><span class="label">Departs</span><span class="val">${formatLegTime(anchorLeg.departureTime)}</span></div>` : ''}
+        ${anchorLeg.arrivalTime ? `<div class="row"><span class="label">Arrives</span><span class="val">${formatLegTime(anchorLeg.arrivalTime)}</span></div>` : ''}
+        ${anchorLeg.operator ? `<div class="row"><span class="label">Operator</span><span class="val">${anchorLeg.operator}</span></div>` : ''}
+        ${anchorLeg.bookingRef ? `<div class="row"><span class="label">Ref</span><span class="val">${anchorLeg.bookingRef}</span></div>` : ''}
+      `;
+    }
   }
+
+  const countdownScript = countdownIso ? `
+<script>
+  (function() {
+    const dep = new Date('${countdownIso}').getTime();
+    function tick() {
+      const diff = dep - Date.now();
+      const el = document.getElementById('countdown');
+      if (!el) return;
+      if (diff <= 0) { el.textContent = 'Departing now'; return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      el.textContent = h > 0 ? (h + 'h ' + m + 'm to departure') : (m + 'm ' + s + 's to departure');
+      setTimeout(tick, 1000);
+    }
+    tick();
+  })();
+</script>` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -588,42 +751,55 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
     .status-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
     .status-badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;background:#0f172a;color:${statusColor};border:1px solid ${statusColor}30}
     .members{font-size:12px;color:#94a3b8}
+    .hero-route{font-size:16px;font-weight:700;color:#f8fafc;margin-bottom:12px}
     .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e293b20}
     .row:last-child{border-bottom:none}
     .label{font-size:13px;color:#94a3b8}
     .val{font-size:13px;color:#f8fafc;font-weight:500;text-align:right;max-width:60%}
-    .timeline{display:grid;gap:10px;margin-top:14px}
+    .journey-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+    .summary-title{font-size:14px;font-weight:700;color:#f8fafc}
+    .summary-subtitle{font-size:12px;color:#94a3b8;margin-top:3px}
+    .timeline{display:grid;gap:10px;margin-top:4px}
     .timeline-leg{background:#0b1220;border:1px solid #1e293b;border-radius:10px;padding:12px}
-    .timeline-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
     .timeline-index{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px}
-    .timeline-mode{font-size:11px;color:#4ade80;text-transform:uppercase;letter-spacing:.6px}
     .timeline-label{font-size:13px;font-weight:600;color:#f8fafc;margin-bottom:4px}
     .timeline-route,.timeline-time{font-size:12px;color:#94a3b8}
-    ${ref ? `.ref{background:#052e16;border:1px solid #166534;border-radius:8px;padding:12px 16px;text-align:center;margin-bottom:16px}
+    .ref{background:#052e16;border:1px solid #166534;border-radius:8px;padding:12px 16px;text-align:center;margin-bottom:16px}
     .ref-label{font-size:11px;color:#4ade80;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
-    .ref-val{font-size:22px;font-weight:700;letter-spacing:4px;color:#f8fafc}` : ''}
+    .ref-val{font-size:22px;font-weight:700;letter-spacing:4px;color:#f8fafc}
     .footer{text-align:center;font-size:12px;color:#475569;margin-top:24px}
     .footer a{color:#4ade80;text-decoration:none}
     .refresh{font-size:11px;color:#475569;text-align:center;margin-top:8px}
+    .mode-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:12px;text-transform:uppercase;letter-spacing:.5px}
+    .leg-status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:6px;vertical-align:middle}
+    .timeline-leg-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .timeline-ref{font-size:11px;color:#475569;margin-top:4px}
+    .pnr-hero{background:#052e16;border:1px solid #166534;border-radius:8px;padding:10px 14px;text-align:center;margin-bottom:14px}
+    .pnr-hero-label{font-size:10px;color:#4ade80;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+    .pnr-hero-val{font-size:24px;font-weight:700;letter-spacing:5px;color:#f8fafc}
+    .countdown{font-size:13px;color:#facc15;font-weight:600;margin-top:8px;text-align:center}
+    .hotel-name{font-size:16px;font-weight:700;color:#f8fafc;margin-bottom:4px}
+    .checkin-highlight{color:#a78bfa;font-weight:600}
   </style>
 </head>
 <body>
   <div class="header"><div class="dot"></div><div class="brand">bro</div></div>
 
-  ${ref ? `<div class="ref"><div class="ref-label">Booking ref</div><div class="ref-val">${ref}</div></div>` : ''}
+  ${(ref && legs.length <= 1 && !flight) ? `<div class="ref"><div class="ref-label">Booking ref</div><div class="ref-val">${ref}</div></div>` : ''}
 
   <div class="card">
-    <div class="status-row">
+    ${legs.length <= 1 ? `<div class="status-row">
       <span class="status-badge">${statusLabel}</span>
-      <span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span>
-    </div>
-    ${journeyHtml || '<div style="color:#94a3b8;font-size:14px">Journey details loading…</div>'}
+      ${modeBadge}
+    </div>` : `<div style="display:flex;justify-content:flex-end;margin-bottom:16px"><span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span></div>`}
+    ${legs.length > 1 ? timelineHtml : (journeyHtml || '<div style="color:#94a3b8;font-size:14px">Journey details loading…</div>')}
   </div>
 
   <div class="footer">
     Managed by <a href="https://bro.app">Bro</a> · Live trip view
   </div>
   <div class="refresh">Refreshes automatically every 30 seconds</div>
+  ${countdownScript}
 </body>
 </html>`;
 }
