@@ -8,6 +8,7 @@
 
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { TripContext } from '../../../packages/bro-trip/index';
 
 // ── Keys ──────────────────────────────────────────────────────────────────────
 
@@ -57,11 +58,13 @@ export interface ActiveTrip {
   fiatAmount?: number | null;
   currencySymbol?: string | null;
   currencyCode?: string | null;
+  tripContext?: TripContext | null;
   updatedAt: string;
 }
 
 export interface TripEntry {
   intentId: string;
+  title?: string | null;
   bookingRef: string | null;
   fromStation: string | null;
   toStation: string | null;
@@ -73,6 +76,7 @@ export interface TripEntry {
   fiatAmount?: number | null;
   currencySymbol?: string | null;
   currencyCode?: string | null;
+  tripContext?: TripContext | null;
   savedAt: string;
 }
 

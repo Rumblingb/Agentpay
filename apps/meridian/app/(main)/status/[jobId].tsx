@@ -27,14 +27,15 @@ import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
 import { C } from '../../../lib/theme';
+import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
 export default function StatusScreen() {
-  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode } =
-    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string }>();
+  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam } =
+    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string }>();
   const { currentAgent, setPhase } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
@@ -48,8 +49,10 @@ export default function StatusScreen() {
   const [toStation, setToStation]       = useState<string | null>(null);
   const [finalLegSummary, setFinalLegSummary]       = useState<string | null>(null);
   const [departureDatetime, setDepartureDatetime]   = useState<string | null>(null);
+  const [flightData, setFlightData]                 = useState<string | null>(null);
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [payLoading, setPayLoading]           = useState(false);
+  const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -79,9 +82,10 @@ export default function StatusScreen() {
       fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
       currencySymbol: paramSymbol ?? null,
       currencyCode: paramCode ?? null,
+      tripContext,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode]);
+  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -90,6 +94,18 @@ export default function StatusScreen() {
       try {
         const data = await getIntentStatus(jobId);
         const s = data.status;
+        const serverTrip = parseTripContext(data.metadata?.tripContext);
+        if (serverTrip) {
+          setTripContext(serverTrip);
+        }
+        if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+          setPaymentConfirmed(true);
+          if (serverTrip) {
+            setTripContext(updateTripContext(serverTrip, serverTrip.phase, {
+              watchState: { ...serverTrip.watchState, paymentConfirmed: true },
+            }));
+          }
+        }
 
         if (s === 'completed' || s === 'confirmed' || s === 'verified') {
           clearInterval(t);
@@ -107,9 +123,25 @@ export default function StatusScreen() {
             // isSimulated is internal — never surface to users
             if (proof.finalLegSummary)   setFinalLegSummary(proof.finalLegSummary);
             if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
+            if (data.metadata?.flightDetails) setFlightData(JSON.stringify(data.metadata.flightDetails));
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
+            const nextTripContext = updateTripContext(serverTrip ?? tripContext, 'booked', {
+              bookingRef: ref ?? undefined,
+              origin: proof.fromStation ?? undefined,
+              destination: proof.toStation ?? undefined,
+              departureTime: proof.departureDatetime ?? proof.departureTime ?? undefined,
+              arrivalTime: proof.arrivalTime ?? undefined,
+              operator: proof.operator ?? undefined,
+              finalLegSummary: proof.finalLegSummary ?? undefined,
+              watchState: {
+                ...(serverTrip ?? tripContext)?.watchState,
+                bookingConfirmed: true,
+                paymentConfirmed: !!(data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed),
+              },
+            });
+            setTripContext(nextTripContext);
             setStatusPhase('done');
             setPhase('done');
             void saveActiveTrip({
@@ -127,6 +159,7 @@ export default function StatusScreen() {
               fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
               currencySymbol: paramSymbol ?? null,
               currencyCode: paramCode ?? null,
+              tripContext: nextTripContext,
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -150,6 +183,8 @@ export default function StatusScreen() {
             : 'Booking couldn\'t be completed. Please try again.';
           setErrorMsg(errMsg);
           setPhase('error');
+          const attentionTrip = updateTripContext(serverTrip ?? tripContext, 'attention');
+          setTripContext(attentionTrip);
           void saveActiveTrip({
             intentId: jobId,
             jobId,
@@ -164,6 +199,7 @@ export default function StatusScreen() {
             fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
@@ -174,6 +210,8 @@ export default function StatusScreen() {
           setStatusPhase('error');
           setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
           setPhase('error');
+          const attentionTrip = updateTripContext(serverTrip ?? tripContext, 'attention');
+          setTripContext(attentionTrip);
           void saveActiveTrip({
             intentId: jobId,
             jobId,
@@ -188,6 +226,7 @@ export default function StatusScreen() {
             fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
             updatedAt: new Date().toISOString(),
           });
           await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
@@ -198,7 +237,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary]);
+  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -234,6 +273,7 @@ export default function StatusScreen() {
   // Only show full green success once payment is confirmed (or no payment needed)
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
+  const cards = tripCards(tripContext);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -323,6 +363,14 @@ export default function StatusScreen() {
         )}
 
         {/* Payment button — shown until Stripe payment confirmed */}
+        {cards.length > 0 && (
+          <View style={styles.proactiveWrap}>
+            {cards.slice(0, 2).map((card) => (
+              <ProactiveStatusCard key={card.id} card={card} />
+            ))}
+          </View>
+        )}
+
         {isDone && !paymentConfirmed && fiatAmount && parseFloat(fiatAmount) > 0 && (
           <Pressable
             onPress={async () => {
@@ -389,9 +437,11 @@ export default function StatusScreen() {
                 if (toStation)     qs.set('toStation', toStation);
                 if (finalLegSummary)   qs.set('finalLegSummary',   finalLegSummary);
                 if (departureDatetime) qs.set('departureDatetime', departureDatetime);
+                if (flightData)        qs.set('flightData',        flightData);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
               if (paramCode)   qs.set('currencyCode',   paramCode);
+              if (tripContext) qs.set('tripContext', JSON.stringify(tripContext));
               router.push(`/receipt/${jobId}?${qs.toString()}`);
               }}
               style={styles.receiptBtn}
@@ -476,6 +526,19 @@ const statusStyles = StyleSheet.create({
   },
 });
 
+function ProactiveStatusCard({ card }: { card: ProactiveCard }) {
+  const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
+  return (
+    <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
+      <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.proactiveTitle}>{card.title}</Text>
+        <Text style={styles.proactiveBody}>{card.body}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: C.bg },
   container: { flex: 1, paddingHorizontal: 28, alignItems: 'center' },
@@ -531,6 +594,37 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginBottom: 40,
     paddingHorizontal: 16,
+  },
+  proactiveWrap: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 20,
+  },
+  proactiveCard: {
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  proactiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 5,
+  },
+  proactiveTitle: {
+    fontSize: 12,
+    color: C.textPrimary,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  proactiveBody: {
+    fontSize: 12,
+    color: C.textSecondary,
+    lineHeight: 17,
   },
 
   bookingRefWrap: {

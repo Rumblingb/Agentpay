@@ -31,6 +31,7 @@ import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
+import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -54,6 +55,8 @@ export default function ReceiptScreen() {
     currencySymbol?: string;
     currencyCode?: string;
     cancelled?: string;
+    flightData?: string;
+    tripContext?: string;
   }>();
   const {
     intentId, bookingRef, departureTime, departureDatetime, platform, operator,
@@ -61,9 +64,23 @@ export default function ReceiptScreen() {
     finalLegSummary,
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
     cancelled,
+    tripContext: tripContextParam,
   } = params;
 
   const isCancelled = cancelled === 'true';
+
+  // Flight card: parse JSON param if present
+  type FlightData = {
+    origin: string; destination: string;
+    departureAt: string; arrivalAt: string;
+    carrier: string; flightNumber: string;
+    totalAmount: number; currency: string;
+    stops: number; cabinClass: string; isReturn: boolean;
+    pnr?: string;
+  };
+  const flightDetails: FlightData | null = params.flightData
+    ? (() => { try { return JSON.parse(params.flightData) as FlightData; } catch { return null; } })()
+    : null;
 
   // Fiat display: prefer URL params (passed from booking flow), fall back to receipt.amount
   const fiatSymbol   = symParam  ?? '£';
@@ -82,8 +99,10 @@ export default function ReceiptScreen() {
   const [issueSending, setIssueSending] = useState(false);
   const [issueSent,    setIssueSent]    = useState(false);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [tripContext, setTripContext] = useState<TripContext | null>(() => parseTripContext(tripContextParam));
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
+  const cards = tripCards(tripContext);
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -100,8 +119,13 @@ export default function ReceiptScreen() {
       return;
     }
     void loadActiveTrip().then((trip) => {
-      if (trip?.intentId === intentId && trip.finalLegSummary) {
-        setPreservedFinalLegSummary(trip.finalLegSummary);
+      if (trip?.intentId === intentId) {
+        if (trip.finalLegSummary) {
+          setPreservedFinalLegSummary(trip.finalLegSummary);
+        }
+        if (trip.tripContext) {
+          setTripContext(trip.tripContext);
+        }
       }
     });
   }, [finalLegSummary, intentId]);
@@ -152,8 +176,18 @@ export default function ReceiptScreen() {
   // ── Save trip to My Trips history ────────────────────────────────────────
   useEffect(() => {
     if (!receipt || !intentId) return;
+    const nextTripContext = updateTripContext(tripContext, 'booked', {
+      bookingRef: bookingRef ?? undefined,
+      origin: fromStation ?? undefined,
+      destination: toStation ?? undefined,
+      departureTime: departureDatetime ?? departureTime ?? undefined,
+      operator: operator ?? undefined,
+      finalLegSummary: preservedFinalLegSummary ?? undefined,
+    });
+    if (nextTripContext) setTripContext(nextTripContext);
     const entry = {
       intentId,
+      title:         nextTripContext?.title ?? 'Journey',
       bookingRef:    bookingRef    ?? null,
       fromStation:   fromStation   ?? null,
       toStation:     toStation     ?? null,
@@ -165,6 +199,7 @@ export default function ReceiptScreen() {
       fiatAmount:    fiatAmountNum,
       currencySymbol: fiatSymbol,
       currencyCode:  fiatCode,
+      tripContext:   nextTripContext,
       savedAt:       new Date().toISOString(),
     };
     void upsertTrip(entry);
@@ -182,9 +217,10 @@ export default function ReceiptScreen() {
       fiatAmount: fiatAmountNum,
       currencySymbol: fiatSymbol,
       currencyCode: fiatCode,
+      tripContext: nextTripContext,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode]);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -304,6 +340,14 @@ export default function ReceiptScreen() {
                 : 'Saved on this device'}
             </Text>
 
+            {cards.length > 0 && (
+              <View style={styles.proactiveWrap}>
+                {cards.slice(0, 2).map((card) => (
+                  <ProactiveReceiptCard key={card.id} card={card} />
+                ))}
+              </View>
+            )}
+
             {/* Receipt card */}
             <View style={styles.card}>
               <Row label="Status" value={receipt ? 'Confirmed' : 'Saved locally'} pill />
@@ -367,6 +411,31 @@ export default function ReceiptScreen() {
                     )}
                     <Text style={styles.showTicketText}>Show Ticket QR</Text>
                   </Pressable>
+                )}
+              </View>
+            )}
+
+            {/* ✈ Flight card */}
+            {flightDetails && (
+              <View style={[styles.journeyCard, { marginTop: 12 }]}>
+                <View style={styles.journeyHeader}>
+                  <Text style={styles.journeyIcon}>✈️</Text>
+                  <Text style={styles.journeyTitle}>Flight Details</Text>
+                </View>
+                {flightDetails.pnr && (
+                  <View style={styles.journeyRefWrap}>
+                    <Text style={styles.journeyRefLabel}>PNR / Booking Reference</Text>
+                    <Text style={styles.journeyRef}>{flightDetails.pnr}</Text>
+                  </View>
+                )}
+                <Row label="Route"    value={`${flightDetails.origin} → ${flightDetails.destination}`} />
+                <Row label="Flight"   value={`${flightDetails.carrier} ${flightDetails.flightNumber}`} />
+                <Row label="Departs"  value={new Date(flightDetails.departureAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} />
+                <Row label="Arrives"  value={new Date(flightDetails.arrivalAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} />
+                <Row label="Stops"    value={flightDetails.stops === 0 ? 'Direct' : `${flightDetails.stops} stop${flightDetails.stops > 1 ? 's' : ''}`} />
+                <Row label="Class"    value={flightDetails.cabinClass.replace(/_/g, ' ')} />
+                {flightDetails.isReturn && (
+                  <Row label="Type" value="Return" />
                 )}
               </View>
             )}
@@ -533,6 +602,19 @@ const rowStyles = StyleSheet.create({
   pillText: { fontSize: 12, color: '#4ade80', fontWeight: '600' },
 });
 
+function ProactiveReceiptCard({ card }: { card: ProactiveCard }) {
+  const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
+  return (
+    <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
+      <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.proactiveTitle}>{card.title}</Text>
+        <Text style={styles.proactiveBody}>{card.body}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: '#080808' },
   container: { padding: 24, alignItems: 'center', paddingBottom: 60 },
@@ -579,6 +661,19 @@ const styles = StyleSheet.create({
 
   amount:   { fontSize: 36, fontWeight: '800', color: '#f9fafb', letterSpacing: -1, marginBottom: 6 },
   subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 32 },
+  proactiveWrap: { width: '100%', gap: 10, marginBottom: 14 },
+  proactiveCard: {
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  proactiveDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
+  proactiveTitle: { fontSize: 12, color: '#f9fafb', fontWeight: '700', marginBottom: 2 },
+  proactiveBody: { fontSize: 12, color: '#94a3b8', lineHeight: 17 },
 
   card: {
     width: '100%',

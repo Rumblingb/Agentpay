@@ -31,49 +31,71 @@ const trainSkill: SkillDefinition = {
   toolName: 'book_train',
   category: 'rail',
   displayName: 'TrainAgent',
-  description: 'Search and book UK and European train journeys. Handles single tickets, returns, railcard discounts, and seat reservations.',
+  description: 'Search and book UK and European train journeys. Handles single tickets, returns, railcard discounts, first class, business class, and seat reservations. Covers National Rail, Eurostar, TGV, ICE, Frecciarossa, AVE, and all major European operators.',
   requiredProfileFields: ['legalName', 'email', 'phone', 'seatPreference', 'classPreference', 'railcardType'],
   inputSchema: {
     type: 'object',
     required: ['origin', 'destination'],
     properties: {
-      origin:             { type: 'string', description: 'Departure station or city (e.g. "Derby", "London St Pancras")' },
-      destination:        { type: 'string', description: 'Arrival station or city (the mainline terminus — e.g. "London King\'s Cross")' },
+      origin:             { type: 'string', description: 'Departure station or city (e.g. "Derby", "London St Pancras", "Paris", "Amsterdam")' },
+      destination:        { type: 'string', description: 'Arrival station or city (e.g. "London King\'s Cross", "Paris Gare du Nord", "Rome")' },
       date:               { type: 'string', description: 'Travel date — ISO (YYYY-MM-DD) or natural language ("tomorrow", "Thursday")' },
       time_preference:    { type: 'string', enum: ['morning', 'afternoon', 'evening', 'any'], description: 'Preferred departure time window' },
-      class_pref:         { type: 'string', enum: ['standard', 'first'], description: 'Ticket class' },
+      class_pref:         { type: 'string', enum: ['standard', 'first', 'business', 'luxury'], description: 'Ticket class. standard = economy. first = first class. business = business premier (Eurostar) / executive (AVE/Frecciarossa). luxury = private cabin / luxury rail product (Orient Express etc) — use book_luxury_rail instead if confirmed luxury rail.' },
       return_date:        { type: 'string', description: 'Return date for a return ticket — omit for single' },
       railcard_type:      { type: 'string', description: 'UK railcard type from profile (e.g. "16-25", "senior", "network") — include when present so the operations team applies the correct discount on Trainline' },
       final_destination:  { type: 'string', description: 'Where the user is actually going after the mainline terminus — London postcode, area, or address (e.g. "Shoreditch", "WC2N 5DU", "The Shard"). Only set when user mentions a specific London end-point beyond the station.' },
     },
   },
   skillDoc: `# TrainAgent
-Searches and books UK rail journeys including National Rail, Eurostar, and cross-border European services.
+Searches and books UK and European rail journeys.
+
+## Coverage
+- **UK**: All National Rail services (live via Darwin). 200+ stations.
+- **Eurostar**: London ↔ Paris / Brussels / Amsterdam (direct, no change).
+- **France (TGV Inouï)**: Paris ↔ Lyon / Marseille / Bordeaux / Nice / Barcelona / Strasbourg / Lille.
+- **Netherlands / Belgium**: Amsterdam ↔ Brussels ↔ Paris (Eurostar / Thalys). Rotterdam, Utrecht, Ghent, Bruges, Antwerp.
+- **Germany (ICE)**: Frankfurt ↔ Berlin / Munich / Hamburg / Cologne. Berlin ↔ Hamburg / Munich. Cross-border: Amsterdam–Cologne–Frankfurt, Brussels–Frankfurt, Vienna–Munich.
+- **Italy (Frecciarossa / Italo)**: Rome ↔ Milan ↔ Florence ↔ Naples. Milan ↔ Venice / Turin / Bologna.
+- **Spain (AVE / Renfe)**: Madrid ↔ Barcelona / Seville / Valencia / Malaga / Bilbao / Zaragoza.
+- **Austria (Railjet / ÖBB)**: Vienna ↔ Salzburg / Munich / Prague.
+- **Switzerland (SBB)**: Zurich ↔ Geneva / Basel / Bern / Milan / Munich.
+- **Czech Republic**: Prague ↔ Vienna / Berlin.
+- **Scandinavia**: Stockholm ↔ Gothenburg / Copenhagen / Oslo.
+
+## Class tiers
+- **standard** — economy / 2nd class. Default.
+- **first** — first class: UK first, Eurostar Standard Premier, TGV 1ère, ICE 1. Quieter, wider seats, meals on long-distance.
+- **business** — Eurostar Business Premier, AVE Preferente, Frecciarossa Executive. Lounge access, meal service, flexible booking.
+- **luxury** — see book_luxury_rail for Orient Express, Belmond, sleeper suites.
 
 ## Handles
 - Single and return tickets
 - Advance, Off-Peak, and Anytime fares
-- Railcard discounts (automatically applied from passenger profile)
+- Railcard discounts (UK — applied by ops team on Trainline)
 - Seat reservations where available
-- Eurostar London–Paris/Brussels/Amsterdam
+- Cross-border European itineraries
 
 ## Cannot handle
 - Rail holidays or packages
-- International rail beyond Europe
 - Group bookings over 9 passengers
 - Rail + hotel bundles (use TrainAgent + HotelAgent separately)
+- Luxury sleeper trains (use book_luxury_rail)
 
 ## User input edge cases — handle all of these gracefully
 
 **No time given** ("book a train to Manchester"):
 → Query with time_preference="any", return up to 3 options with times + fares, ask which one.
   Example: "Three today — 14:05 £21, 15:30 £28, 17:45 £19. Which one?"
+  For EU: "Three trains — 08:22 →11:47 Eurostar €79, 12:34 →15:47 €89, 16:31 →19:47 €69. Which?"
 
 **Ambiguous station** ("London" → could be Euston, Paddington, King's Cross, Victoria, etc.):
 → Ask: "London which terminus — King's Cross, Euston, Paddington, or Victoria?"
 
-**Station misspelling** ("Manchestr", "Birmingam"):
-→ Infer the closest match and confirm: "Manchester Piccadilly — is that right?"
+**"Paris"** → always Paris Gare du Nord for Eurostar / international arrivals.
+
+**Station misspelling** ("Manchestr", "Birmingam", "Marseil"):
+→ Infer the closest match and confirm.
 
 **"Next train"** with no other info:
 → Query for next departure from now, present it immediately.
@@ -81,29 +103,103 @@ Searches and books UK rail journeys including National Rail, Eurostar, and cross
 **"Cheapest"** with no time constraint:
 → Query time_preference="any", pick the lowest fare option and present it.
 
-**"First class"** request:
-→ Use class_pref="first". If unavailable, say so and offer standard.
+**"First class"** or "business class" request:
+→ Set class_pref accordingly. For EU, note if business includes lounge access or meal.
+
+**Elite / PRO subscriber** (from subscriptionTier in profile):
+→ Proactively offer first or business class. Don't make them ask.
 
 **Return ticket** but no return date:
 → Ask: "When are you coming back?"
 
-**Route doesn't exist / no trains** (e.g. a route not served by rail):
-→ "No direct trains on that route. Could a coach or connecting service work?"
+**Route better by Eurostar than flight** (London–Paris, London–Brussels, Paris–Amsterdam):
+→ Confirm this is a train booking, mention approximate journey time.
 
 **Strike action / engineering works**:
-→ Inform clearly. Suggest rail replacement bus or alternative route if possible.
+→ Inform clearly. Suggest alternative route if possible.
 
 **Time already passed today**:
 → Treat as tomorrow. "That time's passed today — booking for tomorrow instead. OK?"
 
-**User changes their mind** ("actually make it first class" / "cancel that, book the 17:45"):
+**User changes their mind**:
 → Abandon current plan, start fresh with the new request.
 
-**Duplicate request** (user asks again immediately):
-→ Don't book twice. Say: "Already on it — one booking."
+## Output
+Returns booking reference, departure time, platform (if known), operator, price (£ UK, € EU), and confirmation email status.
+For EU routes: mention that booking is via Rail Europe / Trainline partner and will be confirmed by email.`,
+};
+
+// ── Luxury rail booking ───────────────────────────────────────────────────────
+
+const luxuryRailSkill: SkillDefinition = {
+  toolName: 'book_luxury_rail',
+  category: 'rail_luxury',
+  displayName: 'LuxuryRailAgent',
+  description: 'Book premium and luxury rail experiences: Venice Simplon-Orient-Express, Belmond Royal Scotsman, Caledonian Sleeper private cabins, Glacier Express, Rocky Mountaineer, El Transcantábrico, and other luxury trains. Requires Elite subscription or explicit luxury request.',
+  requiredProfileFields: ['legalName', 'email', 'phone'],
+  inputSchema: {
+    type: 'object',
+    required: ['product'],
+    properties: {
+      product:       { type: 'string', description: 'Luxury train product (e.g. "Venice Simplon-Orient-Express", "Royal Scotsman", "Caledonian Sleeper", "Glacier Express", "Rocky Mountaineer", "El Transcantábrico", "The Ghan", "Indian Pacific", "Pride of Africa")' },
+      origin:        { type: 'string', description: 'Departure city or station' },
+      destination:   { type: 'string', description: 'Arrival city or station' },
+      date:          { type: 'string', description: 'Preferred travel date — ISO or natural language' },
+      cabin_type:    { type: 'string', enum: ['cabin', 'suite', 'grand_suite', 'heritage_suite'], description: 'Cabin/suite tier — grand_suite or heritage_suite for top tier. Defaults to cabin.' },
+      passengers:    { type: 'number', description: 'Number of passengers (default 1, max 2 per cabin)' },
+      nights:        { type: 'number', description: 'Number of nights (for multi-day journeys)' },
+    },
+  },
+  skillDoc: `# LuxuryRailAgent
+Books luxury and premium sleeper rail experiences.
+
+## Products available
+
+### Europe
+- **Venice Simplon-Orient-Express** (Belmond) — London / Paris → Venice / Rome / Istanbul. Cabins from ~£2,000pp. Grand Suites from ~£8,000pp.
+- **Belmond British Pullman** — UK day excursions from London Victoria. From ~£350pp.
+- **Belmond Royal Scotsman** — 2–7 night Scottish Highlands loop from Edinburgh. From ~£1,800pp/night.
+- **Glacier Express** (Zermatt → St Moritz, Switzerland, 8hr scenic) — First class from ~CHF 200pp. Includes meal.
+- **El Transcantábrico Gran Lujo** (Spain, Basque–Galicia, 7 nights) — all-inclusive from ~€5,000pp.
+- **The Train des Lumières** (France, scenic Alps) — day journeys from ~€80pp.
+
+### UK Sleepers
+- **Caledonian Sleeper** (London Euston → Edinburgh / Glasgow / Fort William / Inverness / Aberdeen) — Club Rooms (en-suite cabin with double bed) from ~£100-200 each way. Accessible and double rooms available.
+- **Night Riviera** (GWR, London Paddington → Penzance) — sleeper berths from ~£60.
+
+### Americas
+- **Rocky Mountaineer** (Vancouver → Banff, 2 days) — GoldLeaf from ~CAD 1,600pp.
+- **Amtrak Coast Starlight / California Zephyr / Empire Builder** — Roomette from ~USD 200, Bedroom Suite ~USD 600.
+
+### Africa / Australia
+- **Pride of Africa** (Rovos Rail, Cape Town → Pretoria/Dar es Salaam, 2-15 nights) — from ~USD 3,000pp.
+- **The Ghan** (Adelaide → Darwin, 54hr) — Platinum from ~AUD 2,500pp.
+- **Indian Pacific** (Sydney → Perth, 65hr) — Platinum from ~AUD 2,500pp.
+
+### Asia / Middle East
+- **Maharajas' Express** (India, 7 nights) — from ~USD 4,000pp.
+- **Eastern & Oriental Express** (SE Asia) — from ~SGD 4,000pp.
+
+## Booking model
+All luxury rail bookings are handled by the ops team with specialist concierge support.
+Full details sent by email within 2 hours. Deposit may be required.
+
+## User input edge cases
+
+**"Orient Express"** → Venice Simplon-Orient-Express by Belmond (not a generic term).
+
+**No dates** → Ask: "Any flexibility on dates? Departures are seasonal and sell out months ahead."
+
+**"Cheap luxury train"** → Caledonian Sleeper Club Room or Night Riviera are the best value entry points (~£100-200).
+
+**"Sleeper to Scotland"** → Caledonian Sleeper; ask which Scottish city.
+
+**"Something special for anniversary / honeymoon"** → Suggest VSOE Grand Suite or Royal Scotsman Suite; include a note in the booking.
+
+**Sold out** → "That departure is likely fully booked. Let me check next available dates."
 
 ## Output
-Returns booking reference, departure time, platform, operator, price, and confirmation email status.`,
+Returns luxury rail product, route, date, cabin type, estimated price per person, and ops team follow-up timeline.`,
 };
 
 // ── India train booking ──────────────────────────────────────────────────────
@@ -321,7 +417,7 @@ const flightSkill: SkillDefinition = {
   toolName: 'search_flights',
   category: 'flight',
   displayName: 'FlightAgent',
-  description: 'Search flights and present options. Returns best available fares for the user to confirm.',
+  description: 'Search and book flights across 350+ airlines worldwide via Duffel. Handles one-way, return, economy, premium economy, and business class. Returns top 3 options (cheapest, fastest, best airline) with price and duration.',
   requiredProfileFields: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
   inputSchema: {
     type: 'object',
@@ -457,17 +553,170 @@ Plans metro journeys in Bengaluru and Pune.
 Route with line(s), stops, journey time, fare in INR. For Bro's narration: keep it to one sentence — "Green Line to Kempegowda, switch to Purple, 8 stops to Indiranagar — 22 min, ₹30."`,
 };
 
+// ── Event discovery ───────────────────────────────────────────────────────────
+
+const discoverEventsSkill: SkillDefinition = {
+  toolName: 'discover_events',
+  category: 'events',
+  displayName: 'EventsAgent',
+  description: 'Discover live events, concerts, sports, and shows at a destination on a given date. Uses Ticketmaster Discovery API. Info-only — no payment required.',
+  requiredProfileFields: [],
+  inputSchema: {
+    type: 'object',
+    required: ['destination', 'date'],
+    properties: {
+      destination: { type: 'string', description: 'City or destination (e.g. "Paris", "London", "New York")' },
+      date:        { type: 'string', description: 'Date to search — ISO YYYY-MM-DD or natural language ("Friday", "next Saturday")' },
+      genre:       { type: 'string', description: 'Optional genre filter (e.g. "music", "sports", "comedy", "theatre")' },
+    },
+  },
+  skillDoc: `# EventsAgent
+Discovers events at a destination using Ticketmaster Discovery API.
+
+## Handles
+- Concerts and music festivals
+- Sports events (football, tennis, F1, etc.)
+- Theatre, comedy, and performing arts
+- Exhibitions and pop culture events
+
+## Use proactively
+After a train or flight is confirmed 2+ days ahead, immediately check for events at the destination on the travel date.
+Present as: "Coldplay at Accor Arena that night — €95. Add it?"
+
+## Output
+Returns event name, venue, time, genre, price range, and ticket URL.`,
+};
+
+// ── Nearby discovery ──────────────────────────────────────────────────────────
+
+const discoverNearbySkill: SkillDefinition = {
+  toolName: 'discover_nearby',
+  category: 'discovery',
+  displayName: 'NearbyAgent',
+  description: 'Find nearby places — cafés, restaurants, attractions, parks, pharmacies — using Google Places. Pass GPS coords when available for accurate results. Info-only — no payment required.',
+  requiredProfileFields: [],
+  inputSchema: {
+    type: 'object',
+    required: ['query'],
+    properties: {
+      query:         { type: 'string', description: 'What to find (e.g. "quiet café", "Italian restaurant", "pharmacy", "ATM")' },
+      location:      { type: 'string', description: 'Location context if no GPS (e.g. "near Covent Garden", "in Marais, Paris")' },
+      lat:           { type: 'number', description: 'GPS latitude — pass when available for precision' },
+      lon:           { type: 'number', description: 'GPS longitude — pass when available for precision' },
+      type:          { type: 'string', description: 'Place type filter (e.g. "cafe", "restaurant", "pharmacy", "atm", "park")' },
+      radius_meters: { type: 'number', description: 'Search radius in metres (default 1500)' },
+    },
+  },
+  skillDoc: `# NearbyAgent
+Finds nearby places using Google Places API and GPS location.
+
+## Handles
+- Food and drink: cafés, restaurants, bars, bakeries
+- Essentials: pharmacies, ATMs, supermarkets, convenience stores
+- Transport: bus stops, tube stations, taxi ranks
+- Tourism: museums, parks, attractions, viewpoints
+
+## GPS priority
+When travelProfile.currentLat/currentLon are available, always pass them as lat/lon for precise results.
+If GPS unavailable and location ambiguous, ask once: "Where are you now?"
+
+## Output
+Returns up to 5 nearby places with name, rating, price level, and address.`,
+};
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+const navigateSkill: SkillDefinition = {
+  toolName: 'navigate',
+  category: 'navigation',
+  displayName: 'NavigateAgent',
+  description: 'Get walking, cycling, or transit directions to a destination using Google Routes API. Returns step-by-step directions and encoded polyline for map display. Info-only — no payment required.',
+  requiredProfileFields: [],
+  inputSchema: {
+    type: 'object',
+    required: ['destination'],
+    properties: {
+      destination: { type: 'string', description: 'Where the user wants to go (e.g. "the Colosseum", "Gare du Nord", "St Paul\'s Cathedral")' },
+      origin_lat:  { type: 'number', description: 'Current GPS latitude — required for accurate route' },
+      origin_lon:  { type: 'number', description: 'Current GPS longitude — required for accurate route' },
+      travel_mode: { type: 'string', enum: ['WALK', 'BICYCLE', 'TRANSIT', 'DRIVE'], description: 'How to get there (default: WALK)' },
+    },
+  },
+  skillDoc: `# NavigateAgent
+Provides walking and transit directions using Google Routes API.
+
+## Handles
+- Walking directions with turn-by-turn steps
+- Cycling routes
+- Transit routing (where available)
+- Encoded polyline for Meridian map screen
+
+## Darwin/TfL priority
+For London journeys to/from National Rail termini, use plan_metro or the Darwin final-leg flow instead.
+This agent handles non-London and non-UK-transit navigation.
+
+## Flow
+1. User: "Navigate to the Colosseum"
+2. Bro: "Walking to the Colosseum — 12 min (900 m). Ready?"
+3. On confirm: return full step-by-step for map screen
+
+## Output
+Returns step-by-step instructions, total duration, total distance, and encoded polyline for the Meridian map screen.`,
+};
+
+// ── Restaurant booking ────────────────────────────────────────────────────────
+
+const bookRestaurantSkill: SkillDefinition = {
+  toolName: 'book_restaurant',
+  category: 'dining',
+  displayName: 'DiningAgent',
+  description: 'Find and suggest restaurants near a location. Searches Google Places for nearby dining. Info-only for discovery; ops team handles reservations for venues that require them.',
+  requiredProfileFields: ['legalName', 'email', 'phone'],
+  inputSchema: {
+    type: 'object',
+    required: ['location'],
+    properties: {
+      location:   { type: 'string', description: 'City or area to search (e.g. "Marais, Paris", "Soho, London")' },
+      date:       { type: 'string', description: 'Date of dining — ISO or natural language' },
+      time:       { type: 'string', description: 'Preferred dining time (e.g. "19:00", "evening")' },
+      party_size: { type: 'number', description: 'Number of diners (default 2)' },
+      cuisine:    { type: 'string', description: 'Cuisine preference (e.g. "Italian", "sushi", "French bistro")' },
+      budget:     { type: 'string', enum: ['cheap', 'moderate', 'expensive', 'luxury'], description: 'Budget level' },
+    },
+  },
+  skillDoc: `# DiningAgent
+Finds restaurants near a location using Google Places.
+
+## Handles
+- Any cuisine type
+- Price level filtering
+- Proactive suggestions after event booking
+
+## Use proactively
+After booking an event, suggest: "Table near [venue] at 19:00 for 2? I see a good Italian around the corner."
+
+## Output
+Returns top 3–5 restaurants with name, cuisine, rating, price level, and address.
+For reservations: ops team follows up by email if needed.`,
+};
+
 // ── Registry export ──────────────────────────────────────────────────────────
 
-// Hotel, taxi, and flight skills exist but are not yet active.
-// They will be enabled once manual fulfillment partners are in place.
+// Taxi not yet active — waiting on API integration.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _COMING_SOON = [hotelSkill, taxiSkill, flightSkill];
+const _COMING_SOON = [taxiSkill];
 
 export const SKILLS: SkillDefinition[] = [
-  trainSkill,
-  trainIndiaSkill,
-  metroSkill,
+  trainSkill,           // UK + EU rail (Darwin live + EU Rail Europe/Trainline/mock)
+  luxuryRailSkill,      // Orient Express, Royal Scotsman, Caledonian Sleeper, etc.
+  trainIndiaSkill,      // Indian Railways IRCTC
+  flightSkill,          // Flights — Duffel 350+ airlines
+  metroSkill,           // Bengaluru + Pune metro
+  hotelSkill,           // Hotels — manual fulfillment via ops team
+  discoverEventsSkill,  // Ticketmaster event discovery
+  discoverNearbySkill,  // Google Places nearby discovery
+  navigateSkill,        // Google Routes walking/transit navigation
+  bookRestaurantSkill,  // Restaurant discovery + dining
   researchSkill,
 ];
 

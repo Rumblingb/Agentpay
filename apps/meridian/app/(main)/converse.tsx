@@ -41,6 +41,7 @@ import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getNearestStation } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
+import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -374,7 +375,15 @@ export default function ConverseScreen() {
         const fiat   = pending.fiatAmount;
         const sym    = pending.fiatSymbol;
         const code   = pending.fiatCode;
-        router.push(`/status/${firstAction.jobId}?fiatAmount=${fiat}&currencySymbol=${encodeURIComponent(sym)}&currencyCode=${code}`);
+        const qs = new URLSearchParams({
+          fiatAmount: String(fiat),
+          currencySymbol: sym,
+          currencyCode: code,
+        });
+        if (firstAction.tripContext) {
+          qs.set('tripContext', JSON.stringify(firstAction.tripContext));
+        }
+        router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
       } else {
         setPhase('idle');
       }
@@ -576,6 +585,9 @@ export default function ConverseScreen() {
               color={voiceEnabled ? C.emBright : C.textMuted}
             />
           </Pressable>
+          <Pressable onPress={() => router.push('/(main)/map')} hitSlop={12} style={styles.headerIconBtn}>
+            <Ionicons name="map-outline" size={19} color={C.textMuted} />
+          </Pressable>
           <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12} style={styles.headerIconBtn}>
             <Ionicons name="time-outline" size={19} color={C.textMuted} />
           </Pressable>
@@ -717,10 +729,13 @@ export default function ConverseScreen() {
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
           const tripDest   = planInput.destination ?? planInput.to ?? '';
-          const tripDesc   = tripOrigin && tripDest
+          const tripContext = (plan[0]?.tripContext ?? null) as TripContext | null;
+          const tripDesc   = tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
             ? `${tripOrigin} → ${tripDest}`
-            : plan[0]?.displayName ?? null;
-          const finalLegSummary = plan[0]?.finalLegSummary ?? null;
+          */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
+          const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
+          const nearbyPlaces = tripContext?.nearbyPlaces ?? plan[0]?.nearbyPlaces ?? null;
+          const cards = tripCards(tripContext);
           const dataSource = plan[0]?.dataSource;
           const sourceLabel = dataSource === 'darwin_live'           ? 'National Rail · Live'
                             : dataSource === 'national_rail_scheduled' ? 'National Rail · Scheduled'
@@ -766,11 +781,42 @@ export default function ConverseScreen() {
                   ? 'Best balance of speed, certainty, and payment flow for this trip.'
                   : 'Best balance of timing, fare, and journey simplicity.'}
               </Text>
+              {cards.length > 0 && (
+                <View style={styles.proactiveCardList}>
+                  {cards.slice(0, 2).map((card) => (
+                    <ProactiveCardRow key={card.id} card={card} />
+                  ))}
+                </View>
+              )}
               {finalLegSummary && (
                 <View style={styles.finalLegRow}>
                   <Ionicons name="subway-outline" size={13} color={C.sky} style={{ marginRight: 6 }} />
                   <Text style={styles.finalLegText}>{finalLegSummary}</Text>
                 </View>
+              )}
+              {routeData && (
+                <Pressable
+                  style={styles.viewMapBtn}
+                  onPress={() => router.push({
+                    pathname: '/(main)/map',
+                    params: { routeData: JSON.stringify(routeData) },
+                  })}
+                >
+                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
+                  <Text style={styles.viewMapText}>View on Map</Text>
+                </Pressable>
+              )}
+              {!routeData && nearbyPlaces && nearbyPlaces.length > 0 && (
+                <Pressable
+                  style={styles.viewMapBtn}
+                  onPress={() => router.push({
+                    pathname: '/(main)/map',
+                    params: { places: JSON.stringify(nearbyPlaces) },
+                  })}
+                >
+                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
+                  <Text style={styles.viewMapText}>Explore on Map</Text>
+                </Pressable>
               )}
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
@@ -895,6 +941,19 @@ const suggStyles = StyleSheet.create({
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
+
+function ProactiveCardRow({ card }: { card: ProactiveCard }) {
+  const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : C.sky;
+  return (
+    <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
+      <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.proactiveTitle}>{card.title}</Text>
+        <Text style={styles.proactiveBody}>{card.body}</Text>
+      </View>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
@@ -1177,6 +1236,36 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: -6,
   },
+  proactiveCardList: {
+    gap: 8,
+  },
+  proactiveCard: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  proactiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 5,
+  },
+  proactiveTitle: {
+    fontSize: 12,
+    color: C.textPrimary,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  proactiveBody: {
+    fontSize: 12,
+    color: C.textMuted,
+    lineHeight: 17,
+  },
   finalLegRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1253,4 +1342,12 @@ const styles = StyleSheet.create({
   },
   clearBtn: { marginTop: 18 },
   clearBtnText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
+  viewMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    alignSelf: 'flex-start',
+  },
+  viewMapText: { fontSize: 13, color: C.sky, fontWeight: '500' },
 });

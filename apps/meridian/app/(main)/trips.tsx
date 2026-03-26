@@ -47,6 +47,7 @@ export default function TripsScreen() {
     if (trip.departureTime) params.departureTime = trip.departureTime;
     if (trip.platform)      params.platform      = trip.platform;
     if (trip.operator)      params.operator      = trip.operator;
+    if (trip.tripContext)   params.tripContext   = JSON.stringify(trip.tripContext);
     router.push({ pathname: '/(main)/receipt/[intentId]', params });
   };
 
@@ -113,7 +114,7 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
             {trip.fromStation} → {trip.toStation}
           </Text>
         ) : (
-          <Text style={styles.cardRoute} numberOfLines={1}>Train journey</Text>
+          <Text style={styles.cardRoute} numberOfLines={1}>{trip.title ?? 'Journey'}</Text>
         )}
         <View style={styles.cardMeta}>
           {trip.departureTime && (

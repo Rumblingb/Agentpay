@@ -146,6 +146,42 @@ export interface Env {
   /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
   ADMIN_EMAIL?: string;
 
+  // ── Google Maps (server key — IP-restricted, never ship in app) ──────────
+  /**
+   * Google Maps server API key — Powers Places (New), Routes, Geocoding web services.
+   * Must be IP-restricted in Cloud Console to Workers egress IPs.
+   * NEVER use this key in the mobile app — use separate iOS/Android keys restricted by bundle ID.
+   * Enable: Places API (New), Routes API, Geocoding API.
+   * npx wrangler secret put GOOGLE_MAPS_API_KEY
+   */
+  GOOGLE_MAPS_API_KEY?: string;
+
+  // ── Events & Experiences ──────────────────────────────────────────────────
+  /**
+   * Ticketmaster Discovery API v2 key — 5k req/day free tier, self-serve.
+   * Register at: https://developer.ticketmaster.com/
+   * npx wrangler secret put TICKETMASTER_API_KEY
+   */
+  TICKETMASTER_API_KEY?: string;
+  /**
+   * OpenTable API key — restaurant search and availability.
+   * Requires commercial partnership: opentable.com/partners
+   * npx wrangler secret put OPENTABLE_API_KEY
+   */
+  OPENTABLE_API_KEY?: string;
+  /**
+   * GetYourGuide API key — experiences and activity booking.
+   * Requires partnership: partner.getyourguide.com
+   * npx wrangler secret put GETYOURGUIDE_API_KEY
+   */
+  GETYOURGUIDE_API_KEY?: string;
+  /**
+   * Duffel API key — flights search and booking, 350+ airlines.
+   * Test key prefix: duffel_test_  Production prefix: duffel_live_
+   * npx wrangler secret put DUFFEL_API_KEY
+   */
+  DUFFEL_API_KEY?: string;
+
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
   AI?: Ai;
@@ -188,6 +224,72 @@ export interface Env {
    * npx wrangler secret put RAPIDAPI_KEY
    */
   RAPIDAPI_KEY?: string;
+
+  // ── EU Rail aggregators ───────────────────────────────────────────────────
+  /**
+   * Rail Europe API key — live EU train booking (200+ European operators).
+   * Requires partnership: agent.raileurope.com
+   * npx wrangler secret put RAIL_EUROPE_API_KEY
+   */
+  RAIL_EUROPE_API_KEY?: string;
+
+  /**
+   * Trainline Partner API key — 270 carriers across 45 countries (UK + EU).
+   * Requires commercial partnership: thetrainline.com/solutions/api
+   * npx wrangler secret put TRAINLINE_API_KEY
+   */
+  TRAINLINE_API_KEY?: string;
+
+  /**
+   * Distribusion API key — 40+ rail carriers, OSDM-compatible.
+   * Requires partnership: distribusion.com
+   * npx wrangler secret put DISTRIBUSION_API_KEY
+   */
+  DISTRIBUSION_API_KEY?: string;
+
+  // ── Global bus aggregators ────────────────────────────────────────────────
+  /**
+   * Busbud API key — 4,500+ bus carriers, 2.5M+ routes, 80+ countries.
+   * Best global intercity bus API. partner-assets.busbud.com/partner/busbud-api/
+   * npx wrangler secret put BUSBUD_API_KEY
+   */
+  BUSBUD_API_KEY?: string;
+
+  /**
+   * FlixBus API key — Europe + US + LatAm intercity buses.
+   * Requires partner agreement: flixbus.com/company/partners/affiliate-partners
+   * npx wrangler secret put FLIXBUS_API_KEY
+   */
+  FLIXBUS_API_KEY?: string;
+
+  /**
+   * redBus API key — India + SE Asia + LatAm bus booking.
+   * Requires commercial partnership: partner.redbus.com
+   * npx wrangler secret put REDBUS_API_KEY
+   */
+  REDBUS_API_KEY?: string;
+
+  // ── Rail outside EU/India ─────────────────────────────────────────────────
+  /**
+   * G2Rail API key — Japan, China, South Korea, USA, Canada + European rail.
+   * Best single API for Asia + North America rail. g2rail.com/help/
+   * npx wrangler secret put G2RAIL_API_KEY
+   */
+  G2RAIL_API_KEY?: string;
+
+  /**
+   * SilverRail API key — Amtrak + VIA Rail Canada (North American rail).
+   * B2B distribution layer. silverrailtech.com
+   * npx wrangler secret put SILVERRAIL_API_KEY
+   */
+  SILVERRAIL_API_KEY?: string;
+
+  /**
+   * 12Go API key — SE Asia multimodal: trains, buses, ferries, vans.
+   * Self-serve + data feed available. agent.12go.asia/
+   * npx wrangler secret put TWELVEGO_API_KEY
+   */
+  TWELVEGO_API_KEY?: string;
 
   // ── Operations (Make.com fulfillment sheet) ───────────────────────────────
   /**

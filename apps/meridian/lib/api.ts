@@ -3,6 +3,8 @@
  * Thin fetch wrapper over api.agentpay.so
  */
 
+import type { NearbyPlace, ProactiveCard, RouteData, TripContext } from '../../../packages/bro-trip/index';
+
 const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
@@ -223,6 +225,7 @@ export interface ConciergeAction {
   agreedPriceUsdc: number;
   input: Record<string, unknown>;
   status: 'hired' | 'failed';
+  tripContext?: TripContext;
 }
 
 export interface ConciergePlanItem {
@@ -237,6 +240,30 @@ export interface ConciergePlanItem {
   dataSource?: 'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
   /** TfL final-leg (only present when arriving at a London terminus) */
   finalLegSummary?: string;
+  /** Route payload for navigate flows and non-London final legs */
+  routeData?: RouteData;
+  /** Nearby place results for discovery and restaurant flows */
+  nearbyPlaces?: NearbyPlace[];
+  /** Flight details — present for search_flights tool */
+  flightDetails?: {
+    origin: string;
+    destination: string;
+    departureAt: string;
+    arrivalAt: string;
+    carrier: string;
+    flightNumber: string;
+    totalAmount: number;
+    currency: string;
+    stops: number;
+    durationMinutes: number;
+    cabinClass: string;
+    offerId: string;
+    offerExpiresAt: string;
+    isReturn: boolean;
+    /** Set after Phase 2 booking completes */
+    pnr?: string;
+  };
+  tripContext?: TripContext;
 }
 
 export interface ConciergeResponse {
@@ -251,6 +278,8 @@ export interface ConciergeResponse {
   fiatAmount?: number;
   currencySymbol?: string;
   currencyCode?: string;
+  tripContext?: TripContext;
+  proactiveCards?: ProactiveCard[];
 }
 
 /** Phase 1: plan — Claude decides what to do, returns price. No hire yet. */
