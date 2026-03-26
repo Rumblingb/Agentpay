@@ -45,33 +45,46 @@ export interface OpenClawResult {
 
 /**
  * Build an OpenClaw payload from AgentPay job metadata.
- * The metadata shape comes from buildJobDescription in concierge.ts.
+ *
+ * Metadata shape (written by concierge.ts after hire):
+ *   trainDetails  — { origin, destination, departureTime, departureDatetime,
+ *                     estimatedFareGbp, fareInr, operator, classCode, country, ... }
+ *   userEmail     — passenger email
+ *   userName      — passenger display name
+ *   userPhone     — passenger phone (optional)
+ *   broRef        — internal booking reference
  */
 function buildPayload(jobId: string, metadata: Record<string, unknown>): OpenClawPayload {
-  const profile = (metadata.travelProfile as Record<string, unknown>) ?? {};
-  const plan    = (metadata.plan as Record<string, unknown>[]) ?? [];
-  const first   = plan[0] ?? {};
-  const skills  = (first.skills as Record<string, unknown>[]) ?? [];
-  const skill   = skills[0] ?? {};
-  const params  = (skill.parameters as Record<string, unknown>) ?? {};
+  const td = (metadata.trainDetails as Record<string, unknown>) ?? {};
+
+  const fromStation = String(td.origin      ?? '');
+  const toStation   = String(td.destination ?? '');
+
+  // Parse date from departureDatetime (ISO) or departureTime string
+  let departureDate = '';
+  if (td.departureDatetime) {
+    departureDate = String(td.departureDatetime).slice(0, 10); // YYYY-MM-DD
+  }
+
+  const country: 'uk' | 'india' = td.country === 'india' ? 'india' : 'uk';
 
   return {
     jobId,
-    route: `${params.fromStation ?? ''} → ${params.toStation ?? ''}`,
-    fromStation: String(params.fromStation ?? ''),
-    toStation:   String(params.toStation ?? ''),
-    departureDate: String(params.travelDate ?? params.departureDate ?? ''),
-    departureTime: params.departureTime ? String(params.departureTime) : undefined,
-    operator:    params.operator    ? String(params.operator)    : undefined,
-    trainClass:  params.trainClass  ? String(params.trainClass)  : undefined,
+    route: `${fromStation} → ${toStation}`,
+    fromStation,
+    toStation,
+    departureDate,
+    departureTime: td.departureTime  ? String(td.departureTime)  : undefined,
+    operator:      td.operator       ? String(td.operator)       : undefined,
+    trainClass:    td.classCode      ? String(td.classCode)      : undefined,
     passengers: [{
-      legalName: String(profile.legalName ?? metadata.legalName ?? ''),
-      email:     String(profile.email     ?? metadata.email     ?? ''),
-      phone:     profile.phone ? String(profile.phone) : undefined,
+      legalName: String(metadata.userName  ?? ''),
+      email:     String(metadata.userEmail ?? ''),
+      phone:     metadata.userPhone ? String(metadata.userPhone) : undefined,
     }],
-    fareGbp: params.fareGbp ? Number(params.fareGbp) : undefined,
-    fareInr: params.fareInr ? Number(params.fareInr) : undefined,
-    nationality: (profile.nationality === 'india' ? 'india' : 'uk') as 'uk' | 'india',
+    fareGbp: td.estimatedFareGbp ? Number(td.estimatedFareGbp) : undefined,
+    fareInr: td.fareInr          ? Number(td.fareInr)          : undefined,
+    nationality: country,
     rawMetadata: metadata,
   };
 }
