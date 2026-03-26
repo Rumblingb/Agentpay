@@ -22,7 +22,7 @@ import {
   Pressable,
   SafeAreaView,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -80,6 +80,65 @@ const PHASE_LABEL: Record<string, string> = {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
+
+function firstSentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  const match = trimmed.match(/^(.+?[.!?])(?:\s|$)/);
+  return (match?.[1] ?? trimmed).trim();
+}
+
+function speechPreview(text: string): string | null {
+  const lead = firstSentence(text);
+  if (!lead) return null;
+  return lead.length <= 140 ? lead : null;
+}
+
+function shouldAutoSpeak(params: {
+  narration: string;
+  hasPlan?: boolean;
+  needsBiometric?: boolean;
+  phase: 'plan' | 'execute' | 'error' | 'system';
+}): boolean {
+  const preview = speechPreview(params.narration);
+  if (!preview) return false;
+  if (params.phase === 'error') return true;
+  if (params.phase === 'system') return false;
+  if (params.phase === 'plan' && params.hasPlan && params.needsBiometric) return false;
+  if (params.phase === 'execute' && params.hasPlan) return false;
+  return true;
+}
+
+function personalizedIdleSuggestions(params: {
+  market: MarketNationality;
+  nearestStation?: string | null;
+  homeStation?: string | null;
+  workStation?: string | null;
+}): string[] {
+  const base = MARKET_SUGGESTIONS[params.market];
+  const picks: string[] = [];
+
+  if (params.homeStation && params.nearestStation && params.homeStation !== params.nearestStation) {
+    picks.push(`${params.nearestStation} to ${params.homeStation}`);
+  }
+  if (params.workStation && params.nearestStation && params.workStation !== params.nearestStation) {
+    picks.push(`${params.nearestStation} to ${params.workStation}`);
+  }
+
+  const hour = new Date().getHours();
+  if (params.market === 'uk' && hour >= 16) {
+    picks.push('Best route home tonight');
+  } else if (params.market === 'india' && hour >= 16) {
+    picks.push('Fastest way home tonight');
+  }
+
+  for (const suggestion of base) {
+    if (!picks.includes(suggestion)) picks.push(suggestion);
+    if (picks.length >= 3) break;
+  }
+
+  return picks.slice(0, 3);
+}
 
 function getCountdown(departureTime: string | null | undefined): string | null {
   if (!departureTime) return null;
@@ -151,6 +210,9 @@ export default function ConverseScreen() {
     fiatCode: string;
   } | null>(null);
 
+  const { prefill } = useLocalSearchParams<{ prefill?: string }>();
+  const prefillFiredRef = useRef(false);
+
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
@@ -189,6 +251,7 @@ export default function ConverseScreen() {
       active = false;
     };
   }, []));
+
 
   // Detect nearest station on mount (fire-and-forget, best-effort)
   useEffect(() => {
@@ -316,7 +379,14 @@ export default function ConverseScreen() {
     };
     addTurn(meridianTurn);
     await appendHistory(meridianTurn);
-    await speakIfEnabled(response.narration);
+    if (shouldAutoSpeak({
+      narration: response.narration,
+      hasPlan: (response.plan?.length ?? 0) > 0,
+      needsBiometric: response.needsBiometric,
+      phase: 'plan',
+    })) {
+      await speakIfEnabled(firstSentence(response.narration));
+    }
 
     // Persist detected currency to store (used everywhere in app)
     if (response.currencySymbol && response.currencyCode) {
@@ -350,6 +420,13 @@ export default function ConverseScreen() {
     setPhase('idle');
   }, [agentId, autoConfirmLimitUsdc, speakIfEnabled]);
 
+  // Auto-fire a pre-filled transcript (e.g. from a disruption rebook notification tap)
+  useEffect(() => {
+    if (!prefill || prefillFiredRef.current || !agentId) return;
+    prefillFiredRef.current = true;
+    handleIntent(prefill).catch(() => {});
+  }, [prefill, agentId, handleIntent]);
+
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
   const executePhase2 = useCallback(async (pending: NonNullable<typeof pendingPlanRef.current>) => {
@@ -368,7 +445,13 @@ export default function ConverseScreen() {
       const meridianTurn = { role: 'meridian' as const, text: response.narration, ts: Date.now() };
       addTurn(meridianTurn);
       await appendHistory(meridianTurn);
-      await speakIfEnabled(response.narration);
+      if (shouldAutoSpeak({
+        narration: response.narration,
+        hasPlan: response.actions.length > 0,
+        phase: 'execute',
+      })) {
+        await speakIfEnabled(firstSentence(response.narration));
+      }
 
       if (response.actions.length > 0) {
         const firstAction = response.actions[0];
@@ -410,7 +493,7 @@ export default function ConverseScreen() {
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
       setError(msg);
-      await speakIfEnabled(`Sorry — ${msg}`);
+      await speakIfEnabled(`Sorry. ${msg}`);
     }
   }, [agentId, speakIfEnabled]);
 
@@ -422,7 +505,6 @@ export default function ConverseScreen() {
 
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
-      await speakIfEnabled('Payment cancelled.');
       addTurn({ role: 'meridian', text: 'Payment cancelled.', ts: Date.now() });
       pendingPlanRef.current = null;
       setPhase('idle');
@@ -445,7 +527,6 @@ export default function ConverseScreen() {
 
   const handleCancelConfirm = useCallback(async () => {
     pendingPlanRef.current = null;
-    await speakIfEnabled('OK, cancelled.');
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
   }, [speakIfEnabled]);
@@ -569,7 +650,12 @@ export default function ConverseScreen() {
   const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
-  const idleSuggestions = MARKET_SUGGESTIONS[marketNationality];
+  const idleSuggestions = personalizedIdleSuggestions({
+    market: marketNationality,
+    nearestStation: nearestStation?.name ?? null,
+    homeStation: homeStation ?? null,
+    workStation: workStation ?? null,
+  });
 
   // Time-aware greeting
   const timeGreeting = (() => {
@@ -626,14 +712,16 @@ export default function ConverseScreen() {
       >
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEyebrow}>Voice-first travel concierge</Text>
+            <Text style={styles.emptyEyebrow}>Door-to-door outdoor AI</Text>
             <Text style={styles.emptyGreeting}>
               {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
             </Text>
             <Text style={styles.emptyHint}>
               {lastRouteHint
                 ? `${lastRouteHint}\nHold the orb and I'll sort it.`
-                : `Hold the orb. Tell me where you're going.\nBro will handle the rest.`}
+                : nearestStation
+                ? `You are near ${nearestStation.name}.\nHold the orb and say the destination.`
+                : `Hold the orb. Say where you're going.\nBro handles the rest.`}
             </Text>
             {activeTrip && (
               <Pressable
@@ -703,14 +791,19 @@ export default function ConverseScreen() {
             )}
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
-                <Text style={styles.suggestionsEyebrow}>Try one of these</Text>
-                <Text style={styles.suggestionsHint}>One sentence is enough. Bro will work out the route.</Text>
+                <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
+                <Text style={styles.suggestionsHint}>One sentence. Bro works out the route quietly.</Text>
               </View>
               <View style={styles.suggestions}>
                 {idleSuggestions.map((suggestion, index) => (
                   <Suggestion
                     key={suggestion}
-                    icon={marketNationality === 'india' && index === 2 ? 'subway-outline' : 'train-outline'}
+                    icon={
+                      suggestion.toLowerCase().includes('bus') ? 'bus-outline'
+                      : suggestion.toLowerCase().includes('metro') ? 'subway-outline'
+                      : suggestion.toLowerCase().includes('flight') ? 'airplane-outline'
+                      : 'train-outline'
+                    }
                     text={suggestion}
                   />
                 ))}
@@ -760,7 +853,7 @@ export default function ConverseScreen() {
           */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
           const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
           const nearbyPlaces = tripContext?.nearbyPlaces ?? plan[0]?.nearbyPlaces ?? null;
-          const cards = tripCards(tripContext);
+          const cards = tripCards(tripContext).filter((card) => card.kind !== 'destination_suggestion');
 
           // Flight offer expiry: find the soonest expiry across all flight legs
           const flightExpiresAt = plan

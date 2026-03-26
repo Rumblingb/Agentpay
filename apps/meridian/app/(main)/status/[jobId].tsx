@@ -57,6 +57,9 @@ export default function StatusScreen() {
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
 
+  const [countdown, setCountdown]       = useState<string | null>(null);
+  const spokenRef   = useRef({ t30: false, t10: false, arrived: false });
+
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
   const fadeSuccess = useRef(new Animated.Value(0)).current;
@@ -269,12 +272,50 @@ export default function StatusScreen() {
     return () => clearInterval(t);
   }, [statusPhase, paymentConfirmed, jobId]);
 
-  // ── Periodic narration during execution ───────────────────────────────────
+  // ── Active journey companion — countdown + voice-overs ────────────────────
   useEffect(() => {
-    if (statusPhase !== 'executing' || !currentAgent) return;
-    if (elapsed === 0 || elapsed % 20 !== 0) return;
-    speak(statusNarration(currentAgent, elapsed));
-  }, [elapsed, statusPhase, currentAgent]);
+    if (statusPhase !== 'done' || !departureDatetime) return;
+
+    const tick = () => {
+      const depMs   = new Date(departureDatetime).getTime();
+      const diffMs  = depMs - Date.now();
+      const diffMin = Math.floor(diffMs / 60_000);
+
+      // Countdown text
+      if (diffMs <= 0) {
+        setCountdown(null);
+      } else if (diffMin >= 60) {
+        const h = Math.floor(diffMin / 60);
+        const m = diffMin % 60;
+        setCountdown(`Departing in ${h}h ${m}m${platform ? ` · Platform ${platform}` : ''}`);
+      } else if (diffMin > 0) {
+        setCountdown(`Departing in ${diffMin} min${platform ? ` · Platform ${platform}` : ''}`);
+      } else {
+        setCountdown(`Departing now${platform ? ` · Platform ${platform}` : ''}`);
+      }
+
+      // Voice-overs — each fires once
+      const dest = toStation ?? 'your destination';
+      const op   = operator  ?? 'Your train';
+      if (diffMin <= 30 && diffMin > 25 && !spokenRef.current.t30) {
+        spokenRef.current.t30 = true;
+        void speak(`30 minutes to departure.${platform ? ` Platform ${platform}.` : ''} ${op} — coach C is usually mid-train.`);
+      } else if (diffMin <= 10 && diffMin > 7 && !spokenRef.current.t10) {
+        spokenRef.current.t10 = true;
+        void speak(`Head to the platform now. 10 minutes to departure.${platform ? ` Platform ${platform}.` : ''}`);
+      } else if (diffMs <= 0 && diffMs > -3 * 60_000 && !spokenRef.current.arrived) {
+        spokenRef.current.arrived = true;
+        void speak(`Welcome to ${dest}. You've arrived.`);
+      }
+    };
+
+    tick(); // run immediately
+    const t = setInterval(tick, 30_000); // update every 30s
+    return () => clearInterval(t);
+  }, [statusPhase, departureDatetime, platform, operator, toStation]);
+
+  // Keep execution quiet. Voice is reserved for completion, failure,
+  // and other material state changes rather than periodic reassurance.
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -343,6 +384,12 @@ export default function StatusScreen() {
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
         </Text>
+        {isFullyDone && countdown && (
+          <View style={styles.countdownBadge}>
+            <Ionicons name="time-outline" size={13} color={C.emBright} />
+            <Text style={styles.countdownText}>{countdown}</Text>
+          </View>
+        )}
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
@@ -398,6 +445,7 @@ export default function StatusScreen() {
                 if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
                   const { shortUrl } = await createUpiPaymentLink({
                     jobId,
+                    journeyId: paramJourneyId,
                     amountInr: Math.round(parseFloat(fiatAmount)),
                     description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Bro booking',
                   });
@@ -405,6 +453,7 @@ export default function StatusScreen() {
                 } else {
                   const { url } = await createCheckoutSession({
                     jobId,
+                    journeyId: paramJourneyId,
                     amountFiat:   parseFloat(fiatAmount),
                     currencyCode: paramCode ?? 'GBP',
                     description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
@@ -795,4 +844,18 @@ const styles = StyleSheet.create({
   paidBadgeText: { fontSize: 13, fontWeight: '600', color: C.green },
   shareTripBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   shareTripText: { fontSize: 15, color: C.sky, fontWeight: '500' },
+
+  countdownBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: C.emDim,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.emGlow,
+  },
+  countdownText: { fontSize: 13, fontWeight: '600', color: C.emBright, letterSpacing: 0.2 },
 });

@@ -28,6 +28,7 @@ import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
 import { queryRTT, formatTrainsForClaude, LONDON_TERMINI } from '../lib/rtt';
 import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
 import { isEuRoute, queryEuRail, formatEuTrainsForClaude } from '../lib/euRail';
+import { formatGlobalGroundForClaude, isGlobalRailRoute, isSupportedBusRoute, queryBus, queryGlobalRail } from '../lib/globalGround';
 import { queryTfLFinalLeg } from '../lib/tfl';
 import { planMetro, formatMetroForClaude } from '../lib/metro';
 import { searchEvents, formatEventsForClaude } from '../lib/ticketmaster';
@@ -41,6 +42,7 @@ import {
 import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
+import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
@@ -432,7 +434,62 @@ conciergeRouter.post('/intent', async (c) => {
       })()
     : '';
 
-  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
+  // ── Journey memory: last 5 completed trips ────────────────────────────────
+  let tripHistoryContext = '';
+  {
+    const histSql = createDb(c.env);
+    try {
+      const rows = await histSql<Array<{
+        origin: string | null; destination: string | null;
+        operator: string | null; fare: string | null; created_at: string;
+      }>>`
+        SELECT
+          COALESCE(
+            metadata->'trainDetails'->>'origin',
+            metadata->'flightDetails'->>'origin'
+          ) AS origin,
+          COALESCE(
+            metadata->'trainDetails'->>'destination',
+            metadata->'flightDetails'->>'destination'
+          ) AS destination,
+          COALESCE(
+            metadata->'trainDetails'->>'operator',
+            metadata->'flightDetails'->>'carrier'
+          ) AS operator,
+          COALESCE(
+            metadata->'trainDetails'->>'estimatedFareGbp',
+            metadata->'flightDetails'->>'totalGbp'
+          ) AS fare,
+          created_at::text AS created_at
+        FROM payment_intents
+        WHERE hirer_id = ${hirerId}
+          AND status = 'completed'
+        ORDER BY created_at DESC
+        LIMIT 5
+      `.catch(() => []);
+      const trips = rows.filter(r => r.origin && r.destination);
+      if (trips.length > 0) {
+        const lines = trips.map(t => {
+          const date = t.created_at ? t.created_at.slice(0, 10) : '';
+          const fare = t.fare && Number(t.fare) > 0 ? ` £${Math.round(Number(t.fare))}` : '';
+          const op   = t.operator ? ` (${t.operator})` : '';
+          return `- ${t.origin} → ${t.destination}${op}, ${date}${fare}`;
+        });
+        const routeCounts: Record<string, number> = {};
+        for (const t of trips) {
+          const key = `${t.origin}→${t.destination}`;
+          routeCounts[key] = (routeCounts[key] ?? 0) + 1;
+        }
+        const frequentRoute = Object.entries(routeCounts).find(([, n]) => n >= 2);
+        tripHistoryContext = `\nUser's recent trips:\n${lines.join('\n')}`
+          + (frequentRoute ? `\nFrequent route: ${frequentRoute[0]} (${frequentRoute[1]}× in history) — if this matches the request, say "Same as last time?" and quote the fare.` : '');
+      }
+    } catch { /* non-fatal */ } finally {
+      await histSql.end().catch(() => {});
+    }
+  }
+
+  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}${tripHistoryContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -452,12 +509,13 @@ HARD RULES — never violate these:
 7. Only call agents registered on AgentPay with AgentRank grade B or above.
 
 ROUTING RULES:
-- Use book_train for UK AND European routes: UK domestic (London, Manchester, Edinburgh, Bristol, etc.), Eurostar (London→Paris/Brussels/Amsterdam), EU domestic/cross-border (Paris→Lyon/Marseille, Frankfurt→Berlin, Rome→Milan, Madrid→Barcelona, Amsterdam→Cologne, Zurich→Milan, Vienna→Prague, etc.)
+- Use book_train for UK, Europe, and major global rail corridors: UK domestic (London, Manchester, Edinburgh, Bristol, etc.), Eurostar (London→Paris/Brussels/Amsterdam), EU domestic/cross-border (Paris→Lyon/Marseille, Frankfurt→Berlin, Rome→Milan, Madrid→Barcelona, Amsterdam→Cologne, Zurich→Milan, Vienna→Prague, etc.), plus major rail elsewhere (New York→Boston/Washington, Toronto→Montreal, Tokyo→Kyoto/Osaka, Seoul→Busan, Bangkok→Chiang Mai).
 - Use book_luxury_rail when the user explicitly asks for Orient Express, Royal Scotsman, Caledonian Sleeper, Glacier Express, Rocky Mountaineer, or any named luxury sleeper train product.
 - Use book_train_india for Indian routes (Delhi, Mumbai, Bangalore, Chennai, Kolkata, Hyderabad, etc.)
+- Use book_bus for intercity coaches and buses: FlixBus-style Europe routes, North America corridor coaches, and Southeast Asia bus links. Do not use it for local city buses.
 - Use plan_metro for Bengaluru metro (Purple/Green line) or Pune metro (Line 1/Line 2). No booking needed — quote route, time, fare, and tell them to just turn up. One short sentence.
   Metro response format: "Green Line to Kempegowda, switch to Purple — 8 stops to Indiranagar, 22 min, ₹30."
-- Use book_hotel when the user asks for a hotel, B&B, or accommodation. Hotels handled manually by ops team.
+- Use book_hotel for any hotel or accommodation request. Returns 3 options (budget/mid/luxury) with nightly rates in local currency. Cities covered: London, Paris, Tokyo, New York, Bangkok, Singapore, Rome, Barcelona, Amsterdam, Sydney, Dubai, Bali, Berlin, Istanbul, Prague, and more. Works for same-day and advance booking.
 - Use discover_events proactively after confirming a trip booked 2+ days ahead — surface the top event at the destination on the travel date. Present it naturally: "Coldplay at Accor Arena that night — €95. Want me to add it?" Never force this — one brief offer only.
 - Use discover_nearby when the user asks about what's near them: "quiet café near me", "find a pharmacy", "ATM near here", "coffee nearby", anything with proximity. Pass GPS coords from travelProfile.currentLat/currentLon when available for precise results.
 - Use navigate for "navigate me to...", "how do I walk to...", "directions to...", "how far is...". Confirm first: "Walking to [place], 12 min. Ready?" then give steps. Darwin stays source of truth for UK rail. TfL stays for London transit. Google Routes only for non-London final legs and explicit walking navigation.
@@ -466,7 +524,7 @@ ROUTING RULES:
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
 - Use search_flights for any air travel: "fly to Barcelona", "flight to New York", "cheapest flight to Dublin". Always confirm airport if city is ambiguous (London → ask Heathrow/Gatwick). Proactively suggest train if route is under 3h and Eurostar/rail is faster (London↔Paris, London↔Brussels). Phase 1 returns top 3 options; user picks or confirm card books cheapest. Passport details required for international — if missing, say "I'll need your passport — add in Settings."
-- If asked about taxis or car hire: say "Cabs coming soon — trains, flights, and hotels I can sort." One sentence only.
+- If asked about taxis or car hire: say "Cabs coming soon — trains, buses, flights, and hotels I can sort." One sentence only.
 
 FAMILY / GROUP TRAVEL:
 - When the user mentions a family member by name (e.g. "me and Maya", "take Dad"), resolve them from the family list above.
@@ -476,6 +534,7 @@ FAMILY / GROUP TRAVEL:
 - For child pricing (UK rail): under-5 free, 5-15 half fare (auto-applied by National Rail).
 - Never combine passengers from different households — only book people explicitly mentioned.
 - Multi-passenger confirm card shows per-person fare breakdown.
+- If a name is mentioned but not in the family list, say: "I don't have [Name]'s details. Add them in Settings → My Family to save for next time." Do not attempt to book without their info.
 
 BEING ACCOMMODATING — never block on missing info:
 - No date given ("book a train to Manchester"): call the tool with no date — query next available services today. Present top 3 options.
@@ -504,6 +563,12 @@ TATKAL (India last-minute — auto-detect):
 - "This is last minute — TATKAL is 30–50% more but guaranteed. Want that, or shall I try general quota?"
 - For premium tier: suggest TATKAL automatically for same-day/next-day.
 
+JOURNEY MEMORY — use recent trips when relevant:
+- If the user's request matches a route in their recent trips: say "Same as last time?" and state the date and fare. Example: "London→Edinburgh, you did this 3 Jan for £45. Same again?"
+- If a route appears 2+ times in history: proactively note it: "You've done this one before." Don't make it a big deal — one sentence.
+- Never volunteer history unprompted. Only use it when the current request clearly matches.
+- Do not invent trips — only reference what's in the "User's recent trips" list above.
+
 TIME CLARIFICATION RULE — critical:
 - If the user did NOT specify a time (e.g. "book a train to Manchester"), call the tool with time_preference="any"
 - When the tool returns multiple trains, list up to 3 options and ask which they want:
@@ -515,6 +580,8 @@ MULTI-LEG JOURNEYS — when to chain tools:
 - "Bristol to Rome by Thursday" → book_train (Bristol→Heathrow or Eurostar) + search_flights (London→Rome). Two tool calls in one response.
 - "Get me from Manchester to Barcelona" → book_train (Manchester→London) + search_flights (London→Barcelona).
 - "Delhi to London" → book_train_india (Delhi→airport) + search_flights (India→London).
+- "Bangkok to Chiang Mai tomorrow" → book_train or book_bus depending on what the user asks for.
+- "New York to Boston cheapest" → book_bus first. "New York to Boston fastest" → book_train first.
 - DO NOT chain when a single tool covers the whole journey (e.g. "London to Edinburgh" is just book_train; "London to New York" is just search_flights).
 - Narration format for multi-leg: "Leg 1: GWR 09:12 Bristol → Paddington, £28. Leg 2: BA 14:40 Heathrow → Rome, £254. Total £282. One fingerprint books both."
 - Each leg is a separate tool call — Claude returns multiple tool_use blocks in one response.
@@ -539,12 +606,29 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   if (confirmed && plan && plan.length > 0) {
     broLog('phase2_start', { traceId, planItemCount: plan.length });
+
+    const expiredFlightLeg = plan.find((item) =>
+      item.flightDetails?.offerExpiresAt &&
+      new Date(item.flightDetails.offerExpiresAt) <= new Date(),
+    );
+    if (expiredFlightLeg) {
+      return c.json({
+        narration: 'One of the flight prices expired before booking. Search again for fresh fares.',
+        actions: [],
+        tripContext: expiredFlightLeg.tripContext,
+        proactiveCards: expiredFlightLeg.tripContext?.proactiveCards ?? [],
+      });
+    }
+
     const actions: ActionResult[] = [];
     const toolResults: ToolResultBlock[] = [];
+    const executionPlan = plan
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => Number(!!b.item.flightDetails) - Number(!!a.item.flightDetails));
 
     const sql = createDb(c.env);
     try {
-      for (const item of plan) {
+      for (const { item, index: originalIndex } of executionPlan) {
         const skill = SKILL_MAP[item.toolName];
         if (!skill) continue;
 
@@ -572,17 +656,6 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           // ── Duffel flight booking ─────────────────────────────────────────
           if (item.flightDetails && c.env.DUFFEL_API_KEY) {
             const fd = item.flightDetails;
-
-            // Duffel offers expire ~20 minutes after Phase 1 search.
-            // If expired, surface a clear error so the user can re-search.
-            if (fd.offerExpiresAt && new Date(fd.offerExpiresAt) <= new Date()) {
-              toolResults.push({
-                type:        'tool_result',
-                tool_use_id: item.toolUseId,
-                content:     'Flight offer expired — search again for fresh prices.',
-              });
-              continue;
-            }
 
             const email    = String(travelProfile?.email ?? '');
             const phone    = travelProfile?.phone ? String(travelProfile.phone) : undefined;
@@ -667,6 +740,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               `.catch(() => null);
             } else {
               broLog('flight_booking_failed', { traceId, jobId: hireResult.jobId, offerId: fd.offerId });
+              await sql`
+                UPDATE payment_intents
+                SET metadata = metadata || ${JSON.stringify({
+                  flightBookingFailed: true,
+                  flightBookingFailedAt: new Date().toISOString(),
+                  flightBookingError: 'Duffel could not confirm the selected offer.',
+                })}::jsonb
+                WHERE id = ${hireResult.jobId}
+              `.catch(() => null);
+              throw new Error('Flight booking failed before confirmation. Search again for fresh fares.');
             }
           }
 
@@ -703,11 +786,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               travelDate:      item.trainDetails.travelDate,
               isSimulated:     true,
               dataSource:      item.trainDetails.dataSource,
+              transportMode:   item.trainDetails.transportMode,
               finalLegSummary: item.trainDetails.finalLegSummary,
               note: isIndia
                 ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
+                : item.trainDetails.transportMode === 'bus'
+                ? 'Coach inventory surfaced by Bro ground transport providers. Ops team will book and email confirmation.'
                 : item.trainDetails.country === 'eu'
                 ? 'EU rail schedule via Rail Europe / Trainline. Ops team will book and email confirmation.'
+                : item.trainDetails.country === 'global'
+                ? 'Global rail schedule via partner feed. Ops team will book and email confirmation.'
                 : 'Schedule data from National Rail via Darwin API. Provider booking not yet integrated.',
             };
 
@@ -735,7 +823,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   pendingFulfilment: true,
                   tripContext:       executingTripContext,
                   journeyId:         (item as any).journeyId ?? null,
-                  legIndex:          plan.indexOf(item),
+                  legIndex:          originalIndex,
                   totalLegs:         plan.length,
                 })}::jsonb
                 WHERE id = ${hireResult.jobId}
@@ -763,6 +851,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   departureTime: item.trainDetails.departureTime,
                   estimatedFare: isIndia
                     ? `₹${item.trainDetails.fareInr}`
+                    : item.trainDetails.transportMode === 'bus'
+                    ? `£${item.trainDetails.estimatedFareGbp}`
                     : item.trainDetails.country === 'eu'
                     ? `€${item.trainDetails.estimatedFareGbp}`
                     : `£${item.trainDetails.estimatedFareGbp}`,
@@ -796,6 +886,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               : '';
             const confirmLine = isIndia
               ? `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.trainName} at ${item.trainDetails.departureTime}. Ticket details within 15 minutes.`
+              : item.trainDetails.transportMode === 'bus'
+              ? `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator} coach. Details within 15 minutes.`
               : `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator}. Ticket details within 15 minutes.`;
 
             toolResults.push({
@@ -809,7 +901,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               SET metadata = metadata || ${JSON.stringify({
                 tripContext: executingTripContext ?? null,
                 journeyId:   (item as any).journeyId ?? null,
-                legIndex:    plan.indexOf(item),
+                legIndex:    originalIndex,
                 totalLegs:   plan.length,
               })}::jsonb
               WHERE id = ${hireResult.jobId}
@@ -843,7 +935,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             flightDetails:   item.flightDetails,
             tripContext:     executingTripContext,
             journeyId:       (item as any).journeyId ?? undefined,
-            legIndex:        plan.indexOf(item),
+            legIndex:        originalIndex,
           });
         } catch (e: any) {
           broLog('hire_failed', { traceId, toolName: skill.toolName, error: (e as Error).message });
@@ -889,6 +981,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     // and disruption fan-out work for solo travellers as well.
     if (actions.length > 0) {
       const firstJobId = actions[0]?.jobId;
+      const sharedJourneyId = actions[0]?.journeyId;
       if (firstJobId) {
         const shareToken = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
         const expiresAt  = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
@@ -901,11 +994,15 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         await tripSql`
           UPDATE payment_intents
           SET metadata = metadata || ${JSON.stringify({ shareToken })}::jsonb
-          WHERE id = ${firstJobId}
+          WHERE (
+            id = ${firstJobId}
+            OR (${sharedJourneyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${sharedJourneyId ?? ''})
+          )
         `.catch(() => null);
         await tripSql.end().catch(() => {});
-        // Attach shareToken to first action so Meridian can show Share Trip button immediately
-        (actions[0] as any).shareToken = shareToken;
+        for (const action of actions) {
+          (action as any).shareToken = shareToken;
+        }
         broLog('trip_room_auto_created', { traceId, jobId: firstJobId, shareToken });
       }
     }
@@ -983,6 +1080,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
       if (toolCall.name === 'book_train') {
         const isEu = isEuRoute(input.origin ?? '', input.destination ?? '');
+        const isGlobalRail = !isEu && isGlobalRailRoute(input.origin ?? '', input.destination ?? '');
 
         if (isEu) {
           // ── EU Rail query (Rail Europe → Trainline → mock schedule) ──────
@@ -1024,6 +1122,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               travelDate:        euDate,
               departureDatetime: `${euDate}T${svc.departureTime}:00`,
               dataSource:        euDataSource,
+              transportMode:     'rail',
             };
 
             // ── EU final-leg routing via Google Routes ───────────────────
@@ -1063,6 +1162,45 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                 }
               }
             }
+          }
+        } else if (isGlobalRail) {
+          const globalRailResult = await queryGlobalRail(
+            c.env,
+            input.origin ?? '',
+            input.destination ?? '',
+            input.date as string | undefined,
+            input.time_preference as string | undefined,
+          );
+
+          toolResultContent = formatGlobalGroundForClaude('rail', globalRailResult);
+          const globalRailDataSource = globalRailResult.error === 'advance_schedule' ? 'global_rail_scheduled' : 'global_rail_live';
+
+          broLog('global_rail_result', {
+            traceId,
+            origin: input.origin,
+            destination: input.destination,
+            servicesFound: globalRailResult.services.length,
+            dataSource: globalRailDataSource,
+          });
+
+          if (globalRailResult.services.length > 0) {
+            const svc = globalRailResult.services[0];
+            const travelDate = globalRailResult.date.replace(/\//g, '-');
+            trainDetails = {
+              departureTime: svc.departureTime,
+              arrivalTime: svc.arrivalTime,
+              platform: svc.platform,
+              operator: svc.operator,
+              serviceUid: svc.serviceUid,
+              origin: globalRailResult.origin,
+              destination: globalRailResult.destination,
+              estimatedFareGbp: svc.estimatedFareGbp,
+              country: 'global',
+              travelDate,
+              departureDatetime: `${travelDate}T${svc.departureTime}:00`,
+              dataSource: globalRailDataSource,
+              transportMode: 'rail',
+            };
           }
         } else {
         // ── Live Darwin query (UK) ────────────────────────────────────────
@@ -1112,6 +1250,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             travelDate:         ukTravelDate,
             departureDatetime:  `${ukTravelDate}T${svc.departureTime}:00`,
             dataSource,
+            transportMode:      'rail',
           };
 
           // ── TfL final-leg routing ──────────────────────────────────────────
@@ -1196,6 +1335,53 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             travelDate:         irTravelDate,
             departureDatetime:  `${irTravelDate}T${svc.departureTime}:00`,
             dataSource:         irDataSource,
+            transportMode:      'rail',
+          };
+        }
+      } else if (toolCall.name === 'book_bus') {
+        const busSupported = isSupportedBusRoute(input.origin ?? '', input.destination ?? '');
+        const busResult = await queryBus(
+          c.env,
+          input.origin ?? '',
+          input.destination ?? '',
+          input.date as string | undefined,
+          input.time_preference as string | undefined,
+        );
+
+        toolResultContent = busSupported
+          ? formatGlobalGroundForClaude('bus', busResult)
+          : `No bus corridor configured yet from ${input.origin ?? ''} to ${input.destination ?? ''}.`;
+        if (!busSupported || busResult.services.length === 0) {
+          (toolCall as any)._skipPlan = true;
+        }
+
+        const busDataSource = busResult.error === 'advance_schedule' ? 'bus_scheduled' : 'bus_live';
+        broLog('bus_result', {
+          traceId,
+          origin: input.origin,
+          destination: input.destination,
+          servicesFound: busResult.services.length,
+          dataSource: busDataSource,
+          supported: busSupported,
+        });
+
+        if (busSupported && busResult.services.length > 0) {
+          const svc = busResult.services[0];
+          const travelDate = busResult.date.replace(/\//g, '-');
+          trainDetails = {
+            departureTime: svc.departureTime,
+            arrivalTime: svc.arrivalTime,
+            platform: svc.platform,
+            operator: svc.operator,
+            serviceUid: svc.serviceUid,
+            origin: busResult.origin,
+            destination: busResult.destination,
+            estimatedFareGbp: svc.estimatedFareGbp,
+            country: 'global',
+            travelDate,
+            departureDatetime: `${travelDate}T${svc.departureTime}:00`,
+            dataSource: busDataSource,
+            transportMode: 'bus',
           };
         }
       } else if (toolCall.name === 'plan_metro') {
@@ -1395,6 +1581,38 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           found:     restaurantResults.length,
         });
 
+      } else if (toolCall.name === 'book_hotel') {
+        // ── Hotel search via Xotelo free-tier price aggregation ───────────
+        const city     = (input.location as string | undefined) ?? (input.city as string | undefined) ?? (input.destination as string | undefined) ?? '';
+        const checkIn  = (input.check_in  as string | undefined) ?? '';
+        const checkOut = (input.check_out as string | undefined) ?? '';
+        const rooms    = input.rooms  ? Number(input.rooms)  : 1;
+        const stars    = input.stars  ? Number(input.stars)  : undefined;
+
+        const hotelResults = await searchHotels({ city, checkIn, checkOut, rooms, stars }).catch(() => []);
+
+        if (hotelResults.length > 0) {
+          toolResultContent = formatHotelsForClaude(hotelResults, city, checkIn, checkOut);
+          (toolCall as any)._hotelDetails = {
+            city,
+            checkIn,
+            checkOut,
+            bestOption:  hotelResults[0],
+            allOptions:  hotelResults,
+          };
+        } else {
+          toolResultContent = `No hotels found in ${city} for those dates. Try a different city or dates.`;
+        }
+
+        broLog('hotel_result', {
+          traceId,
+          city,
+          checkIn,
+          checkOut,
+          found: hotelResults.length,
+          live:  hotelResults.filter(h => h.isLive).length,
+        });
+
       } else {
         // Non-train skills: tell Claude the agent is available
         const agentName = agent?.name ?? skill.displayName;
@@ -1417,6 +1635,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         tool_use_id: toolCall.id,
         content:     toolResultContent,
       });
+
+      if ((toolCall as any)._skipPlan) {
+        continue;
+      }
 
       // Estimated price: real fare from train details, or flight amount, or route estimate, or agent price
       let estimatedPriceUsdc = agent?.pricePerTaskUsd ?? 1;
@@ -1814,6 +2036,9 @@ function buildFallbackNarration(planItems: PlanItem[]): string {
   if (planItems.length === 1) {
     const p = planItems[0];
     if (p.trainDetails) {
+      if (p.trainDetails.transportMode === 'bus') {
+        return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
+      }
       if (p.trainDetails.country === 'india') {
         return `${p.trainDetails.trainName} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated ₹${p.trainDetails.fareInr}. Fingerprint to confirm.`;
       }
@@ -1874,6 +2099,12 @@ function buildJobDescription(
   return lines.join('\n');
 }
 
+function transportNoun(details: { transportMode?: 'rail' | 'bus'; country?: string }): string {
+  if (details.transportMode === 'bus') return 'coach';
+  if (details.country === 'india') return 'ticket';
+  return 'ticket';
+}
+
 // ── Email 1: sent immediately after biometric confirm ─────────────────────────
 
 async function sendBookingRequestEmail(
@@ -1890,6 +2121,7 @@ async function sendBookingRequestEmail(
   const { to, name, broRef, trainDetails } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = trainDetails.country === 'india';
+  const isBus       = trainDetails.transportMode === 'bus';
   const fareDisplay = isIndia
     ? `₹${trainDetails.fareInr} (estimated)`
     : `£${trainDetails.estimatedFareGbp} (estimated)`;
@@ -1899,19 +2131,19 @@ async function sendBookingRequestEmail(
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
       <h2 style="color:#2563eb">Request Received</h2>
       <p>${greeting}</p>
-      <p>We're securing your ticket now. Your real ticket reference will arrive in a separate email within 15 minutes.</p>
+      <p>We're securing your ${transportNoun(trainDetails)} now. Your real reference will arrive in a separate email within 15 minutes.</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
         <tr><td style="padding:8px 0;color:#666;width:140px">BRO Ref</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#2563eb">${broRef}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Route</td>
             <td style="padding:8px 0">${trainDetails.origin} → ${trainDetails.destination}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Requested train</td>
+        <tr><td style="padding:8px 0;color:#666">${isBus ? 'Requested coach' : 'Requested service'}</td>
             <td style="padding:8px 0">${trainDetails.departureTime}${arrivalLine} · ${trainDetails.operator}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Est. fare</td>
             <td style="padding:8px 0">${fareDisplay}</td></tr>
       </table>
       <p style="background:#eff6ff;border-left:3px solid #2563eb;padding:12px;font-size:13px;color:#1e40af">
-        Keep your BRO reference <strong>${broRef}</strong>. Your actual ticket reference will follow once secured.
+        Keep your BRO reference <strong>${broRef}</strong>. Your actual ${isBus ? 'coach' : 'ticket'} reference will follow once secured.
       </p>
       <p style="color:#666;font-size:13px">Bro · AgentPay</p>
     </div>
@@ -1952,6 +2184,7 @@ async function sendTicketConfirmedEmail(
   const { to, name, broRef, realTicketRef, proof } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = proof.country === 'india';
+  const isBus       = proof.transportMode === 'bus';
   const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
   const fareDisplay = isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`;
 
@@ -1983,11 +2216,11 @@ async function sendTicketConfirmedEmail(
     </div>
   ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#16a34a">Ticket Confirmed ✓</h2>
+      <h2 style="color:#16a34a">${isBus ? 'Coach Confirmed ✓' : 'Ticket Confirmed ✓'}</h2>
       <p>${greeting}</p>
-      <p>Your ticket is confirmed and ready. Here are your journey details:</p>
+      <p>Your ${isBus ? 'coach seat' : 'ticket'} is confirmed and ready. Here are your journey details:</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">Ticket Ref</td>
+        <tr><td style="padding:8px 0;color:#666;width:140px">${isBus ? 'Coach Ref' : 'Ticket Ref'}</td>
             <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#16a34a">${realTicketRef}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Route</td>
             <td style="padding:8px 0">${proof.fromStation} → ${proof.toStation}</td></tr>
@@ -2085,6 +2318,7 @@ async function sendAdminAlert(
 ): Promise<void> {
   if (!resendKey || !adminEmail) return;
   const isIndia = params.country === 'india';
+  const isGlobal = params.country === 'global';
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -2113,10 +2347,10 @@ async function sendAdminAlert(
               <tr><td style="padding:6px 0;color:#666">Est. fare</td>
                   <td>${params.estimatedFare}</td></tr>
               <tr><td style="padding:6px 0;color:#666">Market</td>
-                  <td>${isIndia ? '🇮🇳 India (IRCTC)' : '🇬🇧 UK (Trainline)'}</td></tr>
+                  <td>${isIndia ? '🇮🇳 India (IRCTC)' : isGlobal ? '🌍 Global ground transport' : '🇬🇧/🇪🇺 Rail partner'}</td></tr>
             </table>
             <p style="background:#fef2f2;border-left:3px solid #dc2626;padding:12px;margin-top:20px;font-size:13px">
-              <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC' : 'Trainline'} and enter the real ticket ref in the ops sheet to trigger the confirmation email.
+              <strong>Action required:</strong> Book on ${isIndia ? 'IRCTC' : isGlobal ? 'the relevant ground transport partner' : 'the rail partner'} and enter the real reference in the ops sheet to trigger the confirmation email.
             </p>
           </div>
         `,
@@ -2187,12 +2421,27 @@ async function fireOperationsWebhook(
     BOOKED_AT:        proof.bookedAt,
   };
 
-  await fetch(webhookUrl, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(payload),
-    signal:  AbortSignal.timeout(8_000),
-  });
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetch(webhookUrl, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+        signal:  AbortSignal.timeout(8_000),
+      });
+      if (!resp.ok) {
+        throw new Error(`Operations webhook HTTP ${resp.status}`);
+      }
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      }
+    }
+  }
+  throw lastError ?? new Error('Operations webhook failed');
 }
 
 /**
@@ -2240,6 +2489,8 @@ async function sendBookingWhatsApp(
 
   const { proof, userEmail, userName, userWhatsapp, irctcUsername } = params;
   const isIndia = proof.country === 'india';
+  const isBus = proof.transportMode === 'bus';
+  const isGlobal = proof.country === 'global';
   const name = userName?.split(' ')[0] ?? 'Passenger';
 
   // ── Admin alert ────────────────────────────────────────────────────────────
@@ -2257,6 +2508,18 @@ async function sendBookingWhatsApp(
           '',
           'Book on IRCTC then update the sheet.',
         ].filter(Boolean).join('\n')
+      : isBus
+      ? [
+          '🚌 *New Bro Booking*',
+          `Ref: ${proof.bookingRef}`,
+          `Route: ${proof.fromStation} → ${proof.toStation}`,
+          `Coach: ${proof.operator}`,
+          `Departs: ${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}`,
+          `Fare: £${proof.fareGbp ?? ''}`,
+          `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
+          '',
+          'Book with the coach partner then update the sheet.',
+        ].filter(Boolean).join('\n')
       : [
           '🚂 *New Bro Booking*',
           `Ref: ${proof.bookingRef}`,
@@ -2266,7 +2529,7 @@ async function sendBookingWhatsApp(
           `Fare: £${proof.fareGbp ?? ''}`,
           `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
           '',
-          'Book on Trainline then update the sheet.',
+          isGlobal ? 'Book with the relevant rail partner then update the sheet.' : 'Book on Trainline then update the sheet.',
         ].filter(Boolean).join('\n');
 
     await sendWhatsApp(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, ADMIN_WHATSAPP_NUMBER, adminMsg).catch(() => {});
@@ -2291,6 +2554,20 @@ async function sendBookingWhatsApp(
         '',
         'Reply HELP if you need anything.',
       ].filter(Boolean).join('\n')
+    : isBus
+    ? [
+        'Bro 🚌',
+        '',
+        `Hi ${name}, your coach is confirmed.`,
+        '',
+        `*${proof.fromStation} → ${proof.toStation}*`,
+        `${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''} · ${proof.operator}`,
+        '',
+        `Reference: *${proof.bookingRef}*`,
+        'Your coach details arrive within 15 minutes.',
+        '',
+        'Reply HELP if you need anything.',
+      ].filter(Boolean).join('\n')
     : [
         'Bro 🚂',
         '',
@@ -2301,7 +2578,7 @@ async function sendBookingWhatsApp(
         proof.platform ? `Platform ${proof.platform}` : '',
         '',
         `Reference: *${proof.bookingRef}*`,
-        'Your ticket details arrive within 15 minutes.',
+        isGlobal ? 'Your booking details arrive within 15 minutes.' : 'Your ticket details arrive within 15 minutes.',
         '',
         'Reply HELP if you need anything.',
       ].filter(Boolean).join('\n');
@@ -2388,13 +2665,14 @@ interface TrainDetails {
   destination:      string;
   estimatedFareGbp: number;
   // India-specific fields (present when country === 'india')
-  country?:         'uk' | 'india' | 'eu';
+  country?:         'uk' | 'india' | 'eu' | 'global';
+  transportMode?:   'rail' | 'bus';
   trainNumber?:     string;
   trainName?:       string;
   classCode?:       string;
   fareInr?:         number;
   /** Whether this data came from a live API or a scheduled/mock fallback */
-  dataSource?:      'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated' | 'eu_scheduled' | 'eu_live';
+  dataSource?:      'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated' | 'eu_scheduled' | 'eu_live' | 'global_rail_live' | 'global_rail_scheduled' | 'bus_live' | 'bus_scheduled';
   /** CRS code of the arrival station — used to detect London terminus for TfL final leg */
   destinationCRS?:  string;
   /** Actual travel date (YYYY-MM-DD) — distinct from booking creation date */
@@ -2464,7 +2742,8 @@ interface BookingProof {
   serviceUid:     string;
   fareGbp:        number;
   // India-specific / EU-specific
-  country?:       'uk' | 'india' | 'eu';
+  country?:       'uk' | 'india' | 'eu' | 'global';
+  transportMode?: 'rail' | 'bus';
   fareInr?:       number;
   trainNumber?:   string;
   trainName?:     string;

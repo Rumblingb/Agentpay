@@ -99,13 +99,52 @@ export async function runPlatformWatch(env: Env): Promise<void> {
         if (status.isCancelled && !meta.cancellationNotified) {
           broLog('service_cancelled', { jobId: row.id, serviceUid });
 
+          // Search for next available service on the same route
+          let altText = '';
+          let altService: Record<string, unknown> | undefined;
+          try {
+            const { queryRTT } = await import('../lib/rtt');
+            const altResult = await queryRTT(env, origin, destination ?? origin, 'today', 'any');
+            // Find the first service that departs after the cancelled one
+            const cancelledHHMM = departureDatetime ? departureDatetime.slice(11, 16) : '00:00';
+            const nextSvc = altResult.services.find(s => s.departureTime > cancelledHHMM);
+            if (nextSvc) {
+              const fare = nextSvc.estimatedFareGbp ? ` · £${nextSvc.estimatedFareGbp}` : '';
+              altText = ` I found the ${nextSvc.departureTime}${nextSvc.arrivalTime ? ` → ${nextSvc.arrivalTime}` : ''}${fare}. Tap to rebook.`;
+              altService = {
+                origin,
+                destination: destination ?? origin,
+                departureTime:  nextSvc.departureTime,
+                arrivalTime:    nextSvc.arrivalTime,
+                operator:       nextSvc.operator,
+                estimatedFareGbp: nextSvc.estimatedFareGbp,
+                serviceUid:     nextSvc.serviceUid,
+              };
+              metaUpdates.alternativeService = altService;
+            }
+          } catch { /* non-fatal */ }
+
+          const cancelledTime = departureDatetime ? departureDatetime.slice(11, 16) : 'your train';
+          const pushBody = destination
+            ? `Your ${cancelledTime} to ${destination} is cancelled.${altText || ' Ask Bro for alternatives.'}`
+            : `Your train is cancelled.${altText || ' Ask Bro for alternatives.'}`;
+
+          const transcript = altService && destination
+            ? `Rebook my cancelled ${cancelledTime} to ${destination} — put me on the ${(altService as any).departureTime} instead`
+            : `My train to ${destination ?? origin} was cancelled — find me the next one`;
+
           await sendExpoPush(
             pushToken,
             '⚠️ Train cancelled',
-            `${route} has been cancelled · Ask Bro for alternatives`,
-            { intentId: row.id, screen: 'receipt', action: 'cancelled' },
+            pushBody,
+            {
+              intentId: row.id,
+              screen:   altService ? 'converse' : 'receipt',
+              action:   'rebook',
+              transcript,
+            },
           );
-          await fanOutToTripRoom(row.id, `⚠️ Train cancelled: ${route}. Ask Bro for alternatives.`, sql);
+          await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Bro for alternatives.'}`, sql);
 
           metaUpdates.cancellationNotified = true;
           // Deactivate watch — journey is cancelled
