@@ -264,13 +264,26 @@ export default function ReceiptScreen() {
   }, [intentId, departureTime, fromStation, toStation, platform]);
 
   const handleShare = async () => {
+    const heading = receipt ? `Bro — ${modeMeta.title}` : 'Bro — Saved details';
+    const detailLine = fromStation && toStation
+      ? `${fromStation} → ${toStation}`
+      : hotelDetails?.bestOption
+      ? `${hotelDetails.bestOption.name} · ${hotelDetails.city}`
+      : flightDetails
+      ? `${flightDetails.origin} → ${flightDetails.destination}`
+      : null;
+    const timingLine = departureTime
+      ? `Departs: ${departureTime}`
+      : hotelDetails?.checkIn
+      ? `Check-in: ${hotelDetails.checkIn}`
+      : null;
     await Share.share({
       message: [
-        receipt ? 'Bro — Booking Confirmed' : 'Bro — Journey details',
+        heading,
         bookingRef    ? `Reference: ${bookingRef}` : null,
-        fromStation && toStation ? `${fromStation} → ${toStation}` : null,
-        departureTime ? `Departs: ${departureTime}` : null,
-        platform      ? `Platform: ${platform}`     : null,
+        detailLine,
+        timingLine,
+        platform && modeMeta.noun === 'service' ? `Platform: ${platform}` : null,
         preservedFinalLegSummary ? `Next: ${preservedFinalLegSummary}` : null,
         fiatAmountNum != null
           ? `Amount: ${formatMoney(fiatAmountNum, fiatSymbol, fiatCode)}`

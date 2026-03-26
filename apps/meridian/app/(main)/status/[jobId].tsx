@@ -41,6 +41,71 @@ type HotelDetails = {
   bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string };
 };
 
+function statusModeMeta(params: {
+  tripContext?: TripContext | null;
+  totalLegs: number;
+  hotelDetails?: HotelDetails | null;
+  flightDetails?: string | null;
+}) {
+  const mode = params.tripContext?.mode
+    ?? (params.hotelDetails?.bestOption ? 'hotel' : params.flightDetails ? 'flight' : 'rail');
+  if (params.totalLegs > 1 || mode === 'mixed') {
+    return {
+      payCopy: 'Your journey is lined up. Pay below to confirm every leg.',
+      doneCopy: `All ${params.totalLegs} legs confirmed. Details arrive by email for each leg.`,
+      showDepartureCompanion: true,
+    };
+  }
+  if (mode === 'hotel') {
+    return {
+      payCopy: 'Your stay is lined up. Pay below to confirm it.',
+      doneCopy: 'Bro has your stay lined up. Booking details arrive by email shortly.',
+      showDepartureCompanion: false,
+    };
+  }
+  if (mode === 'flight') {
+    return {
+      payCopy: 'Your flight is lined up. Pay below to confirm it.',
+      doneCopy: 'Bro has your flight lined up. Booking details arrive by email shortly.',
+      showDepartureCompanion: true,
+    };
+  }
+  if (mode === 'bus' || mode === 'local') {
+    return {
+      payCopy: 'Your route is lined up. Pay below to confirm it.',
+      doneCopy: 'Bro has your route lined up. Details arrive by email shortly.',
+      showDepartureCompanion: true,
+    };
+  }
+  return {
+    payCopy: 'Your request is in. Tap below to pay and secure your ticket.',
+    doneCopy: 'Bro has your journey moving. Ticket details arrive by email shortly.',
+    showDepartureCompanion: true,
+  };
+}
+
+function completionVoiceCopy(params: {
+  bookingRef?: string | null;
+  hotelDetails?: HotelDetails | null;
+  flightDetails?: string | null;
+  tripContext?: TripContext | null;
+  totalLegs?: number;
+}): string {
+  const refLine = params.bookingRef ? ` Bro reference ${params.bookingRef.replace(/-/g, ' ')}.` : '';
+  if ((params.totalLegs ?? 1) > 1 || params.tripContext?.mode === 'mixed') {
+    return `Holding your journey.${refLine} Details by email within 15 minutes for each leg.`;
+  }
+  if (params.hotelDetails?.bestOption) {
+    return `Holding your stay.${refLine} Booking details by email within 15 minutes.`;
+  }
+  if (params.flightDetails) {
+    return `Holding your flight.${refLine} Booking details by email within 15 minutes.`;
+  }
+  return params.bookingRef
+    ? `Securing your ticket.${refLine} Ticket details by email within 15 minutes.`
+    : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
+}
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
@@ -188,9 +253,13 @@ export default function StatusScreen() {
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            const doneMsg = ref
-              ? `Securing your ticket. Bro reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
-              : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
+            const doneMsg = completionVoiceCopy({
+              bookingRef: ref,
+              hotelDetails: data.metadata?.hotelDetails as HotelDetails | null | undefined,
+              flightDetails: data.metadata?.flightDetails ? JSON.stringify(data.metadata.flightDetails) : null,
+              tripContext: nextTripContext,
+              totalLegs,
+            });
             await speak(doneMsg);
             // Animate success
             Animated.parallel([
@@ -289,6 +358,11 @@ export default function StatusScreen() {
   // ── Active journey companion — countdown + voice-overs ────────────────────
   useEffect(() => {
     if (statusPhase !== 'done' || !departureDatetime) return;
+    const mode = tripContext?.mode ?? (hotelDetails?.bestOption ? 'hotel' : flightData ? 'flight' : 'rail');
+    if (mode === 'hotel' || mode === 'dining' || mode === 'event') {
+      setCountdown(null);
+      return;
+    }
 
     const tick = () => {
       const depMs   = new Date(departureDatetime).getTime();
@@ -301,22 +375,31 @@ export default function StatusScreen() {
       } else if (diffMin >= 60) {
         const h = Math.floor(diffMin / 60);
         const m = diffMin % 60;
-        setCountdown(`Departing in ${h}h ${m}m${platform ? ` · Platform ${platform}` : ''}`);
+        setCountdown(`Departing in ${h}h ${m}m${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
       } else if (diffMin > 0) {
-        setCountdown(`Departing in ${diffMin} min${platform ? ` · Platform ${platform}` : ''}`);
+        setCountdown(`Departing in ${diffMin} min${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
       } else {
-        setCountdown(`Departing now${platform ? ` · Platform ${platform}` : ''}`);
+        setCountdown(`Departing now${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
       }
 
       // Voice-overs — each fires once
       const dest = toStation ?? 'your destination';
-      const op   = operator  ?? 'Your train';
       if (diffMin <= 30 && diffMin > 25 && !spokenRef.current.t30) {
         spokenRef.current.t30 = true;
-        void speak(`30 minutes to departure.${platform ? ` Platform ${platform}.` : ''} ${op} — coach C is usually mid-train.`);
+        if (mode === 'flight') {
+          void speak('30 minutes to departure. Make your way through the airport when you are ready.');
+        } else {
+          void speak(`30 minutes to departure.${mode === 'rail' && platform ? ` Platform ${platform}.` : ''}`);
+        }
       } else if (diffMin <= 10 && diffMin > 7 && !spokenRef.current.t10) {
         spokenRef.current.t10 = true;
-        void speak(`Head to the platform now. 10 minutes to departure.${platform ? ` Platform ${platform}.` : ''}`);
+        if (mode === 'flight') {
+          void speak('10 minutes to departure. Head to the gate now.');
+        } else if (mode === 'rail' && platform) {
+          void speak(`Head to the platform now. 10 minutes to departure. Platform ${platform}.`);
+        } else {
+          void speak('10 minutes to departure. Time to move.');
+        }
       } else if (diffMs <= 0 && diffMs > -3 * 60_000 && !spokenRef.current.arrived) {
         spokenRef.current.arrived = true;
         void speak(`Welcome to ${dest}. You've arrived.`);
@@ -326,7 +409,7 @@ export default function StatusScreen() {
     tick(); // run immediately
     const t = setInterval(tick, 30_000); // update every 30s
     return () => clearInterval(t);
-  }, [statusPhase, departureDatetime, platform, operator, toStation]);
+  }, [statusPhase, departureDatetime, platform, toStation, tripContext, hotelDetails, flightData]);
 
   // Keep execution quiet. Voice is reserved for completion, failure,
   // and other material state changes rather than periodic reassurance.
@@ -339,6 +422,7 @@ export default function StatusScreen() {
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
+  const modeMeta = statusModeMeta({ tripContext, totalLegs, hotelDetails, flightDetails: flightData });
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -389,16 +473,14 @@ export default function StatusScreen() {
 
         <Text style={styles.statusSub}>
           {isFullyDone
-            ? totalLegs > 1
-              ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
-              : 'Bro has your journey moving. Ticket details arrive by email shortly.'
+            ? modeMeta.doneCopy
             : isDone && needsPayment && !paymentConfirmed
-            ? 'Your request is in. Tap below to pay and secure your ticket.'
+            ? modeMeta.payCopy
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
         </Text>
-        {isFullyDone && countdown && (
+        {isFullyDone && modeMeta.showDepartureCompanion && countdown && (
           <View style={styles.countdownBadge}>
             <Ionicons name="time-outline" size={13} color={C.emBright} />
             <Text style={styles.countdownText}>{countdown}</Text>

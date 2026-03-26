@@ -144,8 +144,9 @@ export function deriveProactiveCards(
 ): ProactiveCard[] {
   const cards: ProactiveCard[] = [];
   const mins = minutesUntil(trip.watchState?.leaveNowAt ?? trip.departureTime, nowIso);
+  const isTransitMode = ['rail', 'bus', 'flight', 'local', 'mixed'].includes(trip.mode);
 
-  if (mins != null && mins >= 0 && mins <= 60 && trip.phase !== 'arrived') {
+  if (isTransitMode && mins != null && mins >= 0 && mins <= 60 && trip.phase !== 'arrived') {
     cards.push({
       id: 'leave-now',
       kind: 'leave_now',
@@ -210,6 +211,8 @@ export function deriveProactiveCards(
 
   const hasUrgentCard = cards.some((card) => card.severity === 'warning');
   if (
+    isTransitMode
+    && 
     !hasUrgentCard
     && (trip.finalLegSummary || trip.routeData || (trip.nearbyPlaces?.length ?? 0) > 0)
     && ['booked', 'in_transit', 'arriving', 'arrived'].includes(trip.phase)
