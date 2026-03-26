@@ -593,6 +593,26 @@ export default function StatusScreen() {
               </Pressable>
             )}
 
+            {toStation && (
+              <Pressable
+                onPress={async () => {
+                  const dest = encodeURIComponent(toStation);
+                  const citymapperUrl = `citymapper://directions?endname=${dest}&endaddress=${dest}`;
+                  const mapsUrl = `https://maps.google.com/?q=${dest}`;
+                  try {
+                    const canOpen = await Linking.canOpenURL(citymapperUrl);
+                    await Linking.openURL(canOpen ? citymapperUrl : mapsUrl);
+                  } catch {
+                    await Linking.openURL(mapsUrl);
+                  }
+                }}
+                style={styles.navigateBtn}
+              >
+                <Ionicons name="navigate-outline" size={16} color="#38bdf8" style={{ marginRight: 6 }} />
+                <Text style={styles.navigateBtnText}>Navigate to {toStation}</Text>
+              </Pressable>
+            )}
+
             <Pressable
               onPress={() => router.replace('/(main)/converse')}
               style={styles.newRequestBtn}
@@ -854,7 +874,9 @@ const styles = StyleSheet.create({
   },
   receiptBtnText: { fontSize: 17, fontWeight: '700', color: C.emBright, letterSpacing: 0.2 },
 
-  newRequestBtn: { paddingVertical: 14 },
+  newRequestBtn:    { paddingVertical: 14 },
+  navigateBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#0c4a6e', marginBottom: 10 },
+  navigateBtnText:  { fontSize: 14, color: '#38bdf8', fontWeight: '500' },
   newRequestText: { fontSize: 14, color: C.textMuted, letterSpacing: 0.3 },
 
   retryBtn: { paddingVertical: 16 },

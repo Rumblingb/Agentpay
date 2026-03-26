@@ -804,6 +804,11 @@ export default function ConverseScreen() {
                 )}
               </Pressable>
             )}
+            <Pressable onPress={() => router.push('/(main)/trips')} style={styles.myTripsBtn}>
+              <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
+              <Text style={styles.myTripsBtnText}>My Trips</Text>
+              <Ionicons name="chevron-forward-outline" size={13} color="#334155" style={{ marginLeft: 'auto' }} />
+            </Pressable>
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
                 <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
@@ -1653,4 +1658,6 @@ const styles = StyleSheet.create({
   hotelDate:       { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
   hotelRate:       { fontSize: 12, color: '#4ade80', marginTop: 4 },
   hotelArea:       { fontSize: 11, color: '#64748b' },
+  myTripsBtn:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
+  myTripsBtnText:  { fontSize: 13, color: '#64748b' },
 });
