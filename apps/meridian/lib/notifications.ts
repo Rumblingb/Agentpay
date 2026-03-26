@@ -1,9 +1,10 @@
 /**
  * notifications.ts — local departure reminders
  *
- * Schedules two local notifications per booked journey:
- *   - T-60 min: "1 hour to go"
- *   - T-15 min: "Time to go!"
+ * Schedules companion notifications per booked journey:
+ *   - T-30 min: "30 minutes to go"
+ *   - T-10 min: "10 minutes to go"
+ *   - Arrival: "You've arrived"
  *
  * All client-side — no server push needed for v1.
  */
@@ -57,36 +58,78 @@ export async function scheduleJourneyNotifications(
   departureISO: string,
   route: string,
   platform: string | null,
+  options?: {
+    arrivalISO?: string | null;
+    destination?: string | null;
+    finalLegSummary?: string | null;
+    shareToken?: string | null;
+  },
 ): Promise<void> {
   const departure = parseDeparture(departureISO);
   if (!departure) return;
   const platformSuffix = platform ? ` · Platform ${platform}` : '';
   const now = Date.now();
 
-  const t60secs = Math.floor((departure.getTime() - 60 * 60 * 1000 - now) / 1000);
-  if (t60secs > 0) {
+  const t30secs = Math.floor((departure.getTime() - 30 * 60 * 1000 - now) / 1000);
+  if (t30secs > 0) {
     await Notifications.scheduleNotificationAsync({
-      identifier: notifId(intentId, '60min'),
+      identifier: notifId(intentId, '30min'),
       content: {
-        title: '🚂 1 hour to go',
+        title: 'Bro · 30 minutes to go',
         body: `${route}${platformSuffix}`,
-        data: { intentId },
+        data: {
+          intentId,
+          screen: 'receipt',
+          action: 'departure_companion',
+          shareToken: options?.shareToken ?? undefined,
+        },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t60secs },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t30secs },
     });
   }
 
-  const t15secs = Math.floor((departure.getTime() - 15 * 60 * 1000 - now) / 1000);
-  if (t15secs > 0) {
+  const t10secs = Math.floor((departure.getTime() - 10 * 60 * 1000 - now) / 1000);
+  if (t10secs > 0) {
     await Notifications.scheduleNotificationAsync({
-      identifier: notifId(intentId, '15min'),
+      identifier: notifId(intentId, '10min'),
       content: {
-        title: '🏃 Time to go!',
-        body: `${route} · 15 minutes${platformSuffix}`,
-        data: { intentId },
+        title: 'Bro · 10 minutes to go',
+        body: `${route}${platformSuffix ? `${platformSuffix}` : ''}`,
+        data: {
+          intentId,
+          screen: 'receipt',
+          action: 'departure_companion',
+          shareToken: options?.shareToken ?? undefined,
+        },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t15secs },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: t10secs },
     });
+  }
+
+  const arrival = options?.arrivalISO ? parseDeparture(options.arrivalISO) : null;
+  const destination = options?.destination?.trim();
+  if (arrival && destination) {
+    const arrivalSecs = Math.floor((arrival.getTime() - now) / 1000);
+    if (arrivalSecs > 0) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: notifId(intentId, 'arrival'),
+        content: {
+          title: `You've arrived in ${destination}`,
+          body: options?.finalLegSummary
+            ? `${options.finalLegSummary} Tap to open Bro.`
+            : `${destination} is next. Tap to open Bro navigation.`,
+          data: {
+            intentId,
+            screen: 'receipt',
+            action: 'arrival',
+            destination,
+            finalLegSummary: options?.finalLegSummary ?? undefined,
+            shareToken: options?.shareToken ?? undefined,
+          },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: arrivalSecs },
+      });
+    }
   }
 }
 
@@ -105,7 +148,8 @@ export async function getExpoPushToken(): Promise<string | null> {
 
 export async function cancelJourneyNotifications(intentId: string): Promise<void> {
   await Promise.allSettled([
-    Notifications.cancelScheduledNotificationAsync(notifId(intentId, '60min')),
-    Notifications.cancelScheduledNotificationAsync(notifId(intentId, '15min')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, '30min')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, '10min')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'arrival')),
   ]);
 }

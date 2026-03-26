@@ -29,6 +29,8 @@ import { speak } from '../../../lib/tts';
 import { C } from '../../../lib/theme';
 import { formatMoneyAmount } from '../../../lib/money';
 import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { getExpoPushToken, requestNotificationPermission, scheduleJourneyNotifications } from '../../../lib/notifications';
+import { registerJobWatch } from '../../../lib/api';
 
 const POLL_MS = 3000;
 
@@ -106,6 +108,14 @@ function completionVoiceCopy(params: {
     : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
 }
 
+function statusLegIcon(mode: TripContext['mode'] | TripContext['legs'][number]['mode']) {
+  if (mode === 'flight') return '✈️';
+  if (mode === 'hotel') return '🏨';
+  if (mode === 'bus') return '🚌';
+  if (mode === 'local') return '🚇';
+  return '🚂';
+}
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
@@ -117,6 +127,7 @@ export default function StatusScreen() {
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
   const [bookingRef, setBookingRef]     = useState<string | null>(null);
   const [departureTime, setDepartureTime] = useState<string | null>(null);
+  const [arrivalTime, setArrivalTime]     = useState<string | null>(null);
   const [platform, setPlatform]         = useState<string | null>(null);
   const [operator, setOperator]         = useState<string | null>(null);
   const [fromStation, setFromStation]   = useState<string | null>(null);
@@ -133,6 +144,7 @@ export default function StatusScreen() {
 
   const [countdown, setCountdown]       = useState<string | null>(null);
   const spokenRef   = useRef({ t30: false, t10: false, arrived: false });
+  const companionSetupRef = useRef(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -156,6 +168,7 @@ export default function StatusScreen() {
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
+      arrivalTime: arrivalTime ?? null,
       platform: platform ?? null,
       operator: operator ?? null,
       finalLegSummary: finalLegSummary ?? null,
@@ -166,7 +179,7 @@ export default function StatusScreen() {
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
+  }, [jobId, fromStation, toStation, departureTime, arrivalTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -197,6 +210,7 @@ export default function StatusScreen() {
             const ref = proof.bookingRef ?? null;
             if (ref) setBookingRef(ref);
             if (proof.departureTime) setDepartureTime(proof.departureTime);
+            if (proof.arrivalTime)   setArrivalTime(proof.arrivalTime);
             if (proof.platform)      setPlatform(proof.platform);
             if (proof.operator)      setOperator(proof.operator);
             if (proof.fromStation)   setFromStation(proof.fromStation);
@@ -241,6 +255,7 @@ export default function StatusScreen() {
               fromStation: proof.fromStation ?? null,
               toStation: proof.toStation ?? null,
               departureTime: proof.departureTime ?? null,
+              arrivalTime: proof.arrivalTime ?? null,
               platform: proof.platform ?? null,
               operator: proof.operator ?? null,
               bookingRef: ref,
@@ -333,7 +348,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext]);
+  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, arrivalTime, platform, operator, finalLegSummary, tripContext]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -411,6 +426,28 @@ export default function StatusScreen() {
     return () => clearInterval(t);
   }, [statusPhase, departureDatetime, platform, toStation, tripContext, hotelDetails, flightData]);
 
+  // Schedule local companion nudges and register server-side disruption watch once the booking lands.
+  useEffect(() => {
+    if (statusPhase !== 'done' || companionSetupRef.current) return;
+    const depStr = departureDatetime ?? departureTime;
+    if (!jobId || !depStr) return;
+    companionSetupRef.current = true;
+
+    const route = fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey';
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleJourneyNotifications(jobId, depStr, route, platform ?? null, {
+        arrivalISO: arrivalTime ?? tripContext?.arrivalTime ?? null,
+        destination: toStation ?? tripContext?.destination ?? null,
+        finalLegSummary: finalLegSummary ?? tripContext?.finalLegSummary ?? null,
+        shareToken,
+      });
+      const token = await getExpoPushToken();
+      if (token) await registerJobWatch(jobId, token);
+    })();
+  }, [statusPhase, jobId, departureDatetime, departureTime, arrivalTime, fromStation, toStation, platform, finalLegSummary, tripContext, shareToken]);
+
   // Keep execution quiet. Voice is reserved for completion, failure,
   // and other material state changes rather than periodic reassurance.
 
@@ -423,6 +460,13 @@ export default function StatusScreen() {
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
   const modeMeta = statusModeMeta({ tripContext, totalLegs, hotelDetails, flightDetails: flightData });
+  const tripLegs = tripContext?.legs ?? [];
+  const activeLegIndex = tripContext?.journeyGraph?.activeLegId
+    ? Math.max(0, tripLegs.findIndex((leg) => leg.id === tripContext.journeyGraph?.activeLegId))
+    : Math.max(0, tripLegs.findIndex((leg) => leg.status !== 'completed' && leg.status !== 'booked'));
+  const shownLegIndex = tripLegs.length > 0
+    ? (activeLegIndex === -1 ? tripLegs.length - 1 : activeLegIndex)
+    : 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -489,7 +533,33 @@ export default function StatusScreen() {
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
-            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg 1 of {totalLegs}</Text>
+            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg {shownLegIndex + 1} of {totalLegs}</Text>
+          </View>
+        )}
+
+        {isDone && tripLegs.length > 1 && (
+          <View style={styles.legSummaryCard}>
+            {tripLegs.map((leg, index) => (
+              <View key={leg.id ?? `${leg.mode}-${index}`} style={styles.legSummaryRow}>
+                <Text style={styles.legSummaryIcon}>{statusLegIcon(leg.mode)}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.legSummaryTitle}>
+                    {`Leg ${index + 1} · ${leg.label ?? leg.operator ?? 'Journey leg'}`}
+                  </Text>
+                  <Text style={styles.legSummaryBody}>
+                    {leg.origin ?? 'Origin'} → {leg.destination ?? 'Destination'}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.legSummaryDot,
+                  leg.status === 'completed' || leg.status === 'booked'
+                    ? styles.legSummaryDotDone
+                    : leg.status === 'attention'
+                    ? styles.legSummaryDotWarn
+                    : styles.legSummaryDotActive,
+                ]} />
+              </View>
+            ))}
           </View>
         )}
 
@@ -637,6 +707,7 @@ export default function StatusScreen() {
                 if (toStation)     qs.set('toStation', toStation);
                 if (finalLegSummary)   qs.set('finalLegSummary',   finalLegSummary);
                 if (departureDatetime) qs.set('departureDatetime', departureDatetime);
+                if (arrivalTime) qs.set('arrivalTime', arrivalTime);
                 if (flightData)        qs.set('flightData',        flightData);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
@@ -933,6 +1004,54 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     marginTop: 6,
     letterSpacing: 0.3,
+  },
+  legSummaryCard: {
+    width: '100%',
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  legSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  legSummaryIcon: {
+    fontSize: 16,
+    width: 20,
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  legSummaryTitle: {
+    fontSize: 12,
+    color: C.textPrimary,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  legSummaryBody: {
+    fontSize: 12,
+    color: C.textMuted,
+    lineHeight: 17,
+  },
+  legSummaryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 5,
+  },
+  legSummaryDotDone: {
+    backgroundColor: '#4ade80',
+  },
+  legSummaryDotWarn: {
+    backgroundColor: '#f59e0b',
+  },
+  legSummaryDotActive: {
+    backgroundColor: '#60a5fa',
   },
 
   ctaWrap: { width: '100%', alignItems: 'center' },

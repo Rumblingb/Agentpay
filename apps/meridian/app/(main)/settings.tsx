@@ -2,7 +2,7 @@
  * Settings screen — name, auto-confirm limit, reset
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,11 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
 import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
-import { hasProfile, deleteProfile } from '../../lib/profile';
+import { hasProfile, deleteProfile, loadProfileRaw, shouldApplyFamilyRailcard, type FamilyMember } from '../../lib/profile';
 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset } = useStore();
@@ -27,10 +27,30 @@ export default function SettingsScreen() {
   const [work, setWork]           = useState(workStation ?? '');
   const [saved, setSaved]         = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [familyRailcardReady, setFamilyRailcardReady] = useState(false);
+
+  const refreshProfileState = useCallback(() => {
+    void hasProfile().then(setProfileSaved).catch(() => setProfileSaved(false));
+    void loadProfileRaw()
+      .then((profile) => {
+        const members = profile?.familyMembers ?? [];
+        setFamilyMembers(members);
+        setFamilyRailcardReady(profile ? shouldApplyFamilyRailcard(profile) : false);
+      })
+      .catch(() => {
+        setFamilyMembers([]);
+        setFamilyRailcardReady(false);
+      });
+  }, []);
 
   useEffect(() => {
-    hasProfile().then(setProfileSaved).catch(() => setProfileSaved(false));
-  }, []);
+    refreshProfileState();
+  }, [refreshProfileState]);
+
+  useFocusEffect(useCallback(() => {
+    refreshProfileState();
+  }, [refreshProfileState]));
 
   const handleHomeChange = async (value: string) => {
     setHome(value);
@@ -216,12 +236,33 @@ export default function SettingsScreen() {
           label="FAMILY & GROUP"
           hint="Add family members so Bro can book group tickets by voice. Names and ages only — no documents needed here."
         >
+          <View style={styles.familySummary}>
+            <View style={styles.familySummaryRow}>
+              <Ionicons name="people" size={16} color="#38bdf8" />
+              <Text style={styles.familySummaryTitle}>
+                {familyMembers.length > 0
+                  ? `${familyMembers.length} family member${familyMembers.length === 1 ? '' : 's'} ready`
+                  : 'No family members saved yet'}
+              </Text>
+            </View>
+            <Text style={styles.familySummaryBody}>
+              {familyMembers.length > 0
+                ? `Bro can book for ${familyMembers.map((member) => member.name).filter(Boolean).join(', ')} without re-entering their details.`
+                : 'Add your regular companions here so Bro can understand “me, Maya, and Dad” in one shot.'}
+            </Text>
+            {familyRailcardReady && (
+              <View style={styles.familyRailcardBadge}>
+                <Ionicons name="ticket-outline" size={14} color="#4ade80" />
+                <Text style={styles.familyRailcardText}>Family & Friends Railcard will auto-apply on eligible UK rail searches.</Text>
+              </View>
+            )}
+          </View>
           <Pressable
             onPress={() => router.push('/(main)/family')}
             style={styles.profileBtn}
           >
             <Ionicons name="people-outline" size={15} color="#818cf8" />
-            <Text style={styles.profileBtnText}>Manage family members</Text>
+            <Text style={styles.profileBtnText}>{familyMembers.length > 0 ? 'Edit family members' : 'Add family members'}</Text>
           </Pressable>
         </Section>
 
@@ -363,6 +404,48 @@ const styles = StyleSheet.create({
   },
   profileBtnDanger: { borderColor: '#7f1d1d' },
   profileBtnText: { fontSize: 13, fontWeight: '600', color: '#818cf8' },
+  familySummary: {
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  familySummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  familySummaryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#e2e8f0',
+  },
+  familySummaryBody: {
+    fontSize: 12,
+    color: '#94a3b8',
+    lineHeight: 18,
+  },
+  familyRailcardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#052e16',
+    borderWidth: 1,
+    borderColor: '#166534',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 12,
+  },
+  familyRailcardText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#4ade80',
+    lineHeight: 17,
+  },
 
   dangerRow: {
     flexDirection: 'row',

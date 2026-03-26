@@ -20,6 +20,7 @@ import {
   Image,
   Dimensions,
   TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -51,12 +52,30 @@ function receiptModeMeta(trip: TripContext | null, hasFlightDetails: boolean) {
   return { icon: 'train-outline' as const, title: 'Journey details', noun: 'service' };
 }
 
+function legModeIcon(mode: TripContext['mode'] | TripContext['legs'][number]['mode']) {
+  if (mode === 'flight') return '✈️';
+  if (mode === 'hotel') return '🏨';
+  if (mode === 'bus') return '🚌';
+  if (mode === 'local') return '🚇';
+  return '🚂';
+}
+
+function formatLegMoment(value?: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  return value;
+}
+
 export default function ReceiptScreen() {
   const params = useLocalSearchParams<{
     intentId: string;
     bookingRef?: string;
     departureTime?: string;
     departureDatetime?: string;
+    arrivalTime?: string;
     platform?: string;
     operator?: string;
     finalLegSummary?: string;
@@ -66,21 +85,45 @@ export default function ReceiptScreen() {
     currencySymbol?: string;
     currencyCode?: string;
     cancelled?: string;
+    delayed?: string;
+    delayMinutes?: string;
+    platformChanged?: string;
+    notifiedPlatform?: string;
+    gateUpdated?: string;
+    notifiedGate?: string;
+    disruptionRoute?: string;
+    transcript?: string;
     flightData?: string;
     tripContext?: string;
     shareToken?: string;
+    arrived?: string;
+    destination?: string;
   }>();
   const {
-    intentId, bookingRef, departureTime, departureDatetime, platform, operator,
+    intentId, bookingRef, departureTime, departureDatetime, arrivalTime, platform, operator,
     fromStation, toStation,
     finalLegSummary,
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
     cancelled,
+    delayed,
+    delayMinutes,
+    platformChanged,
+    notifiedPlatform,
+    gateUpdated,
+    notifiedGate,
+    disruptionRoute,
+    transcript,
     tripContext: tripContextParam,
     shareToken: shareTokenParam,
+    arrived,
+    destination,
   } = params;
 
   const isCancelled = cancelled === 'true';
+  const hasArrived = arrived === 'true';
+  const isDelayed = delayed === 'true';
+  const hasPlatformChanged = platformChanged === 'true';
+  const hasGateUpdated = gateUpdated === 'true';
 
   // Flight card: parse JSON param if present
   type FlightData = {
@@ -119,6 +162,8 @@ export default function ReceiptScreen() {
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const cards = tripCards(tripContext);
   const modeMeta = receiptModeMeta(tripContext, !!flightDetails);
+  const tripLegs = tripContext?.legs ?? [];
+  const isMultiLegJourney = tripLegs.length > 1;
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -204,6 +249,7 @@ export default function ReceiptScreen() {
       origin: fromStation ?? undefined,
       destination: toStation ?? undefined,
       departureTime: departureDatetime ?? departureTime ?? undefined,
+      arrivalTime: arrivalTime ?? undefined,
       operator: operator ?? undefined,
       finalLegSummary: preservedFinalLegSummary ?? undefined,
     });
@@ -215,6 +261,7 @@ export default function ReceiptScreen() {
       fromStation:   fromStation   ?? null,
       toStation:     toStation     ?? null,
       departureTime: departureTime ?? null,
+      arrivalTime:   arrivalTime   ?? null,
       platform:      platform      ?? null,
       operator:      operator      ?? null,
       amount:        receipt.amount,
@@ -234,6 +281,7 @@ export default function ReceiptScreen() {
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
+      arrivalTime: arrivalTime ?? null,
       platform: platform ?? null,
       operator: operator ?? null,
       bookingRef: bookingRef ?? null,
@@ -245,7 +293,7 @@ export default function ReceiptScreen() {
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken]);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -256,12 +304,17 @@ export default function ReceiptScreen() {
     void (async () => {
       const granted = await requestNotificationPermission();
       if (!granted) return;
-      await scheduleJourneyNotifications(intentId, depStr, route, platform ?? null);
+      await scheduleJourneyNotifications(intentId, depStr, route, platform ?? null, {
+        arrivalISO: arrivalTime ?? tripContext?.arrivalTime ?? null,
+        destination: toStation ?? destination ?? tripContext?.destination ?? null,
+        finalLegSummary: preservedFinalLegSummary ?? tripContext?.finalLegSummary ?? null,
+        shareToken,
+      });
       // Register for platform change push notifications
       const token = await getExpoPushToken();
       if (token) await registerJobWatch(intentId, token);
     })();
-  }, [intentId, departureTime, fromStation, toStation, platform]);
+  }, [intentId, departureTime, departureDatetime, arrivalTime, fromStation, toStation, destination, platform, preservedFinalLegSummary, tripContext, shareToken]);
 
   const handleShare = async () => {
     const heading = receipt ? `Bro — ${modeMeta.title}` : 'Bro — Saved details';
@@ -345,12 +398,92 @@ export default function ReceiptScreen() {
             <Pressable
               style={styles.cancelBannerBtn}
               onPress={() => {
-                const query = fromStation && toStation ? `${fromStation} to ${toStation} next available` : undefined;
+                const query = transcript || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : undefined);
                 router.replace({ pathname: '/(main)/converse', params: query ? { prefill: query } : undefined } as any);
               }}
             >
               <Text style={styles.cancelBannerBtnText}>Ask Bro</Text>
             </Pressable>
+          </View>
+        )}
+
+        {hasPlatformChanged && (
+          <View style={[styles.cancelBanner, styles.infoBanner]}>
+            <Ionicons name="train" size={18} color="#38bdf8" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cancelBannerTitle, styles.infoBannerTitle]}>Platform updated</Text>
+              <Text style={[styles.cancelBannerBody, styles.infoBannerBody]}>
+                {(disruptionRoute ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey'))}
+                {notifiedPlatform ? ` is now boarding from Platform ${notifiedPlatform}.` : ' has a new platform assignment.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {isDelayed && (
+          <View style={[styles.cancelBanner, styles.delayBanner]}>
+            <Ionicons name="time" size={18} color="#f59e0b" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cancelBannerTitle, styles.delayBannerTitle]}>Service delayed</Text>
+              <Text style={[styles.cancelBannerBody, styles.delayBannerBody]}>
+                {(disruptionRoute ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey'))}
+                {delayMinutes ? ` is running ${delayMinutes} min late.` : ' is running late.'}
+                {transcript ? ' Bro can line up the next option.' : ' Keep this screen handy for live updates.'}
+              </Text>
+            </View>
+            {transcript && (
+              <Pressable
+                style={[styles.cancelBannerBtn, styles.delayBannerBtn]}
+                onPress={() => {
+                  router.replace({ pathname: '/(main)/converse', params: { prefill: transcript } } as any);
+                }}
+              >
+                <Text style={[styles.cancelBannerBtnText, styles.delayBannerBtnText]}>Rebook</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {hasGateUpdated && (
+          <View style={[styles.cancelBanner, styles.infoBanner]}>
+            <Ionicons name="airplane" size={18} color="#38bdf8" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cancelBannerTitle, styles.infoBannerTitle]}>Gate updated</Text>
+              <Text style={[styles.cancelBannerBody, styles.infoBannerBody]}>
+                {(disruptionRoute ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your flight'))}
+                {notifiedGate ? ` is now departing from Gate ${notifiedGate}.` : ' has a new gate assignment.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {hasArrived && (
+          <View style={styles.cancelBanner}>
+            <Ionicons name="navigate-circle" size={18} color="#38bdf8" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cancelBannerTitle, { color: '#38bdf8' }]}>You&apos;ve arrived</Text>
+              <Text style={[styles.cancelBannerBody, { color: '#7dd3fc' }]}>
+                {preservedFinalLegSummary ?? (destination ? `${destination} is next. Open navigation?` : 'Bro can guide the final stretch from here.')}
+              </Text>
+            </View>
+            {(toStation || destination) && (
+              <Pressable
+                style={[styles.cancelBannerBtn, { backgroundColor: '#082f49' }]}
+                onPress={async () => {
+                  const target = encodeURIComponent((toStation ?? destination)!);
+                  const citymapperUrl = `citymapper://directions?endname=${target}&endaddress=${target}`;
+                  const mapsUrl = `https://maps.google.com/?q=${target}`;
+                  try {
+                    const canOpen = await Linking.canOpenURL(citymapperUrl);
+                    await Linking.openURL(canOpen ? citymapperUrl : mapsUrl);
+                  } catch {
+                    await Linking.openURL(mapsUrl);
+                  }
+                }}
+              >
+                <Text style={[styles.cancelBannerBtnText, { color: '#38bdf8' }]}>Navigate</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -400,36 +533,18 @@ export default function ReceiptScreen() {
             </View>
 
             {/* Journey Details + QR — multi-leg timeline or single-leg card */}
-            {hasJourneyDetails && flightDetails ? (
-              /* Multi-leg: train + flight timeline */
-              <MultiLegTimeline
-                trainLeg={fromStation && toStation ? {
-                  icon: '🚂',
-                  operator: operator ?? undefined,
-                  departureTime: departureTime ?? undefined,
-                  origin: fromStation,
-                  destination: toStation,
-                  fareGbp: fiatAmountNum ?? undefined,
-                } : null}
-                flightLeg={{
-                  icon: '✈',
-                  carrier: flightDetails.carrier,
-                  flightNumber: flightDetails.flightNumber,
-                  departureAt: flightDetails.departureAt,
-                  origin: flightDetails.origin,
-                  destination: flightDetails.destination,
-                  totalAmount: flightDetails.totalAmount,
-                  currency: flightDetails.currency,
-                  pnr: flightDetails.pnr,
-                }}
-                bookingRef={bookingRef ?? undefined}
+            {isMultiLegJourney ? (
+              <JourneyTimeline
+                title={tripContext?.title ?? `${tripLegs.length}-leg journey`}
+                legs={tripLegs}
+                bookingRef={bookingRef ?? tripContext?.bookingRef ?? undefined}
                 onShowTicket={bookingRef ? () => setShowTicket(true) : undefined}
                 qrLoading={qrLoading}
               />
             ) : hasJourneyDetails ? (
               <View style={styles.journeyCard}>
                 <View style={styles.journeyHeader}>
-                  <Text style={styles.journeyIcon}>🚂</Text>
+                  <Text style={styles.journeyIcon}>{legModeIcon(tripContext?.mode ?? 'rail')}</Text>
                   <Text style={styles.journeyTitle}>{modeMeta.title}</Text>
                 </View>
 
@@ -669,56 +784,24 @@ export default function ReceiptScreen() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-type TrainLegProps = {
-  icon: string;
-  operator?: string;
-  departureTime?: string;
-  origin: string;
-  destination: string;
-  fareGbp?: number;
-} | null;
-
-type FlightLegProps = {
-  icon: string;
-  carrier: string;
-  flightNumber: string;
-  departureAt: string;
-  origin: string;
-  destination: string;
-  totalAmount: number;
-  currency: string;
-  pnr?: string;
-};
-
-function MultiLegTimeline({
-  trainLeg,
-  flightLeg,
+function JourneyTimeline({
+  title,
+  legs,
   bookingRef,
   onShowTicket,
   qrLoading,
 }: {
-  trainLeg: TrainLegProps;
-  flightLeg: FlightLegProps;
+  title: string;
+  legs: TripContext['legs'];
   bookingRef?: string;
   onShowTicket?: () => void;
   qrLoading: boolean;
 }) {
-  const flightDepTime = new Date(flightLeg.departureAt).toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const trainFare  = trainLeg?.fareGbp ?? 0;
-  const flightFare = flightLeg.currency === 'GBP'
-    ? flightLeg.totalAmount
-    : 0;
-  const totalGbp = trainFare + flightFare;
-
   return (
     <View style={styles.journeyCard}>
       <View style={styles.journeyHeader}>
         <Text style={styles.journeyIcon}>🗺️</Text>
-        <Text style={styles.journeyTitle}>Journey timeline</Text>
+        <Text style={styles.journeyTitle}>{title}</Text>
       </View>
 
       {bookingRef && (
@@ -728,56 +811,38 @@ function MultiLegTimeline({
         </View>
       )}
 
-      {/* Leg rows */}
-      {trainLeg && (
-        <View style={timelineStyles.leg}>
-          <Text style={timelineStyles.legIcon}>{trainLeg.icon}</Text>
-          <View style={timelineStyles.legBody}>
-            <Text style={timelineStyles.legHeader}>
-              {trainLeg.operator ? `${trainLeg.operator} ` : ''}
-              {trainLeg.departureTime ?? ''}
-            </Text>
-            <Text style={timelineStyles.legRoute}>
-              {trainLeg.origin} → {trainLeg.destination}
-            </Text>
+      {legs.map((leg, index) => {
+        const dep = formatLegMoment(leg.departureTime);
+        const arr = formatLegMoment(leg.arrivalTime);
+        const label = leg.label ?? leg.operator ?? `Leg ${index + 1}`;
+        return (
+          <View key={leg.id ?? `${leg.mode}-${index}`} style={timelineStyles.leg}>
+            <Text style={timelineStyles.legIcon}>{legModeIcon(leg.mode)}</Text>
+            <View style={timelineStyles.legBody}>
+              <Text style={timelineStyles.legHeader}>{`Leg ${index + 1} · ${label}`}</Text>
+              {(leg.origin || leg.destination) && (
+                <Text style={timelineStyles.legRoute}>
+                  {leg.origin ?? 'Origin'} → {leg.destination ?? 'Destination'}
+                </Text>
+              )}
+              {(dep || arr) && (
+                <Text style={timelineStyles.legMeta}>
+                  {dep ? `Dep ${dep}` : 'Departure TBD'}
+                  {arr ? ` · Arr ${arr}` : ''}
+                </Text>
+              )}
+              {leg.bookingRef && (
+                <Text style={timelineStyles.legPnr}>{leg.bookingRef}</Text>
+              )}
+            </View>
+            <View style={[timelineStyles.statusDot, leg.status === 'completed' || leg.status === 'booked'
+              ? timelineStyles.statusDone
+              : leg.status === 'attention'
+              ? timelineStyles.statusWarn
+              : timelineStyles.statusActive]} />
           </View>
-          {trainLeg.fareGbp != null && trainLeg.fareGbp > 0 && (
-            <Text style={timelineStyles.legFare}>£{trainLeg.fareGbp}</Text>
-          )}
-        </View>
-      )}
-
-      <View style={timelineStyles.leg}>
-        <Text style={timelineStyles.legIcon}>{flightLeg.icon}</Text>
-        <View style={timelineStyles.legBody}>
-          <Text style={timelineStyles.legHeader}>
-            {flightLeg.carrier} {flightLeg.flightNumber}{'  '}{flightDepTime}
-          </Text>
-          <Text style={timelineStyles.legRoute}>
-            {flightLeg.origin} → {flightLeg.destination}
-          </Text>
-          {flightLeg.pnr && (
-            <Text style={timelineStyles.legPnr}>{flightLeg.pnr}</Text>
-          )}
-        </View>
-        {flightLeg.totalAmount > 0 && (
-          <Text style={timelineStyles.legFare}>
-            {flightLeg.currency === 'GBP' ? '£' : `${flightLeg.currency} `}
-            {flightLeg.totalAmount}
-          </Text>
-        )}
-      </View>
-
-      {/* Divider + total */}
-      {totalGbp > 0 && (
-        <>
-          <View style={timelineStyles.divider} />
-          <View style={timelineStyles.totalRow}>
-            <Text style={timelineStyles.totalLabel}>Total</Text>
-            <Text style={timelineStyles.totalValue}>£{totalGbp}</Text>
-          </View>
-        </>
-      )}
+        );
+      })}
 
       {/* Show Ticket */}
       {onShowTicket && (
@@ -820,41 +885,30 @@ const timelineStyles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
   },
+  legMeta: {
+    fontSize: 11,
+    color: '#94a3b8',
+  },
   legPnr: {
     fontSize: 11,
     color: '#4ade80',
     fontFamily: 'monospace',
     marginTop: 2,
   },
-  legFare: {
-    fontSize: 13,
-    color: '#f9fafb',
-    fontWeight: '700',
-    minWidth: 44,
-    textAlign: 'right',
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#1e293b',
-    marginVertical: 8,
+  statusDone: {
+    backgroundColor: '#4ade80',
   },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 2,
+  statusWarn: {
+    backgroundColor: '#f59e0b',
   },
-  totalLabel: {
-    fontSize: 13,
-    color: '#6b7280',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  totalValue: {
-    fontSize: 15,
-    color: '#4ade80',
-    fontWeight: '800',
+  statusActive: {
+    backgroundColor: '#60a5fa',
   },
 });
 
@@ -935,6 +989,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   cancelBannerBtnText: { fontSize: 13, fontWeight: '700', color: '#fbbf24' },
+  infoBanner: {
+    backgroundColor: '#082f49',
+    borderColor: '#0c4a6e',
+  },
+  infoBannerTitle: {
+    color: '#38bdf8',
+  },
+  infoBannerBody: {
+    color: '#7dd3fc',
+  },
+  delayBanner: {
+    backgroundColor: '#451a03',
+    borderColor: '#b45309',
+  },
+  delayBannerTitle: {
+    color: '#f59e0b',
+  },
+  delayBannerBody: {
+    color: '#fdba74',
+  },
+  delayBannerBtn: {
+    backgroundColor: '#78350f',
+  },
+  delayBannerBtnText: {
+    color: '#fbbf24',
+  },
 
   badge: {
     marginBottom: 20,

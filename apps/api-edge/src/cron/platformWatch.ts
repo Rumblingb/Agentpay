@@ -156,9 +156,11 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             pushBody,
             {
               intentId: row.id,
-              screen:   altService ? 'converse' : 'receipt',
-              action:   'rebook',
+              screen:   'receipt',
+              action:   'cancelled',
               transcript,
+              destination: destination ?? origin,
+              disruptionRoute: route,
             },
           );
           await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Bro for alternatives.'}`, sql);
@@ -180,7 +182,13 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             pushToken,
             '🚂 Platform changed',
             `${route} · Now Platform ${status.platform}`,
-            { intentId: row.id, screen: 'receipt' },
+            {
+              intentId: row.id,
+              screen: 'receipt',
+              action: 'platform_changed',
+              platform: status.platform,
+              disruptionRoute: route,
+            },
           );
           await fanOutToTripRoom(row.id, `🚂 Platform changed: ${route} · Now Platform ${status.platform}`, sql);
 
@@ -228,9 +236,14 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             pushToken,
             `⏱ ${status.delayMinutes} min delay`,
             delayBody,
-            delayAltTranscript
-              ? { intentId: row.id, screen: 'converse', action: 'rebook', transcript: delayAltTranscript }
-              : { intentId: row.id, screen: 'receipt' },
+            {
+              intentId: row.id,
+              screen: 'receipt',
+              action: 'delay',
+              delayMinutes: status.delayMinutes,
+              transcript: delayAltTranscript,
+              disruptionRoute: route,
+            },
           );
           await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.${delayAltText}`, sql);
 
@@ -258,7 +271,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
                 pushToken,
                 `🚂 ${tipKey} boarding tip`,
                 BOARDING_TIPS[tipKey]!,
-                { intentId: row.id, screen: 'receipt' },
+                { intentId: row.id, screen: 'receipt', action: 'boarding_tip' },
               );
               broLog('boarding_tip_sent', { jobId: row.id, operator: tipKey, minsToDepart });
             }

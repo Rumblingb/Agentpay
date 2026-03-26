@@ -51,6 +51,7 @@ export interface ActiveTrip {
   fromStation?: string | null;
   toStation?: string | null;
   departureTime?: string | null;
+  arrivalTime?: string | null;
   platform?: string | null;
   operator?: string | null;
   bookingRef?: string | null;
@@ -70,6 +71,7 @@ export interface TripEntry {
   fromStation: string | null;
   toStation: string | null;
   departureTime: string | null;
+  arrivalTime?: string | null;
   platform: string | null;
   operator: string | null;
   amount: string | number;

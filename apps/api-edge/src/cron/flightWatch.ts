@@ -118,12 +118,19 @@ export async function runFlightWatch(env: Env): Promise<void> {
 
         // ── Cancellation ───────────────────────────────────────────────────
         if (status.flight_status === 'cancelled' && !meta.flightCancellationNotified) {
+          const transcript = `My flight ${flightNum} was cancelled — find me an alternative`;
           await sendExpoPush(
             pushToken,
             '✈️ Flight cancelled',
             `${flightNum} to ${destination ?? 'your destination'} has been cancelled. Contact your airline or let Bro find alternatives.`,
-            { intentId: row.id, screen: 'converse', action: 'rebook',
-              transcript: `My flight ${flightNum} was cancelled — find me an alternative` },
+            {
+              intentId: row.id,
+              screen: 'receipt',
+              action: 'cancelled',
+              transcript,
+              destination: destination ?? null,
+              disruptionRoute: route,
+            },
           );
           await fanOutToTripRoom(row.id, `✈️ ${flightNum} cancelled. Contact airline or ask Bro for alternatives.`, sql);
           metaUpdates.flightCancellationNotified = true;
@@ -150,7 +157,13 @@ export async function runFlightWatch(env: Env): Promise<void> {
             pushToken,
             `✈️ ${delayMins} min delay`,
             body,
-            { intentId: row.id, screen: 'receipt' },
+            {
+              intentId: row.id,
+              screen: 'receipt',
+              action: 'delay',
+              delayMinutes: delayMins,
+              disruptionRoute: route,
+            },
           );
           await fanOutToTripRoom(row.id, `✈️ ${route} delayed ${delayMins} min.`, sql);
           metaUpdates.flightDelayNotified = true;
@@ -170,7 +183,13 @@ export async function runFlightWatch(env: Env): Promise<void> {
             pushToken,
             title,
             body,
-            { intentId: row.id, screen: 'receipt' },
+            {
+              intentId: row.id,
+              screen: 'receipt',
+              action: lastGate ? 'gate_changed' : 'gate_assigned',
+              gate: newGate,
+              disruptionRoute: route,
+            },
           );
           await fanOutToTripRoom(row.id, `${title}: ${body}`, sql);
           metaUpdates.flightGate = newGate;
