@@ -41,6 +41,7 @@ import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getNearestStation } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
+import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
 
 type MarketNationality = 'uk' | 'india' | 'other';
@@ -169,13 +170,6 @@ function getConfirmBaseGbp(plan: ConciergePlanItem[]): number | null {
   return total > 0 ? total : null;
 }
 
-function formatConfirmAmount(amount: number, currency: string): string {
-  if (currency === 'INR') {
-    return Math.round(amount).toLocaleString('en-IN');
-  }
-  return amount.toFixed(2);
-}
-
 export default function ConverseScreen() {
   const {
     phase, setPhase,
@@ -220,6 +214,7 @@ export default function ConverseScreen() {
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
+  const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -391,6 +386,10 @@ export default function ConverseScreen() {
     // Persist detected currency to store (used everywhere in app)
     if (response.currencySymbol && response.currencyCode) {
       setCurrency(response.currencySymbol, response.currencyCode);
+    }
+    // Cache frequent route for idle suggestion card
+    if (response.usualRoute) {
+      setUsualRoute(response.usualRoute);
     }
 
     // If plan needs biometric confirmation, store it
@@ -789,13 +788,29 @@ export default function ConverseScreen() {
                 </Text>
               </Pressable>
             )}
+            {usualRoute && (
+              <Pressable
+                onPress={() => handleIntent(`${usualRoute.origin} to ${usualRoute.destination}`).catch(() => {})}
+                style={styles.usualRouteCard}
+              >
+                <View style={styles.usualRouteRow}>
+                  <Ionicons name="repeat-outline" size={14} color="#4ade80" />
+                  <Text style={styles.usualRouteLabel}>Your usual</Text>
+                  <Text style={styles.usualRouteCount}>{usualRoute.count}×</Text>
+                </View>
+                <Text style={styles.usualRouteRoute}>{usualRoute.origin} → {usualRoute.destination}</Text>
+                {usualRoute.typicalFareGbp != null && (
+                  <Text style={styles.usualRouteFare}>~£{usualRoute.typicalFareGbp} · Tap to book</Text>
+                )}
+              </Pressable>
+            )}
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
                 <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
                 <Text style={styles.suggestionsHint}>One sentence. Bro works out the route quietly.</Text>
               </View>
               <View style={styles.suggestions}>
-                {idleSuggestions.map((suggestion, index) => (
+                {idleSuggestions.map((suggestion) => (
                   <Suggestion
                     key={suggestion}
                     icon={
@@ -880,14 +895,14 @@ export default function ConverseScreen() {
           const localAmount = baseGbp && confirmFxRate ? baseGbp * confirmFxRate : null;
           const priceLabel = (() => {
             if (code !== 'GBP' && baseGbp) {
-              const baseLabel = `£${formatConfirmAmount(baseGbp, 'GBP')}`;
+              const baseLabel = `£${formatMoneyAmount(baseGbp, 'GBP')}`;
               if (localAmount) {
-                return `${baseLabel} · ${sym}${formatConfirmAmount(localAmount, code)}`;
+                return `${baseLabel} · ${sym}${formatMoneyAmount(localAmount, code)}`;
               }
               return baseLabel;
             }
             if (fiat > 0) {
-              return `${sym}${formatConfirmAmount(fiat, code)}`;
+              return `${sym}${formatMoneyAmount(fiat, code)}`;
             }
             return null;
           })();
@@ -922,8 +937,10 @@ export default function ConverseScreen() {
               {isMultiLeg && (
                 <View style={styles.legTimeline}>
                   {plan.map((item, idx) => {
-                    const itemFiat = item.estimatedPriceUsdc; // GBP amount stored here
-                    const legFiatStr = itemFiat > 0 ? `${sym}${formatConfirmAmount(itemFiat, code)}` : '';
+                    const itemFiat = code === 'GBP' || !confirmFxRate
+                      ? item.estimatedPriceUsdc
+                      : item.estimatedPriceUsdc * confirmFxRate;
+                    const legFiatStr = itemFiat > 0 ? `${sym}${formatMoneyAmount(itemFiat, code)}` : '';
                     return (
                       <View key={idx} style={styles.legRow}>
                         <View style={styles.legConnector}>
@@ -970,7 +987,7 @@ export default function ConverseScreen() {
                           </Text>
                         </View>
                         <Text style={styles.passengerFare}>
-                          {sym}{formatConfirmAmount(personFare, code)}
+                          {sym}{formatMoneyAmount(personFare, code)}
                           {isChild ? ' (child)' : ''}
                         </Text>
                       </View>
@@ -983,7 +1000,7 @@ export default function ConverseScreen() {
                   <Ionicons name="time-outline" size={13} color="#fb923c" />
                   <Text style={{ fontSize: 12, color: '#fb923c', flex: 1 }}>
                     {flightExpiryMins <= 0
-                      ? 'Price expired — go back and search again.'
+                      ? 'Price expired. Search again.'
                       : `Price holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'} — confirm now.`}
                   </Text>
                 </View>
@@ -1586,4 +1603,20 @@ const styles = StyleSheet.create({
   legTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 8, marginTop: 4 },
   legTotalLabel:  { fontSize: 12, color: '#6b7280', fontWeight: '600' },
   legTotalAmount: { fontSize: 13, color: '#f8fafc', fontWeight: '700' },
+
+  usualRouteCard: {
+    backgroundColor: '#061a0e',
+    borderWidth: 1,
+    borderColor: '#14532d',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 10,
+    width: '100%',
+  },
+  usualRouteRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  usualRouteLabel: { fontSize: 11, color: '#4ade80', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  usualRouteCount: { fontSize: 11, color: '#4ade80', opacity: 0.7, marginLeft: 'auto' as any },
+  usualRouteRoute: { fontSize: 16, color: '#f8fafc', fontWeight: '700', marginBottom: 2 },
+  usualRouteFare:  { fontSize: 12, color: '#6b7280' },
 });

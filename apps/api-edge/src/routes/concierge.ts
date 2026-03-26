@@ -377,9 +377,15 @@ conciergeRouter.post('/intent', async (c) => {
     ES: { symbol: '€', code: 'EUR', name: 'euros' },
     IT: { symbol: '€', code: 'EUR', name: 'euros' },
     NL: { symbol: '€', code: 'EUR', name: 'euros' },
+    JP: { symbol: '¥', code: 'JPY', name: 'yen' },
+    KR: { symbol: '₩', code: 'KRW', name: 'won' },
+    TH: { symbol: '฿', code: 'THB', name: 'baht' },
+    SG: { symbol: 'S$', code: 'SGD', name: 'dollars' },
+    MY: { symbol: 'RM', code: 'MYR', name: 'ringgit' },
+    VN: { symbol: '₫', code: 'VND', name: 'dong' },
+    ID: { symbol: 'Rp', code: 'IDR', name: 'rupiah' },
     AU: { symbol: 'A$', code: 'AUD', name: 'dollars' },
     CA: { symbol: 'C$', code: 'CAD', name: 'dollars' },
-    SG: { symbol: 'S$', code: 'SGD', name: 'dollars' },
     AE: { symbol: 'AED', code: 'AED', name: 'dirhams' },
   };
 
@@ -436,6 +442,7 @@ conciergeRouter.post('/intent', async (c) => {
 
   // ── Journey memory: last 5 completed trips ────────────────────────────────
   let tripHistoryContext = '';
+  let usualRoute: { origin: string; destination: string; count: number; typicalFareGbp?: number } | undefined;
   {
     const histSql = createDb(c.env);
     try {
@@ -480,9 +487,20 @@ conciergeRouter.post('/intent', async (c) => {
           const key = `${t.origin}→${t.destination}`;
           routeCounts[key] = (routeCounts[key] ?? 0) + 1;
         }
-        const frequentRoute = Object.entries(routeCounts).find(([, n]) => n >= 2);
+        const frequentEntry = Object.entries(routeCounts).sort((a, b) => b[1] - a[1]).find(([, n]) => n >= 2);
+        if (frequentEntry) {
+          const [routeKey, count] = frequentEntry;
+          const [orig, dest] = routeKey.split('→');
+          const typicalFare = trips.find(t => t.origin === orig && t.destination === dest && t.fare);
+          usualRoute = {
+            origin: orig ?? '',
+            destination: dest ?? '',
+            count,
+            typicalFareGbp: typicalFare?.fare ? Math.round(Number(typicalFare.fare)) : undefined,
+          };
+        }
         tripHistoryContext = `\nUser's recent trips:\n${lines.join('\n')}`
-          + (frequentRoute ? `\nFrequent route: ${frequentRoute[0]} (${frequentRoute[1]}× in history) — if this matches the request, say "Same as last time?" and quote the fare.` : '');
+          + (usualRoute ? `\nFrequent route: ${usualRoute.origin}→${usualRoute.destination} (${usualRoute.count}× in history) — if this matches the request, say "Same as last time?" and quote the fare.` : '');
       }
     } catch { /* non-fatal */ } finally {
       await histSql.end().catch(() => {});
@@ -849,13 +867,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   origin:        item.trainDetails.origin,
                   destination:   item.trainDetails.destination,
                   departureTime: item.trainDetails.departureTime,
-                  estimatedFare: isIndia
-                    ? `₹${item.trainDetails.fareInr}`
-                    : item.trainDetails.transportMode === 'bus'
-                    ? `£${item.trainDetails.estimatedFareGbp}`
-                    : item.trainDetails.country === 'eu'
-                    ? `€${item.trainDetails.estimatedFareGbp}`
-                    : `£${item.trainDetails.estimatedFareGbp}`,
+                  estimatedFare: estimatedFareLabelFromDetails(item.trainDetails),
                   country: item.trainDetails.country ?? 'uk',
                 }),
                 // WhatsApp: admin alert + user confirmation (if whatsappNumber in profile)
@@ -1774,6 +1786,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       needsBiometric: false,
       tripContext: primaryTripContext,
       proactiveCards: primaryTripContext?.proactiveCards ?? [],
+      usualRoute,
     });
   }
 
@@ -1789,6 +1802,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     journeyId,
     tripContext:    primaryTripContext,
     proactiveCards: primaryTripContext?.proactiveCards ?? [],
+    usualRoute,
   });
 });
 
@@ -2037,12 +2051,12 @@ function buildFallbackNarration(planItems: PlanItem[]): string {
     const p = planItems[0];
     if (p.trainDetails) {
       if (p.trainDetails.transportMode === 'bus') {
-        return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
+        return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — ${estimatedFareLabelFromDetails(p.trainDetails)}. Fingerprint to confirm.`;
       }
       if (p.trainDetails.country === 'india') {
         return `${p.trainDetails.trainName} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated ₹${p.trainDetails.fareInr}. Fingerprint to confirm.`;
       }
-      return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
+      return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — ${estimatedFareLabelFromDetails(p.trainDetails)}. Fingerprint to confirm.`;
     }
     return `I can ${p.displayName.toLowerCase()} for approximately $${p.estimatedPriceUsdc.toFixed(2)}. Fingerprint to confirm.`;
   }
@@ -2105,6 +2119,45 @@ function transportNoun(details: { transportMode?: 'rail' | 'bus'; country?: stri
   return 'ticket';
 }
 
+function estimatedFareLabelFromDetails(details: {
+  country?: string;
+  transportMode?: 'rail' | 'bus';
+  estimatedFareGbp?: number;
+  fareInr?: number;
+}): string {
+  if (details.country === 'india' && details.fareInr != null) {
+    return `₹${details.fareInr} estimated`;
+  }
+  if (details.transportMode === 'bus') {
+    return `about £${details.estimatedFareGbp ?? 0} equivalent`;
+  }
+  if (details.country === 'eu') {
+    return `about €${details.estimatedFareGbp ?? 0}`;
+  }
+  if (details.country === 'global') {
+    return `about £${details.estimatedFareGbp ?? 0} equivalent`;
+  }
+  return `£${details.estimatedFareGbp ?? 0} estimated`;
+}
+
+function estimatedFareLabelFromProof(proof: {
+  country?: string;
+  transportMode?: 'rail' | 'bus';
+  fareGbp?: number;
+  fareInr?: number;
+}): string {
+  if (proof.country === 'india' && proof.fareInr != null) {
+    return `₹${proof.fareInr}`;
+  }
+  if (proof.transportMode === 'bus' || proof.country === 'global') {
+    return `about £${proof.fareGbp ?? 0} equivalent`;
+  }
+  if (proof.country === 'eu') {
+    return `about €${proof.fareGbp ?? 0}`;
+  }
+  return `£${proof.fareGbp ?? 0}`;
+}
+
 // ── Email 1: sent immediately after biometric confirm ─────────────────────────
 
 async function sendBookingRequestEmail(
@@ -2122,9 +2175,7 @@ async function sendBookingRequestEmail(
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = trainDetails.country === 'india';
   const isBus       = trainDetails.transportMode === 'bus';
-  const fareDisplay = isIndia
-    ? `₹${trainDetails.fareInr} (estimated)`
-    : `£${trainDetails.estimatedFareGbp} (estimated)`;
+  const fareDisplay = estimatedFareLabelFromDetails(trainDetails);
   const arrivalLine = trainDetails.arrivalTime ? ` → arrives ${trainDetails.arrivalTime}` : '';
 
   const html = `
@@ -2186,7 +2237,7 @@ async function sendTicketConfirmedEmail(
   const isIndia     = proof.country === 'india';
   const isBus       = proof.transportMode === 'bus';
   const arrivalLine = proof.arrivalTime ? ` → arrives ${proof.arrivalTime}` : '';
-  const fareDisplay = isIndia ? `₹${proof.fareInr}` : `£${proof.fareGbp}`;
+  const fareDisplay = estimatedFareLabelFromProof(proof);
 
   const html = isIndia ? `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
@@ -2409,9 +2460,7 @@ async function fireOperationsWebhook(
     TRAIN_NUMBER:     proof.trainNumber   ?? '',
     CLASS_CODE:       proof.classCode     ?? '',
     PLATFORM:         proof.platform      ?? '',
-    ESTIMATED_FARE:   isIndia
-      ? `₹${proof.fareInr ?? ''}`
-      : `£${proof.fareGbp ?? ''}`,
+    ESTIMATED_FARE:   estimatedFareLabelFromProof(proof),
     CURRENCY:         isIndia ? 'INR' : 'GBP',
     COUNTRY:          proof.country ?? 'uk',
     DATA_SOURCE:      proof.dataSource    ?? '',
@@ -2502,7 +2551,7 @@ async function sendBookingWhatsApp(
           `Route: ${proof.fromStation} → ${proof.toStation}`,
           `Train: ${proof.trainNumber ?? ''} ${proof.operator}`,
           `Departs: ${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}`,
-          `Class: ${proof.classCode ?? 'N/A'} · Fare: ₹${proof.fareInr ?? ''}`,
+          `Class: ${proof.classCode ?? 'N/A'} · Fare: ${estimatedFareLabelFromProof(proof)}`,
           `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
           irctcUsername ? `IRCTC: ${irctcUsername} (password in admin email)` : '',
           '',
@@ -2515,7 +2564,7 @@ async function sendBookingWhatsApp(
           `Route: ${proof.fromStation} → ${proof.toStation}`,
           `Coach: ${proof.operator}`,
           `Departs: ${proof.departureTime}${proof.arrivalTime ? ` → ${proof.arrivalTime}` : ''}`,
-          `Fare: £${proof.fareGbp ?? ''}`,
+          `Fare: ${estimatedFareLabelFromProof(proof)}`,
           `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
           '',
           'Book with the coach partner then update the sheet.',
@@ -2526,7 +2575,7 @@ async function sendBookingWhatsApp(
           `Route: ${proof.fromStation} → ${proof.toStation}`,
           `Time: ${proof.departureTime} · ${proof.operator}`,
           proof.platform ? `Platform: ${proof.platform}` : '',
-          `Fare: £${proof.fareGbp ?? ''}`,
+          `Fare: ${estimatedFareLabelFromProof(proof)}`,
           `User: ${userName ?? 'Unknown'} (${userEmail ?? 'no email'})`,
           '',
           isGlobal ? 'Book with the relevant rail partner then update the sheet.' : 'Book on Trainline then update the sheet.',
@@ -2604,7 +2653,8 @@ function planItemFiatAmount(item: PlanItem, currencyCode: string): number {
 function convertFromGbp(gbp: number, code: string): number {
   const rates: Record<string, number> = {
     GBP: 1, USD: 1.27, EUR: 1.18, INR: 107, AUD: 1.96,
-    CAD: 1.73, SGD: 1.72, AED: 4.66,
+    CAD: 1.73, SGD: 1.72, AED: 4.66, JPY: 191, KRW: 1705,
+    THB: 46.2, MYR: 6.01, VND: 31100, IDR: 20600,
   };
   return Math.round(gbp * (rates[code] ?? 1) * 100) / 100;
 }
@@ -2613,7 +2663,8 @@ function convertFromGbp(gbp: number, code: string): number {
 function convertFromUsd(usd: number, code: string): number {
   const rates: Record<string, number> = {
     USD: 1, GBP: 0.79, EUR: 0.93, INR: 84, AUD: 1.54,
-    CAD: 1.36, SGD: 1.35, AED: 3.67,
+    CAD: 1.36, SGD: 1.35, AED: 3.67, JPY: 150, KRW: 1340,
+    THB: 36.4, MYR: 4.73, VND: 24500, IDR: 16200,
   };
   return Math.round(usd * (rates[code] ?? 1) * 100) / 100;
 }

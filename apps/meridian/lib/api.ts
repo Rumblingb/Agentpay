@@ -42,6 +42,31 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+/** A family / travel companion sent to the Bro concierge in Phase 1 (no documents) */
+export interface BroFamilyMember {
+  id: string;
+  name: string;
+  relationship: 'adult' | 'child' | 'infant';
+  dateOfBirth?: string;    // YYYY-MM-DD — used for child pricing and flight bookings
+  railcard?: string;       // e.g. "senior", "16-25", "disabled"
+  nationality?: string;
+}
+
+/** Travel preferences sent to Bro in Phase 1 — no identity or document data */
+export interface BroTravelProfile {
+  seatPreference?: string;
+  classPreference?: string;
+  railcardType?: string;
+  indiaClassTier?: string;
+  nationality?: string;
+  subscriptionTier?: string;
+  currentLat?: number;
+  currentLon?: number;
+  familyMembers?: BroFamilyMember[];
+  // Phase 2 (full profile sent after biometric) may include additional fields
+  [key: string]: unknown;
+}
+
 export interface CoordinationPlan {
   coordinationId: string;
   intent: string;
@@ -240,7 +265,17 @@ export interface ConciergePlanItem {
   estimatedPriceUsdc: number;
   input: Record<string, unknown>;
   /** Where the schedule data came from — shown as a source badge in the confirm card */
-  dataSource?: 'darwin_live' | 'national_rail_scheduled' | 'irctc_live' | 'estimated';
+  dataSource?:
+    | 'darwin_live'
+    | 'national_rail_scheduled'
+    | 'irctc_live'
+    | 'estimated'
+    | 'eu_live'
+    | 'eu_scheduled'
+    | 'global_rail_live'
+    | 'global_rail_scheduled'
+    | 'bus_live'
+    | 'bus_scheduled';
   /** TfL final-leg (only present when arriving at a London terminus) */
   finalLegSummary?: string;
   /** Route payload for navigate flows and non-London final legs */
@@ -266,6 +301,19 @@ export interface ConciergePlanItem {
     /** Set after Phase 2 booking completes */
     pnr?: string;
   };
+  /** Hotel details — present for book_hotel tool */
+  hotelDetails?: {
+    city: string;
+    checkIn: string;
+    checkOut: string;
+    nights: number;
+    hotelName: string;
+    stars: number;
+    ratePerNight: number;
+    totalCost: number;
+    currency: string;
+    area: string;
+  };
   tripContext?: TripContext;
   /** Shared ID linking all legs of a multi-modal journey */
   journeyId?: string;
@@ -289,13 +337,15 @@ export interface ConciergeResponse {
   journeyId?: string;
   tripContext?: TripContext;
   proactiveCards?: ProactiveCard[];
+  /** Frequent route detected from trip history — shown as idle suggestion */
+  usualRoute?: { origin: string; destination: string; count: number; typicalFareGbp?: number };
 }
 
 /** Phase 1: plan — Claude decides what to do, returns price. No hire yet. */
 export async function conciergeIntent(params: {
   transcript: string;
   hirerId: string;
-  travelProfile?: Record<string, unknown>;
+  travelProfile?: BroTravelProfile;
 }): Promise<ConciergeResponse> {
   return apiFetch('/api/concierge/intent', {
     method: 'POST',
@@ -307,7 +357,7 @@ export async function conciergeIntent(params: {
 export async function conciergeConfirm(params: {
   transcript: string;
   hirerId: string;
-  travelProfile?: Record<string, unknown>;
+  travelProfile?: BroTravelProfile;
   plan: ConciergePlanItem[];
 }): Promise<ConciergeResponse> {
   return apiFetch('/api/concierge/intent', {
@@ -319,6 +369,7 @@ export async function conciergeConfirm(params: {
 /** Create a Stripe Checkout Session — returns a hosted URL, no native SDK needed */
 export async function createCheckoutSession(params: {
   jobId: string;
+  journeyId?: string;
   amountFiat: number;
   currencyCode?: string;
   description?: string;
@@ -331,6 +382,7 @@ export async function createCheckoutSession(params: {
 
 export async function createUpiPaymentLink(params: {
   jobId: string;
+  journeyId?: string;
   amountInr: number;
   description?: string;
   customerName?: string;
