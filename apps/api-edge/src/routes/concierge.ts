@@ -45,6 +45,7 @@ import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPa
 import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
 import { buildArrivalCards } from '../lib/arrivalCards';
+import { askSonar, formatSonarForClaude } from '../lib/perplexity';
 import { createOrReuseTripRoom } from './tripRooms';
 import { normalizeProactiveCards, type NearbyPlace, type RouteData, type TripContext } from '../../../../packages/bro-trip/index';
 
@@ -545,6 +546,7 @@ ROUTING RULES:
 - If ambiguous, ask one question: "UK or India?"
 - Use search_flights for any air travel: "fly to Barcelona", "flight to New York", "cheapest flight to Dublin". Always confirm airport if city is ambiguous (London → ask Heathrow/Gatwick). Proactively suggest train if route is under 3h and Eurostar/rail is faster (London↔Paris, London↔Brussels). Phase 1 returns top 3 options; user picks or confirm card books cheapest. Passport details required for international — if missing, say "I'll need your passport — add in Settings."
 - If asked about taxis or car hire: say "Cabs coming soon — trains, buses, flights, and hotels I can sort." One sentence only.
+- Use research for live factual questions: opening hours, visa requirements, baggage policies, entry restrictions, local safety, attraction details, "is X closed on Y", "what do I need to enter Z". Returns a concise grounded answer with sources. No booking needed — info only.
 
 FAMILY / GROUP TRAVEL:
 - When the user mentions a family member by name (e.g. "me and Maya", "take Dad"), resolve them from the family list above.
@@ -1699,6 +1701,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           live:  hotelResults.filter(h => h.isLive).length,
         });
 
+      } else if (toolCall.name === 'research' && c.env.PERPLEXITY_API_KEY) {
+        // ── Real-time travel intel via Perplexity Sonar ───────────────────
+        const query    = (input.query    as string | undefined) ?? '';
+        const location = (input.location as string | undefined) ?? '';
+        const sonarQ   = location ? `${query} (location: ${location})` : query;
+        const sonarResult = await askSonar(sonarQ, c.env.PERPLEXITY_API_KEY, { maxTokens: 256 }).catch(() => null);
+        toolResultContent = formatSonarForClaude(sonarResult, sonarQ);
+        (toolCall as any)._skipPlan = true;  // research is info-only — no hire needed
+        broLog('sonar_result', { traceId, query: sonarQ, found: !!sonarResult });
+
       } else {
         // Non-train skills: tell Claude the agent is available
         const agentName = agent?.name ?? skill.displayName;
@@ -1805,7 +1817,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   }
 
   // Info-only tools return content with no payment or biometric required
-  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant']);
+  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant', 'research']);
   const isInfoOnly = planItems.every(p => INFO_ONLY_TOOLS.has(p.toolName));
 
   broLog('plan_built', {

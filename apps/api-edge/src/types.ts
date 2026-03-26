@@ -188,6 +188,14 @@ export interface Env {
    */
   AVIATIONSTACK_API_KEY?: string;
 
+  /**
+   * Perplexity Sonar — real-time web search for travel intel.
+   * Used for: opening hours, travel advisories, baggage policies, local conditions.
+   * Pricing: $5/1M tokens (sonar), $8/1M (sonar-pro).
+   * npx wrangler secret put PERPLEXITY_API_KEY
+   */
+  PERPLEXITY_API_KEY?: string;
+
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
   AI?: Ai;
