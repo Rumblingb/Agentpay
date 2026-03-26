@@ -94,11 +94,16 @@ broInsightsRouter.get('/dashboard', async (c) => {
       .good{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .muted{color:var(--muted)}
       .row{display:flex;justify-content:space-between;gap:12px;margin-top:10px;font-size:13px}
       .actions{display:flex;gap:8px;flex-wrap:wrap}
+      select{background:#0b2440;border:1px solid #1d4ed8;color:#bfdbfe;border-radius:10px;padding:8px 12px;font-weight:700}
       button{background:#0b2440;border:1px solid #1d4ed8;color:#bfdbfe;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}
       button.secondary{background:#2b1108;border-color:#b45309;color:#fdba74}
       button:disabled{opacity:.5;cursor:default}
       .small{font-size:12px;color:var(--muted)}
       .header-row{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;flex-wrap:wrap}
+      .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+      .notice{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #1e293b;background:#0b1220;font-size:13px;color:#cbd5e1;display:none}
+      .notice.ok{display:block;border-color:#166534;background:#052e16;color:#bbf7d0}
+      .notice.error{display:block;border-color:#7f1d1d;background:#2b1111;color:#fecaca}
     </style>
   </head>
   <body>
@@ -113,6 +118,21 @@ broInsightsRouter.get('/dashboard', async (c) => {
           <button id="runRecoveryBtn" class="secondary">Run Auto-Recovery</button>
         </div>
       </div>
+      <div class="toolbar">
+        <select id="priorityFilter">
+          <option value="all">All priorities</option>
+          <option value="p1">P1 only</option>
+          <option value="p2">P2 only</option>
+          <option value="p3">P3 only</option>
+          <option value="p4">P4 only</option>
+        </select>
+        <select id="actionFilter">
+          <option value="all">All actions</option>
+          <option value="retry_dispatch">Recoverable</option>
+          <option value="escalate_manual">Escalations</option>
+        </select>
+      </div>
+      <div id="notice" class="notice"></div>
 
       <div class="grid" id="topMetrics"></div>
 
@@ -157,13 +177,30 @@ broInsightsRouter.get('/dashboard', async (c) => {
       function priorityPill(priority){
         return '<span class="pill p'+priority+'">P'+priority+'</span>';
       }
+      function showNotice(text, kind) {
+        const el = document.getElementById('notice');
+        el.textContent = text;
+        el.className = 'notice ' + kind;
+      }
+      function clearNotice() {
+        const el = document.getElementById('notice');
+        el.textContent = '';
+        el.className = 'notice';
+      }
       async function postJson(path, body) {
         const res = await fetch(path, {
           method: 'POST',
           headers: { 'x-admin-key': adminKey, 'Content-Type': 'application/json' },
           body: body ? JSON.stringify(body) : undefined,
         });
-        if (!res.ok) throw new Error('Request failed: ' + res.status);
+        if (!res.ok) {
+          let detail = 'Request failed: ' + res.status;
+          try {
+            const payload = await res.json();
+            if (payload && payload.error) detail = payload.error;
+          } catch {}
+          throw new Error(detail);
+        }
         return res.json();
       }
       function actionButtons(job) {
@@ -180,6 +217,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
           getJson('/api/admin/ops-queue'),
           getJson('/api/admin/booking-health'),
         ]);
+        window.__opsJobs = ops.jobs || [];
 
         document.getElementById('topMetrics').innerHTML = [
           metricCard('Issued', metrics.funnel.issued || 0, 'good'),
@@ -190,15 +228,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
           metricCard('Ops Queue', ops.queueDepth || 0, ops.queueDepth ? 'warn' : 'good'),
         ].join('');
 
-        document.getElementById('opsQueueRows').innerHTML = ops.jobs.map((job) =>
-          '<tr>'+
-            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div></td>'+
-            '<td>'+priorityPill(job.opsPriority)+'</td>'+
-            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div></td>'+
-            '<td>'+actionButtons(job)+'</td>'+
-            '<td>'+job.summary+'</td>'+
-          '</tr>'
-        ).join('') || '<tr><td colspan="5" class="muted">No actionable jobs.</td></tr>';
+        renderOpsQueue(window.__opsJobs);
 
         document.getElementById('providerRows').innerHTML = metrics.providerPerformance.map((row) =>
           '<tr>'+
@@ -214,17 +244,40 @@ broInsightsRouter.get('/dashboard', async (c) => {
           metricCard(bucket.replace(/_/g, ' '), count, bucket.includes('failed') ? 'bad' : bucket.includes('stuck') ? 'warn' : '')
         ).join('') || metricCard('healthy', 0);
       }
+      function renderOpsQueue(jobs) {
+        const priorityFilter = document.getElementById('priorityFilter').value;
+        const actionFilter = document.getElementById('actionFilter').value;
+        const filtered = jobs.filter((job) => {
+          const matchPriority = priorityFilter === 'all' || ('p' + job.opsPriority) === priorityFilter;
+          const matchAction = actionFilter === 'all' || job.recommendedAction === actionFilter;
+          return matchPriority && matchAction;
+        });
+        document.getElementById('opsQueueRows').innerHTML = filtered.map((job) =>
+          '<tr>'+
+            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div></td>'+
+            '<td>'+priorityPill(job.opsPriority)+'</td>'+
+            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div></td>'+
+            '<td>'+actionButtons(job)+'</td>'+
+            '<td>'+job.summary+'</td>'+
+          '</tr>'
+        ).join('') || '<tr><td colspan="5" class="muted">No jobs match the current filters.</td></tr>';
+      }
       document.getElementById('refreshBtn').addEventListener('click', () => { void loadDashboard(); });
       document.getElementById('runRecoveryBtn').addEventListener('click', async (event) => {
         const btn = event.currentTarget;
         btn.disabled = true;
         try {
           await getJson('/api/admin/booking-health/run-auto-recovery', { method: 'POST' });
+          showNotice('Auto-recovery sweep completed.', 'ok');
           await loadDashboard();
+        } catch (error) {
+          showNotice(error.message || 'Auto-recovery failed.', 'error');
         } finally {
           btn.disabled = false;
         }
       });
+      document.getElementById('priorityFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
+      document.getElementById('actionFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
       document.getElementById('opsQueueRows').addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) return;
@@ -235,16 +288,21 @@ broInsightsRouter.get('/dashboard', async (c) => {
         try {
           if (action === 'recover') {
             await postJson('/api/admin/booking-health/' + jobId + '/recover');
+            showNotice('Recovery queued for ' + jobId + '.', 'ok');
           } else if (action === 'escalate') {
             await postJson('/api/admin/booking-health/' + jobId + '/escalate', {
               reason: 'Manual escalation requested from founder console',
             });
+            showNotice('Escalated ' + jobId + ' for manual review.', 'ok');
           }
           await loadDashboard();
+        } catch (error) {
+          showNotice((error && error.message) || 'Action failed.', 'error');
         } finally {
           target.disabled = false;
         }
       });
+      clearNotice();
       void loadDashboard();
     </script>
   </body>

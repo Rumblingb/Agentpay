@@ -2,7 +2,12 @@ jest.mock('../../apps/api-edge/src/lib/db', () => ({
   createDb: jest.fn(),
 }));
 
+jest.mock('../../apps/api-edge/src/lib/openclaw', () => ({
+  dispatchToOpenClaw: jest.fn(),
+}));
+
 import { createDb } from '../../apps/api-edge/src/lib/db';
+import { dispatchToOpenClaw } from '../../apps/api-edge/src/lib/openclaw';
 import { broInsightsRouter } from '../../apps/api-edge/src/routes/broInsights';
 
 function makeSql(responses: unknown[]) {
@@ -124,5 +129,75 @@ describe('broInsights founder metrics route', () => {
       opsPriority: 3,
       recommendedAction: 'retry_dispatch',
     });
+  });
+
+  it('recovers a dispatchable booking-health job', async () => {
+    const sql = makeSql([
+      [{
+        id: 'job-dispatch',
+        status: 'confirmed',
+        metadata: {
+          protocol: 'marketplace_hire',
+          paymentConfirmed: true,
+          paymentConfirmedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }],
+      undefined,
+    ]);
+    (createDb as jest.Mock).mockReturnValue(sql);
+    (dispatchToOpenClaw as jest.Mock).mockResolvedValue({
+      status: 'dispatched',
+      openclawJobId: 'oc-123',
+      dispatchedAt: '2026-03-26T12:00:00.000Z',
+    });
+
+    const res = await broInsightsRouter.fetch(
+      new Request('http://bro.test/booking-health/job-dispatch/recover', {
+        method: 'POST',
+        headers: { 'x-admin-key': 'secret' },
+      }),
+      { ADMIN_SECRET_KEY: 'secret' } as never,
+      {} as never,
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      jobId: 'job-dispatch',
+    });
+    expect(dispatchToOpenClaw).toHaveBeenCalledWith(expect.anything(), 'job-dispatch', expect.objectContaining({
+      paymentConfirmed: true,
+    }));
+    expect(sql).toHaveBeenCalledTimes(2);
+  });
+
+  it('escalates a booking-health job for manual review', async () => {
+    const sql = makeSql([
+      [{ id: 'job-failed' }],
+      undefined,
+    ]);
+    (createDb as jest.Mock).mockReturnValue(sql);
+
+    const res = await broInsightsRouter.fetch(
+      new Request('http://bro.test/booking-health/job-failed/escalate', {
+        method: 'POST',
+        headers: { 'x-admin-key': 'secret', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Needs human help' }),
+      }),
+      { ADMIN_SECRET_KEY: 'secret' } as never,
+      {} as never,
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      jobId: 'job-failed',
+      manualReviewRequired: true,
+    });
+    expect(sql).toHaveBeenCalledTimes(2);
   });
 });
