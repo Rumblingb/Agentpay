@@ -131,6 +131,49 @@ describe('broInsights founder metrics route', () => {
     });
   });
 
+  it('exposes trip-room links and recovery metadata in the ops queue', async () => {
+    const sql = makeSql([[
+      {
+        id: 'job-room',
+        status: 'confirmed',
+        metadata: {
+          protocol: 'marketplace_hire',
+          paymentProvider: 'stripe',
+          shareToken: 'share_123',
+          recoveryAttemptCount: 2,
+          recoveryLastResult: 'dispatched',
+          trainDetails: {
+            origin: 'Bristol Temple Meads',
+            destination: 'Roma Termini',
+          },
+          paymentConfirmed: true,
+          paymentConfirmedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]]);
+    (createDb as jest.Mock).mockReturnValue(sql);
+
+    const res = await broInsightsRouter.fetch(
+      new Request('http://bro.test/ops-queue', {
+        headers: { 'x-admin-key': 'secret' },
+      }),
+      { ADMIN_SECRET_KEY: 'secret' } as never,
+      {} as never,
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.jobs[0]).toMatchObject({
+      provider: 'stripe',
+      corridor: 'Bristol Temple Meads -> Roma Termini',
+      tripRoomUrl: 'https://api.agentpay.so/trip/view/share_123',
+      recoveryAttemptCount: 2,
+      recoveryLastResult: 'dispatched',
+    });
+  });
+
   it('recovers a dispatchable booking-health job', async () => {
     const sql = makeSql([
       [{

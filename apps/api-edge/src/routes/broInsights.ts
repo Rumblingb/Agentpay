@@ -28,6 +28,15 @@ function mapBookingHealthRow(row: BookingHealthRow) {
   const metadata = row.metadata ?? {};
   const health = deriveBookingHealth(row.status, metadata);
   const policy = evaluateRecoveryPolicy(health.recoveryBucket, metadata);
+  const shareToken = (metadata.shareToken as string | undefined) ?? null;
+  const corridor = [
+    (metadata.trainDetails as Record<string, unknown> | undefined)?.origin as string | undefined
+      ?? (metadata.flightDetails as Record<string, unknown> | undefined)?.origin as string | undefined
+      ?? (metadata.hotelDetails as Record<string, unknown> | undefined)?.city as string | undefined,
+    (metadata.trainDetails as Record<string, unknown> | undefined)?.destination as string | undefined
+      ?? (metadata.flightDetails as Record<string, unknown> | undefined)?.destination as string | undefined
+      ?? (metadata.hotelDetails as Record<string, unknown> | undefined)?.city as string | undefined,
+  ].filter(Boolean).join(' -> ') || null;
   return {
     jobId: row.id,
     intentStatus: row.status,
@@ -36,14 +45,20 @@ function mapBookingHealthRow(row: BookingHealthRow) {
     shouldEscalate: health.shouldEscalate,
     summary: health.summary,
     provider: (metadata.paymentProvider as string | undefined) ?? null,
+    corridor,
     journeyId: (metadata.journeyId as string | undefined) ?? null,
     bookingRef: (metadata.ticketRef as string | undefined) ?? (metadata.pnr as string | undefined) ?? (metadata.broRef as string | undefined) ?? null,
+    shareToken,
+    tripRoomUrl: shareToken ? `https://api.agentpay.so/trip/view/${shareToken}` : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     recommendedAction: policy.action,
     recommendationReason: policy.reason,
     canAutoRun: policy.canAutoRun,
     opsPriority: opsPriorityForRecoveryBucket(health.recoveryBucket),
+    recoveryAttemptCount: Number((metadata.recoveryAttemptCount as number | string | undefined) ?? 0),
+    recoveryLastResult: (metadata.recoveryLastResult as string | undefined) ?? null,
+    recoveryLastError: (metadata.recoveryLastError as string | undefined) ?? null,
     metadata,
   };
 }
@@ -104,6 +119,8 @@ broInsightsRouter.get('/dashboard', async (c) => {
       .notice{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #1e293b;background:#0b1220;font-size:13px;color:#cbd5e1;display:none}
       .notice.ok{display:block;border-color:#166534;background:#052e16;color:#bbf7d0}
       .notice.error{display:block;border-color:#7f1d1d;background:#2b1111;color:#fecaca}
+      a.link{color:#7dd3fc;text-decoration:none}
+      a.link:hover{text-decoration:underline}
     </style>
   </head>
   <body>
@@ -130,6 +147,9 @@ broInsightsRouter.get('/dashboard', async (c) => {
           <option value="all">All actions</option>
           <option value="retry_dispatch">Recoverable</option>
           <option value="escalate_manual">Escalations</option>
+        </select>
+        <select id="providerFilter">
+          <option value="all">All providers</option>
         </select>
       </div>
       <div id="notice" class="notice"></div>
@@ -209,7 +229,19 @@ broInsightsRouter.get('/dashboard', async (c) => {
           buttons.push('<button data-action="recover" data-job-id="'+job.jobId+'">Recover</button>');
         }
         buttons.push('<button class="secondary" data-action="escalate" data-job-id="'+job.jobId+'">Escalate</button>');
+        if (job.tripRoomUrl) {
+          buttons.push('<a class="link" target="_blank" rel="noreferrer" href="'+job.tripRoomUrl+'">Open trip</a>');
+        }
         return '<div class="actions">'+buttons.join('')+'</div>';
+      }
+      function populateProviderFilter(jobs) {
+        const select = document.getElementById('providerFilter');
+        const current = select.value || 'all';
+        const providers = Array.from(new Set(jobs.map((job) => job.provider).filter(Boolean))).sort();
+        select.innerHTML = '<option value="all">All providers</option>' + providers.map((provider) =>
+          '<option value="'+provider+'">'+provider+'</option>'
+        ).join('');
+        if (providers.includes(current)) select.value = current;
       }
       async function loadDashboard() {
         const [metrics, ops, health] = await Promise.all([
@@ -218,6 +250,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
           getJson('/api/admin/booking-health'),
         ]);
         window.__opsJobs = ops.jobs || [];
+        populateProviderFilter(window.__opsJobs);
 
         document.getElementById('topMetrics').innerHTML = [
           metricCard('Issued', metrics.funnel.issued || 0, 'good'),
@@ -247,16 +280,18 @@ broInsightsRouter.get('/dashboard', async (c) => {
       function renderOpsQueue(jobs) {
         const priorityFilter = document.getElementById('priorityFilter').value;
         const actionFilter = document.getElementById('actionFilter').value;
+        const providerFilter = document.getElementById('providerFilter').value;
         const filtered = jobs.filter((job) => {
           const matchPriority = priorityFilter === 'all' || ('p' + job.opsPriority) === priorityFilter;
           const matchAction = actionFilter === 'all' || job.recommendedAction === actionFilter;
-          return matchPriority && matchAction;
+          const matchProvider = providerFilter === 'all' || job.provider === providerFilter;
+          return matchPriority && matchAction && matchProvider;
         });
         document.getElementById('opsQueueRows').innerHTML = filtered.map((job) =>
           '<tr>'+
-            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div></td>'+
+            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div><div class="small">'+(job.corridor || 'unknown corridor')+'</div></td>'+
             '<td>'+priorityPill(job.opsPriority)+'</td>'+
-            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div></td>'+
+            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div><div class="small">Attempts: '+job.recoveryAttemptCount+(job.recoveryLastResult ? ' · '+job.recoveryLastResult : '')+'</div>'+(job.recoveryLastError ? '<div class="small bad">'+job.recoveryLastError+'</div>' : '')+'</td>'+
             '<td>'+actionButtons(job)+'</td>'+
             '<td>'+job.summary+'</td>'+
           '</tr>'
@@ -278,6 +313,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
       });
       document.getElementById('priorityFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
       document.getElementById('actionFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
+      document.getElementById('providerFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
       document.getElementById('opsQueueRows').addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) return;
