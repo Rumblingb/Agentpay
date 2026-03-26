@@ -74,6 +74,8 @@ export interface Env {
   AIRWALLEX_API_KEY?: string;
   /** Set to "true" to target the Airwallex demo environment. */
   AIRWALLEX_SANDBOX?: string;
+  /** Airwallex webhook signing secret — for verifying /webhooks/airwallex. */
+  AIRWALLEX_WEBHOOK_SECRET?: string;
 
   // ── URLs & CORS ───────────────────────────────────────────────────────────
   /**

@@ -180,6 +180,58 @@ export class AirwallexClient {
   }
 }
 
+/**
+ * Poll or confirm a payment intent by ID — standalone function (no class instance required).
+ *
+ * Used by the webhook handler and any ad-hoc status check that only has
+ * clientId + apiKey available (e.g. cron reconciler).
+ *
+ * @returns { status, id } on success, or null on auth/network error.
+ */
+export async function getPaymentIntentStatus(
+  intentId: string,
+  apiKey: string,
+  clientId: string,
+): Promise<{ status: string; id: string } | null> {
+  // Authenticate
+  let token: string | null = null;
+  try {
+    const authResp = await fetch(`${AIRWALLEX_BASE}/api/v1/authentication/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-client-id': clientId,
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({}),
+    });
+    if (!authResp.ok) return null;
+    const authData = await authResp.json<AirwallexAuthResponse>();
+    token = authData.token ?? null;
+  } catch {
+    return null;
+  }
+
+  if (!token) return null;
+
+  // Fetch intent
+  try {
+    const resp = await fetch(`${AIRWALLEX_BASE}/api/v1/pa/payment_intents/${intentId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json<AirwallexPaymentIntentResponse>();
+    if (!data?.id || !data.status) return null;
+    return { id: data.id, status: data.status };
+  } catch {
+    return null;
+  }
+}
+
 export function formatAirwallexStatus(status: string): 'pending' | 'succeeded' | 'failed' {
   switch (status) {
     case 'SUCCEEDED':

@@ -47,6 +47,7 @@ import { supportRouter } from './routes/support';
 import { scrapeRouter } from './routes/scrape';
 import { tripRoomsRouter } from './routes/tripRooms';
 import { broInsightsRouter } from './routes/broInsights';
+import { airwallexWebhooksRouter } from './routes/webhooksAirwallex';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -198,6 +199,9 @@ app.route('/api/payments/upi', paymentsUpiRouter);
 
 // Razorpay webhook — POST /webhooks/razorpay (raw body, no JSON parsing before signature check)
 app.route('/webhooks/razorpay', paymentsUpiRouter);
+
+// Airwallex webhook — POST /webhooks/airwallex (HMAC-SHA256 verified)
+app.route('/webhooks/airwallex', airwallexWebhooksRouter);
 
 // Stubs for non-migrated endpoints (returns 501 instead of 404)
 app.route('/', stubsRouter);

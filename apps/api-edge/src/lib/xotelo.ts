@@ -13,6 +13,25 @@
  *   Amsterdam, Sydney, Dubai, Bali, Berlin, Amsterdam, Istanbul, Prague
  */
 
+// ── Public HotelOption type (used by concierge confirm flow) ──────────────
+
+/**
+ * A single hotel option returned from searchHotels / formatted for Claude.
+ * Intentionally lightweight — used by the concierge confirm flow.
+ */
+export interface HotelOption {
+  name: string;
+  city: string;
+  checkIn: string;
+  checkOut: string;
+  pricePerNight: number;
+  currency: string;
+  /** Deep-link to Booking.com/Expedia/etc for this property (when Xotelo returns one) */
+  bookingUrl?: string;
+  /** Xotelo hotel_key for this property */
+  hotelId?: string;
+}
+
 // ── Currency → GBP conversion (approximate, for hire layer normalisation) ──
 // Display rates are shown in local currency; GBP equivalent used for escrow.
 
@@ -413,4 +432,33 @@ export function formatHotelsForClaude(
   const nights_label = `${nights} night${nights === 1 ? '' : 's'}`;
 
   return `Hotels in ${city} — ${checkIn} to ${checkOut} (${nights_label}) ${source}\n${lines.join('\n')}`;
+}
+
+/**
+ * Format a list of HotelOption items for Claude narration.
+ *
+ * Returns a compact numbered list like:
+ *   "1. CitizenM Rome, €95/night, check-in May 5. [Book →] 2. ..."
+ *
+ * Accepts the lightweight HotelOption type so concierge confirm flows can
+ * call this without needing a full HotelResult.
+ */
+export function formatHotelOptionsForClaude(hotels: HotelOption[]): string {
+  if (hotels.length === 0) return 'No hotels available for those dates.';
+
+  const symMap: Record<string, string> = {
+    GBP: '£', EUR: '€', USD: '$', JPY: '¥', THB: '฿',
+    SGD: 'S$', AED: 'AED ', AUD: 'A$', IDR: 'Rp', TRY: '₺', CZK: 'Kč',
+  };
+
+  return hotels
+    .slice(0, 5)
+    .map((h, i) => {
+      const sym      = symMap[h.currency] ?? (h.currency + ' ');
+      const price    = `${sym}${h.pricePerNight}/night`;
+      const dateStr  = `check-in ${h.checkIn}`;
+      const bookLink = h.bookingUrl ? ' [Book →]' : '';
+      return `${i + 1}. ${h.name}, ${price}, ${dateStr}.${bookLink}`;
+    })
+    .join(' ');
 }
