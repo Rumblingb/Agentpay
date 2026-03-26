@@ -172,7 +172,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
           needsUpdate = true;
         }
 
-        // ── Delay > 10 min (notify once) ─────────────────────────────────────
+        // ── Delay > 10 min (notify once, offer earlier service if available) ───
         if (
           !status.isCancelled &&
           !delayNotified &&
@@ -181,13 +181,41 @@ export async function runPlatformWatch(env: Env): Promise<void> {
         ) {
           broLog('service_delayed', { jobId: row.id, serviceUid, delayMinutes: status.delayMinutes });
 
+          // Search for an earlier/alternative service the user could switch to
+          let delayAltText = '';
+          let delayAltTranscript: string | undefined;
+          try {
+            const { queryRTT } = await import('../lib/rtt');
+            const altResult = await queryRTT(env, origin, destination ?? origin, 'today', 'any');
+            const cancelledHHMM = departureDatetime ? departureDatetime.slice(11, 16) : '00:00';
+            // Find a service that departs BEFORE the delayed one (or same time but on different service)
+            const earlier = altResult.services.find(s =>
+              s.departureTime < cancelledHHMM && s.serviceUid !== serviceUid,
+            );
+            const next = altResult.services.find(s =>
+              s.departureTime > cancelledHHMM && s.serviceUid !== serviceUid,
+            );
+            const alt = earlier ?? next;
+            if (alt) {
+              const fare = alt.estimatedFareGbp ? ` · £${alt.estimatedFareGbp}` : '';
+              delayAltText = ` The ${alt.departureTime} is on time${fare}. Move you onto it?`;
+              delayAltTranscript = destination
+                ? `My ${cancelledHHMM} to ${destination} is delayed ${status.delayMinutes} min — rebook me on the ${alt.departureTime} instead`
+                : undefined;
+            }
+          } catch { /* non-fatal */ }
+
+          const delayBody = `${route} running ${status.delayMinutes} min late.${delayAltText || ' Check app for alternatives.'}`;
+
           await sendExpoPush(
             pushToken,
-            `⏱ Running ${status.delayMinutes} min late`,
-            `${route} · Expected delay: ${status.delayMinutes} minutes`,
-            { intentId: row.id, screen: 'receipt' },
+            `⏱ ${status.delayMinutes} min delay`,
+            delayBody,
+            delayAltTranscript
+              ? { intentId: row.id, screen: 'converse', action: 'rebook', transcript: delayAltTranscript }
+              : { intentId: row.id, screen: 'receipt' },
           );
-          await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.`, sql);
+          await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.${delayAltText}`, sql);
 
           metaUpdates.delayNotified = true;
           needsUpdate = true;
