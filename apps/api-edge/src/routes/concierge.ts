@@ -44,6 +44,7 @@ import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable'
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
 import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
+import { buildArrivalCards } from '../lib/arrivalCards';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -665,12 +666,31 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             jobDescription,
             item.estimatedPriceUsdc,
           );
-          const executingTripContext = toExecutingTripContext(item.tripContext, {
+          const baseTripContext = toExecutingTripContext(item.tripContext, {
             watchState: {
               ...item.tripContext?.watchState,
               bookingConfirmed: false,
             },
           });
+          const arrivalCards = item.trainDetails?.destination
+            ? buildArrivalCards({
+                destination: item.trainDetails.destination as string,
+                arrivalTime: item.trainDetails.arrivalTime as string | undefined,
+                operator: item.trainDetails.operator as string | undefined,
+                country: (item.trainDetails as any).country as string | undefined,
+              })
+            : item.flightDetails?.destination
+            ? buildArrivalCards({
+                destination: item.flightDetails.destination as string,
+                arrivalTime: item.flightDetails.arrivalAt
+                  ? new Date(item.flightDetails.arrivalAt as string).toTimeString().slice(0, 5)
+                  : undefined,
+                operator: item.flightDetails.carrier as string | undefined,
+              })
+            : [];
+          const executingTripContext = baseTripContext
+            ? { ...baseTripContext, proactiveCards: [...(baseTripContext.proactiveCards ?? []), ...arrivalCards] }
+            : baseTripContext;
 
           // ── Duffel flight booking ─────────────────────────────────────────
           if (item.flightDetails && c.env.DUFFEL_API_KEY) {

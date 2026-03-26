@@ -18,7 +18,9 @@ export type ProactiveCardKind =
   | 'connection_risk'
   | 'destination_suggestion'
   | 'check_in'
-  | 'gate_changed';
+  | 'gate_changed'
+  | 'arrival_tip'
+  | 'boarding_tip';
 
 export interface RouteData {
   polylineEncoded: string;
@@ -233,8 +235,10 @@ export function deriveProactiveCards(
     leave_now: 3,
     connection_risk: 4,
     delay_risk: 5,
-    check_in: 6,
-    destination_suggestion: 7,
+    boarding_tip: 6,
+    check_in: 7,
+    arrival_tip: 8,
+    destination_suggestion: 9,
   };
   return cards
     .filter((card) => {

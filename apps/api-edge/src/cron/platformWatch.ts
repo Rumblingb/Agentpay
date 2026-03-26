@@ -22,6 +22,23 @@ import { fanOutToTripRoom } from '../routes/tripRooms';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
+// Operator-specific boarding tips (UK rail)
+const BOARDING_TIPS: Record<string, string> = {
+  'Avanti West Coast': 'Quiet coach is Coach D. Bike storage at the rear.',
+  'Avanti':            'Quiet coach is Coach D. Bike storage at the rear.',
+  'LNER':              'Quiet coach is Coach H. First class at the front.',
+  'GWR':               'Standard is mid-train. Catering in Coach C.',
+  'Great Western':     'Standard is mid-train. Catering in Coach C.',
+  'Thameslink':        'Short stop — doors open ~30 seconds. Be ready.',
+  'Southern':          'Stand clear of the yellow line. Doors on both sides at some stations.',
+  'CrossCountry':      'Quiet coach is usually Coach A. Bikes in Coach D.',
+  'TransPennine':      'Standard class in the middle. First class at front.',
+  'Chiltern':          'Standard at rear. First class at front.',
+  'c2c':               'Short platform stops — be ready before the train arrives.',
+  'Southeastern':      'Standard mid-train. Quiet zone in rear coach.',
+  'East Midlands':     'First class at front. Quiet coach adjacent to first class.',
+};
+
 function broLog(event: string, data: Record<string, unknown>) {
   console.log(JSON.stringify({ event, ...data, ts: new Date().toISOString() }));
 }
@@ -219,6 +236,35 @@ export async function runPlatformWatch(env: Env): Promise<void> {
 
           metaUpdates.delayNotified = true;
           needsUpdate = true;
+        }
+
+        // ── Boarding tip push (T-25 to T-35 min, once per journey) ──────────
+        if (!meta.boardingTipSent && departureDatetime) {
+          const minsToDepart = Math.round(
+            (new Date(departureDatetime).getTime() - Date.now()) / 60_000,
+          );
+          if (minsToDepart >= 25 && minsToDepart <= 35) {
+            const operator: string | undefined = meta.trainDetails?.operator;
+            const tipKey = operator
+              ? Object.keys(BOARDING_TIPS).find(
+                  (k) =>
+                    operator.toLowerCase().includes(k.toLowerCase()) ||
+                    k.toLowerCase().includes(operator.toLowerCase()),
+                )
+              : undefined;
+            if (pushToken && tipKey) {
+              const route2 = destination ? `${origin} → ${destination}` : origin;
+              await sendExpoPush(
+                pushToken,
+                `🚂 ${tipKey} boarding tip`,
+                BOARDING_TIPS[tipKey]!,
+                { intentId: row.id, screen: 'receipt' },
+              );
+              broLog('boarding_tip_sent', { jobId: row.id, operator: tipKey, minsToDepart });
+            }
+            metaUpdates.boardingTipSent = true;
+            needsUpdate = true;
+          }
         }
 
         if (needsUpdate) {
