@@ -8,6 +8,7 @@ import {
   type TripLeg,
   type TripMode,
 } from '../../../../packages/bro-trip/index';
+import type { BookingState } from './bookingState';
 import type { FlightOffer } from './duffel';
 
 interface TrainTripDetails {
@@ -47,6 +48,77 @@ function pickDestination(input: Record<string, unknown>, trainDetails?: TrainTri
     ?? (input.to as string | undefined)
     ?? (input.location as string | undefined)
     ?? undefined;
+}
+
+function phaseForBookingState(state: BookingState) {
+  switch (state) {
+    case 'securing':
+    case 'payment_confirmed':
+      return 'securing' as const;
+    case 'issued':
+      return 'booked' as const;
+    case 'failed':
+    case 'refunded':
+      return 'attention' as const;
+    default:
+      return 'planning' as const;
+  }
+}
+
+function tripStatusForBookingState(state: BookingState) {
+  switch (state) {
+    case 'failed':
+    case 'refunded':
+      return 'attention' as const;
+    default:
+      return 'active' as const;
+  }
+}
+
+function legStatusForBookingState(state: BookingState): TripLeg['status'] {
+  switch (state) {
+    case 'issued':
+      return 'booked';
+    case 'failed':
+    case 'refunded':
+      return 'attention';
+    case 'payment_confirmed':
+    case 'securing':
+      return 'securing';
+    default:
+      return 'planned';
+  }
+}
+
+function applyBookingStateToTrip(
+  trip: TripContext,
+  state: BookingState,
+  patch?: Partial<TripContext>,
+): TripContext {
+  const nextPhase = phaseForBookingState(state);
+  return withTripPhase({
+    ...trip,
+    ...patch,
+    status: tripStatusForBookingState(state),
+    watchState: {
+      ...trip.watchState,
+      ...patch?.watchState,
+      bookingState: state,
+      bookingConfirmed: state === 'issued',
+      paymentConfirmed: ['payment_confirmed', 'securing', 'issued'].includes(state),
+    },
+    legs: trip.legs.map((leg) => ({
+      ...leg,
+      status: legStatusForBookingState(state),
+      bookingRef: patch?.bookingRef ?? leg.bookingRef,
+      origin: patch?.origin ?? leg.origin,
+      destination: patch?.destination ?? leg.destination,
+      departureTime: patch?.departureTime ?? leg.departureTime,
+      arrivalTime: patch?.arrivalTime ?? leg.arrivalTime,
+      operator: patch?.operator ?? leg.operator,
+      finalLegSummary: patch?.finalLegSummary ?? leg.finalLegSummary,
+    })),
+  }, nextPhase);
 }
 
 export function buildPlanTripContext(params: {
@@ -99,6 +171,7 @@ export function buildPlanTripContext(params: {
     routeData,
     nearbyPlaces,
     watchState: {
+      bookingState: 'planned',
       disruptionWatch: mode === 'rail' || mode === 'bus' || mode === 'flight',
       finalLegReady: !!routeData || !!trainDetails?.finalLegSummary || (nearbyPlaces?.length ?? 0) > 0,
       checkInAt: mode === 'flight' && flightOffer?.departureAt
@@ -116,15 +189,15 @@ export function toExecutingTripContext(
   patch?: Partial<TripContext>,
 ): TripContext | undefined {
   if (!trip) return undefined;
-  return withTripPhase({
-    ...trip,
-    ...patch,
-    watchState: {
-      ...trip.watchState,
-      bookingConfirmed: false,
-    },
-    legs: trip.legs.map((leg) => ({ ...leg, status: 'securing' })),
-  }, 'securing');
+  return applyBookingStateToTrip(trip, 'securing', patch);
+}
+
+export function toPaymentConfirmedTripContext(
+  trip: TripContext | undefined,
+  patch?: Partial<TripContext>,
+): TripContext | undefined {
+  if (!trip) return undefined;
+  return applyBookingStateToTrip(trip, 'payment_confirmed', patch);
 }
 
 export function toCompletedTripContext(
@@ -132,24 +205,13 @@ export function toCompletedTripContext(
   patch?: Partial<TripContext>,
 ): TripContext | undefined {
   if (!trip) return undefined;
-  return withTripPhase({
-    ...trip,
-    ...patch,
-    watchState: {
-      ...trip.watchState,
-      bookingConfirmed: true,
-      paymentConfirmed: patch?.watchState?.paymentConfirmed ?? trip.watchState?.paymentConfirmed,
-    },
-    legs: trip.legs.map((leg) => ({
-      ...leg,
-      status: 'booked',
-      bookingRef: patch?.bookingRef ?? leg.bookingRef,
-      origin: patch?.origin ?? leg.origin,
-      destination: patch?.destination ?? leg.destination,
-      departureTime: patch?.departureTime ?? leg.departureTime,
-      arrivalTime: patch?.arrivalTime ?? leg.arrivalTime,
-      operator: patch?.operator ?? leg.operator,
-      finalLegSummary: patch?.finalLegSummary ?? leg.finalLegSummary,
-    })),
-  }, 'booked');
+  return applyBookingStateToTrip(trip, 'issued', patch);
+}
+
+export function toFailedTripContext(
+  trip: TripContext | undefined,
+  patch?: Partial<TripContext>,
+): TripContext | undefined {
+  if (!trip) return undefined;
+  return applyBookingStateToTrip(trip, 'failed', patch);
 }

@@ -35,6 +35,7 @@ import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
 import { dispatchToOpenClaw } from '../lib/openclaw';
+import { withBookingState } from '../lib/bookingState';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -156,6 +157,7 @@ router.post('/', async (c) => {
               stripeCheckoutSessionId: sessionId,
               paymentConfirmedAt: new Date().toISOString(),
               stripeConfirmedAt: new Date().toISOString(),
+              ...withBookingState('payment_confirmed'),
             });
             await sql`
               UPDATE payment_intents
@@ -190,6 +192,7 @@ router.post('/', async (c) => {
                   openclawJobId: clawResult.openclawJobId ?? null,
                   openclawDispatchedAt: clawResult.dispatchedAt,
                   openclawError: clawResult.error ?? null,
+                  ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
                 });
                 await sql`
                   UPDATE payment_intents
@@ -231,6 +234,7 @@ router.post('/', async (c) => {
               stripePaymentConfirmed: true,
               paymentConfirmedAt: new Date().toISOString(),
               stripeConfirmedAt: new Date().toISOString(),
+              ...withBookingState('payment_confirmed'),
             });
             await sql`
               UPDATE payment_intents

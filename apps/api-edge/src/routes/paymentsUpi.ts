@@ -8,9 +8,11 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
-import { createUpiPaymentLink, verifyRazorpayWebhook } from '../lib/razorpay';
+import { verifyRazorpayWebhook } from '../lib/razorpay';
 import { createDb } from '../lib/db';
 import { dispatchToOpenClaw } from '../lib/openclaw';
+import { createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
+import { withBookingState } from '../lib/bookingState';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -21,11 +23,11 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 // ---------------------------------------------------------------------------
 
 router.post('/create', authenticateApiKey, async (c) => {
-  if (!c.env.RAZORPAY_KEY_ID || !c.env.RAZORPAY_KEY_SECRET) {
+  if (selectFiatProvider(c.env, 'upi_link') !== 'razorpay') {
     return c.json(
       {
         error: 'UPI_NOT_CONFIGURED',
-        message: 'Razorpay is not configured on this instance. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.',
+        message: 'No hosted UPI provider is configured on this instance.',
       },
       503,
     );
@@ -58,7 +60,7 @@ router.post('/create', authenticateApiKey, async (c) => {
   }
 
   try {
-    const result = await createUpiPaymentLink(c.env, {
+    const result = await createHostedUpiPayment(c.env, {
       amountInr,
       description,
       receipt,
@@ -66,8 +68,12 @@ router.post('/create', authenticateApiKey, async (c) => {
       customerPhone: typeof customerPhone === 'string' ? customerPhone : undefined,
       customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
     });
+    if (!result) {
+      return c.json({ error: 'Failed to create hosted UPI payment' }, 502);
+    }
 
     console.info('[paymentsUpi] payment link created', {
+      provider: result.provider,
       paymentLinkId: result.paymentLinkId,
       amountInr,
       receipt,
@@ -151,6 +157,7 @@ router.post('/', async (c) => {
             razorpayPaidAt: paidAt,
             razorpayPaymentId: paymentId ?? null,
             razorpayPaymentLinkId: paymentLinkId ?? null,
+            ...withBookingState('payment_confirmed'),
           })}::jsonb
           WHERE (
             id = ${jobId}
@@ -173,12 +180,13 @@ router.post('/', async (c) => {
           for (const jobRow of jobRows) {
             const jobMeta = jobRow.metadata ?? {};
             const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
-            const clawPatch = JSON.stringify({
-              openclawDispatched: clawResult.status === 'dispatched',
-              openclawJobId: clawResult.openclawJobId ?? null,
-              openclawDispatchedAt: clawResult.dispatchedAt,
-              openclawError: clawResult.error ?? null,
-            });
+                const clawPatch = JSON.stringify({
+                  openclawDispatched: clawResult.status === 'dispatched',
+                  openclawJobId: clawResult.openclawJobId ?? null,
+                  openclawDispatchedAt: clawResult.dispatchedAt,
+                  openclawError: clawResult.error ?? null,
+                  ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
+                });
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${clawPatch}::jsonb

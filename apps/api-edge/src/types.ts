@@ -68,6 +68,13 @@ export interface Env {
   /** Razorpay webhook secret — for verifying /webhooks/razorpay. */
   RAZORPAY_WEBHOOK_SECRET?: string;
 
+  /** Airwallex client ID — enables Airwallex payment intent flows. */
+  AIRWALLEX_CLIENT_ID?: string;
+  /** Airwallex API key secret — paired with AIRWALLEX_CLIENT_ID. */
+  AIRWALLEX_API_KEY?: string;
+  /** Set to "true" to target the Airwallex demo environment. */
+  AIRWALLEX_SANDBOX?: string;
+
   // ── URLs & CORS ───────────────────────────────────────────────────────────
   /**
    * Comma-separated list of allowed CORS origins.

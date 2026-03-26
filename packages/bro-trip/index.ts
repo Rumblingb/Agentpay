@@ -66,7 +66,41 @@ export interface ProactiveCard {
   ctaLabel?: string;
 }
 
+export interface JourneyGraphNode {
+  id: string;
+  mode: TripMode;
+  label: string;
+  status: TripLeg['status'];
+  origin?: string;
+  destination?: string;
+  departureTime?: string;
+  arrivalTime?: string;
+  operator?: string;
+  bookingRef?: string;
+  dependsOn?: string[];
+}
+
+export interface JourneyGraphChange {
+  id: string;
+  kind: 'status' | 'timing' | 'connection' | 'arrival';
+  title: string;
+  body: string;
+  severity: 'info' | 'success' | 'warning';
+}
+
+export interface JourneyGraph {
+  version: 1;
+  status: TripStatus;
+  totalLegs: number;
+  completedLegs: number;
+  activeLegId?: string;
+  nextLegId?: string;
+  nodes: JourneyGraphNode[];
+  changes: JourneyGraphChange[];
+}
+
 export interface TripWatchState {
+  bookingState?: 'planned' | 'priced' | 'payment_pending' | 'payment_confirmed' | 'securing' | 'issued' | 'failed' | 'refunded';
   bookingConfirmed?: boolean;
   paymentConfirmed?: boolean;
   disruptionWatch?: boolean;
@@ -97,6 +131,7 @@ export interface TripContext {
   nearbyPlaces?: NearbyPlace[];
   watchState?: TripWatchState;
   proactiveCards?: ProactiveCard[];
+  journeyGraph?: JourneyGraph;
   legs: TripLeg[];
 }
 

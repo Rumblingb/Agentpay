@@ -19,7 +19,8 @@ import type { Env, Variables } from '../types';
 import { createDb, parseJsonb } from '../lib/db';
 import { MARKETPLACE_TAKE_RATE_BPS } from '../lib/feeLedger';
 import { recordFloatAccrual } from '../lib/floatYield';
-import { createUpiPaymentLink } from '../lib/razorpay';
+import { createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
+import { withBookingState } from '../lib/bookingState';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -268,6 +269,7 @@ router.post('/hire', async (c) => {
            stripePaymentIntentId: stripePaymentIntentId ?? null,
            stripePaymentConfirmed: false,
            razorpayPaymentConfirmed: false,
+           ...withBookingState('payment_pending'),
          })}::jsonb)
     `.catch(() => {});
   } finally {
@@ -433,7 +435,10 @@ router.post('/hire/:jobId/complete', async (c) => {
     await sql`
       UPDATE payment_intents
       SET status = 'completed',
-          metadata = metadata || ${JSON.stringify({ completionProof: completionProof ?? null, completedAt })}::jsonb
+          metadata = metadata || ${JSON.stringify(withBookingState('issued', {
+            completionProof: completionProof ?? null,
+            completedAt,
+          }))}::jsonb
       WHERE id = ${jobId}
     `.catch(() => {});
 
@@ -578,8 +583,8 @@ router.post('/checkout-session', async (c) => {
 });
 
 router.post('/upi-payment-link', async (c) => {
-  if (!c.env.RAZORPAY_KEY_ID || !c.env.RAZORPAY_KEY_SECRET) {
-    return c.json({ error: 'Razorpay not configured on this deployment' }, 503);
+  if (selectFiatProvider(c.env, 'upi_link') !== 'razorpay') {
+    return c.json({ error: 'Hosted UPI not configured on this deployment' }, 503);
   }
 
   let body: any;
@@ -592,8 +597,7 @@ router.post('/upi-payment-link', async (c) => {
 
   const successUrl = `${c.env.STRIPE_SUCCESS_URL ?? 'https://agentpay.so/payment/success'}?jobId=${encodeURIComponent(jobId)}`;
 
-  try {
-    const result = await createUpiPaymentLink(c.env, {
+  const result = await createHostedUpiPayment(c.env, {
       amountInr,
       description: description ?? 'Bro booking',
       receipt: jobId,
@@ -603,17 +607,22 @@ router.post('/upi-payment-link', async (c) => {
       customerName: typeof customerName === 'string' ? customerName : undefined,
       customerPhone: typeof customerPhone === 'string' ? customerPhone : undefined,
       customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
-    });
+  });
+  if (!result) {
+    return c.json({ error: 'Hosted UPI provider error' }, 502);
+  }
 
+  try {
     const sql = createDb(c.env);
     try {
       await sql`
         UPDATE payment_intents
         SET metadata = metadata || ${JSON.stringify({
-          paymentProvider: 'razorpay',
+          paymentProvider: result.provider,
           razorpayPaymentLinkId: result.paymentLinkId,
           razorpayReferenceId: jobId,
           journeyId: journeyId ?? null,
+          ...withBookingState('payment_pending'),
         })}::jsonb
         WHERE (
           id = ${jobId}
@@ -627,8 +636,8 @@ router.post('/upi-payment-link', async (c) => {
 
     return c.json({ success: true, ...result, amountInr }, 201);
   } catch (err: unknown) {
-    console.error('[marketplace/upi-payment-link] razorpay error', err);
-    return c.json({ error: 'Razorpay error' }, 502);
+    console.error('[marketplace/upi-payment-link] hosted upi error', err);
+    return c.json({ error: 'Hosted UPI error' }, 502);
   }
 });
 

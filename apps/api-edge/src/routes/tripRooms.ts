@@ -17,6 +17,9 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
+import { toJourneyLegStatus } from '../lib/bookingState';
+import { buildJourneyGraph } from '../lib/journeyGraph';
+import type { JourneyGraph } from '../../../../packages/bro-trip/index';
 
 export const tripRoomsRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -83,6 +86,7 @@ function appendMemberIfNeeded(members: any[], pushToken?: string, name?: string,
 
 function buildJourneyLeg(job: { id: string; status: string; metadata: any }): JourneyLegView {
   const meta = job.metadata ?? {};
+  const legStatus = toJourneyLegStatus(job.status, meta);
   const train = meta.trainDetails ?? null;
   const flight = meta.flightDetails ?? null;
   const hotel = meta.hotelDetails ?? null;
@@ -91,7 +95,7 @@ function buildJourneyLeg(job: { id: string; status: string; metadata: any }): Jo
   if (flight) {
     return {
       jobId: job.id,
-      status: job.status,
+      status: legStatus,
       mode: 'flight',
       label: `${flight.carrier ?? 'Flight'} ${flight.flightNumber ?? ''}`.trim(),
       from: flight.origin ?? null,
@@ -106,7 +110,7 @@ function buildJourneyLeg(job: { id: string; status: string; metadata: any }): Jo
   if (hotel) {
     return {
       jobId: job.id,
-      status: job.status,
+      status: legStatus,
       mode: 'hotel',
       label: hotel.bestOption?.name ?? trip?.title ?? 'Hotel',
       from: hotel.city ?? null,
@@ -122,7 +126,7 @@ function buildJourneyLeg(job: { id: string; status: string; metadata: any }): Jo
     const mode = train.transportMode === 'bus' ? 'bus' : 'rail';
     return {
       jobId: job.id,
-      status: job.status,
+      status: legStatus,
       mode,
       label: train.operator ?? (mode === 'bus' ? 'Coach' : 'Rail'),
       from: train.origin ?? null,
@@ -136,7 +140,7 @@ function buildJourneyLeg(job: { id: string; status: string; metadata: any }): Jo
 
   return {
     jobId: job.id,
-    status: job.status,
+    status: legStatus,
     mode: 'other',
     label: trip?.title ?? 'Journey leg',
     from: trip?.origin ?? null,
@@ -378,6 +382,7 @@ tripRoomsRouter.post('/:token/join', async (c) => {
 
     const journey = await loadJourneyLegs(sql, room.job_id);
     const anchorMeta = journey.anchorMetadata ?? {};
+    const journeyGraph = buildJourneyGraph(journey.legs, journey.journeyStatus ?? 'unknown');
 
     return c.json({
       ok: true,
@@ -389,6 +394,7 @@ tripRoomsRouter.post('/:token/join', async (c) => {
       flightDetails: anchorMeta.flightDetails ?? null,
       bookingRef: anchorMeta.broRef ?? anchorMeta.bookingReference ?? null,
       legs: journey.legs,
+      journeyGraph,
     });
   } finally {
     await sql.end().catch(() => {});
@@ -414,6 +420,7 @@ tripRoomsRouter.get('/:token', async (c) => {
     const train     = meta.trainDetails ?? null;
     const flight    = meta.flightDetails ?? null;
     const members   = normalizeMembers(room.members);
+    const journeyGraph = buildJourneyGraph(journey.legs, journey.journeyStatus ?? 'unknown');
 
     return c.json({
       shareToken:   token,
@@ -443,6 +450,7 @@ tripRoomsRouter.get('/:token', async (c) => {
         pnr:         flight.pnr ?? null,
       } : null,
       legs: journey.legs,
+      journeyGraph,
     });
   } finally {
     await sql.end().catch(() => {});
@@ -472,6 +480,7 @@ tripRoomsRouter.get('/view/:token', async (c) => {
     const hotel  = meta.hotelDetails  ?? null;
     const status = journey.journeyStatus ?? 'unknown';
     const ref    = meta.broRef ?? meta.bookingReference ?? null;
+    const journeyGraph = buildJourneyGraph(journey.legs, status);
 
     const html = tripRoomHtml({
       token,
@@ -482,6 +491,7 @@ tripRoomsRouter.get('/view/:token', async (c) => {
       ref,
       memberCount: normalizeMembers(room.members).length,
       legs: journey.legs,
+      journeyGraph,
     });
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   } finally {
@@ -553,6 +563,7 @@ interface TripHtmlParams {
   ref: string | null;
   memberCount: number;
   legs?: JourneyLegView[];
+  journeyGraph?: JourneyGraph;
 }
 
 function formatLegTime(value?: string | null): string {
@@ -564,7 +575,7 @@ function formatLegTime(value?: string | null): string {
   return value;
 }
 
-function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, legs = [] }: TripHtmlParams): string {
+function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, legs = [], journeyGraph }: TripHtmlParams): string {
   void token;
 
   function legDotColor(legStatus: string): string {
@@ -646,6 +657,15 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
           ${leg.bookingRef ? `<div class="timeline-ref">Ref: ${leg.bookingRef}</div>` : ''}
         </div>`;
       }).join('')}</div>`
+    : '';
+  const graphSummaryHtml = journeyGraph && journeyGraph.changes.length > 0
+    ? `<div class="graph-panel">
+        <div class="graph-title">What changed</div>
+        ${journeyGraph.changes.slice(0, 2).map((change) => `<div class="graph-change">
+          <div class="graph-change-title">${change.title}</div>
+          <div class="graph-change-body">${change.body}</div>
+        </div>`).join('')}
+      </div>`
     : '';
 
   let journeyHtml = '';
@@ -780,6 +800,11 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
     .countdown{font-size:13px;color:#facc15;font-weight:600;margin-top:8px;text-align:center}
     .hotel-name{font-size:16px;font-weight:700;color:#f8fafc;margin-bottom:4px}
     .checkin-highlight{color:#a78bfa;font-weight:600}
+    .graph-panel{background:#0b1220;border:1px solid #1e293b;border-radius:10px;padding:12px;margin-bottom:14px}
+    .graph-title{font-size:12px;font-weight:700;color:#cbd5e1;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+    .graph-change + .graph-change{margin-top:10px;padding-top:10px;border-top:1px solid #1e293b}
+    .graph-change-title{font-size:13px;font-weight:600;color:#f8fafc;margin-bottom:4px}
+    .graph-change-body{font-size:12px;color:#94a3b8;line-height:1.4}
   </style>
 </head>
 <body>
@@ -792,6 +817,7 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
       <span class="status-badge">${statusLabel}</span>
       ${modeBadge}
     </div>` : `<div style="display:flex;justify-content:flex-end;margin-bottom:16px"><span class="members">${memberCount} traveller${memberCount !== 1 ? 's' : ''}</span></div>`}
+    ${graphSummaryHtml}
     ${legs.length > 1 ? timelineHtml : (journeyHtml || '<div style="color:#94a3b8;font-size:14px">Journey details loading…</div>')}
   </div>
 

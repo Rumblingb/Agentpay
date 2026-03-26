@@ -43,11 +43,13 @@ import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
 import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
-import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
+import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toFailedTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import { buildArrivalCards } from '../lib/arrivalCards';
 import { askSonar, formatSonarForClaude } from '../lib/perplexity';
 import { createOrReuseTripRoom } from './tripRooms';
 import { normalizeProactiveCards, type NearbyPlace, type RouteData, type TripContext } from '../../../../packages/bro-trip/index';
+import { withBookingState } from '../lib/bookingState';
+import { loadCustomerMemory, rankFlightsByMemory, rankHotelsByMemory, type CustomerMemory } from '../lib/customerMemory';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -235,6 +237,7 @@ conciergeRouter.patch('/bro-jobs/:jobId/complete', async (c) => {
         pnr:                 body.pnr        ?? null,
         seatInfo:            body.seatInfo   ?? null,
         fulfilmentNotes:     body.notes      ?? null,
+        ...withBookingState('issued'),
       });
       await sql`
         UPDATE payment_intents
@@ -250,10 +253,12 @@ conciergeRouter.patch('/bro-jobs/:jobId/complete', async (c) => {
         fulfilmentFailed:  true,
         failureReason:     body.failureReason ?? 'OpenClaw reported failure',
         failedAt:          new Date().toISOString(),
+        ...withBookingState('failed'),
       });
       await sql`
         UPDATE payment_intents
-        SET metadata = metadata || ${patch}::jsonb
+        SET status = 'failed',
+            metadata = metadata || ${patch}::jsonb
         WHERE id = ${jobId}
       `;
       console.warn(JSON.stringify({ bro: true, event: 'job_fulfilment_failed', jobId, reason: body.failureReason }));
@@ -523,6 +528,10 @@ conciergeRouter.post('/intent', async (c) => {
       await histSql.end().catch(() => {});
     }
   }
+
+  const customerMemory: CustomerMemory = await loadCustomerMemory(c.env, hirerId).catch(() => ({ tripHistoryContext: '' }));
+  tripHistoryContext = customerMemory.tripHistoryContext ?? tripHistoryContext;
+  usualRoute = customerMemory.usualRoute ?? usualRoute;
 
   const knownIssuesBlock = KNOWN_ISSUES.length > 0
     ? `\n\nKnown active issues:\n${KNOWN_ISSUES.map(i => `- ${i}`).join('\n')}`
@@ -813,6 +822,11 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   flightBookingFailed: true,
                   flightBookingFailedAt: new Date().toISOString(),
                   flightBookingError: 'Duffel could not confirm the selected offer.',
+                  tripContext: toFailedTripContext(executingTripContext, {
+                    watchState: {
+                      delayRisk: true,
+                    },
+                  }),
                 })}::jsonb
                 WHERE id = ${hireResult.jobId}
               `.catch(() => null);
@@ -888,7 +902,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userName:          userName  ?? null,
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
-                  tripContext:       executingTripContext,
+                  tripContext:       toPaymentConfirmedTripContext(executingTripContext),
                   journeyId:         (item as any).journeyId ?? null,
                   legIndex:          originalIndex,
                   totalLegs:         plan.length,
@@ -960,7 +974,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${JSON.stringify({
-                tripContext:  executingTripContext ?? null,
+                tripContext:  toPaymentConfirmedTripContext(executingTripContext) ?? null,
                 hotelDetails: item.hotelDetails ?? null,
                 journeyId:    (item as any).journeyId ?? null,
                 legIndex:     originalIndex,
@@ -1525,26 +1539,30 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                 c.env.DUFFEL_API_KEY,
               ).catch(() => [])
             : [];
+          const rankedOffers = rankFlightsByMemory(offers, customerMemory, {
+            origin: originStr,
+            destination: destinationStr,
+          });
 
-          toolResultContent = formatFlightsForClaude(offers, originStr, destinationStr, dateStr);
+          toolResultContent = formatFlightsForClaude(rankedOffers, originStr, destinationStr, dateStr);
 
           // Stash best offerId + flightDetails for Phase 2 (passed through plan item)
-          if (offers[0]) {
+          if (rankedOffers[0]) {
             (toolCall as any)._flightDetails = {
-              origin:          offers[0].origin,
-              destination:     offers[0].destination,
-              departureAt:     offers[0].departureAt,
-              arrivalAt:       offers[0].arrivalAt,
-              carrier:         offers[0].carrier,
-              flightNumber:    offers[0].flightNumber,
-              totalAmount:     offers[0].totalAmount,
-              currency:        offers[0].currency,
-              stops:           offers[0].stops,
-              durationMinutes: offers[0].durationMinutes,
-              cabinClass:      offers[0].cabinClass,
-              offerId:         offers[0].offerId,
-              offerExpiresAt:  offers[0].offerExpiresAt,
-              isReturn:        offers[0].isReturn,
+              origin:          rankedOffers[0].origin,
+              destination:     rankedOffers[0].destination,
+              departureAt:     rankedOffers[0].departureAt,
+              arrivalAt:       rankedOffers[0].arrivalAt,
+              carrier:         rankedOffers[0].carrier,
+              flightNumber:    rankedOffers[0].flightNumber,
+              totalAmount:     rankedOffers[0].totalAmount,
+              currency:        rankedOffers[0].currency,
+              stops:           rankedOffers[0].stops,
+              durationMinutes: rankedOffers[0].durationMinutes,
+              cabinClass:      rankedOffers[0].cabinClass,
+              offerId:         rankedOffers[0].offerId,
+              offerExpiresAt:  rankedOffers[0].offerExpiresAt,
+              isReturn:        rankedOffers[0].isReturn,
             };
           }
           broLog('flights_result', {
@@ -1696,15 +1714,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         const stars    = input.stars  ? Number(input.stars)  : undefined;
 
         const hotelResults = await searchHotels({ city, checkIn, checkOut, rooms, stars }).catch(() => []);
+        const rankedHotels = rankHotelsByMemory(hotelResults, customerMemory, { city });
 
-        if (hotelResults.length > 0) {
-          toolResultContent = formatHotelsForClaude(hotelResults, city, checkIn, checkOut);
+        if (rankedHotels.length > 0) {
+          toolResultContent = formatHotelsForClaude(rankedHotels, city, checkIn, checkOut);
           (toolCall as any)._hotelDetails = {
             city,
             checkIn,
             checkOut,
-            bestOption:  hotelResults[0],
-            allOptions:  hotelResults,
+            bestOption:  rankedHotels[0],
+            allOptions:  rankedHotels,
           };
         } else {
           toolResultContent = `No hotels found in ${city} for those dates. Try a different city or dates.`;
