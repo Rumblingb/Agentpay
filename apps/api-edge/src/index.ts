@@ -45,6 +45,7 @@ import { paymentsUpiRouter } from './routes/paymentsUpi';
 import { crewRouter } from './routes/crew';
 import { supportRouter } from './routes/support';
 import { scrapeRouter } from './routes/scrape';
+import { tripRoomsRouter } from './routes/tripRooms';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -160,6 +161,10 @@ app.route('/api/support', supportRouter);
 
 // Firecrawl scrape proxy — /api/scrape
 app.route('/api/scrape', scrapeRouter);
+
+// Trip rooms — shared live journey for group/family travel
+app.route('/api/trip-rooms', tripRoomsRouter);
+app.route('/trip', tripRoomsRouter);  // /trip/:token → joinable HTML web view
 
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);

@@ -406,7 +406,33 @@ conciergeRouter.post('/intent', async (c) => {
     ? ' PRO member — offer first class as an option alongside standard. Mention it once, don\'t push.'
     : '';
 
-  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}
+  // ── Family / group context ────────────────────────────────────────────────
+  const familyMembers = travelProfile?.familyMembers as Array<{
+    id: string; name: string; relationship: string;
+    dateOfBirth?: string; railcard?: string; documentNumber?: string; documentExpiry?: string; nationality?: string;
+  }> | undefined;
+
+  const familyContext = familyMembers && familyMembers.length > 0
+    ? (() => {
+        const lines = familyMembers.map(m => {
+          const parts: string[] = [`${m.name} (${m.relationship}`];
+          if (m.dateOfBirth) {
+            const age = Math.floor((Date.now() - new Date(m.dateOfBirth).getTime()) / (365.25 * 24 * 3600 * 1000));
+            parts[0] += `, age ${age}`;
+          }
+          parts[0] += ')';
+          if (m.railcard && m.railcard !== 'none') parts.push(`railcard: ${m.railcard}`);
+          return parts.join(', ');
+        });
+        // Check Family Railcard eligibility: 2+ adults (self + 1 adult member) + 1-4 children
+        const adultCount   = 1 + familyMembers.filter(m => m.relationship === 'adult').length;
+        const childCount   = familyMembers.filter(m => m.relationship === 'child').length;
+        const hasFamilyRailcard = adultCount >= 2 && childCount >= 1 && childCount <= 4;
+        return `\nUser's family: ${lines.join('; ')}.${hasFamilyRailcard ? ' Family & Friends Railcard applies — 1/3 off adult fares, 60% off child fares. Apply automatically and mention the saving.' : ''}`;
+      })()
+    : '';
+
+  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -441,6 +467,15 @@ ROUTING RULES:
 - If ambiguous, ask one question: "UK or India?"
 - Use search_flights for any air travel: "fly to Barcelona", "flight to New York", "cheapest flight to Dublin". Always confirm airport if city is ambiguous (London → ask Heathrow/Gatwick). Proactively suggest train if route is under 3h and Eurostar/rail is faster (London↔Paris, London↔Brussels). Phase 1 returns top 3 options; user picks or confirm card books cheapest. Passport details required for international — if missing, say "I'll need your passport — add in Settings."
 - If asked about taxis or car hire: say "Cabs coming soon — trains, flights, and hotels I can sort." One sentence only.
+
+FAMILY / GROUP TRAVEL:
+- When the user mentions a family member by name (e.g. "me and Maya", "take Dad"), resolve them from the family list above.
+- Pass all resolved passengers in the tool input as passengers: [{ name, relationship, dateOfBirth, railcard }]
+- For UK rail group bookings: if Family & Friends Railcard applies (context above), state the saving. E.g. "Family ticket — £28 adults, £9 kids. Fingerprint to confirm."
+- For flights: passport details are required for each passenger. If any family member is missing a passport, say "I'll need [name]'s passport — add it in Settings → Family."
+- For child pricing (UK rail): under-5 free, 5-15 half fare (auto-applied by National Rail).
+- Never combine passengers from different households — only book people explicitly mentioned.
+- Multi-passenger confirm card shows per-person fare breakdown.
 
 BEING ACCOMMODATING — never block on missing info:
 - No date given ("book a train to Manchester"): call the tool with no date — query next available services today. Present top 3 options.
@@ -528,14 +563,18 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
           // ── Duffel flight booking ─────────────────────────────────────────
           if (item.flightDetails && c.env.DUFFEL_API_KEY) {
-            const fd        = item.flightDetails;
+            const fd       = item.flightDetails;
+            const email    = String(travelProfile?.email ?? '');
+            const phone    = travelProfile?.phone ? String(travelProfile.phone) : undefined;
+
+            // Build lead passenger (the user themselves)
             const fullName  = String(travelProfile?.legalName ?? '');
             const nameParts = fullName.trim().split(/\s+/);
-            const passenger: DuffelPassenger = {
+            const leadPassenger: DuffelPassenger = {
               given_name:   nameParts.slice(0, -1).join(' ') || fullName,
               family_name:  nameParts[nameParts.length - 1] ?? '',
-              email:        String(travelProfile?.email ?? ''),
-              phone_number: travelProfile?.phone ? String(travelProfile.phone) : undefined,
+              email,
+              phone_number: phone,
               born_on:      travelProfile?.dateOfBirth ? String(travelProfile.dateOfBirth) : undefined,
             };
             if (
@@ -543,7 +582,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               travelProfile?.documentNumber &&
               travelProfile?.documentExpiry
             ) {
-              passenger.identity_documents = [{
+              leadPassenger.identity_documents = [{
                 unique_identifier:    String(travelProfile.documentNumber),
                 issuing_country_code: String(travelProfile.nationality ?? 'GB').slice(0, 2).toUpperCase(),
                 expires_on:           String(travelProfile.documentExpiry),
@@ -551,7 +590,32 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               }];
             }
 
-            const order = await createFlightOrder(fd.offerId, passenger, c.env.DUFFEL_API_KEY).catch(() => null);
+            // Add family members as additional passengers
+            const familyMems = travelProfile?.familyMembers as Array<{
+              name: string; relationship: string;
+              dateOfBirth?: string; documentNumber?: string; documentExpiry?: string; nationality?: string;
+            }> | undefined;
+            const additionalPassengers: DuffelPassenger[] = (familyMems ?? []).map((m) => {
+              const mParts = m.name.trim().split(/\s+/);
+              const p: DuffelPassenger = {
+                given_name:  mParts[0] ?? m.name,
+                family_name: mParts.slice(1).join(' ') || String(nameParts[nameParts.length - 1] ?? ''),
+                email,
+                born_on: m.dateOfBirth,
+              };
+              if (m.documentNumber && m.documentExpiry) {
+                p.identity_documents = [{
+                  unique_identifier:    m.documentNumber,
+                  issuing_country_code: String(m.nationality ?? travelProfile?.nationality ?? 'GB').slice(0, 2).toUpperCase(),
+                  expires_on:           m.documentExpiry,
+                  type:                 'passport',
+                }];
+              }
+              return p;
+            });
+
+            const allPassengers = [leadPassenger, ...additionalPassengers];
+            const order = await createFlightOrder(fd.offerId, allPassengers, c.env.DUFFEL_API_KEY).catch(() => null);
             if (order) {
               broLog('flight_booked', {
                 traceId, jobId: hireResult.jobId,
@@ -789,6 +853,26 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       }
     } catch {
       // Narration timeout — use default confirmation message
+    }
+
+    // Auto-create trip room for family/group bookings (>1 passenger) or when family members present
+    const hasFamilyMembers = (travelProfile?.familyMembers as any[] | undefined)?.length ?? 0;
+    if (actions.length > 0 && hasFamilyMembers > 0) {
+      const firstJobId = actions[0]?.jobId;
+      if (firstJobId) {
+        const shareToken = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
+        const expiresAt  = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+        const tripSql = createDb(c.env);
+        await tripSql`
+          INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
+          VALUES (${firstJobId}, ${shareToken}, '[]'::jsonb, ${expiresAt}, NOW())
+          ON CONFLICT (job_id) DO NOTHING
+        `.catch(() => null);
+        await tripSql.end().catch(() => {});
+        // Attach shareToken to first action so Meridian can show Share Trip button immediately
+        (actions[0] as any).shareToken = shareToken;
+        broLog('trip_room_auto_created', { traceId, jobId: firstJobId, shareToken });
+      }
     }
 
     return c.json({

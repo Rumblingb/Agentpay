@@ -211,6 +211,20 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        {/* Family */}
+        <Section
+          label="FAMILY & GROUP"
+          hint="Add family members so Bro can book group tickets by voice. Names and ages only — no documents needed here."
+        >
+          <Pressable
+            onPress={() => router.push('/(main)/family')}
+            style={styles.profileBtn}
+          >
+            <Ionicons name="people-outline" size={15} color="#818cf8" />
+            <Text style={styles.profileBtnText}>Manage family members</Text>
+          </Pressable>
+        </Section>
+
         {/* Data */}
         <Section label="DATA">
           <Pressable onPress={handleClearHistory} style={styles.dangerRow}>

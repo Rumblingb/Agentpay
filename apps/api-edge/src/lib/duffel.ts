@@ -366,40 +366,43 @@ export function formatFlightsForClaude(
 
 /**
  * Book a flight. Called in Phase 2 (confirmed = true).
- * Passenger details are pulled from the user's travel profile.
+ * Supports multiple passengers for family/group bookings.
  */
 export async function createFlightOrder(
   offerId: string,
-  passenger: DuffelPassenger,
+  passenger: DuffelPassenger | DuffelPassenger[],
   apiKey: string,
 ): Promise<FlightOrder | null> {
-  // Duffel requires given_name + family_name as separate fields
-  // If only full name available, split on last space
-  let given  = passenger.given_name;
-  let family = passenger.family_name;
-  if (!family && given.includes(' ')) {
-    const parts = given.trim().split(/\s+/);
-    family = parts.pop() ?? '';
-    given  = parts.join(' ');
-  }
+  const passengers = Array.isArray(passenger) ? passenger : [passenger];
 
-  const passengerPayload: Record<string, unknown> = {
-    type:        'adult',
-    given_name:  given,
-    family_name: family,
-    email:       passenger.email,
-  };
-  if (passenger.phone_number) passengerPayload.phone_number = passenger.phone_number;
-  if (passenger.born_on)      passengerPayload.born_on = passenger.born_on;
-  if (passenger.gender)       passengerPayload.gender = passenger.gender;
-  if (passenger.identity_documents?.length) {
-    passengerPayload.identity_documents = passenger.identity_documents;
-  }
+  const passengerPayloads = passengers.map((p) => {
+    let given  = p.given_name;
+    let family = p.family_name;
+    if (!family && given.includes(' ')) {
+      const parts = given.trim().split(/\s+/);
+      family = parts.pop() ?? '';
+      given  = parts.join(' ');
+    }
+    const payload: Record<string, unknown> = {
+      type:        'adult',
+      given_name:  given,
+      family_name: family,
+      email:       p.email || passengers[0]?.email || '',
+    };
+    if (p.phone_number) payload.phone_number = p.phone_number;
+    if (p.born_on)      payload.born_on = p.born_on;
+    if (p.gender)       payload.gender = p.gender;
+    if (p.identity_documents?.length) payload.identity_documents = p.identity_documents;
+    return payload;
+  });
+
+  // For the lead passenger name in the return value
+  const lead = passengerPayloads[0]!;
 
   const body = {
     data: {
       selected_offers: [offerId],
-      passengers:      [passengerPayload],
+      passengers:      passengerPayloads,
       payments:        [{ type: 'balance', currency: 'GBP', amount: '0' }], // balance payment — AgentPay handles the real payment
     },
   };
@@ -433,6 +436,6 @@ export async function createFlightOrder(
     destination:      seg0.destination?.iata_code ?? '',
     departureAt:      seg0.departing_at ?? '',
     arrivalAt:        seg0.arriving_at ?? '',
-    passengerName:    `${given} ${family}`,
+    passengerName:    `${String(lead.given_name)} ${String(lead.family_name)}`,
   };
 }

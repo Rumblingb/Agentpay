@@ -14,6 +14,8 @@ function broLog(event: string, data: Record<string, unknown>) {
   console.info(JSON.stringify({ bro: true, event, ...data }));
 }
 
+type OpenClawMarket = 'uk' | 'india' | 'eu';
+
 export interface OpenClawPayload {
   jobId: string;
   /** Train details extracted from job metadata */
@@ -31,7 +33,7 @@ export interface OpenClawPayload {
   }[];
   fareGbp?: number;
   fareInr?: number;
-  nationality: 'uk' | 'india';
+  nationality: OpenClawMarket;
   /** The job's internal metadata — OpenClaw may use fields we don't enumerate */
   rawMetadata: Record<string, unknown>;
 }
@@ -41,6 +43,76 @@ export interface OpenClawResult {
   openclawJobId?: string;
   error?: string;
   dispatchedAt: string;
+}
+
+export interface OpenClawEligibility {
+  ok: boolean;
+  reason?: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function firstPlanParams(metadata: Record<string, unknown>): Record<string, unknown> {
+  const plan = Array.isArray(metadata.plan) ? metadata.plan : [];
+  const first = asRecord(plan[0]);
+  const skills = Array.isArray(first.skills) ? first.skills : [];
+  const firstSkill = asRecord(skills[0]);
+  return asRecord(firstSkill.parameters);
+}
+
+function pickString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function pickNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  }
+  return undefined;
+}
+
+function deriveDepartureDate(
+  td: Record<string, unknown>,
+  proof: Record<string, unknown>,
+  params: Record<string, unknown>,
+): string {
+  const departureDatetime = pickString(td.departureDatetime, proof.departureDatetime);
+  if (departureDatetime) return departureDatetime.slice(0, 10);
+  const explicitDate = pickString(td.travelDate, proof.travelDate, params.travelDate, params.departureDate);
+  return explicitDate ? explicitDate.slice(0, 10) : '';
+}
+
+export function shouldDispatchToOpenClaw(metadata: Record<string, unknown>): OpenClawEligibility {
+  if (metadata.pendingFulfilment !== true) {
+    return { ok: false, reason: 'pendingFulfilment is not true' };
+  }
+
+  const td = asRecord(metadata.trainDetails);
+  const params = firstPlanParams(metadata);
+  const flightDetails = asRecord(metadata.flightDetails);
+  const hasRailShape = !!pickString(td.origin, td.destination, params.fromStation, params.toStation, params.origin, params.destination);
+  const hasFlightShape = !!pickString(flightDetails.origin, flightDetails.destination, params.originAirport, params.destinationAirport);
+
+  if (hasFlightShape && !hasRailShape) {
+    return { ok: false, reason: 'flight job is not eligible for OpenClaw' };
+  }
+
+  const market = pickString(td.country, asRecord(metadata.completionProof).country);
+  if (market === 'eu') {
+    return { ok: false, reason: 'eu jobs are not yet supported by OpenClaw dispatch' };
+  }
+
+  if (!hasRailShape) {
+    return { ok: false, reason: 'missing rail details for OpenClaw dispatch' };
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -54,19 +126,16 @@ export interface OpenClawResult {
  *   userPhone     — passenger phone (optional)
  *   broRef        — internal booking reference
  */
-function buildPayload(jobId: string, metadata: Record<string, unknown>): OpenClawPayload {
-  const td = (metadata.trainDetails as Record<string, unknown>) ?? {};
+export function buildPayload(jobId: string, metadata: Record<string, unknown>): OpenClawPayload {
+  const td = asRecord(metadata.trainDetails);
+  const proof = asRecord(metadata.completionProof);
+  const profile = asRecord(metadata.travelProfile);
+  const params = firstPlanParams(metadata);
 
-  const fromStation = String(td.origin      ?? '');
-  const toStation   = String(td.destination ?? '');
-
-  // Parse date from departureDatetime (ISO) or departureTime string
-  let departureDate = '';
-  if (td.departureDatetime) {
-    departureDate = String(td.departureDatetime).slice(0, 10); // YYYY-MM-DD
-  }
-
-  const country: 'uk' | 'india' = td.country === 'india' ? 'india' : 'uk';
+  const fromStation = pickString(td.origin, proof.fromStation, params.fromStation, params.origin) ?? '';
+  const toStation = pickString(td.destination, proof.toStation, params.toStation, params.destination) ?? '';
+  const departureDate = deriveDepartureDate(td, proof, params);
+  const market = pickString(td.country, proof.country, profile.nationality) as OpenClawMarket | undefined;
 
   return {
     jobId,
@@ -74,19 +143,29 @@ function buildPayload(jobId: string, metadata: Record<string, unknown>): OpenCla
     fromStation,
     toStation,
     departureDate,
-    departureTime: td.departureTime  ? String(td.departureTime)  : undefined,
-    operator:      td.operator       ? String(td.operator)       : undefined,
-    trainClass:    td.classCode      ? String(td.classCode)      : undefined,
+    departureTime: pickString(td.departureTime, proof.departureTime, params.departureTime),
+    operator:      pickString(td.operator, proof.operator, params.operator),
+    trainClass:    pickString(td.classCode, params.trainClass),
     passengers: [{
-      legalName: String(metadata.userName  ?? ''),
-      email:     String(metadata.userEmail ?? ''),
-      phone:     metadata.userPhone ? String(metadata.userPhone) : undefined,
+      legalName: pickString(metadata.userName, metadata.legalName, profile.legalName) ?? '',
+      email:     pickString(metadata.userEmail, metadata.email, profile.email) ?? '',
+      phone:     pickString(metadata.userPhone, metadata.phone, profile.phone),
     }],
-    fareGbp: td.estimatedFareGbp ? Number(td.estimatedFareGbp) : undefined,
-    fareInr: td.fareInr          ? Number(td.fareInr)          : undefined,
-    nationality: country,
+    fareGbp: pickNumber(td.estimatedFareGbp, proof.fareGbp, params.fareGbp),
+    fareInr: pickNumber(td.fareInr, proof.fareInr, params.fareInr),
+    nationality: market === 'india' ? 'india' : market === 'eu' ? 'eu' : 'uk',
     rawMetadata: metadata,
   };
+}
+
+export function validatePayload(payload: OpenClawPayload): string | null {
+  if (!payload.fromStation) return 'Missing fromStation';
+  if (!payload.toStation) return 'Missing toStation';
+  if (!payload.departureDate) return 'Missing departureDate';
+  if (!payload.passengers[0]?.legalName && !payload.passengers[0]?.email) {
+    return 'Missing passenger identity';
+  }
+  return null;
 }
 
 /**
@@ -105,7 +184,18 @@ export async function dispatchToOpenClaw(
     return { status: 'failed', error: 'OpenClaw not configured', dispatchedAt: now };
   }
 
+  const eligibility = shouldDispatchToOpenClaw(metadata);
+  if (!eligibility.ok) {
+    broLog('openclaw_skipped', { jobId, reason: eligibility.reason ?? 'job not eligible' });
+    return { status: 'failed', error: eligibility.reason ?? 'job not eligible', dispatchedAt: now };
+  }
+
   const payload = buildPayload(jobId, metadata);
+  const validationError = validatePayload(payload);
+  if (validationError) {
+    broLog('openclaw_validation_failed', { jobId, error: validationError, route: payload.route });
+    return { status: 'failed', error: validationError, dispatchedAt: now };
+  }
 
   broLog('openclaw_dispatching', { jobId, route: payload.route, nationality: payload.nationality });
 

@@ -37,6 +37,18 @@ export type RailcardType =
 /** India class tier — mapped to IRCTC class code based on journey duration */
 export type IndiaClassTier = 'budget' | 'standard' | 'premium';
 
+/** A family / travel companion stored on the profile */
+export interface FamilyMember {
+  id: string;                       // uuid — for edits/deletes
+  name: string;                     // First name used in voice (e.g. "Maya")
+  relationship: 'adult' | 'child' | 'infant';
+  dateOfBirth?: string;             // YYYY-MM-DD — required for child pricing + flights
+  railcard?: RailcardType;          // e.g. 'senior' for Dad
+  documentNumber?: string;          // passport / ID for international flights
+  documentExpiry?: string;          // YYYY-MM-DD
+  nationality?: Nationality;
+}
+
 export interface TravelProfile {
   // Identity
   legalName: string;
@@ -68,6 +80,9 @@ export interface TravelProfile {
 
   // Notification preferences (optional)
   whatsappNumber?: string;   // E.164 format (+447… / +91…) — booking confirmations via WhatsApp
+
+  // Family / travel companions
+  familyMembers?: FamilyMember[];
 
   // Metadata
   savedAt: string;
@@ -249,4 +264,41 @@ export function documentTypeOptions(nationality: Nationality): DocumentType[] {
   if (nationality === 'uk') return ['passport', 'driving_licence'];
   if (nationality === 'india') return ['aadhaar', 'passport'];
   return ['passport', 'national_id'];
+}
+
+// ── Family member helpers ─────────────────────────────────────────────────
+
+export function makeFamilyMemberId(): string {
+  return `fm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * Auto-detect whether Family Railcard applies.
+ * UK Family & Friends Railcard: 2 adults + 1–4 children → 1/3 off adults, 60% off children.
+ */
+export function shouldApplyFamilyRailcard(profile: TravelProfile): boolean {
+  const members = profile.familyMembers ?? [];
+  const adults   = members.filter(m => m.relationship === 'adult').length + 1; // +1 for self
+  const children = members.filter(m => m.relationship === 'child').length;
+  return adults >= 2 && children >= 1 && children <= 4;
+}
+
+/**
+ * Build a compact family context string for Claude's system prompt.
+ * Safe to send in Phase 1 — no document numbers, just travel metadata.
+ */
+export function buildFamilyContext(profile: TravelProfile): string {
+  const members = profile.familyMembers;
+  if (!members || members.length === 0) return '';
+  const lines = members.map(m => {
+    const parts = [`${m.name} (${m.relationship}`];
+    if (m.dateOfBirth) {
+      const age = Math.floor((Date.now() - new Date(m.dateOfBirth).getTime()) / (365.25 * 24 * 3600 * 1000));
+      parts[0] += `, age ${age}`;
+    }
+    parts[0] += ')';
+    if (m.railcard && m.railcard !== 'none') parts.push(`railcard: ${m.railcard}`);
+    return parts.join(', ');
+  });
+  return `User's family / travel companions: ${lines.join('; ')}.`;
 }

@@ -18,6 +18,7 @@
  */
 
 import type { Env } from '../types';
+import { fanOutToTripRoom } from '../routes/tripRooms';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -104,6 +105,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             `${route} has been cancelled · Ask Bro for alternatives`,
             { intentId: row.id, screen: 'receipt', action: 'cancelled' },
           );
+          await fanOutToTripRoom(row.id, `⚠️ Train cancelled: ${route}. Ask Bro for alternatives.`, sql);
 
           metaUpdates.cancellationNotified = true;
           // Deactivate watch — journey is cancelled
@@ -124,6 +126,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             `${route} · Now Platform ${status.platform}`,
             { intentId: row.id, screen: 'receipt' },
           );
+          await fanOutToTripRoom(row.id, `🚂 Platform changed: ${route} · Now Platform ${status.platform}`, sql);
 
           // Update stored platform to prevent re-notify
           metaUpdates['trainDetails'] = { ...meta.trainDetails, platform: status.platform };
@@ -145,6 +148,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             `${route} · Expected delay: ${status.delayMinutes} minutes`,
             { intentId: row.id, screen: 'receipt' },
           );
+          await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.`, sql);
 
           metaUpdates.delayNotified = true;
           needsUpdate = true;

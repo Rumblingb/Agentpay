@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Pressable,
   Animated,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -34,8 +35,8 @@ const POLL_MS = 3000;
 type StatusPhase = 'executing' | 'done' | 'error';
 
 export default function StatusScreen() {
-  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam } =
-    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string }>();
+  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken } =
+    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string }>();
   const { currentAgent, setPhase } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
@@ -53,6 +54,7 @@ export default function StatusScreen() {
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [payLoading, setPayLoading]           = useState(false);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
+  const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -124,6 +126,8 @@ export default function StatusScreen() {
             if (proof.finalLegSummary)   setFinalLegSummary(proof.finalLegSummary);
             if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
             if (data.metadata?.flightDetails) setFlightData(JSON.stringify(data.metadata.flightDetails));
+            // Trip room share token (auto-created for family bookings in Phase 2)
+            if (data.metadata?.shareToken && !shareToken) setShareToken(data.metadata.shareToken);
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
@@ -457,6 +461,23 @@ export default function StatusScreen() {
               </LinearGradient>
             </Pressable>
 
+            {shareToken && (
+              <Pressable
+                onPress={() => {
+                  const url = `https://api.agentpay.so/trip/view/${shareToken}`;
+                  void Share.share({
+                    title: 'Join my trip on Bro',
+                    message: `Track our journey live → ${url}`,
+                    url,
+                  });
+                }}
+                style={styles.shareTripBtn}
+              >
+                <Ionicons name="share-outline" size={16} color={C.sky} style={{ marginRight: 6 }} />
+                <Text style={styles.shareTripText}>Share Trip</Text>
+              </Pressable>
+            )}
+
             <Pressable
               onPress={() => router.replace('/(main)/converse')}
               style={styles.newRequestBtn}
@@ -757,4 +778,6 @@ const styles = StyleSheet.create({
     borderColor: C.greenMid,
   },
   paidBadgeText: { fontSize: 13, fontWeight: '600', color: C.green },
+  shareTripBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
+  shareTripText: { fontSize: 15, color: C.sky, fontWeight: '500' },
 });

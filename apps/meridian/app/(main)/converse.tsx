@@ -275,13 +275,23 @@ export default function ConverseScreen() {
       if (await hasProfile()) {
         const profile = await loadProfileRaw();
         if (profile) {
-          // Phase 1: non-identity prefs only — railcard/class/nationality for narration personalisation
+          // Phase 1: non-identity prefs only — railcard/class/nationality for narration personalisation.
+          // familyMembers included (no documents or contact details) so Claude can resolve names.
           travelProfile = {
             seatPreference:  profile.seatPreference,
             classPreference: profile.classPreference,
             railcardType:    profile.railcardType,
             indiaClassTier:  profile.indiaClassTier,
             nationality:     profile.nationality,
+            // Safe to include — names, relationships, ages, railcards only (no passport numbers here)
+            familyMembers:   profile.familyMembers?.map(m => ({
+              id:           m.id,
+              name:         m.name,
+              relationship: m.relationship,
+              dateOfBirth:  m.dateOfBirth,
+              railcard:     m.railcard,
+              nationality:  m.nationality,
+            })),
           };
         }
       }
@@ -382,6 +392,9 @@ export default function ConverseScreen() {
         });
         if (firstAction.tripContext) {
           qs.set('tripContext', JSON.stringify(firstAction.tripContext));
+        }
+        if ((firstAction as any).shareToken) {
+          qs.set('shareToken', (firstAction as any).shareToken);
         }
         router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
       } else {
@@ -726,6 +739,11 @@ export default function ConverseScreen() {
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
           const code    = pendingPlanRef.current?.fiatCode ?? currencyCode;
           const plan    = pendingPlanRef.current?.plan ?? [];
+          // Family members from Phase 1 profile (non-sensitive — names + relationships only)
+          const tpFam   = (pendingPlanRef.current?.travelProfile?.familyMembers as Array<{ name: string; relationship: string; railcard?: string }> | undefined) ?? [];
+          const passengers = tpFam.length > 0
+            ? [{ name: 'You', relationship: 'adult' as const }, ...tpFam]
+            : null;
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
           const tripDest   = planInput.destination ?? planInput.to ?? '';
@@ -769,6 +787,32 @@ export default function ConverseScreen() {
               )}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
+              )}
+              {passengers && passengers.length > 1 && (
+                <View style={styles.passengerList}>
+                  {passengers.map((p, i) => {
+                    // Estimate per-person share (simplified — equal adult split, child = half)
+                    const isChild = p.relationship === 'child' || p.relationship === 'infant';
+                    const adultCount  = passengers.filter(x => x.relationship !== 'child' && x.relationship !== 'infant').length;
+                    const childCount  = passengers.filter(x => x.relationship === 'child' || x.relationship === 'infant').length;
+                    const totalUnits  = adultCount + childCount * 0.5;
+                    const perUnit     = fiat / totalUnits;
+                    const personFare  = isChild ? perUnit * 0.5 : perUnit;
+                    return (
+                      <View key={i} style={styles.passengerRow}>
+                        <View style={styles.passengerPill}>
+                          <Text style={styles.passengerPillText}>
+                            {p.relationship === 'infant' ? '👶' : p.relationship === 'child' ? '🧒' : '🧑'} {p.name}
+                          </Text>
+                        </View>
+                        <Text style={styles.passengerFare}>
+                          {sym}{formatConfirmAmount(personFare, code)}
+                          {isChild ? ' (child)' : ''}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
               )}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                 <Text style={{ fontSize: 11, color: '#6b7280' }}>Service fee </Text>
@@ -1350,4 +1394,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   viewMapText: { fontSize: 13, color: C.sky, fontWeight: '500' },
+  passengerList: { marginBottom: 10, borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 10 },
+  passengerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  passengerPill: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#1e293b' },
+  passengerPillText: { fontSize: 12, color: '#f8fafc' },
+  passengerFare: { fontSize: 12, color: '#94a3b8' },
 });
