@@ -14,8 +14,8 @@ export default {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
-  testPathIgnorePatterns: ['/node_modules/', '/sdk/'],
-  modulePathIgnorePatterns: ['/node_modules/', '/dist/'],
+  testPathIgnorePatterns: ['/node_modules/', '/sdk/', '/\\.claude/', '/docs/archive/'],
+  modulePathIgnorePatterns: ['/node_modules/', '/dist/', '/\\.claude/', '/docs/archive/'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',

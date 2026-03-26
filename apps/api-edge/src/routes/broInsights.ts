@@ -17,6 +17,13 @@ type BookingHealthRow = {
   updatedAt: string;
 };
 
+function opsPriorityForRecoveryBucket(bucket: string): 1 | 2 | 3 | 4 {
+  if (bucket === 'fulfilment_failed' || bucket === 'failed') return 1;
+  if (bucket === 'stuck_securing') return 2;
+  if (bucket === 'ready_for_dispatch') return 3;
+  return 4;
+}
+
 function mapBookingHealthRow(row: BookingHealthRow) {
   const metadata = row.metadata ?? {};
   const health = deriveBookingHealth(row.status, metadata);
@@ -36,6 +43,7 @@ function mapBookingHealthRow(row: BookingHealthRow) {
     recommendedAction: policy.action,
     recommendationReason: policy.reason,
     canAutoRun: policy.canAutoRun,
+    opsPriority: opsPriorityForRecoveryBucket(health.recoveryBucket),
     metadata,
   };
 }
@@ -125,6 +133,47 @@ broInsightsRouter.get('/booking-health', async (c) => {
       escalations: jobs.filter((job) => job.shouldEscalate).length,
       byRecoveryBucket,
       jobs: jobs.map(({ metadata, ...job }) => job),
+      generatedAt: new Date().toISOString(),
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+broInsightsRouter.get('/ops-queue', async (c) => {
+  const unauthorized = requireAdmin(c);
+  if (unauthorized) return unauthorized;
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<BookingHealthRow[]>`
+      SELECT
+        id,
+        status,
+        metadata,
+        created_at::text AS "createdAt",
+        updated_at::text AS "updatedAt"
+      FROM payment_intents
+      WHERE created_at > NOW() - INTERVAL '7 days'
+        AND metadata->>'protocol' = 'marketplace_hire'
+      ORDER BY updated_at DESC
+      LIMIT 100
+    `;
+
+    const actionable = rows
+      .map(mapBookingHealthRow)
+      .filter((job) => job.recommendedAction !== 'none' || job.shouldEscalate)
+      .sort((a, b) => a.opsPriority - b.opsPriority || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+    return c.json({
+      window: '7d',
+      queueDepth: actionable.length,
+      byPriority: actionable.reduce<Record<string, number>>((acc, job) => {
+        const key = `p${job.opsPriority}`;
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {}),
+      jobs: actionable.map(({ metadata, ...job }) => job),
       generatedAt: new Date().toISOString(),
     });
   } finally {
@@ -283,7 +332,7 @@ broInsightsRouter.get('/founder-metrics', async (c) => {
           COUNT(*) AS total,
           COUNT(*) FILTER (
             WHERE status = 'completed'
-               OR metadata->>'bookingState' IN ('issued', 'payment_confirmed', 'securing')
+               OR metadata->>'bookingState' = 'issued'
           ) AS succeeded
         FROM payment_intents
         WHERE created_at > NOW() - INTERVAL '30 days'
@@ -319,14 +368,34 @@ broInsightsRouter.get('/founder-metrics', async (c) => {
       `,
       sql<Array<{ protocol: string | null; intents: string | number; grossVolumeUsdc: string | number | null; platformRevenueUsdc: string | number | null }>>`
         SELECT
-          COALESCE(pi.metadata->>'protocol', 'direct') AS protocol,
-          COUNT(*) AS intents,
-          COALESCE(SUM(fle.gross_amount), 0) AS "grossVolumeUsdc",
-          COALESCE(SUM(fle.platform_fee_amount), 0) AS "platformRevenueUsdc"
-        FROM fee_ledger_entries fle
-        JOIN payment_intents pi ON pi.id = fle.intent_id
-        WHERE pi.created_at > NOW() - INTERVAL '30 days'
-        GROUP BY COALESCE(pi.metadata->>'protocol', 'direct')
+          protocol,
+          SUM(intents) AS intents,
+          SUM(gross_amount) AS "grossVolumeUsdc",
+          SUM(platform_fee_amount) AS "platformRevenueUsdc"
+        FROM (
+          SELECT
+            COALESCE(pi.metadata->>'protocol', 'direct') AS protocol,
+            COUNT(*) AS intents,
+            COALESCE(SUM(fle.gross_amount), 0) AS gross_amount,
+            COALESCE(SUM(fle.platform_fee_amount), 0) AS platform_fee_amount
+          FROM fee_ledger_entries fle
+          JOIN payment_intents pi ON pi.id = fle.intent_id
+          WHERE pi.created_at > NOW() - INTERVAL '30 days'
+            AND COALESCE(pi.metadata->>'protocol', 'direct') <> 'marketplace_hire'
+          GROUP BY COALESCE(pi.metadata->>'protocol', 'direct')
+
+          UNION ALL
+
+          SELECT
+            'marketplace_hire' AS protocol,
+            COUNT(*) AS intents,
+            COALESCE(SUM(amount), 0) AS gross_amount,
+            COALESCE(SUM((metadata->>'platformFee')::numeric), 0) AS platform_fee_amount
+          FROM payment_intents
+          WHERE created_at > NOW() - INTERVAL '30 days'
+            AND metadata->>'protocol' = 'marketplace_hire'
+        ) metrics
+        GROUP BY protocol
         ORDER BY "grossVolumeUsdc" DESC
       `,
     ]);

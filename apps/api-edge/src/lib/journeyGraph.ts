@@ -49,11 +49,10 @@ export function buildJourneyGraph(
   }));
 
   const completedLegs = nodes.filter((node) => node.status === 'completed').length;
+  const allCompleted = nodes.length > 0 && completedLegs === nodes.length;
   const activeNode = nodes.find((node) => node.status === 'securing' || node.status === 'attention')
     ?? nodes.find((node) => node.status === 'booked');
-  const nextNode = activeNode
-    ? nodes[nodes.findIndex((node) => node.id === activeNode.id) + 1]
-    : undefined;
+  const nextNode = nodes.find((node) => !['completed', 'attention'].includes(node.status));
 
   const changes: JourneyGraphChange[] = [];
   const attentionNode = nodes.find((node) => node.status === 'attention');
@@ -102,7 +101,7 @@ export function buildJourneyGraph(
 
   return {
     version: 1,
-    status: overallStatus === 'failed' ? 'attention' : 'active',
+    status: overallStatus === 'failed' ? 'attention' : allCompleted ? 'completed' : 'active',
     totalLegs: nodes.length,
     completedLegs,
     activeLegId: activeNode?.id,

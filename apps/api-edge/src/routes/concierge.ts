@@ -463,8 +463,10 @@ conciergeRouter.post('/intent', async (c) => {
     : '';
 
   // ── Journey memory: last 5 completed trips ────────────────────────────────
-  let tripHistoryContext = '';
-  let usualRoute: { origin: string; destination: string; count: number; typicalFareGbp?: number } | undefined;
+  const customerMemory: CustomerMemory = await loadCustomerMemory(c.env, hirerId).catch(() => ({ tripHistoryContext: '' }));
+  const tripHistoryContext = customerMemory.tripHistoryContext ?? '';
+  const usualRoute = customerMemory.usualRoute;
+  /*
   {
     const histSql = createDb(c.env);
     try {
@@ -524,14 +526,11 @@ conciergeRouter.post('/intent', async (c) => {
         tripHistoryContext = `\nUser's recent trips:\n${lines.join('\n')}`
           + (usualRoute ? `\nFrequent route: ${usualRoute.origin}→${usualRoute.destination} (${usualRoute.count}× in history) — if this matches the request, say "Same as last time?" and quote the fare.` : '');
       }
-    } catch { /* non-fatal */ } finally {
+    } catch { } finally {
       await histSql.end().catch(() => {});
     }
   }
-
-  const customerMemory: CustomerMemory = await loadCustomerMemory(c.env, hirerId).catch(() => ({ tripHistoryContext: '' }));
-  tripHistoryContext = customerMemory.tripHistoryContext ?? tripHistoryContext;
-  usualRoute = customerMemory.usualRoute ?? usualRoute;
+  */
 
   const knownIssuesBlock = KNOWN_ISSUES.length > 0
     ? `\n\nKnown active issues:\n${KNOWN_ISSUES.map(i => `- ${i}`).join('\n')}`
