@@ -27,6 +27,19 @@ describe('broInsights founder metrics route', () => {
     expect(res.status).toBe(401);
   });
 
+  it('serves the admin dashboard html when authorized', async () => {
+    const res = await broInsightsRouter.fetch(
+      new Request('http://bro.test/dashboard?key=secret'),
+      { ADMIN_SECRET_KEY: 'secret' } as never,
+      {} as never,
+    );
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain('Bro Founder Console');
+    expect(body).toContain('/api/admin/founder-metrics');
+  });
+
   it('reports issued-only provider success and marketplace economics', async () => {
     const sql = makeSql([
       [{ status: 'completed', count: 4 }, { status: 'failed', count: 1 }],

@@ -55,6 +55,167 @@ function requireAdmin(c: { req: { header: (name: string) => string | undefined }
   return null;
 }
 
+function hasAdminAccess(c: { req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined }; env: Env }) {
+  const headerKey = c.req.header('x-admin-key');
+  const queryKey = c.req.query('key');
+  return headerKey === c.env.ADMIN_SECRET_KEY || queryKey === c.env.ADMIN_SECRET_KEY;
+}
+
+broInsightsRouter.get('/dashboard', async (c) => {
+  if (!hasAdminAccess(c)) {
+    return c.html('<!doctype html><title>Unauthorized</title><h1>Unauthorized</h1>', 401);
+  }
+
+  const key = c.req.query('key') ?? c.req.header('x-admin-key') ?? '';
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Bro Admin Dashboard</title>
+    <style>
+      :root{color-scheme:dark;--bg:#020617;--panel:#0f172a;--panel2:#111827;--border:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--green:#4ade80;--amber:#f59e0b;--blue:#38bdf8;--red:#f87171}
+      *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:linear-gradient(180deg,#020617,#0b1120 45%,#020617);color:var(--text)}
+      .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+      h1,h2{margin:0} h1{font-size:30px;font-weight:800} h2{font-size:16px;font-weight:700}
+      p{margin:0;color:var(--muted)} .sub{margin-top:8px}
+      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:22px}
+      .card{background:rgba(15,23,42,.9);border:1px solid var(--border);border-radius:16px;padding:16px;backdrop-filter:blur(10px)}
+      .metric{font-size:30px;font-weight:800;margin-top:10px}
+      .metric-sm{font-size:22px;font-weight:800;margin-top:10px}
+      .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+      .section{margin-top:28px}
+      .panel{background:rgba(15,23,42,.92);border:1px solid var(--border);border-radius:18px;padding:18px}
+      table{width:100%;border-collapse:collapse;margin-top:12px}
+      th,td{text-align:left;padding:10px 8px;border-top:1px solid #172133;font-size:13px;vertical-align:top}
+      th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+      .pill{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:700}
+      .p1{background:#3f0a0a;color:#fecaca}.p2{background:#3f220a;color:#fdba74}.p3{background:#082f49;color:#7dd3fc}.p4{background:#0f172a;color:#cbd5e1;border:1px solid #243246}
+      .good{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .muted{color:var(--muted)}
+      .row{display:flex;justify-content:space-between;gap:12px;margin-top:10px;font-size:13px}
+      .actions{display:flex;gap:8px;flex-wrap:wrap}
+      button{background:#0b2440;border:1px solid #1d4ed8;color:#bfdbfe;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}
+      button.secondary{background:#2b1108;border-color:#b45309;color:#fdba74}
+      button:disabled{opacity:.5;cursor:default}
+      .small{font-size:12px;color:var(--muted)}
+      .header-row{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;flex-wrap:wrap}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header-row">
+        <div>
+          <h1>Bro Founder Console</h1>
+          <p class="sub">Metrics, recovery state, and ops queue in one place.</p>
+        </div>
+        <div class="actions">
+          <button id="refreshBtn">Refresh</button>
+          <button id="runRecoveryBtn" class="secondary">Run Auto-Recovery</button>
+        </div>
+      </div>
+
+      <div class="grid" id="topMetrics"></div>
+
+      <div class="section panel">
+        <h2>Ops Queue</h2>
+        <p class="sub">Actionable jobs ordered by urgency.</p>
+        <table>
+          <thead><tr><th>Job</th><th>Priority</th><th>State</th><th>Action</th><th>Summary</th></tr></thead>
+          <tbody id="opsQueueRows"></tbody>
+        </table>
+      </div>
+
+      <div class="section panel">
+        <h2>Provider Performance</h2>
+        <p class="sub">Issued/completed success only.</p>
+        <table>
+          <thead><tr><th>Provider</th><th>Corridor</th><th>Total</th><th>Succeeded</th><th>Rate</th></tr></thead>
+          <tbody id="providerRows"></tbody>
+        </table>
+      </div>
+
+      <div class="section panel">
+        <h2>Booking Health</h2>
+        <p class="sub">Recovery buckets across the last 7 days.</p>
+        <div id="healthBuckets" class="grid"></div>
+      </div>
+    </div>
+    <script>
+      const adminKey = ${JSON.stringify(key)};
+      async function getJson(path, init) {
+        const res = await fetch(path, {
+          ...init,
+          headers: { 'x-admin-key': adminKey, ...(init && init.headers ? init.headers : {}) }
+        });
+        if (!res.ok) throw new Error('Request failed: ' + res.status);
+        return res.json();
+      }
+      function fmtPct(value){ return (value * 100).toFixed(1) + '%'; }
+      function metricCard(label, value, tone){
+        return '<div class="card"><div class="label">'+label+'</div><div class="'+(String(value).length > 10 ? 'metric-sm' : 'metric')+' '+(tone||'')+'">'+value+'</div></div>';
+      }
+      function priorityPill(priority){
+        return '<span class="pill p'+priority+'">P'+priority+'</span>';
+      }
+      async function loadDashboard() {
+        const [metrics, ops, health] = await Promise.all([
+          getJson('/api/admin/founder-metrics'),
+          getJson('/api/admin/ops-queue'),
+          getJson('/api/admin/booking-health'),
+        ]);
+
+        document.getElementById('topMetrics').innerHTML = [
+          metricCard('Issued', metrics.funnel.issued || 0, 'good'),
+          metricCard('Failed', metrics.funnel.failed || 0, metrics.funnel.failed ? 'bad' : ''),
+          metricCard('Recovery Save Rate', fmtPct(metrics.recovery.saveRate || 0), metrics.recovery.saveRate > 0.5 ? 'good' : 'warn'),
+          metricCard('Platform Revenue', '$' + (metrics.economics.totalPlatformRevenueUsdc || 0).toFixed(2), 'good'),
+          metricCard('Avg Time To Issue', metrics.timeToIssue.avgMinutes == null ? 'n/a' : metrics.timeToIssue.avgMinutes + ' min'),
+          metricCard('Ops Queue', ops.queueDepth || 0, ops.queueDepth ? 'warn' : 'good'),
+        ].join('');
+
+        document.getElementById('opsQueueRows').innerHTML = ops.jobs.map((job) =>
+          '<tr>'+
+            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div></td>'+
+            '<td>'+priorityPill(job.opsPriority)+'</td>'+
+            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div></td>'+
+            '<td>'+(job.recommendedAction || 'none')+'</td>'+
+            '<td>'+job.summary+'</td>'+
+          '</tr>'
+        ).join('') || '<tr><td colspan="5" class="muted">No actionable jobs.</td></tr>';
+
+        document.getElementById('providerRows').innerHTML = metrics.providerPerformance.map((row) =>
+          '<tr>'+
+            '<td>'+row.provider+'</td>'+
+            '<td>'+row.corridor+'</td>'+
+            '<td>'+row.total+'</td>'+
+            '<td>'+row.succeeded+'</td>'+
+            '<td>'+(row.successRate >= 0.8 ? '<span class="good">' : row.successRate >= 0.5 ? '<span class="warn">' : '<span class="bad">')+fmtPct(row.successRate)+'</span></td>'+
+          '</tr>'
+        ).join('') || '<tr><td colspan="5" class="muted">No provider data.</td></tr>';
+
+        document.getElementById('healthBuckets').innerHTML = Object.entries(health.byRecoveryBucket || {}).map(([bucket, count]) =>
+          metricCard(bucket.replace(/_/g, ' '), count, bucket.includes('failed') ? 'bad' : bucket.includes('stuck') ? 'warn' : '')
+        ).join('') || metricCard('healthy', 0);
+      }
+      document.getElementById('refreshBtn').addEventListener('click', () => { void loadDashboard(); });
+      document.getElementById('runRecoveryBtn').addEventListener('click', async (event) => {
+        const btn = event.currentTarget;
+        btn.disabled = true;
+        try {
+          await getJson('/api/admin/booking-health/run-auto-recovery', { method: 'POST' });
+          await loadDashboard();
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      void loadDashboard();
+    </script>
+  </body>
+</html>`;
+
+  return c.html(html);
+});
+
 broInsightsRouter.get('/bro-insights', async (c) => {
   const unauthorized = requireAdmin(c);
   if (unauthorized) return unauthorized;
