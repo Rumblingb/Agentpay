@@ -1,7 +1,32 @@
 import type { Env } from '../types';
 import type { TrainService } from './rtt';
-import { queryBus as queryBusBusbud, isBusRoute, formatBusForClaude } from './busbud';
-import { queryGlobalRail as queryGlobalRailFull, isGlobalRoute, formatGlobalTrainsForClaude } from './globalRail';
+import { queryBus as queryBusBusbud, isBusRoute } from './busbud';
+import { queryGlobalRail as queryGlobalRailFull, isGlobalRoute } from './globalRail';
+
+// ── Currency → GBP conversion (approximate, static rates) ─────────────────
+// These are used only to normalise estimatedFareGbp for the hire/payment layer.
+// Actual charged amount is displayed to user via fiatAmount (set in Phase 2).
+
+const CURRENCY_TO_GBP: Record<string, number> = {
+  GBP: 1.00,
+  EUR: 0.85,
+  USD: 0.79,
+  CAD: 0.58,
+  AUD: 0.51,
+  JPY: 0.0052,   // 1 GBP ≈ 192 JPY
+  KRW: 0.00057,  // 1 GBP ≈ 1,750 KRW
+  THB: 0.022,    // 1 GBP ≈ 45 THB
+  SGD: 0.58,
+  MYR: 0.17,     // 1 GBP ≈ 5.9 MYR
+  VND: 0.000030, // 1 GBP ≈ 33,000 VND
+  IDR: 0.000047, // 1 GBP ≈ 21,000 IDR
+  INR: 0.0094,   // 1 GBP ≈ 106 INR
+};
+
+function toGbp(amount: number, currency: string): number {
+  const rate = CURRENCY_TO_GBP[currency.toUpperCase()] ?? 1;
+  return Math.max(1, Math.round(amount * rate));
+}
 
 export interface GlobalGroundResult {
   origin: string;
@@ -248,9 +273,14 @@ export async function queryGlobalRail(
     origin:      richResult.origin,
     destination: richResult.destination,
     date:        richResult.date,
-    services:    richResult.services,
-    error:       richResult.error as 'advance_schedule' | undefined,
-    currency:    'GBP',
+    // Convert local currency fares to GBP so the hire layer prices correctly.
+    // e.g. ¥13,870 Tokyo→Osaka → ~£72 rather than £13,870
+    services: richResult.services.map(s => ({
+      ...s,
+      estimatedFareGbp: toGbp(s.estimatedFareGbp, richResult.currency),
+    })),
+    error:    richResult.error as 'advance_schedule' | undefined,
+    currency: 'GBP',
   };
 }
 
@@ -263,14 +293,15 @@ export async function queryBus(
 ): Promise<GlobalGroundResult> {
   // Delegate to richer busbud.ts (80+ cities, UK National Express/Megabus, real Busbud/FlixBus API)
   const richResult = await queryBusBusbud(env, origin, destination, date, undefined, timePreference);
-  // Adapt BusService[] → TrainService[] (same fields, different type name)
+  // Adapt BusService[] → TrainService[], converting local currency fares to GBP.
+  // e.g. ฿300 Bangkok→Chiang Mai → ~£6.60, not £300
   const services: TrainService[] = richResult.services.map((s) => ({
     departureTime:    s.departureTime,
     arrivalTime:      s.arrivalTime,
     operator:         s.operator,
     serviceUid:       s.serviceId,
     destination:      s.destination,
-    estimatedFareGbp: s.fareLocal, // stored as local currency, Claude will read it as a number
+    estimatedFareGbp: toGbp(s.fareLocal, s.currency),
     platform:         undefined,
   }));
   return {
