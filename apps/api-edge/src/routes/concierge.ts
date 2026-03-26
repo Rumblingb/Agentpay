@@ -42,7 +42,7 @@ import {
 import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
-import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
+import { searchHotels, formatHotelsForClaude, normaliseCity } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toFailedTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import { buildArrivalCards } from '../lib/arrivalCards';
 import { askSonar, formatSonarForClaude } from '../lib/perplexity';
@@ -73,6 +73,122 @@ function makeTrace(): string {
 function broLog(event: string, data: Record<string, unknown>) {
   // console.info emits to Cloudflare Workers Tail logs as a structured JSON line.
   console.info(JSON.stringify({ bro: true, event, ...data }));
+}
+
+const LOCATION_HINT_TO_CITY: Record<string, string> = {
+  paddington: 'London',
+  euston: 'London',
+  waterloo: 'London',
+  victoria: 'London',
+  'st pancras': 'London',
+  heathrow: 'London',
+  gatwick: 'London',
+  stansted: 'London',
+  luton: 'London',
+  termini: 'Rome',
+  fiumicino: 'Rome',
+  ciampino: 'Rome',
+  jfk: 'New York',
+  newark: 'New York',
+  laguardia: 'New York',
+  cdg: 'Paris',
+  orly: 'Paris',
+};
+
+function simplifyLocationName(input: string): string {
+  const cleaned = input
+    .trim()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/,.*$/, ' ')
+    .replace(/\b(airport|station|stn|railway station|train station|bus station|coach station|terminal\s*\d*|t\d+)\b/gi, ' ')
+    .replace(/\b(international|central|main)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return input.trim();
+
+  const lower = cleaned.toLowerCase();
+  for (const [hint, city] of Object.entries(LOCATION_HINT_TO_CITY)) {
+    if (lower.includes(hint)) return city;
+  }
+  return cleaned;
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function buildFlightLocationVariants(input: string): string[] {
+  const simplified = simplifyLocationName(input);
+  return uniqueStrings([input, simplified]);
+}
+
+function buildHotelCityVariants(input: string): string[] {
+  const simplified = simplifyLocationName(input);
+  const canonical = normaliseCity(simplified).replace(/_/g, ' ');
+  return uniqueStrings([input, simplified, canonical]);
+}
+
+function isGenericInterchange(input: string): boolean {
+  const lower = input.trim().toLowerCase();
+  return lower === ''
+    || lower === 'airport'
+    || lower === 'station'
+    || lower === 'train station'
+    || lower === 'bus station'
+    || lower === 'city centre'
+    || lower === 'city center'
+    || lower === 'uk'
+    || lower === 'united kingdom'
+    || lower === 'india'
+    || lower === 'europe';
+}
+
+function latestPlannedDestination(
+  planItems: Array<{
+    trainDetails?: { destination?: string };
+    flightDetails?: { destination?: string };
+    hotelDetails?: { city?: string };
+  }>,
+): string | null {
+  for (let i = planItems.length - 1; i >= 0; i -= 1) {
+    const item = planItems[i];
+    const destination = item.flightDetails?.destination ?? item.trainDetails?.destination ?? item.hotelDetails?.city;
+    if (destination?.trim()) return destination.trim();
+  }
+  return null;
+}
+
+function resolveFlightEndpoint(input: string, planItems: Array<{
+  trainDetails?: { destination?: string };
+  flightDetails?: { destination?: string };
+  hotelDetails?: { city?: string };
+}>): string {
+  if (!isGenericInterchange(input)) {
+    return simplifyLocationName(input);
+  }
+  return simplifyLocationName(latestPlannedDestination(planItems) ?? input);
+}
+
+function resolveHotelCityInput(input: string, planItems: Array<{
+  trainDetails?: { destination?: string };
+  flightDetails?: { destination?: string };
+  hotelDetails?: { city?: string };
+}>): string {
+  if (!isGenericInterchange(input)) {
+    return simplifyLocationName(input);
+  }
+  return simplifyLocationName(latestPlannedDestination(planItems) ?? input);
 }
 
 // ── GET /api/admin/bro-jobs ───────────────────────────────────────────────────
@@ -625,14 +741,17 @@ TIME CLARIFICATION RULE — critical:
 - If only one train is available, go straight to confirmation
 
 MULTI-LEG JOURNEYS — when to chain tools:
-- "Bristol to Rome by Thursday" → book_train (Bristol→Heathrow or Eurostar) + search_flights (London→Rome). Two tool calls in one response.
-- "Get me from Manchester to Barcelona" → book_train (Manchester→London) + search_flights (London→Barcelona).
-- "Delhi to London" → book_train_india (Delhi→airport) + search_flights (India→London).
+- "Bristol to Rome by Thursday" → book_train (Bristol→Paddington) + search_flights (London→Rome). Two tool calls in ONE response.
+- "Bristol to Rome for 3 nights" → book_train (Bristol→Paddington) + search_flights (London→Rome) + book_hotel (Rome, 3 nights). Three tool calls in ONE response.
+- "Get me from Manchester to Barcelona" → book_train (Manchester→London) + search_flights (London→Barcelona). Two tool calls.
+- "Delhi to London" → book_train_india (Delhi→airport) + search_flights (India→London). Two tool calls.
 - "Bangkok to Chiang Mai tomorrow" → book_train or book_bus depending on what the user asks for.
 - "New York to Boston cheapest" → book_bus first. "New York to Boston fastest" → book_train first.
 - DO NOT chain when a single tool covers the whole journey (e.g. "London to Edinburgh" is just book_train; "London to New York" is just search_flights).
 - Narration format for multi-leg: "Leg 1: GWR 09:12 Bristol → Paddington, £28. Leg 2: BA 14:40 Heathrow → Rome, £254. Total £282. One fingerprint books both."
-- Each leg is a separate tool call — Claude returns multiple tool_use blocks in one response.
+- Narration format for train+flight+hotel: "GWR 09:12 Bristol→Paddington, BA 14:40→Rome, CitizenM 3 nights. £387 total. One fingerprint books all three."
+- CRITICAL: Return ALL tool_use blocks in a SINGLE response — do not wait for one result before calling the next. Bro's backend processes all blocks simultaneously.
+- Each leg is a separate tool_use block — emit them all at once.
 
 PHASE 1 RESPONSE FORMAT:
 - Confirmed single booking: operator, time, fare. End with "Fingerprint to confirm." Maximum 12 words.
@@ -646,10 +765,12 @@ PHASE 1 RESPONSE FORMAT:
 
 PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 - Exactly one sentence. State the Bro reference and that the ticket is being secured. Nothing else.
-- Format: "[Ref] — securing your [destination] ticket. Details by email."
-- Example: "BRO-A1B2C3 — securing your Edinburgh ticket. Details by email."
-- If destination is unknown, omit it: "BRO-A1B2C3 — securing your ticket. Details by email."
-- Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.${knownIssuesBlock}`;
+- Single leg format: "[Ref] — securing your [destination] ticket. Details by email."
+- Multi-leg format: "[Ref1] + [Ref2] — securing your [origin] to [destination] journey. Details by email."
+- Multi-leg with hotel: "[Ref1] + [Ref2] + hotel — securing your full trip. Details by email."
+- Example (train only): "BRO-A1B2C3 — securing your Edinburgh ticket. Details by email."
+- Example (train + flight): "BRO-A1B2 + BA2614 — securing your Bristol to Rome journey. Details by email."
+- Never say "confirmed", "I've booked" or "I have arranged" — tickets are not yet issued. Maximum 15 words.${knownIssuesBlock}`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
@@ -1144,7 +1265,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       system: systemPrompt,
       messages: [{ role: 'user', content: transcript }],
       tools,
-      max_tokens: 1024,
+      max_tokens: 2048,
     });
   } catch (e: any) {
     // Timeout or network error reaching Anthropic
@@ -1525,6 +1646,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         // Phase 2 booking happens in the hire section below (item.flightDetails).
         const originStr      = (input.origin      as string | undefined) ?? '';
         const destinationStr = (input.destination as string | undefined) ?? '';
+        const resolvedOrigin = resolveFlightEndpoint(originStr, planItems);
+        const resolvedDestination = resolveFlightEndpoint(destinationStr, planItems);
         const dateStr        = (input.date        as string | undefined) ?? new Date().toISOString().slice(0, 10);
         const cabinClass     = (input.class_pref  as 'economy' | 'premium_economy' | 'business' | 'first' | undefined) ?? 'economy';
         const returnDate     = input.return_date  as string | undefined;
@@ -1532,18 +1655,52 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
         {
           // ── Phase 1: search flights ──────────────────────────────────────
-          const offers = c.env.DUFFEL_API_KEY
-            ? await searchFlights(
-                { origin: originStr, destination: destinationStr, departureDate: dateStr, returnDate, passengers: passengerCount, cabinClass },
-                c.env.DUFFEL_API_KEY,
-              ).catch(() => [])
-            : [];
-          const rankedOffers = rankFlightsByMemory(offers, customerMemory, {
-            origin: originStr,
-            destination: destinationStr,
+          const flightSearchVariants = uniqueStrings([
+            `${resolvedOrigin} -> ${resolvedDestination}`,
+            ...buildFlightLocationVariants(resolvedOrigin).flatMap(originVariant =>
+              buildFlightLocationVariants(resolvedDestination).map(destinationVariant => `${originVariant} -> ${destinationVariant}`),
+            ),
+          ]).map(variant => {
+            const [originVariant, destinationVariant] = variant.split(' -> ');
+            return {
+              origin: originVariant ?? resolvedOrigin,
+              destination: destinationVariant ?? resolvedDestination,
+            };
           });
 
-          toolResultContent = formatFlightsForClaude(rankedOffers, originStr, destinationStr, dateStr);
+          let offers: Awaited<ReturnType<typeof searchFlights>> = [];
+          let usedFlightVariant = { origin: resolvedOrigin, destination: resolvedDestination };
+          if (c.env.DUFFEL_API_KEY) {
+            for (const variant of flightSearchVariants) {
+              const nextOffers = await searchFlights(
+                { origin: variant.origin, destination: variant.destination, departureDate: dateStr, returnDate, passengers: passengerCount, cabinClass },
+                c.env.DUFFEL_API_KEY,
+              ).catch(() => []);
+              if (nextOffers.length > 0) {
+                offers = nextOffers;
+                usedFlightVariant = variant;
+                break;
+              }
+            }
+          }
+          const rankedOffers = rankFlightsByMemory(offers, customerMemory, {
+            origin: usedFlightVariant.origin,
+            destination: usedFlightVariant.destination,
+          });
+
+          toolResultContent = formatFlightsForClaude(
+            rankedOffers,
+            usedFlightVariant.origin,
+            usedFlightVariant.destination,
+            dateStr,
+          );
+          if (
+            rankedOffers.length > 0 &&
+            (usedFlightVariant.origin.toLowerCase() !== originStr.toLowerCase()
+              || usedFlightVariant.destination.toLowerCase() !== destinationStr.toLowerCase())
+          ) {
+            toolResultContent += `\nFallback note: searched ${usedFlightVariant.origin} to ${usedFlightVariant.destination} after the direct city pair returned no offers.`;
+          }
 
           // Stash best offerId + flightDetails for Phase 2 (passed through plan item)
           if (rankedOffers[0]) {
@@ -1568,8 +1725,15 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             traceId,
             origin: originStr,
             destination: destinationStr,
+            resolvedOrigin,
+            resolvedDestination,
+            searchedOrigin: usedFlightVariant.origin,
+            searchedDestination: usedFlightVariant.destination,
             date: dateStr,
             found: offers.length,
+            fallbackUsed:
+              usedFlightVariant.origin.toLowerCase() !== originStr.toLowerCase()
+              || usedFlightVariant.destination.toLowerCase() !== destinationStr.toLowerCase(),
           });
         }
 
@@ -1706,19 +1870,33 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
       } else if (toolCall.name === 'book_hotel') {
         // ── Hotel search via Xotelo free-tier price aggregation ───────────
-        const city     = (input.location as string | undefined) ?? (input.city as string | undefined) ?? (input.destination as string | undefined) ?? '';
+        const cityInput = (input.location as string | undefined) ?? (input.city as string | undefined) ?? (input.destination as string | undefined) ?? '';
+        const city      = resolveHotelCityInput(cityInput, planItems);
         const checkIn  = (input.check_in  as string | undefined) ?? '';
         const checkOut = (input.check_out as string | undefined) ?? '';
         const rooms    = input.rooms  ? Number(input.rooms)  : 1;
         const stars    = input.stars  ? Number(input.stars)  : undefined;
 
-        const hotelResults = await searchHotels({ city, checkIn, checkOut, rooms, stars }).catch(() => []);
-        const rankedHotels = rankHotelsByMemory(hotelResults, customerMemory, { city });
+        const hotelCityVariants = buildHotelCityVariants(city);
+        let hotelResults: Awaited<ReturnType<typeof searchHotels>> = [];
+        let resolvedHotelCity = city;
+        for (const cityVariant of hotelCityVariants) {
+          const nextResults = await searchHotels({ city: cityVariant, checkIn, checkOut, rooms, stars }).catch(() => []);
+          if (nextResults.length > 0) {
+            hotelResults = nextResults;
+            resolvedHotelCity = cityVariant;
+            break;
+          }
+        }
+        const rankedHotels = rankHotelsByMemory(hotelResults, customerMemory, { city: resolvedHotelCity });
 
         if (rankedHotels.length > 0) {
-          toolResultContent = formatHotelsForClaude(rankedHotels, city, checkIn, checkOut);
+          toolResultContent = formatHotelsForClaude(rankedHotels, resolvedHotelCity, checkIn, checkOut);
+          if (resolvedHotelCity.toLowerCase() !== city.toLowerCase()) {
+            toolResultContent += `\nFallback note: searched ${resolvedHotelCity} after ${city} returned no hotels.`;
+          }
           (toolCall as any)._hotelDetails = {
-            city,
+            city: resolvedHotelCity,
             checkIn,
             checkOut,
             bestOption:  rankedHotels[0],
@@ -1730,11 +1908,14 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
         broLog('hotel_result', {
           traceId,
-          city,
+          city: cityInput,
+          resolvedCity: city,
+          searchedCity: resolvedHotelCity,
           checkIn,
           checkOut,
           found: hotelResults.length,
           live:  hotelResults.filter(h => h.isLive).length,
+          fallbackUsed: resolvedHotelCity.toLowerCase() !== city.toLowerCase(),
         });
 
       } else if (toolCall.name === 'research') {
@@ -2190,8 +2371,22 @@ function buildFallbackNarration(planItems: PlanItem[]): string {
     }
     return `I can ${p.displayName.toLowerCase()} for approximately $${p.estimatedPriceUsdc.toFixed(2)}. Fingerprint to confirm.`;
   }
-  const total = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
-  return `I can arrange ${planItems.map(p => p.displayName).join(' + ')} — approximately $${total.toFixed(2)} total. Fingerprint to confirm.`;
+  const legs = planItems.map(p => {
+    if (p.trainDetails) {
+      const t = p.trainDetails;
+      return `${t.operator ?? 'Train'} ${t.departureTime ?? ''} ${t.origin ?? ''}→${t.destination ?? ''}`;
+    }
+    if (p.flightDetails) {
+      const f = p.flightDetails;
+      return `${f.carrier} ${f.flightNumber} ${f.origin}→${f.destination}`;
+    }
+    if (p.hotelDetails) {
+      return `${p.hotelDetails.bestOption?.name ?? 'Hotel'} ${p.hotelDetails.city}`;
+    }
+    return p.displayName;
+  });
+  const parts = legs.map((leg, i) => `Leg ${i + 1}: ${leg}`).join('. ');
+  return `${parts}. Fingerprint to confirm all.`;
 }
 
 function scopeProfileFields(
