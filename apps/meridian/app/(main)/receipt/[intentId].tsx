@@ -114,6 +114,7 @@ export default function ReceiptScreen() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [tripContext, setTripContext] = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
+  const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string } } | null>(null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const cards = tripCards(tripContext);
@@ -123,7 +124,11 @@ export default function ReceiptScreen() {
   useEffect(() => {
     if (!intentId) return;
     getReceipt(intentId)
-      .then(setReceipt)
+      .then((r) => {
+        setReceipt(r);
+        const hd = (r as any)?.metadata?.hotelDetails;
+        if (hd?.bestOption) setHotelDetails(hd);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [intentId]);
@@ -482,6 +487,29 @@ export default function ReceiptScreen() {
                 <Row label="Class"    value={flightDetails.cabinClass.replace(/_/g, ' ')} />
                 {flightDetails.isReturn && (
                   <Row label="Type" value="Return" />
+                )}
+              </View>
+            )}
+
+            {/* 🏨 Hotel card — shown when a hotel booking exists */}
+            {hotelDetails?.bestOption && (
+              <View style={[styles.journeyCard, { marginTop: 12 }]}>
+                <View style={styles.journeyHeader}>
+                  <Text style={styles.journeyIcon}>🏨</Text>
+                  <Text style={styles.journeyTitle}>{hotelDetails.bestOption.name}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', marginBottom: 4, gap: 2 }}>
+                  {'★'.repeat(Math.min(hotelDetails.bestOption.stars, 5)).split('').map((s, i) => (
+                    <Text key={i} style={{ color: '#f59e0b', fontSize: 12 }}>{s}</Text>
+                  ))}
+                </View>
+                <Row label="City"      value={hotelDetails.city} />
+                <Row label="Check-in"  value={hotelDetails.checkIn} />
+                <Row label="Check-out" value={hotelDetails.checkOut} />
+                <Row label="Rate"      value={`${hotelDetails.bestOption.currency} ${hotelDetails.bestOption.ratePerNight}/night`} />
+                <Row label="Total"     value={`${hotelDetails.bestOption.currency} ${hotelDetails.bestOption.totalCost}`} />
+                {hotelDetails.bestOption.area && (
+                  <Row label="Area" value={hotelDetails.bestOption.area} />
                 )}
               </View>
             )}

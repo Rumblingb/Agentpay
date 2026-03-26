@@ -906,6 +906,10 @@ export default function ConverseScreen() {
             }
             return null;
           })();
+          // Hotel details — single hotel booking
+          const hotelDetails = plan.length === 1 ? plan[0]?.hotelDetails : undefined;
+          const hotel = hotelDetails?.bestOption;
+
           // Multi-leg journey helper
           const isMultiLeg = plan.length > 1;
           const legIcon = (toolName: string) =>
@@ -966,8 +970,31 @@ export default function ConverseScreen() {
                   <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
                 </View>
               )}
-              {priceLabel && !isMultiLeg && (
+              {priceLabel && !isMultiLeg && !hotel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
+              )}
+              {hotel && (
+                <View style={styles.hotelCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 16 }}>🏨</Text>
+                    <Text style={styles.hotelName} numberOfLines={1}>{hotel.name}</Text>
+                    <Text style={styles.hotelStars}>{'★'.repeat(Math.min(hotel.stars, 5))}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View>
+                      <Text style={styles.hotelDateLabel}>Check-in</Text>
+                      <Text style={styles.hotelDate}>{hotelDetails!.checkIn}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.hotelDateLabel}>Check-out</Text>
+                      <Text style={styles.hotelDate}>{hotelDetails!.checkOut}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.hotelRate}>
+                    {hotel.currency} {hotel.ratePerNight}/night · Total {hotel.currency} {hotel.totalCost}
+                  </Text>
+                  {hotel.area && <Text style={styles.hotelArea}>{hotel.area}</Text>}
+                </View>
               )}
               {passengers && passengers.length > 1 && (
                 <View style={styles.passengerList}>
@@ -1619,4 +1646,11 @@ const styles = StyleSheet.create({
   usualRouteCount: { fontSize: 11, color: '#4ade80', opacity: 0.7, marginLeft: 'auto' as any },
   usualRouteRoute: { fontSize: 16, color: '#f8fafc', fontWeight: '700', marginBottom: 2 },
   usualRouteFare:  { fontSize: 12, color: '#6b7280' },
+  hotelCard:       { backgroundColor: '#0a0d14', borderWidth: 1, borderColor: '#1e3a5f', borderRadius: 10, padding: 12, marginBottom: 10, gap: 6 },
+  hotelName:       { fontSize: 14, fontWeight: '600', color: '#f8fafc', flex: 1 },
+  hotelStars:      { fontSize: 11, color: '#f59e0b', letterSpacing: 1 },
+  hotelDateLabel:  { fontSize: 10, color: '#64748b', marginBottom: 2 },
+  hotelDate:       { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
+  hotelRate:       { fontSize: 12, color: '#4ade80', marginTop: 4 },
+  hotelArea:       { fontSize: 11, color: '#64748b' },
 });

@@ -101,6 +101,53 @@ async function loadRoomForJob(sql: ReturnType<typeof createDb>, jobId: string): 
   return journeyRows[0] ?? null;
 }
 
+export async function createOrReuseTripRoom(
+  sql: ReturnType<typeof createDb>,
+  jobId: string,
+  ownerPushToken?: string,
+): Promise<{ room: TripRoomRow; created: boolean; memberCount: number }> {
+  const existing = await loadRoomForJob(sql, jobId);
+  if (existing) {
+    const currentMembers = normalizeMembers(existing.members);
+    const ownerUpdate = appendMemberIfNeeded(currentMembers, ownerPushToken, 'Owner', 'owner');
+    if (ownerUpdate.added) {
+      await sql`
+        UPDATE trip_rooms
+        SET members = ${JSON.stringify(ownerUpdate.members)}::jsonb
+        WHERE id = ${existing.id}
+      `;
+      existing.members = ownerUpdate.members;
+    }
+    return {
+      room: existing,
+      created: false,
+      memberCount: ownerUpdate.added ? ownerUpdate.members.length : currentMembers.length,
+    };
+  }
+
+  const shareToken = makeShareToken();
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const members = ownerPushToken
+    ? [{
+        pushToken: ownerPushToken,
+        role: 'owner',
+        joinedAt: new Date().toISOString(),
+      }]
+    : [];
+
+  const rows = await sql<TripRoomRow[]>`
+    INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
+    VALUES (${jobId}, ${shareToken}, ${JSON.stringify(members)}::jsonb, ${expiresAt}, NOW())
+    RETURNING id, job_id, members, expires_at, share_token
+  `;
+
+  return {
+    room: rows[0]!,
+    created: true,
+    memberCount: members.length,
+  };
+}
+
 // ── POST /api/trip-rooms ──────────────────────────────────────────────────────
 // Create a trip room for a confirmed job. Idempotent — returns existing if already created.
 
@@ -112,45 +159,31 @@ tripRoomsRouter.post('/', async (c) => {
 
   const sql = createDb(c.env);
   try {
-    // Check if room already exists for this job
-    const existing = await sql<TripRoomRow[]>`
-      SELECT id, job_id, members, expires_at, share_token
-      FROM trip_rooms
-      WHERE job_id = ${jobId}
+    const { room, created, memberCount } = await createOrReuseTripRoom(sql, jobId, ownerPushToken);
+    const jobRows = await sql<{ journey_id: string | null }[]>`
+      SELECT metadata->>'journeyId' AS journey_id
+      FROM payment_intents
+      WHERE id = ${jobId}
       LIMIT 1
     `.catch(() => []);
-
-    if (existing.length > 0) {
-      const room = existing[0]!;
-      const currentMembers = normalizeMembers(room.members);
-      const ownerUpdate = appendMemberIfNeeded(currentMembers, ownerPushToken, 'Owner', 'owner');
-      if (ownerUpdate.added) {
-        await sql`
-          UPDATE trip_rooms SET members = ${JSON.stringify(ownerUpdate.members)}::jsonb WHERE id = ${room.id}
-        `;
-      }
-      return c.json({
-        shareToken: room.share_token,
-        roomId: room.id,
-        created: false,
-        memberCount: ownerUpdate.added ? ownerUpdate.members.length : currentMembers.length,
-      });
+    const journeyId = jobRows[0]?.journey_id ?? null;
+    await sql`
+      UPDATE payment_intents
+      SET metadata = metadata || ${JSON.stringify({ shareToken: room.share_token })}::jsonb
+      WHERE (
+        id = ${jobId}
+        OR (${journeyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${journeyId ?? ''})
+      )
+    `.catch(() => []);
+    if (created) {
+      broLog('trip_room_created', { jobId: room.job_id, shareToken: room.share_token });
     }
-
-    const shareToken = makeShareToken();
-    const expiresAt  = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 48h
-    const members    = ownerPushToken
-      ? JSON.stringify([{ pushToken: ownerPushToken, role: 'owner', joinedAt: new Date().toISOString() }])
-      : JSON.stringify([]);
-
-    const rows = await sql<{ id: string }[]>`
-      INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
-      VALUES (${jobId}, ${shareToken}, ${members}::jsonb, ${expiresAt}, NOW())
-      RETURNING id
-    `;
-
-    broLog('trip_room_created', { jobId, shareToken });
-    return c.json({ shareToken, roomId: rows[0]?.id ?? null, created: true });
+    return c.json({
+      shareToken: room.share_token,
+      roomId: room.id,
+      created,
+      memberCount,
+    });
   } finally {
     await sql.end().catch(() => {});
   }
@@ -307,6 +340,7 @@ export async function fanOutToTripRoom(
   try {
     const room = await loadRoomForJob(db, jobId);
     if (!room) return;
+    if (new Date(room.expires_at) < new Date()) return;
 
     const members: any[] = Array.isArray(room.members) ? room.members : [];
     const pushTokens = members.map((m: any) => m.pushToken).filter(Boolean) as string[];

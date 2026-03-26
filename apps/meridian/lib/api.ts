@@ -306,13 +306,24 @@ export interface ConciergePlanItem {
     city: string;
     checkIn: string;
     checkOut: string;
-    nights: number;
-    hotelName: string;
-    stars: number;
-    ratePerNight: number;
-    totalCost: number;
-    currency: string;
-    area: string;
+    bestOption: {
+      name: string;
+      stars: number;
+      ratePerNight: number;
+      totalCost: number;
+      currency: string;
+      area: string;
+      isLive: boolean;
+    };
+    allOptions?: Array<{
+      name: string;
+      stars: number;
+      ratePerNight: number;
+      totalCost: number;
+      currency: string;
+      area: string;
+      isLive: boolean;
+    }>;
   };
   tripContext?: TripContext;
   /** Shared ID linking all legs of a multi-modal journey */

@@ -45,7 +45,8 @@ import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPa
 import { searchHotels, formatHotelsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
 import { buildArrivalCards } from '../lib/arrivalCards';
-import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
+import { createOrReuseTripRoom } from './tripRooms';
+import { normalizeProactiveCards, type NearbyPlace, type RouteData, type TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -689,7 +690,13 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               })
             : [];
           const executingTripContext = baseTripContext
-            ? { ...baseTripContext, proactiveCards: [...(baseTripContext.proactiveCards ?? []), ...arrivalCards] }
+            ? {
+                ...baseTripContext,
+                proactiveCards: normalizeProactiveCards([
+                  ...(baseTripContext.proactiveCards ?? []),
+                  ...arrivalCards,
+                ]),
+              }
             : baseTripContext;
 
           // ── Duffel flight booking ─────────────────────────────────────────
@@ -932,17 +939,21 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${JSON.stringify({
-                tripContext: executingTripContext ?? null,
-                journeyId:   (item as any).journeyId ?? null,
-                legIndex:    originalIndex,
-                totalLegs:   plan.length,
+                tripContext:  executingTripContext ?? null,
+                hotelDetails: item.hotelDetails ?? null,
+                journeyId:    (item as any).journeyId ?? null,
+                legIndex:     originalIndex,
+                totalLegs:    plan.length,
               })}::jsonb
               WHERE id = ${hireResult.jobId}
             `.catch(() => null);
+            const hotelConfirmLine = item.hotelDetails?.bestOption
+              ? `Hotel request in. ${item.hotelDetails.bestOption.name}, ${item.hotelDetails.city}. Check-in ${item.hotelDetails.checkIn}. Confirming within 15 minutes.`
+              : `${skill.displayName} hired. Job ID: ${hireResult.jobId}. Price: $${hireResult.agreedPriceUsdc.toFixed(2)}. Agent will execute and confirm shortly.`;
             toolResults.push({
               type:        'tool_result',
               tool_use_id: item.toolUseId,
-              content:     `${skill.displayName} hired. Job ID: ${hireResult.jobId}. Price: $${hireResult.agreedPriceUsdc.toFixed(2)}. Agent will execute and confirm shortly.`,
+              content:     hotelConfirmLine,
             });
           }
 
@@ -966,6 +977,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             status:          'hired',
             trainDetails:    item.trainDetails,
             flightDetails:   item.flightDetails,
+            hotelDetails:    item.hotelDetails,
             tripContext:     executingTripContext,
             journeyId:       (item as any).journeyId ?? undefined,
             legIndex:        originalIndex,
@@ -1016,27 +1028,26 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       const firstJobId = actions[0]?.jobId;
       const sharedJourneyId = actions[0]?.journeyId;
       if (firstJobId) {
-        const shareToken = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
-        const expiresAt  = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
         const tripSql = createDb(c.env);
-        await tripSql`
-          INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
-          VALUES (${firstJobId}, ${shareToken}, '[]'::jsonb, ${expiresAt}, NOW())
-          ON CONFLICT (job_id) DO NOTHING
-        `.catch(() => null);
-        await tripSql`
-          UPDATE payment_intents
-          SET metadata = metadata || ${JSON.stringify({ shareToken })}::jsonb
-          WHERE (
-            id = ${firstJobId}
-            OR (${sharedJourneyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${sharedJourneyId ?? ''})
-          )
-        `.catch(() => null);
-        await tripSql.end().catch(() => {});
-        for (const action of actions) {
-          (action as any).shareToken = shareToken;
+        const room = await createOrReuseTripRoom(tripSql, firstJobId).catch(() => null);
+        const shareToken = room?.room.share_token ?? null;
+        if (shareToken) {
+          await tripSql`
+            UPDATE payment_intents
+            SET metadata = metadata || ${JSON.stringify({ shareToken })}::jsonb
+            WHERE (
+              id = ${firstJobId}
+              OR (${sharedJourneyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${sharedJourneyId ?? ''})
+            )
+          `.catch(() => null);
+          await tripSql.end().catch(() => {});
+          for (const action of actions) {
+            (action as any).shareToken = shareToken;
+          }
+          broLog('trip_room_auto_created', { traceId, jobId: firstJobId, shareToken });
+        } else {
+          await tripSql.end().catch(() => {});
         }
-        broLog('trip_room_auto_created', { traceId, jobId: firstJobId, shareToken });
       }
     }
 
@@ -1775,6 +1786,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         routeData:          (toolCall as any)._routeData     ?? undefined,
         nearbyPlaces:       (toolCall as any)._nearbyPlaces  ?? undefined,
         flightDetails:      (toolCall as any)._flightDetails ?? undefined,
+        hotelDetails:       (toolCall as any)._hotelDetails  ?? undefined,
         tripContext,
       });
     }
@@ -2821,6 +2833,12 @@ interface PlanItem {
     stops: number; durationMinutes: number; cabinClass: string;
     offerId: string; offerExpiresAt: string; isReturn: boolean;
   };
+  /** Hotel details — present for book_hotel tool */
+  hotelDetails?: {
+    city: string; checkIn: string; checkOut: string;
+    bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; isLive: boolean };
+    allOptions: Array<{ name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; isLive: boolean }>;
+  };
   tripContext?:       TripContext;
   journeyId?:         string;
   legIndex?:          number;
@@ -2837,6 +2855,7 @@ interface ActionResult {
   status:          'hired' | 'failed';
   trainDetails?:   TrainDetails;
   flightDetails?:  PlanItem['flightDetails'];
+  hotelDetails?:   PlanItem['hotelDetails'];
   tripContext?:    TripContext;
   journeyId?:      string;
   legIndex?:       number;

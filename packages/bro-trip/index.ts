@@ -228,6 +228,10 @@ export function deriveProactiveCards(
     });
   }
 
+  return normalizeProactiveCards(cards);
+}
+
+export function normalizeProactiveCards(cards: ProactiveCard[]): ProactiveCard[] {
   const seen = new Set<ProactiveCardKind>();
   const priority: Record<ProactiveCardKind, number> = {
     platform_changed: 1,

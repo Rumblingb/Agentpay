@@ -1,5 +1,6 @@
 import {
   deriveProactiveCards,
+  normalizeProactiveCards,
   withTripPhase,
   type ProactiveCard,
   type TripContext,
@@ -24,7 +25,9 @@ export function parseTripContext(raw: unknown): TripContext | null {
 
 export function tripCards(trip: TripContext | null | undefined): ProactiveCard[] {
   if (!trip) return [];
-  return trip.proactiveCards?.length ? trip.proactiveCards : deriveProactiveCards(trip);
+  return trip.proactiveCards?.length
+    ? normalizeProactiveCards(trip.proactiveCards)
+    : deriveProactiveCards(trip);
 }
 
 export function updateTripContext(
