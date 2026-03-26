@@ -228,10 +228,10 @@ export function isGlobalRailRoute(origin: string, destination: string): boolean 
 }
 
 export function isSupportedBusRoute(origin: string, destination: string): boolean {
-  // Use richer busbud.ts coverage (80+ cities including all UK) — either endpoint match is enough
+  // Use richer busbud.ts coverage (80+ cities including all UK), but require both endpoints
+  // to be recognized so we do not fabricate routes from one known city to an unknown place.
   return isBusRoute(origin, destination)
-    || !!normalize(GLOBAL_BUS_CITIES, origin)
-    || !!normalize(GLOBAL_BUS_CITIES, destination);
+    || (!!normalize(GLOBAL_BUS_CITIES, origin) && !!normalize(GLOBAL_BUS_CITIES, destination));
 }
 
 

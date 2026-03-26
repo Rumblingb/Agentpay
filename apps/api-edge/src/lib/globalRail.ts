@@ -128,9 +128,9 @@ function resolveStation(name: string): { display: string; region: Region; curren
   return GLOBAL_STATIONS[name.toLowerCase().trim()];
 }
 
-/** True if either origin or destination is a known global-rail city (not UK, not EU, not India). */
+/** True only when both endpoints are known global-rail stations/cities. */
 export function isGlobalRoute(origin: string, destination: string): boolean {
-  return !!(resolveStation(origin) || resolveStation(destination));
+  return !!(resolveStation(origin) && resolveStation(destination));
 }
 
 // ── Fares by corridor (local currency, approximate) ───────────────────────

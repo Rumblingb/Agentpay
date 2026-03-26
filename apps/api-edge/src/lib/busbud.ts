@@ -146,9 +146,9 @@ function resolveStation(name: string): { display: string; region: BusRegion; cur
   return BUS_STATIONS[name.toLowerCase().trim()];
 }
 
-/** True if either endpoint is a known bus city. */
+/** True only when both endpoints are known intercity bus cities. */
 export function isBusRoute(origin: string, destination: string): boolean {
-  return !!(resolveStation(origin) || resolveStation(destination));
+  return !!(resolveStation(origin) && resolveStation(destination));
 }
 
 // ── Fares by corridor (local currency, approximate) ───────────────────────
