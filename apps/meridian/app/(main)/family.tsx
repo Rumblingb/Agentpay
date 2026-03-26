@@ -23,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '../../lib/theme';
-import { loadProfileRaw, saveProfile, type FamilyMember, type RailcardType, makeFamilyMemberId } from '../../lib/profile';
+import { loadProfileRaw, saveProfile, type FamilyMember, type Nationality, type RailcardType, makeFamilyMemberId } from '../../lib/profile';
 
 const RAILCARD_OPTIONS: { label: string; value: RailcardType }[] = [
   { label: 'None',              value: 'none' },
@@ -40,6 +40,12 @@ const REL_LABELS: Record<Relationship, string> = {
   child: 'Child (5–15)',
   infant: 'Infant (under 5)',
 };
+
+const NATIONALITY_OPTIONS: { label: string; value: Nationality }[] = [
+  { label: 'British', value: 'uk' },
+  { label: 'Indian', value: 'india' },
+  { label: 'Other', value: 'other' },
+];
 
 // ── Blank member template ─────────────────────────────────────────────────────
 
@@ -112,6 +118,45 @@ function MemberCard({
         keyboardType="numeric"
       />
 
+      {member.relationship !== 'infant' && (
+        <>
+          <Text style={styles.fieldLabel}>Nationality</Text>
+          <View style={styles.pillRow}>
+            {NATIONALITY_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.value}
+                onPress={() => onChange({ ...member, nationality: opt.value })}
+                style={[styles.pill, member.nationality === opt.value && styles.pillActive]}
+              >
+                <Text style={[styles.pillText, member.nationality === opt.value && styles.pillTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.fieldLabel}>Passport / ID number (optional — for flights)</Text>
+          <TextInput
+            style={styles.input}
+            value={member.documentNumber ?? ''}
+            onChangeText={(v) => onChange({ ...member, documentNumber: v || undefined })}
+            placeholder="Add later if a carrier requires it"
+            placeholderTextColor="#4b5563"
+            autoCapitalize="characters"
+          />
+
+          <Text style={styles.fieldLabel}>Document expiry (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={member.documentExpiry ?? ''}
+            onChangeText={(v) => onChange({ ...member, documentExpiry: v || undefined })}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor="#4b5563"
+            keyboardType="numeric"
+          />
+        </>
+      )}
+
       {/* Railcard (adults only) */}
       {member.relationship === 'adult' && (
         <>
@@ -180,6 +225,9 @@ export default function FamilyScreen() {
   const adultCount  = 1 + members.filter(m => m.relationship === 'adult').length;
   const childCount  = members.filter(m => m.relationship === 'child').length;
   const familyRailcardEligible = adultCount >= 2 && childCount >= 1 && childCount <= 4;
+  const missingFlightDocs = members.filter((member) =>
+    member.relationship !== 'infant' && (!member.dateOfBirth || !member.nationality || !member.documentNumber),
+  ).length;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -209,6 +257,20 @@ export default function FamilyScreen() {
             <Ionicons name="ticket-outline" size={14} color="#4ade80" style={{ marginRight: 6 }} />
             <Text style={styles.familyBadgeText}>
               Family & Friends Railcard applies — Bro will apply 1/3 off adult fares + 60% off children automatically
+            </Text>
+          </View>
+        )}
+
+        {members.length > 0 && (
+          <View style={styles.readinessCard}>
+            <View style={styles.readinessHeader}>
+              <Ionicons name="airplane-outline" size={15} color="#38bdf8" />
+              <Text style={styles.readinessTitle}>Flight readiness</Text>
+            </View>
+            <Text style={styles.readinessBody}>
+              {missingFlightDocs === 0
+                ? 'All saved family members have the basics Bro needs for flight pricing and passenger setup.'
+                : `${missingFlightDocs} member${missingFlightDocs === 1 ? '' : 's'} still need date of birth, nationality, or document info for faster flight booking.`}
             </Text>
           </View>
         )}
@@ -265,6 +327,10 @@ const styles = StyleSheet.create({
   subtitle:         { fontSize: 13, color: C.textMuted, lineHeight: 20, marginBottom: 20 },
   familyBadge:      { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#052e16', borderRadius: 8, padding: 12, marginBottom: 20, borderWidth: 1, borderColor: '#166534' },
   familyBadgeText:  { flex: 1, fontSize: 12, color: '#4ade80', lineHeight: 18 },
+  readinessCard:    { backgroundColor: '#081826', borderRadius: 10, borderWidth: 1, borderColor: '#0c4a6e', padding: 12, marginBottom: 18 },
+  readinessHeader:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  readinessTitle:   { fontSize: 12, color: '#38bdf8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  readinessBody:    { fontSize: 12, color: '#7dd3fc', lineHeight: 18 },
   loadingText:      { color: C.textMuted, textAlign: 'center', marginTop: 40 },
   emptyState:       { alignItems: 'center', paddingVertical: 40 },
   emptyText:        { fontSize: 16, color: C.textPrimary, fontWeight: '500', marginTop: 12, marginBottom: 6 },
