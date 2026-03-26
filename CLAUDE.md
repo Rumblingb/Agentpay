@@ -117,6 +117,13 @@ BRO_CLIENT_KEY          # app auth gate (x-bro-key header)
 MAKECOM_WEBHOOK_URL     # ops sheet webhook
 RESEND_API_KEY          # confirmation emails
 ADMIN_EMAIL             # rajiv@agentpay.so
+DUFFEL_API_KEY          # flights — test prefix: duffel_test_, prod: duffel_live_
+TICKETMASTER_API_KEY    # event discovery post-booking
+GOOGLE_MAPS_API_KEY     # nearby places + routes + geocoding
+PERPLEXITY_API_KEY      # Sonar real-time travel intel (opening hours, visa, baggage)
+AVIATIONSTACK_API_KEY   # flight status watch — gate/delay/cancel push alerts
+BUSBUD_API_KEY          # intercity bus live fares (Busbud global, 4500+ carriers)
+OPENTABLE_API_KEY       # restaurant reservations (pending partnership)
 ```
 
 ## EAS Secrets (set via `npx eas secret:create` from `apps/meridian`)

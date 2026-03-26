@@ -45,6 +45,19 @@ type TripRoomRow = {
   share_token: string;
 };
 
+type JourneyLegView = {
+  jobId: string;
+  status: string;
+  mode: 'rail' | 'bus' | 'flight' | 'hotel' | 'other';
+  label: string;
+  from?: string | null;
+  to?: string | null;
+  departureTime?: string | null;
+  arrivalTime?: string | null;
+  operator?: string | null;
+  bookingRef?: string | null;
+};
+
 function normalizeMembers(members: unknown): any[] {
   return Array.isArray(members) ? members : [];
 }
@@ -65,6 +78,116 @@ function appendMemberIfNeeded(members: any[], pushToken?: string, name?: string,
       },
     ],
     added: true,
+  };
+}
+
+function buildJourneyLeg(job: { id: string; status: string; metadata: any }): JourneyLegView {
+  const meta = job.metadata ?? {};
+  const train = meta.trainDetails ?? null;
+  const flight = meta.flightDetails ?? null;
+  const hotel = meta.hotelDetails ?? null;
+  const trip = meta.tripContext ?? null;
+
+  if (flight) {
+    return {
+      jobId: job.id,
+      status: job.status,
+      mode: 'flight',
+      label: `${flight.carrier ?? 'Flight'} ${flight.flightNumber ?? ''}`.trim(),
+      from: flight.origin ?? null,
+      to: flight.destination ?? null,
+      departureTime: flight.departureAt ?? null,
+      arrivalTime: flight.arrivalAt ?? null,
+      operator: flight.carrier ?? null,
+      bookingRef: flight.pnr ?? meta.broRef ?? meta.bookingReference ?? null,
+    };
+  }
+
+  if (hotel) {
+    return {
+      jobId: job.id,
+      status: job.status,
+      mode: 'hotel',
+      label: hotel.bestOption?.name ?? trip?.title ?? 'Hotel',
+      from: hotel.city ?? null,
+      to: hotel.city ?? null,
+      departureTime: hotel.checkIn ?? null,
+      arrivalTime: hotel.checkOut ?? null,
+      operator: hotel.bestOption?.name ?? null,
+      bookingRef: meta.broRef ?? meta.bookingReference ?? null,
+    };
+  }
+
+  if (train) {
+    const mode = train.transportMode === 'bus' ? 'bus' : 'rail';
+    return {
+      jobId: job.id,
+      status: job.status,
+      mode,
+      label: train.operator ?? (mode === 'bus' ? 'Coach' : 'Rail'),
+      from: train.origin ?? null,
+      to: train.destination ?? null,
+      departureTime: train.departureDatetime ?? train.departureTime ?? null,
+      arrivalTime: train.arrivalTime ?? null,
+      operator: train.operator ?? null,
+      bookingRef: meta.broRef ?? meta.bookingReference ?? null,
+    };
+  }
+
+  return {
+    jobId: job.id,
+    status: job.status,
+    mode: 'other',
+    label: trip?.title ?? 'Journey leg',
+    from: trip?.origin ?? null,
+    to: trip?.destination ?? null,
+    departureTime: trip?.departureTime ?? null,
+    arrivalTime: trip?.arrivalTime ?? null,
+    operator: trip?.operator ?? null,
+    bookingRef: trip?.bookingRef ?? meta.broRef ?? meta.bookingReference ?? null,
+  };
+}
+
+async function loadJourneyLegs(
+  sql: ReturnType<typeof createDb>,
+  jobId: string,
+): Promise<{ journeyId: string | null; legs: JourneyLegView[]; anchorMetadata: any; anchorStatus: string }> {
+  const anchorRows = await sql<{ id: string; status: string; metadata: any }[]>`
+    SELECT id, status, metadata
+    FROM payment_intents
+    WHERE id = ${jobId}
+    LIMIT 1
+  `.catch(() => []);
+
+  const anchor = anchorRows[0];
+  if (!anchor) {
+    return { journeyId: null, legs: [], anchorMetadata: {}, anchorStatus: 'unknown' };
+  }
+
+  const journeyId = (anchor.metadata?.journeyId as string | undefined) ?? null;
+  if (!journeyId) {
+    return {
+      journeyId: null,
+      legs: [buildJourneyLeg(anchor)],
+      anchorMetadata: anchor.metadata ?? {},
+      anchorStatus: anchor.status,
+    };
+  }
+
+  const journeyRows = await sql<{ id: string; status: string; metadata: any; created_at: string }[]>`
+    SELECT id, status, metadata, created_at
+    FROM payment_intents
+    WHERE id = ${jobId} OR metadata->>'journeyId' = ${journeyId}
+    ORDER BY
+      COALESCE(NULLIF(metadata->>'legIndex', '')::int, 999),
+      created_at ASC
+  `.catch(() => anchorRows as any);
+
+  return {
+    journeyId,
+    legs: journeyRows.map((row: { id: string; status: string; metadata: any }) => buildJourneyLeg(row)),
+    anchorMetadata: anchor.metadata ?? {},
+    anchorStatus: anchor.status,
   };
 }
 
@@ -222,19 +345,19 @@ tripRoomsRouter.post('/:token/join', async (c) => {
 
     broLog('trip_room_joined', { token, jobId: room.job_id, member: name ?? 'Guest' });
 
-    // Return the job status so they can render the live view
-    const job = await sql<{ status: string; metadata: any }[]>`
-      SELECT status, metadata FROM payment_intents WHERE id = ${room.job_id} LIMIT 1
-    `.catch(() => []);
+    const journey = await loadJourneyLegs(sql, room.job_id);
+    const anchorMeta = journey.anchorMetadata ?? {};
 
     return c.json({
       ok: true,
       jobId: room.job_id,
+      journeyId: journey.journeyId,
       memberCount: nextMembers.length,
-      jobStatus: job[0]?.status ?? null,
-      trainDetails: job[0]?.metadata?.trainDetails ?? null,
-      flightDetails: job[0]?.metadata?.flightDetails ?? null,
-      bookingRef: job[0]?.metadata?.broRef ?? job[0]?.metadata?.bookingReference ?? null,
+      jobStatus: journey.anchorStatus ?? null,
+      trainDetails: anchorMeta.trainDetails ?? null,
+      flightDetails: anchorMeta.flightDetails ?? null,
+      bookingRef: anchorMeta.broRef ?? anchorMeta.bookingReference ?? null,
+      legs: journey.legs,
     });
   } finally {
     await sql.end().catch(() => {});
@@ -255,11 +378,8 @@ tripRoomsRouter.get('/:token', async (c) => {
       return c.json({ error: 'This trip has ended' }, 410);
     }
 
-    const job = await sql<{ status: string; metadata: any }[]>`
-      SELECT status, metadata FROM payment_intents WHERE id = ${room.job_id} LIMIT 1
-    `.catch(() => []);
-
-    const meta      = job[0]?.metadata ?? {};
+    const journey   = await loadJourneyLegs(sql, room.job_id);
+    const meta      = journey.anchorMetadata ?? {};
     const train     = meta.trainDetails ?? null;
     const flight    = meta.flightDetails ?? null;
     const members   = normalizeMembers(room.members);
@@ -267,7 +387,8 @@ tripRoomsRouter.get('/:token', async (c) => {
     return c.json({
       shareToken:   token,
       jobId:        room.job_id,
-      status:       job[0]?.status ?? 'unknown',
+      journeyId:    journey.journeyId,
+      status:       journey.anchorStatus ?? 'unknown',
       memberCount:  members.length,
       members:      members.map((m: any) => ({ name: m.name ?? 'Guest', joinedAt: m.joinedAt })),
       expiresAt:    room.expires_at,
@@ -290,6 +411,7 @@ tripRoomsRouter.get('/:token', async (c) => {
         arrivalAt:   flight.arrivalAt,
         pnr:         flight.pnr ?? null,
       } : null,
+      legs: journey.legs,
     });
   } finally {
     await sql.end().catch(() => {});
@@ -312,17 +434,24 @@ tripRoomsRouter.get('/view/:token', async (c) => {
     if (new Date(room.expires_at) < new Date()) {
       return new Response(notFoundHtml('This trip has ended.'), { headers: { 'Content-Type': 'text/html' }, status: 410 });
     }
-    const job  = await sql<{ status: string; metadata: any }[]>`
-      SELECT status, metadata FROM payment_intents WHERE id = ${room.job_id} LIMIT 1
-    `.catch(() => []);
-
-    const meta   = job[0]?.metadata ?? {};
+    const journey = await loadJourneyLegs(sql, room.job_id);
+    const meta   = journey.anchorMetadata ?? {};
     const train  = meta.trainDetails ?? null;
     const flight = meta.flightDetails ?? null;
-    const status = job[0]?.status ?? 'unknown';
+    const hotel  = meta.hotelDetails  ?? null;
+    const status = journey.anchorStatus ?? 'unknown';
     const ref    = meta.broRef ?? meta.bookingReference ?? null;
 
-    const html = tripRoomHtml({ token, train, flight, status, ref, memberCount: normalizeMembers(room.members).length });
+    const html = tripRoomHtml({
+      token,
+      train,
+      flight,
+      hotel,
+      status,
+      ref,
+      memberCount: normalizeMembers(room.members).length,
+      legs: journey.legs,
+    });
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   } finally {
     await sql.end().catch(() => {});
@@ -379,16 +508,40 @@ interface TripHtmlParams {
   token: string;
   train: any;
   flight: any;
+  hotel: any;
   status: string;
   ref: string | null;
   memberCount: number;
+  legs?: JourneyLegView[];
 }
 
-function tripRoomHtml({ token, train, flight, status, ref, memberCount }: TripHtmlParams): string {
+function formatLegTime(value?: string | null): string {
+  if (!value) return '';
+  const iso = Date.parse(value);
+  if (Number.isFinite(iso)) {
+    return new Date(iso).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
+  }
+  return value;
+}
+
+function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, legs = [] }: TripHtmlParams): string {
   const statusLabel = status === 'completed' ? 'Ticketed' : status === 'failed' ? 'Failed' : 'Securing';
   const statusColor = status === 'completed' ? '#4ade80' : status === 'failed' ? '#f87171' : '#facc15';
 
   let journeyHtml = '';
+  const timelineHtml = legs.length > 1
+    ? `<div class="timeline">${legs.map((leg, index) => `
+        <div class="timeline-leg">
+          <div class="timeline-top">
+            <span class="timeline-index">Leg ${index + 1}</span>
+            <span class="timeline-mode">${leg.mode}</span>
+          </div>
+          <div class="timeline-label">${leg.label}</div>
+          ${(leg.from || leg.to) ? `<div class="timeline-route">${leg.from ?? ''}${leg.from || leg.to ? ' &rarr; ' : ''}${leg.to ?? ''}</div>` : ''}
+          ${(leg.departureTime || leg.arrivalTime) ? `<div class="timeline-time">${formatLegTime(leg.departureTime)}${leg.arrivalTime ? ` -> ${formatLegTime(leg.arrivalTime)}` : ''}</div>` : ''}
+        </div>
+      `).join('')}</div>`
+    : '';
 
   if (train) {
     const dep = train.departureTime ?? '';
@@ -406,6 +559,15 @@ function tripRoomHtml({ token, train, flight, status, ref, memberCount }: TripHt
       <div class="row"><span class="label">Flight</span><span class="val">${flight.carrier ?? ''} ${flight.flightNumber ?? ''}</span></div>
       ${flight.departureAt ? `<div class="row"><span class="label">Departs</span><span class="val">${new Date(flight.departureAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span></div>` : ''}
       ${flight.pnr ? `<div class="row"><span class="label">PNR</span><span class="val" style="color:#4ade80;font-weight:700;letter-spacing:2px">${flight.pnr}</span></div>` : ''}
+    `;
+  } else if (hotel?.bestOption) {
+    const h = hotel.bestOption;
+    journeyHtml = `
+      <div class="row"><span class="label">Hotel</span><span class="val">${h.name ?? ''}</span></div>
+      <div class="row"><span class="label">City</span><span class="val">${hotel.city ?? ''}</span></div>
+      <div class="row"><span class="label">Check-in</span><span class="val">${hotel.checkIn ?? ''}</span></div>
+      <div class="row"><span class="label">Check-out</span><span class="val">${hotel.checkOut ?? ''}</span></div>
+      <div class="row"><span class="label">Rate</span><span class="val">${h.currency ?? ''} ${h.ratePerNight ?? ''}/night</span></div>
     `;
   }
 
@@ -430,6 +592,13 @@ function tripRoomHtml({ token, train, flight, status, ref, memberCount }: TripHt
     .row:last-child{border-bottom:none}
     .label{font-size:13px;color:#94a3b8}
     .val{font-size:13px;color:#f8fafc;font-weight:500;text-align:right;max-width:60%}
+    .timeline{display:grid;gap:10px;margin-top:14px}
+    .timeline-leg{background:#0b1220;border:1px solid #1e293b;border-radius:10px;padding:12px}
+    .timeline-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+    .timeline-index{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px}
+    .timeline-mode{font-size:11px;color:#4ade80;text-transform:uppercase;letter-spacing:.6px}
+    .timeline-label{font-size:13px;font-weight:600;color:#f8fafc;margin-bottom:4px}
+    .timeline-route,.timeline-time{font-size:12px;color:#94a3b8}
     ${ref ? `.ref{background:#052e16;border:1px solid #166534;border-radius:8px;padding:12px 16px;text-align:center;margin-bottom:16px}
     .ref-label{font-size:11px;color:#4ade80;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
     .ref-val{font-size:22px;font-weight:700;letter-spacing:4px;color:#f8fafc}` : ''}
