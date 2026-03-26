@@ -1,11 +1,11 @@
 /**
- * My Trips — past bookings history
+ * My Trips - past bookings history
  *
  * Reads from AsyncStorage (bro.trips) which is written by the receipt screen
  * every time a booking is confirmed. Tap any trip to re-open its receipt.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,38 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { loadTrips as loadTripsFromStorage, type TripEntry } from '../../lib/storage';
+import { formatMoneyAmount } from '../../lib/money';
+
+function tripModeMeta(trip: TripEntry) {
+  switch (trip.tripContext?.mode) {
+    case 'flight':
+      return { icon: 'airplane-outline', iconBg: '#172554', label: 'Flight' };
+    case 'bus':
+      return { icon: 'bus-outline', iconBg: '#1f2937', label: 'Coach' };
+    case 'local':
+      return { icon: 'subway-outline', iconBg: '#1f2937', label: 'Local' };
+    case 'hotel':
+      return { icon: 'bed-outline', iconBg: '#2d1b69', label: 'Stay' };
+    case 'dining':
+      return { icon: 'restaurant-outline', iconBg: '#3f1d2e', label: 'Dining' };
+    case 'event':
+      return { icon: 'ticket-outline', iconBg: '#3f2d0d', label: 'Event' };
+    case 'mixed':
+      return { icon: 'navigate-outline', iconBg: '#0f3d2e', label: 'Multi-leg' };
+    case 'rail':
+    default:
+      return { icon: 'train-outline', iconBg: '#0a1a0a', label: 'Rail' };
+  }
+}
+
+function tripMetaLine(trip: TripEntry) {
+  const meta = tripModeMeta(trip);
+  return [meta.label, trip.operator].filter(Boolean).join(' · ');
+}
 
 export default function TripsScreen() {
-  const [trips,     setTrips]     = useState<TripEntry[]>([]);
-  const [loading,   setLoading]   = useState(true);
+  const [trips, setTrips] = useState<TripEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadTrips = async () => {
@@ -36,18 +64,18 @@ export default function TripsScreen() {
     }
   };
 
-  // Reload every time this screen comes into focus
   useFocusEffect(useCallback(() => { loadTrips(); }, []));
 
   const openReceipt = (trip: TripEntry) => {
     const params: Record<string, string> = { intentId: trip.intentId };
-    if (trip.bookingRef)    params.bookingRef    = trip.bookingRef;
-    if (trip.fromStation)   params.fromStation   = trip.fromStation;
-    if (trip.toStation)     params.toStation     = trip.toStation;
+    if (trip.bookingRef) params.bookingRef = trip.bookingRef;
+    if (trip.fromStation) params.fromStation = trip.fromStation;
+    if (trip.toStation) params.toStation = trip.toStation;
     if (trip.departureTime) params.departureTime = trip.departureTime;
-    if (trip.platform)      params.platform      = trip.platform;
-    if (trip.operator)      params.operator      = trip.operator;
-    if (trip.tripContext)   params.tripContext   = JSON.stringify(trip.tripContext);
+    if (trip.platform) params.platform = trip.platform;
+    if (trip.operator) params.operator = trip.operator;
+    if (trip.tripContext) params.tripContext = JSON.stringify(trip.tripContext);
+    if (trip.shareToken) params.shareToken = trip.shareToken;
     router.push({ pathname: '/(main)/receipt/[intentId]', params });
   };
 
@@ -71,25 +99,25 @@ export default function TripsScreen() {
 
       {trips.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>🚂</Text>
+          <Ionicons name="navigate-circle-outline" size={52} color="#818cf8" style={styles.emptyIcon} />
           <Text style={styles.emptyTitle}>No journeys yet</Text>
-          <Text style={styles.emptyBody}>When Bro books a trip for you, it will live here.</Text>
+          <Text style={styles.emptyBody}>Confirmed trips stay here so you can reopen them without explaining the route again.</Text>
           <Pressable onPress={() => router.replace('/(main)/converse')} style={styles.bookBtn}>
-            <Text style={styles.bookBtnText}>Start with Bro</Text>
+            <Text style={styles.bookBtnText}>Ask Bro</Text>
           </Pressable>
         </View>
       ) : (
         <FlatList
           data={trips}
-          keyExtractor={t => t.intentId}
+          keyExtractor={(t) => t.intentId}
           contentContainerStyle={styles.list}
-          refreshControl={
+          refreshControl={(
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => { setRefreshing(true); loadTrips(); }}
               tintColor="#6366f1"
             />
-          }
+          )}
           renderItem={({ item }) => <TripCard trip={item} onPress={() => openReceipt(item)} />}
         />
       )}
@@ -100,38 +128,43 @@ export default function TripsScreen() {
 function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
   const date = new Date(trip.savedAt);
   const dateStr = date.toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
   });
+  const meta = tripModeMeta(trip);
+  const metaLine = tripMetaLine(trip);
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
-      <View style={styles.cardLeft}>
-        <Text style={styles.cardIcon}>🚂</Text>
+      <View style={[styles.cardLeft, { backgroundColor: meta.iconBg }]}>
+        <Ionicons name={meta.icon as any} size={18} color="#e5e7eb" />
       </View>
       <View style={styles.cardBody}>
         {trip.fromStation && trip.toStation ? (
           <Text style={styles.cardRoute} numberOfLines={1}>
-            {trip.fromStation} → {trip.toStation}
+            {trip.fromStation} {'->'} {trip.toStation}
           </Text>
         ) : (
           <Text style={styles.cardRoute} numberOfLines={1}>{trip.title ?? 'Journey'}</Text>
         )}
         <View style={styles.cardMeta}>
-          {trip.departureTime && (
+          {metaLine ? (
+            <Text style={styles.cardMetaText} numberOfLines={1}>{metaLine}</Text>
+          ) : null}
+          {trip.departureTime ? (
             <Text style={styles.cardMetaText}>{trip.departureTime}</Text>
-          )}
-          {trip.bookingRef && (
+          ) : null}
+          {trip.bookingRef ? (
             <Text style={styles.cardRef} numberOfLines={1}>{trip.bookingRef}</Text>
-          )}
+          ) : null}
         </View>
         <Text style={styles.cardDate}>{dateStr}</Text>
       </View>
       <View style={styles.cardRight}>
         {trip.fiatAmount != null && trip.currencySymbol ? (
           <Text style={styles.cardAmount}>
-            {trip.currencySymbol}{trip.currencyCode === 'INR'
-              ? Math.round(trip.fiatAmount).toLocaleString('en-IN')
-              : Number(trip.fiatAmount).toFixed(2)}
+            {trip.currencySymbol}{formatMoneyAmount(Number(trip.fiatAmount), trip.currencyCode)}
           </Text>
         ) : (
           <Text style={styles.cardAmount}>{trip.amount}</Text>
@@ -173,18 +206,16 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#0a1a0a',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardIcon:   { fontSize: 18 },
-  cardBody:   { flex: 1 },
-  cardRoute:  { fontSize: 14, fontWeight: '600', color: '#f9fafb', marginBottom: 4 },
-  cardMeta:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  cardBody: { flex: 1 },
+  cardRoute: { fontSize: 14, fontWeight: '600', color: '#f9fafb', marginBottom: 4 },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' },
   cardMetaText: { fontSize: 12, color: '#6b7280' },
-  cardRef:    { fontSize: 11, color: '#4ade80', fontFamily: 'monospace' },
-  cardDate:   { fontSize: 11, color: '#374151' },
-  cardRight:  { alignItems: 'flex-end' },
+  cardRef: { fontSize: 11, color: '#4ade80', fontFamily: 'monospace' },
+  cardDate: { fontSize: 11, color: '#374151' },
+  cardRight: { alignItems: 'flex-end' },
   cardAmount: { fontSize: 15, fontWeight: '700', color: '#f9fafb' },
   cardCurrency: { fontSize: 11, color: '#6b7280' },
 
@@ -194,9 +225,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 40,
   },
-  emptyIcon:  { fontSize: 48, marginBottom: 16 },
+  emptyIcon: { marginBottom: 16 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: '#f9fafb', marginBottom: 8 },
-  emptyBody:  { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20, marginBottom: 32 },
+  emptyBody: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20, marginBottom: 32 },
   bookBtn: {
     backgroundColor: '#111',
     borderRadius: 12,

@@ -8,8 +8,8 @@
  * Phase 2: execute — plan + biometric confirmation → server → hire + narration
  */
 
-import { conciergeIntent, conciergeConfirm, type ConciergeResponse, type ConciergePlanItem } from './api';
-export type { ConciergeResponse, ConciergePlanItem };
+import { conciergeIntent, conciergeConfirm, type ConciergeResponse, type ConciergePlanItem, type BroTravelProfile } from './api';
+export type { ConciergeResponse, ConciergePlanItem, BroTravelProfile };
 
 // ── Legacy type stubs (used by store.ts) ─────────────────────────────────────
 // These types exist for backwards compatibility with the store shape.
@@ -40,7 +40,7 @@ export interface ConciergeNeedsConfirm {
 export async function planIntent(params: {
   transcript: string;
   hirerId: string;
-  travelProfile?: Record<string, unknown>;
+  travelProfile?: BroTravelProfile;
 }): Promise<ConciergeResponse> {
   return conciergeIntent(params);
 }
@@ -51,7 +51,7 @@ export async function planIntent(params: {
 export async function executeIntent(params: {
   transcript: string;
   hirerId: string;
-  travelProfile?: Record<string, unknown>;
+  travelProfile?: BroTravelProfile;
   plan: ConciergePlanItem[];
 }): Promise<ConciergeResponse> {
   return conciergeConfirm(params);

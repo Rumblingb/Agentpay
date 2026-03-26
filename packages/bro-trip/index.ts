@@ -1,4 +1,4 @@
-export type TripMode = 'rail' | 'flight' | 'hotel' | 'local' | 'dining' | 'event' | 'mixed';
+export type TripMode = 'rail' | 'bus' | 'flight' | 'hotel' | 'local' | 'dining' | 'event' | 'mixed';
 
 export type TripPhase =
   | 'planning'
@@ -143,14 +143,14 @@ export function deriveProactiveCards(
   const cards: ProactiveCard[] = [];
   const mins = minutesUntil(trip.watchState?.leaveNowAt ?? trip.departureTime, nowIso);
 
-  if (mins != null && mins >= 0 && mins <= 90 && trip.phase !== 'arrived') {
+  if (mins != null && mins >= 0 && mins <= 60 && trip.phase !== 'arrived') {
     cards.push({
       id: 'leave-now',
       kind: 'leave_now',
       title: mins <= 5 ? 'Leave now' : `Leave in ${mins} min`,
       body: trip.origin && trip.destination
         ? `${trip.origin} to ${trip.destination} is coming up soon.`
-        : `${trip.title} is coming up soon.`,
+        : `${trip.title} starts soon.`,
       severity: mins <= 15 ? 'warning' : 'info',
       ctaLabel: trip.routeData ? 'Open map' : undefined,
     });
@@ -181,7 +181,7 @@ export function deriveProactiveCards(
       id: 'delay-risk',
       kind: 'delay_risk',
       title: 'Delay risk',
-      body: 'Timing looks tight. Bro should keep watching this leg.',
+      body: 'Timing looks tight on this leg.',
       severity: 'warning',
     });
   }
@@ -191,7 +191,7 @@ export function deriveProactiveCards(
       id: 'connection-risk',
       kind: 'connection_risk',
       title: 'Connection risk',
-      body: 'A later-running leg could put the onward connection at risk.',
+      body: 'The onward connection could get tight.',
       severity: 'warning',
     });
   }
@@ -206,25 +206,46 @@ export function deriveProactiveCards(
     });
   }
 
-  if ((trip.finalLegSummary || trip.routeData || (trip.nearbyPlaces?.length ?? 0) > 0) && trip.phase !== 'planning') {
+  const hasUrgentCard = cards.some((card) => card.severity === 'warning');
+  if (
+    !hasUrgentCard
+    && (trip.finalLegSummary || trip.routeData || (trip.nearbyPlaces?.length ?? 0) > 0)
+    && ['booked', 'in_transit', 'arriving', 'arrived'].includes(trip.phase)
+  ) {
     cards.push({
       id: 'destination',
       kind: 'destination_suggestion',
-      title: trip.routeData ? 'Final leg ready' : 'Useful at destination',
+      title: trip.routeData ? 'Final stretch ready' : 'At destination',
       body: trip.finalLegSummary
         ? trip.finalLegSummary
         : trip.finalDestination
-        ? `Bro can keep guiding you to ${trip.finalDestination}.`
-        : 'Bro can keep the trip moving after arrival.',
+        ? `Bro can guide you the rest of the way to ${trip.finalDestination}.`
+        : 'Bro can keep the last stretch moving after arrival.',
       severity: 'info',
       ctaLabel: trip.routeData || (trip.nearbyPlaces?.length ?? 0) > 0 ? 'Open map' : undefined,
     });
   }
 
   const seen = new Set<ProactiveCardKind>();
-  return cards.filter((card) => {
-    if (seen.has(card.kind)) return false;
-    seen.add(card.kind);
-    return true;
-  });
+  const priority: Record<ProactiveCardKind, number> = {
+    platform_changed: 1,
+    gate_changed: 2,
+    leave_now: 3,
+    connection_risk: 4,
+    delay_risk: 5,
+    check_in: 6,
+    destination_suggestion: 7,
+  };
+  return cards
+    .filter((card) => {
+      if (seen.has(card.kind)) return false;
+      seen.add(card.kind);
+      return true;
+    })
+    .sort((a, b) => {
+      const severityRank = (value: ProactiveCard['severity']) =>
+        value === 'warning' ? 0 : value === 'success' ? 1 : 2;
+      return severityRank(a.severity) - severityRank(b.severity)
+        || priority[a.kind] - priority[b.kind];
+    });
 }

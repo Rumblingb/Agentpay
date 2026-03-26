@@ -505,7 +505,7 @@ router.post('/checkout-session', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { jobId, amountFiat, currencyCode, description } = body;
+  const { jobId, journeyId, amountFiat, currencyCode, description } = body;
   if (!jobId || typeof amountFiat !== 'number' || amountFiat <= 0) {
     return c.json({ error: 'jobId and amountFiat required' }, 400);
   }
@@ -527,6 +527,7 @@ router.post('/checkout-session', async (c) => {
     success_url:                                   successUrl,
     cancel_url:                                    cancelUrl,
     'metadata[jobId]':                             jobId,
+    ...(journeyId ? { 'metadata[journeyId]': journeyId } : {}),
     'metadata[source]':                            'bro_app',
   });
 
@@ -555,8 +556,12 @@ router.post('/checkout-session', async (c) => {
       SET metadata = metadata || ${JSON.stringify({
         paymentProvider: 'stripe',
         stripeCheckoutSessionId: session.id,
+        journeyId: journeyId ?? null,
       })}::jsonb
-      WHERE id = ${jobId}
+      WHERE (
+        id = ${jobId}
+        OR (${journeyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${journeyId ?? ''})
+      )
         AND metadata->>'protocol' = 'marketplace_hire'
     `;
   } catch {
@@ -580,7 +585,7 @@ router.post('/upi-payment-link', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { jobId, amountInr, description, customerName, customerPhone, customerEmail } = body;
+  const { jobId, journeyId, amountInr, description, customerName, customerPhone, customerEmail } = body;
   if (!jobId || typeof amountInr !== 'number' || amountInr <= 0) {
     return c.json({ error: 'jobId and amountInr required' }, 400);
   }
@@ -593,7 +598,7 @@ router.post('/upi-payment-link', async (c) => {
       description: description ?? 'Bro booking',
       receipt: jobId,
       referenceId: jobId,
-      notes: { jobId, source: 'bro_app' },
+      notes: { jobId, journeyId, source: 'bro_app' },
       callbackUrl: successUrl,
       customerName: typeof customerName === 'string' ? customerName : undefined,
       customerPhone: typeof customerPhone === 'string' ? customerPhone : undefined,
@@ -608,8 +613,12 @@ router.post('/upi-payment-link', async (c) => {
           paymentProvider: 'razorpay',
           razorpayPaymentLinkId: result.paymentLinkId,
           razorpayReferenceId: jobId,
+          journeyId: journeyId ?? null,
         })}::jsonb
-        WHERE id = ${jobId}
+        WHERE (
+          id = ${jobId}
+          OR (${journeyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${journeyId ?? ''})
+        )
           AND metadata->>'protocol' = 'marketplace_hire'
       `;
     } finally {

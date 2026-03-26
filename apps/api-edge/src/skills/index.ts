@@ -299,63 +299,72 @@ const hotelSkill: SkillDefinition = {
   toolName: 'book_hotel',
   category: 'accommodation',
   displayName: 'HotelAgent',
-  description: 'Find and book hotels, B&Bs, and serviced apartments. Covers UK, Europe, and major global cities.',
+  description: 'Find and book hotels. Returns 3 real options (budget/mid/luxury) with nightly rates in local currency via Xotelo free-tier price aggregation. Cities covered: London, Paris, Tokyo, New York, Bangkok, Singapore, Rome, Barcelona, Amsterdam, Sydney, Dubai, Bali, Berlin, Istanbul, Prague — same-day and advance booking.',
   requiredProfileFields: ['legalName', 'email', 'phone'],
   inputSchema: {
     type: 'object',
     required: ['location', 'check_in', 'check_out'],
     properties: {
-      location:   { type: 'string', description: 'City, area, or address near the hotel' },
-      check_in:   { type: 'string', description: 'Check-in date (ISO or natural language)' },
-      check_out:  { type: 'string', description: 'Check-out date (ISO or natural language)' },
-      budget_gbp: { type: 'number', description: 'Maximum budget per night in GBP' },
-      guests:     { type: 'number', description: 'Number of guests (default 1)' },
-      preference: { type: 'string', description: 'Preferences like "central", "near station", "quiet", "with breakfast"' },
+      location:   { type: 'string', description: 'City where the user needs a hotel (e.g. "London", "Tokyo", "Bangkok")' },
+      check_in:   { type: 'string', description: 'Check-in date — ISO (YYYY-MM-DD) or natural language ("tonight", "tomorrow", "Friday")' },
+      check_out:  { type: 'string', description: 'Check-out date — ISO or natural language. If user says "2 nights" calculate from check-in.' },
+      rooms:      { type: 'number', description: 'Number of rooms (default 1)' },
+      stars:      { type: 'number', description: 'Preferred star rating (3, 4, or 5). Omit to return budget/mid/luxury spread.' },
+      guests:     { type: 'number', description: 'Number of guests (default 1) — informational only' },
+      preference: { type: 'string', description: 'Optional preferences: "central", "near station", "quiet", "with breakfast", "near airport"' },
     },
   },
   skillDoc: `# HotelAgent
-Finds and books hotels, B&Bs, and serviced apartments worldwide.
+Searches for hotels using Xotelo free-tier price aggregation (no API key required).
+Returns 3 options — budget/mid/luxury — with nightly rates in local currency.
+
+## Cities covered (15+)
+London (GBP), Paris (EUR), Tokyo (JPY), New York (USD), Bangkok (THB),
+Singapore (SGD), Rome (EUR), Barcelona (EUR), Amsterdam (EUR), Sydney (AUD),
+Dubai (AED), Bali (IDR), Berlin (EUR), Istanbul (EUR), Prague (CZK).
+
+## Star range
+- 3★ budget: clean, good location, value for money
+- 4★ mid: comfortable, often includes breakfast, near transport
+- 5★ luxury: premium service, landmark properties
 
 ## Handles
-- Hotels, guesthouses, and serviced apartments
-- Budget to luxury tiers
-- UK, Europe, and major global cities
-- Flexible and non-refundable rates
+- Same-day and advance booking (any future date)
+- 1–7+ night stays
+- Single and multi-room bookings
+- Budget, mid-range, and luxury tiers
+- Local currency display
 
 ## Cannot handle
-- Hostels or dormitory bookings
-- Vacation rentals (Airbnb-style)
+- Hostel dorm beds
+- Vacation rentals / Airbnb-style properties
 - Long-stay (30+ nights)
 - Group blocks of 10+ rooms
+- Cities not in the covered list (ask Claude to apologise and suggest nearest covered city)
 
 ## User input edge cases — handle all of these gracefully
 
-**No check-out date** ("hotel in Manchester tonight"):
+**No check-out date** ("hotel in Tokyo tonight"):
 → Ask: "How many nights?"
 
-**No budget given**:
-→ Search mid-range (£80–150/night UK, ₹3000–8000 India). Present best option with price.
+**"2 nights from Friday"**:
+→ Set check_in = Friday, check_out = Sunday. Pass both.
 
-**"Cheap" / "cheapest"**:
-→ Find lowest available, present it with name and price. Flag if it's far from centre.
+**"Cheap" / "budget"**:
+→ Set stars=3 or return sorted by price ascending.
 
-**"Nice" / "good" / "decent"**:
-→ 4-star or equivalent. Present the best-rated mid-range option.
+**"Nice" / "luxury"**:
+→ Set stars=5 or return top option.
 
-**Location too broad** ("London"):
-→ Ask: "Central, near a specific station, or near somewhere in particular?"
+**City not covered**:
+→ "I can search hotels in [nearest covered city] — want me to try there instead?"
 
-**No availability**:
-→ "Nothing available those dates. Want me to check nearby areas or different dates?"
-
-**User wants breakfast included**:
-→ Add "with breakfast" to preference. If unavailable, flag it.
-
-**User doesn't specify guests**:
-→ Default to 1 guest.
+**No rooms specified**:
+→ Default rooms=1.
 
 ## Output
-Returns hotel name, address, booking reference, nightly rate, total cost, and check-in instructions.`,
+Returns 3 options: hotel name, area, star rating, nightly rate (local currency), total for the stay.
+Ops team handles the actual booking confirmation.`,
 };
 
 // ── Taxi / ride booking ──────────────────────────────────────────────────────

@@ -94,6 +94,9 @@ export function shouldDispatchToOpenClaw(metadata: Record<string, unknown>): Ope
   }
 
   const td = asRecord(metadata.trainDetails);
+  if (pickString(td.transportMode) === 'bus') {
+    return { ok: false, reason: 'bus jobs are not eligible for OpenClaw' };
+  }
   const params = firstPlanParams(metadata);
   const flightDetails = asRecord(metadata.flightDetails);
   const hasRailShape = !!pickString(td.origin, td.destination, params.fromStation, params.toStation, params.origin, params.destination);
@@ -106,6 +109,9 @@ export function shouldDispatchToOpenClaw(metadata: Record<string, unknown>): Ope
   const market = pickString(td.country, asRecord(metadata.completionProof).country);
   if (market === 'eu') {
     return { ok: false, reason: 'eu jobs are not yet supported by OpenClaw dispatch' };
+  }
+  if (market === 'global') {
+    return { ok: false, reason: 'global jobs are not eligible for OpenClaw dispatch' };
   }
 
   if (!hasRailShape) {

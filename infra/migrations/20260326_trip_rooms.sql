@@ -8,7 +8,7 @@
 
 CREATE TABLE IF NOT EXISTS trip_rooms (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id       text        NOT NULL REFERENCES payment_intents(id) ON DELETE CASCADE,
+  job_id       uuid        NOT NULL REFERENCES payment_intents(id) ON DELETE CASCADE,
   share_token  text        NOT NULL UNIQUE,
   members      jsonb       NOT NULL DEFAULT '[]',
   expires_at   timestamptz NOT NULL,

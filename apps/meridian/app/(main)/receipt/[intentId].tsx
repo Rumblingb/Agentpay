@@ -27,6 +27,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt, reportIssue, registerJobWatch } from '../../../lib/api';
+import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
@@ -38,6 +39,16 @@ const QR_SIZE = Math.min(SCREEN_W - 80, 280);
 
 function qrUrl(ref: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(ref)}&format=png&margin=2`;
+}
+
+function receiptModeMeta(trip: TripContext | null, hasFlightDetails: boolean) {
+  if (trip?.mode === 'mixed') return { icon: 'navigate-outline' as const, title: 'Journey details', noun: 'journey' };
+  if (trip?.mode === 'bus') return { icon: 'bus-outline' as const, title: 'Coach details', noun: 'coach' };
+  if (trip?.mode === 'local') return { icon: 'subway-outline' as const, title: 'Local details', noun: 'route' };
+  if (trip?.mode === 'flight' || hasFlightDetails) {
+    return { icon: 'airplane-outline' as const, title: 'Flight details', noun: 'flight' };
+  }
+  return { icon: 'train-outline' as const, title: 'Journey details', noun: 'service' };
 }
 
 export default function ReceiptScreen() {
@@ -57,6 +68,7 @@ export default function ReceiptScreen() {
     cancelled?: string;
     flightData?: string;
     tripContext?: string;
+    shareToken?: string;
   }>();
   const {
     intentId, bookingRef, departureTime, departureDatetime, platform, operator,
@@ -65,6 +77,7 @@ export default function ReceiptScreen() {
     fiatAmount: fiatAmountParam, currencySymbol: symParam, currencyCode: codeParam,
     cancelled,
     tripContext: tripContextParam,
+    shareToken: shareTokenParam,
   } = params;
 
   const isCancelled = cancelled === 'true';
@@ -100,9 +113,11 @@ export default function ReceiptScreen() {
   const [issueSent,    setIssueSent]    = useState(false);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [tripContext, setTripContext] = useState<TripContext | null>(() => parseTripContext(tripContextParam));
+  const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const cards = tripCards(tripContext);
+  const modeMeta = receiptModeMeta(tripContext, !!flightDetails);
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -125,6 +140,9 @@ export default function ReceiptScreen() {
         }
         if (trip.tripContext) {
           setTripContext(trip.tripContext);
+        }
+        if (trip.shareToken) {
+          setShareToken(trip.shareToken);
         }
       }
     });
@@ -200,13 +218,14 @@ export default function ReceiptScreen() {
       currencySymbol: fiatSymbol,
       currencyCode:  fiatCode,
       tripContext:   nextTripContext,
+      shareToken,
       savedAt:       new Date().toISOString(),
     };
     void upsertTrip(entry);
     void saveActiveTrip({
       intentId,
       status: 'ticketed',
-      title: fromStation && toStation ? `${fromStation} → ${toStation}` : 'Train journey',
+      title: fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey',
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
@@ -218,9 +237,10 @@ export default function ReceiptScreen() {
       currencySymbol: fiatSymbol,
       currencyCode: fiatCode,
       tripContext: nextTripContext,
+      shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext]);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -248,7 +268,7 @@ export default function ReceiptScreen() {
         platform      ? `Platform: ${platform}`     : null,
         preservedFinalLegSummary ? `Next: ${preservedFinalLegSummary}` : null,
         fiatAmountNum != null
-          ? `Amount: ${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
+          ? `Amount: ${formatMoney(fiatAmountNum, fiatSymbol, fiatCode)}`
           : null,
         '',
         'agentpay.gg',
@@ -301,8 +321,8 @@ export default function ReceiptScreen() {
           <View style={styles.cancelBanner}>
             <Ionicons name="warning" size={18} color="#fbbf24" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.cancelBannerTitle}>Train cancelled</Text>
-              <Text style={styles.cancelBannerBody}>Ask Bro for the next available service on this route.</Text>
+              <Text style={styles.cancelBannerTitle}>This {modeMeta.noun} was cancelled</Text>
+              <Text style={styles.cancelBannerBody}>Ask Bro for the next available option on this route.</Text>
             </View>
             <Pressable
               style={styles.cancelBannerBtn}
@@ -327,7 +347,7 @@ export default function ReceiptScreen() {
 
             <Text style={styles.amount}>
               {fiatAmountNum != null
-                ? `${fiatSymbol}${fiatCode === 'INR' ? Math.round(fiatAmountNum).toLocaleString('en-IN') : fiatAmountNum.toFixed(2)}`
+                ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
                 : receipt
                 ? `${fiatSymbol}${receipt.amount}`
                 : 'Journey ready'}
@@ -336,7 +356,7 @@ export default function ReceiptScreen() {
               {fromStation && toStation
                 ? `${fromStation} → ${toStation}`
                 : receipt
-                ? 'Booking confirmed'
+                ? 'Ready to move'
                 : 'Saved on this device'}
             </Text>
 
@@ -361,17 +381,43 @@ export default function ReceiptScreen() {
               )}
             </View>
 
-            {/* Journey Details + QR */}
-            {hasJourneyDetails && (
+            {/* Journey Details + QR — multi-leg timeline or single-leg card */}
+            {hasJourneyDetails && flightDetails ? (
+              /* Multi-leg: train + flight timeline */
+              <MultiLegTimeline
+                trainLeg={fromStation && toStation ? {
+                  icon: '🚂',
+                  operator: operator ?? undefined,
+                  departureTime: departureTime ?? undefined,
+                  origin: fromStation,
+                  destination: toStation,
+                  fareGbp: fiatAmountNum ?? undefined,
+                } : null}
+                flightLeg={{
+                  icon: '✈',
+                  carrier: flightDetails.carrier,
+                  flightNumber: flightDetails.flightNumber,
+                  departureAt: flightDetails.departureAt,
+                  origin: flightDetails.origin,
+                  destination: flightDetails.destination,
+                  totalAmount: flightDetails.totalAmount,
+                  currency: flightDetails.currency,
+                  pnr: flightDetails.pnr,
+                }}
+                bookingRef={bookingRef ?? undefined}
+                onShowTicket={bookingRef ? () => setShowTicket(true) : undefined}
+                qrLoading={qrLoading}
+              />
+            ) : hasJourneyDetails ? (
               <View style={styles.journeyCard}>
                 <View style={styles.journeyHeader}>
                   <Text style={styles.journeyIcon}>🚂</Text>
-                  <Text style={styles.journeyTitle}>Journey Details</Text>
+                  <Text style={styles.journeyTitle}>{modeMeta.title}</Text>
                 </View>
 
                 {bookingRef && (
                   <View style={styles.journeyRefWrap}>
-                    <Text style={styles.journeyRefLabel}>Booking Reference</Text>
+                    <Text style={styles.journeyRefLabel}>Reference</Text>
                     <Text style={styles.journeyRef}>{bookingRef}</Text>
                   </View>
                 )}
@@ -409,18 +455,18 @@ export default function ReceiptScreen() {
                     ) : (
                       <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
                     )}
-                    <Text style={styles.showTicketText}>Show Ticket QR</Text>
+                    <Text style={styles.showTicketText}>Show code</Text>
                   </Pressable>
                 )}
               </View>
-            )}
+            ) : null}
 
-            {/* ✈ Flight card */}
-            {flightDetails && (
+            {/* ✈ Flight card — shown only when there is no train leg alongside it */}
+            {flightDetails && !hasJourneyDetails && (
               <View style={[styles.journeyCard, { marginTop: 12 }]}>
                 <View style={styles.journeyHeader}>
                   <Text style={styles.journeyIcon}>✈️</Text>
-                  <Text style={styles.journeyTitle}>Flight Details</Text>
+                  <Text style={styles.journeyTitle}>Flight details</Text>
                 </View>
                 {flightDetails.pnr && (
                   <View style={styles.journeyRefWrap}>
@@ -443,8 +489,25 @@ export default function ReceiptScreen() {
             {/* Actions */}
             <Pressable onPress={handleShare} style={styles.shareBtn}>
               <Ionicons name="share-outline" size={18} color="#818cf8" />
-              <Text style={styles.shareBtnText}>Share Receipt</Text>
+              <Text style={styles.shareBtnText}>Share details</Text>
             </Pressable>
+
+            {shareToken && (
+              <Pressable
+                onPress={async () => {
+                  const url = `https://api.agentpay.so/trip/view/${shareToken}`;
+                  await Share.share({
+                    title: 'Join my trip on Bro',
+                    message: `Track this journey live -> ${url}`,
+                    url,
+                  });
+                }}
+                style={styles.shareBtn}
+              >
+                <Ionicons name="people-outline" size={18} color="#4ade80" />
+                <Text style={[styles.shareBtnText, { color: '#4ade80' }]}>Share live journey</Text>
+              </Pressable>
+            )}
 
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
               <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
@@ -452,7 +515,7 @@ export default function ReceiptScreen() {
             </Pressable>
 
             <Pressable onPress={handleDone} style={styles.doneBtn}>
-              <Text style={styles.doneBtnText}>New Request</Text>
+              <Text style={styles.doneBtnText}>Plan another trip</Text>
             </Pressable>
           </>
         )}
@@ -468,7 +531,7 @@ export default function ReceiptScreen() {
         <View style={ticketStyles.container}>
           <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
 
-            <Text style={ticketStyles.label}>SHOW THIS TO STAFF</Text>
+            <Text style={ticketStyles.label}>SHOW THIS IF ASKED</Text>
 
             {/* QR code */}
             {qrLocalUri ? (
@@ -502,7 +565,7 @@ export default function ReceiptScreen() {
             )}
 
             <Pressable onPress={() => setShowTicket(false)} style={ticketStyles.closeBtn} hitSlop={16}>
-              <Text style={ticketStyles.closeText}>Back to Receipt</Text>
+              <Text style={ticketStyles.closeText}>Back to details</Text>
             </Pressable>
 
           </SafeAreaView>
@@ -564,6 +627,195 @@ export default function ReceiptScreen() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+type TrainLegProps = {
+  icon: string;
+  operator?: string;
+  departureTime?: string;
+  origin: string;
+  destination: string;
+  fareGbp?: number;
+} | null;
+
+type FlightLegProps = {
+  icon: string;
+  carrier: string;
+  flightNumber: string;
+  departureAt: string;
+  origin: string;
+  destination: string;
+  totalAmount: number;
+  currency: string;
+  pnr?: string;
+};
+
+function MultiLegTimeline({
+  trainLeg,
+  flightLeg,
+  bookingRef,
+  onShowTicket,
+  qrLoading,
+}: {
+  trainLeg: TrainLegProps;
+  flightLeg: FlightLegProps;
+  bookingRef?: string;
+  onShowTicket?: () => void;
+  qrLoading: boolean;
+}) {
+  const flightDepTime = new Date(flightLeg.departureAt).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const trainFare  = trainLeg?.fareGbp ?? 0;
+  const flightFare = flightLeg.currency === 'GBP'
+    ? flightLeg.totalAmount
+    : 0;
+  const totalGbp = trainFare + flightFare;
+
+  return (
+    <View style={styles.journeyCard}>
+      <View style={styles.journeyHeader}>
+        <Text style={styles.journeyIcon}>🗺️</Text>
+        <Text style={styles.journeyTitle}>Journey timeline</Text>
+      </View>
+
+      {bookingRef && (
+        <View style={styles.journeyRefWrap}>
+          <Text style={styles.journeyRefLabel}>Reference</Text>
+          <Text style={styles.journeyRef}>{bookingRef}</Text>
+        </View>
+      )}
+
+      {/* Leg rows */}
+      {trainLeg && (
+        <View style={timelineStyles.leg}>
+          <Text style={timelineStyles.legIcon}>{trainLeg.icon}</Text>
+          <View style={timelineStyles.legBody}>
+            <Text style={timelineStyles.legHeader}>
+              {trainLeg.operator ? `${trainLeg.operator} ` : ''}
+              {trainLeg.departureTime ?? ''}
+            </Text>
+            <Text style={timelineStyles.legRoute}>
+              {trainLeg.origin} → {trainLeg.destination}
+            </Text>
+          </View>
+          {trainLeg.fareGbp != null && trainLeg.fareGbp > 0 && (
+            <Text style={timelineStyles.legFare}>£{trainLeg.fareGbp}</Text>
+          )}
+        </View>
+      )}
+
+      <View style={timelineStyles.leg}>
+        <Text style={timelineStyles.legIcon}>{flightLeg.icon}</Text>
+        <View style={timelineStyles.legBody}>
+          <Text style={timelineStyles.legHeader}>
+            {flightLeg.carrier} {flightLeg.flightNumber}{'  '}{flightDepTime}
+          </Text>
+          <Text style={timelineStyles.legRoute}>
+            {flightLeg.origin} → {flightLeg.destination}
+          </Text>
+          {flightLeg.pnr && (
+            <Text style={timelineStyles.legPnr}>{flightLeg.pnr}</Text>
+          )}
+        </View>
+        {flightLeg.totalAmount > 0 && (
+          <Text style={timelineStyles.legFare}>
+            {flightLeg.currency === 'GBP' ? '£' : `${flightLeg.currency} `}
+            {flightLeg.totalAmount}
+          </Text>
+        )}
+      </View>
+
+      {/* Divider + total */}
+      {totalGbp > 0 && (
+        <>
+          <View style={timelineStyles.divider} />
+          <View style={timelineStyles.totalRow}>
+            <Text style={timelineStyles.totalLabel}>Total</Text>
+            <Text style={timelineStyles.totalValue}>£{totalGbp}</Text>
+          </View>
+        </>
+      )}
+
+      {/* Show Ticket */}
+      {onShowTicket && (
+        <Pressable onPress={onShowTicket} style={styles.showTicketBtn}>
+          {qrLoading ? (
+            <ActivityIndicator color="#4ade80" size="small" />
+          ) : (
+            <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
+          )}
+          <Text style={styles.showTicketText}>Show code</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const timelineStyles = StyleSheet.create({
+  leg: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  legIcon: {
+    fontSize: 18,
+    marginTop: 1,
+    width: 24,
+    textAlign: 'center',
+  },
+  legBody: {
+    flex: 1,
+    gap: 2,
+  },
+  legHeader: {
+    fontSize: 13,
+    color: '#d1d5db',
+    fontWeight: '600',
+  },
+  legRoute: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  legPnr: {
+    fontSize: 11,
+    color: '#4ade80',
+    fontFamily: 'monospace',
+    marginTop: 2,
+  },
+  legFare: {
+    fontSize: 13,
+    color: '#f9fafb',
+    fontWeight: '700',
+    minWidth: 44,
+    textAlign: 'right',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#1e293b',
+    marginVertical: 8,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  totalLabel: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  totalValue: {
+    fontSize: 15,
+    color: '#4ade80',
+    fontWeight: '800',
+  },
+});
 
 function shortId(id: string) {
   if (id.length <= 16) return id;

@@ -18,10 +18,12 @@ interface TrainTripDetails {
   destination: string;
   departureDatetime?: string;
   finalLegSummary?: string;
-  country?: 'uk' | 'india' | 'eu';
+  country?: 'uk' | 'india' | 'eu' | 'global';
+  transportMode?: 'rail' | 'bus';
 }
 
 function modeForTool(toolName: string): TripMode {
+  if (toolName === 'book_bus') return 'bus';
   if (toolName === 'search_flights') return 'flight';
   if (toolName === 'book_hotel') return 'hotel';
   if (toolName === 'navigate' || toolName === 'plan_metro') return 'local';
@@ -97,7 +99,7 @@ export function buildPlanTripContext(params: {
     routeData,
     nearbyPlaces,
     watchState: {
-      disruptionWatch: mode === 'rail' || mode === 'flight',
+      disruptionWatch: mode === 'rail' || mode === 'bus' || mode === 'flight',
       finalLegReady: !!routeData || !!trainDetails?.finalLegSummary || (nearbyPlaces?.length ?? 0) > 0,
       checkInAt: mode === 'flight' && flightOffer?.departureAt
         ? new Date(new Date(flightOffer.departureAt).getTime() - 24 * 60 * 60 * 1000).toISOString()

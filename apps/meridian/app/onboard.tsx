@@ -80,10 +80,10 @@ const MARKET_COPY: Record<Nationality, {
     setupTagline: 'India rail, voice-first, with IRCTC and UPI-ready booking where it matters.',
   },
   other: {
-    intro: 'Hey. I book trains by voice. Hold the orb and try me.',
-    fallback: "Need a train? I'd find the best route, quote the fare, and book it with your fingerprint.",
-    demoPrompt: 'book a train tomorrow morning',
-    setupTagline: 'Bro is train-first right now. Pick your market so the experience matches how you travel.',
+    intro: 'Hey. I handle trains, flights, and buses by voice. Hold the orb and try me.',
+    fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line it up with your fingerprint.",
+    demoPrompt: 'new york to boston tomorrow morning',
+    setupTagline: 'Bro is ground-first globally now: rail where it wins, coach where it is cheaper, flights when distance demands it.',
   },
 };
 
@@ -395,7 +395,7 @@ export default function OnboardScreen() {
                 <Text style={demoStyles.wordmark}>bro</Text>
 
                 <View style={demoStyles.marketWrap}>
-                  <Text style={demoStyles.marketLabel}>Choose your rail market</Text>
+                  <Text style={demoStyles.marketLabel}>Choose your primary travel market</Text>
                   <View style={styles.chipRow}>
                     {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
                       <Pressable
@@ -979,17 +979,23 @@ function getDemoResponse(transcript: string, nationality: Nationality): string {
   if (nationality === 'india' && t.match(/train|rail|delhi|agra|mumbai|bangalore|bengaluru|chennai|kolkata|pune|hyderabad|irctc|upi|metro/)) {
     return "Found a strong rail option and I can carry it through with your IRCTC details, then hand you off to UPI or fingerprint confirmation.";
   }
+  if (t.match(/bus|coach|flixbus|greyhound|megabus|redcoach/)) {
+    return "Found a strong coach option with the right departure and fare. In the real app, I'd line it up and carry it through with one confirm.";
+  }
+  if (t.match(/flight|fly|airport|heathrow|gatwick|stansted|plane|barcelona|rome|paris|new york/)) {
+    return "Found the best flight set and I can pair it with the ground leg when the journey needs it.";
+  }
   if (t.match(/train|rail|london|manchester|birmingham|derby|euston|paddington|victoria|liverpool|edinburgh|glasgow/)) {
     return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
   }
   if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
-    return "Bro is focused on trains right now. Try asking for a rail journey and I'll take it from there.";
+    return "Bro is strongest on the booked trip and the final leg. Ask for the journey first, then I'll carry you through the rest.";
   }
-  if (t.match(/hotel|room|stay|night|accommodation|b&b|inn|flight|fly|airport|heathrow|gatwick|stansted|plane/)) {
-    return "Bro is train-first right now. Ask for a train journey and I'll line up the best option.";
+  if (t.match(/hotel|room|stay|night|accommodation|b&b|inn/)) {
+    return "I can work the trip around the stay, but transport is still the strongest part of the product.";
   }
   if (t.match(/food|restaurant|eat|dinner|lunch|table|reservation/)) {
-    return "Bro is focused on getting you there by train first. Ask for the journey and I'll handle the rail part beautifully.";
+    return "I can add that once the trip is moving. Ask for the journey first and I'll build around it.";
   }
   const preview = transcript.trim().slice(0, 35);
   return `Heard "${preview}…". In the real app, I'd find the best option and book it — fingerprint to confirm.`;

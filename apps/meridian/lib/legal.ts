@@ -19,12 +19,12 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
     updatedAt: 'March 24, 2026',
     supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
-      'These terms govern your use of Bro during this early train-first release. Bro helps you plan and secure journeys, but a journey is only confirmed once Bro shows a real booking confirmation or reference.',
+      'These terms govern your use of Bro during this early outdoor AI release. Bro helps you plan and secure journeys across the transport modes currently supported by the app, but a journey is only confirmed once Bro shows a real booking confirmation or reference.',
     sections: [
       {
         heading: 'What Bro Does',
         body: [
-          'Bro helps you search, compare, and secure train journeys in the markets currently supported by the app.',
+          'Bro helps you search, compare, and secure journeys in the markets and transport modes currently supported by the app.',
           'Some journeys may be completed through partner services or manual fulfilment while Bro is in early release.',
         ],
       },
@@ -46,7 +46,7 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
         heading: 'Early Access Limits',
         body: [
           'Bro is being released to a limited testing cohort and may not support every route, operator, or edge case.',
-          'Bro may decline or defer requests that fall outside the current train-first scope.',
+          'Bro may decline or defer requests that fall outside the current supported scope.',
         ],
       },
       {
@@ -62,7 +62,7 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
     updatedAt: 'March 24, 2026',
     supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
-      'Bro is designed to keep your train booking flow calm, safe, and minimal. This screen explains what stays on your device and what is shared only when needed to complete your journey.',
+      'Bro is designed to keep your journey flow calm, safe, and minimal. This screen explains what stays on your device and what is shared only when needed to complete your trip.',
     sections: [
       {
         heading: 'What Stays On Your Device',
@@ -74,7 +74,7 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
       {
         heading: 'What Bro Sends',
         body: [
-          'Bro sends only the information needed to transcribe voice requests, plan journeys, check live rail data, process payment steps, and secure the booking you confirm.',
+          'Bro sends only the information needed to transcribe voice requests, plan journeys, check live transport data, process payment steps, and secure the booking you confirm.',
           'Booking details may be shared with fulfilment services or operators when needed to secure a real ticket.',
         ],
       },

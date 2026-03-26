@@ -616,8 +616,9 @@ PHASE 1 RESPONSE FORMAT:
 
 PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 - Exactly one sentence. State the Bro reference and that the ticket is being secured. Nothing else.
-- Format: "[Ref] — securing your ticket. Details by email."
-- Example: "BRO-A1B2C3 — securing your ticket. Details by email."
+- Format: "[Ref] — securing your [destination] ticket. Details by email."
+- Example: "BRO-A1B2C3 — securing your Edinburgh ticket. Details by email."
+- If destination is unknown, omit it: "BRO-A1B2C3 — securing your ticket. Details by email."
 - Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
@@ -1016,6 +1017,47 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           (action as any).shareToken = shareToken;
         }
         broLog('trip_room_auto_created', { traceId, jobId: firstJobId, shareToken });
+      }
+    }
+
+    // Fire-and-forget: fetch top Ticketmaster event for trips booked 2+ days ahead
+    const firstAction = actions[0];
+    if (firstAction) {
+      const dest = firstAction.trainDetails?.destination ?? firstAction.flightDetails?.destination ?? '';
+      const depDatetime = firstAction.trainDetails?.departureDatetime ?? firstAction.flightDetails?.departureAt ?? '';
+      const daysAhead = depDatetime
+        ? Math.floor((new Date(depDatetime).getTime() - Date.now()) / 86_400_000)
+        : 0;
+
+      if (daysAhead >= 2 && dest && (c.env as any).TICKETMASTER_API_KEY) {
+        (async () => {
+          try {
+            const { searchEvents } = await import('../lib/ticketmaster');
+            const events = await searchEvents({
+              city:       dest,
+              travelDate: depDatetime.slice(0, 10),
+              apiKey:     (c.env as any).TICKETMASTER_API_KEY,
+            });
+            if (events.length > 0) {
+              const ev = events[0];
+              const evSql = createDb(c.env);
+              await evSql`
+                UPDATE payment_intents
+                SET metadata = metadata || ${JSON.stringify({
+                  suggestedEvent: {
+                    name:  ev.name,
+                    venue: ev.venue,
+                    date:  ev.date,
+                    price: ev.priceRange,
+                    url:   ev.url,
+                  },
+                })}::jsonb
+                WHERE id = ${firstAction.jobId}
+              `.catch(() => null);
+              await evSql.end().catch(() => {});
+            }
+          } catch { /* non-fatal */ }
+        })();
       }
     }
 

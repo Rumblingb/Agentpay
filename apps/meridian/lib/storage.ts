@@ -59,6 +59,7 @@ export interface ActiveTrip {
   currencySymbol?: string | null;
   currencyCode?: string | null;
   tripContext?: TripContext | null;
+  shareToken?: string | null;
   updatedAt: string;
 }
 
@@ -77,6 +78,7 @@ export interface TripEntry {
   currencySymbol?: string | null;
   currencyCode?: string | null;
   tripContext?: TripContext | null;
+  shareToken?: string | null;
   savedAt: string;
 }
 

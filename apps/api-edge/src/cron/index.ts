@@ -23,6 +23,7 @@ import type { Env } from '../types';
 import { runLiquidityCron } from './liquidity';
 import { runReconciliation } from './reconciliation';
 import { runPlatformWatch } from './platformWatch';
+import { runMondayPattern } from './mondayPattern';
 
 /**
  * Routes a scheduled cron event to the correct handler by its cron expression.
@@ -45,6 +46,10 @@ export async function scheduledHandler(
 
     case '*/15 * * * *':
       ctx.waitUntil(runReconciliation(env));
+      break;
+
+    case '0 9 * * 1':
+      ctx.waitUntil(runMondayPattern(env));
       break;
 
     default:

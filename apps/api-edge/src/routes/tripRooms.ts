@@ -37,6 +37,70 @@ function makeShareToken(): string {
   return `${ts}${rand}`;
 }
 
+type TripRoomRow = {
+  id: string;
+  job_id: string;
+  members: any[];
+  expires_at: string;
+  share_token: string;
+};
+
+function normalizeMembers(members: unknown): any[] {
+  return Array.isArray(members) ? members : [];
+}
+
+function appendMemberIfNeeded(members: any[], pushToken?: string, name?: string, role?: string): { members: any[]; added: boolean } {
+  if (!pushToken) return { members, added: false };
+  if (members.some((member: any) => member?.pushToken === pushToken)) {
+    return { members, added: false };
+  }
+  return {
+    members: [
+      ...members,
+      {
+        name: name ?? 'Guest',
+        pushToken,
+        role: role ?? 'guest',
+        joinedAt: new Date().toISOString(),
+      },
+    ],
+    added: true,
+  };
+}
+
+async function loadRoom(sql: ReturnType<typeof createDb>, token: string): Promise<TripRoomRow | null> {
+  const rows = await sql<TripRoomRow[]>`
+    SELECT id, job_id, members, expires_at, share_token
+    FROM trip_rooms
+    WHERE share_token = ${token}
+    LIMIT 1
+  `.catch(() => []);
+  return rows[0] ?? null;
+}
+
+async function loadRoomForJob(sql: ReturnType<typeof createDb>, jobId: string): Promise<TripRoomRow | null> {
+  const directRows = await sql<TripRoomRow[]>`
+    SELECT id, job_id, members, expires_at, share_token
+    FROM trip_rooms
+    WHERE job_id = ${jobId}
+    LIMIT 1
+  `.catch(() => []);
+  if (directRows[0]) return directRows[0];
+
+  const journeyRows = await sql<TripRoomRow[]>`
+    SELECT tr.id, tr.job_id, tr.members, tr.expires_at, tr.share_token
+    FROM payment_intents pi
+    JOIN payment_intents anchor_pi
+      ON anchor_pi.metadata->>'journeyId' = pi.metadata->>'journeyId'
+    JOIN trip_rooms tr
+      ON tr.job_id = anchor_pi.id
+    WHERE pi.id = ${jobId}
+      AND pi.metadata->>'journeyId' IS NOT NULL
+    LIMIT 1
+  `.catch(() => []);
+  return journeyRows[0] ?? null;
+}
+
 // ── POST /api/trip-rooms ──────────────────────────────────────────────────────
 // Create a trip room for a confirmed job. Idempotent — returns existing if already created.
 
@@ -49,12 +113,28 @@ tripRoomsRouter.post('/', async (c) => {
   const sql = createDb(c.env);
   try {
     // Check if room already exists for this job
-    const existing = await sql<{ id: string; share_token: string }[]>`
-      SELECT id, share_token FROM trip_rooms WHERE job_id = ${jobId} LIMIT 1
+    const existing = await sql<TripRoomRow[]>`
+      SELECT id, job_id, members, expires_at, share_token
+      FROM trip_rooms
+      WHERE job_id = ${jobId}
+      LIMIT 1
     `.catch(() => []);
 
     if (existing.length > 0) {
-      return c.json({ shareToken: existing[0]!.share_token, roomId: existing[0]!.id, created: false });
+      const room = existing[0]!;
+      const currentMembers = normalizeMembers(room.members);
+      const ownerUpdate = appendMemberIfNeeded(currentMembers, ownerPushToken, 'Owner', 'owner');
+      if (ownerUpdate.added) {
+        await sql`
+          UPDATE trip_rooms SET members = ${JSON.stringify(ownerUpdate.members)}::jsonb WHERE id = ${room.id}
+        `;
+      }
+      return c.json({
+        shareToken: room.share_token,
+        roomId: room.id,
+        created: false,
+        memberCount: ownerUpdate.added ? ownerUpdate.members.length : currentMembers.length,
+      });
     }
 
     const shareToken = makeShareToken();
@@ -87,24 +167,23 @@ tripRoomsRouter.post('/:token/join', async (c) => {
 
   const sql = createDb(c.env);
   try {
-    const rows = await sql<{ id: string; job_id: string; members: any[]; expires_at: string }[]>`
-      SELECT id, job_id, members, expires_at FROM trip_rooms WHERE share_token = ${token} LIMIT 1
-    `.catch(() => []);
-
-    if (rows.length === 0) return c.json({ error: 'Trip room not found or expired' }, 404);
-    const room = rows[0]!;
+    const room = await loadRoom(sql, token);
+    if (!room) return c.json({ error: 'Trip room not found or expired' }, 404);
 
     if (new Date(room.expires_at) < new Date()) {
       return c.json({ error: 'This trip has ended' }, 410);
     }
 
-    const members: any[] = Array.isArray(room.members) ? room.members : [];
-    // Deduplicate by push token
-    const alreadyJoined = pushToken && members.some((m: any) => m.pushToken === pushToken);
-    if (!alreadyJoined) {
-      members.push({ name: name ?? 'Guest', pushToken: pushToken ?? null, joinedAt: new Date().toISOString() });
+    const members = normalizeMembers(room.members);
+    const joinUpdate = appendMemberIfNeeded(members, pushToken, name, 'guest');
+    const nextMembers = joinUpdate.added
+      ? joinUpdate.members
+      : pushToken
+      ? members
+      : [...members, { name: name ?? 'Guest', pushToken: null, joinedAt: new Date().toISOString() }];
+    if (joinUpdate.added || !pushToken) {
       await sql`
-        UPDATE trip_rooms SET members = ${JSON.stringify(members)}::jsonb WHERE id = ${room.id}
+        UPDATE trip_rooms SET members = ${JSON.stringify(nextMembers)}::jsonb WHERE id = ${room.id}
       `;
     }
 
@@ -118,7 +197,7 @@ tripRoomsRouter.post('/:token/join', async (c) => {
     return c.json({
       ok: true,
       jobId: room.job_id,
-      memberCount: members.length,
+      memberCount: nextMembers.length,
       jobStatus: job[0]?.status ?? null,
       trainDetails: job[0]?.metadata?.trainDetails ?? null,
       flightDetails: job[0]?.metadata?.flightDetails ?? null,
@@ -137,12 +216,11 @@ tripRoomsRouter.get('/:token', async (c) => {
 
   const sql = createDb(c.env);
   try {
-    const rows = await sql<{ id: string; job_id: string; members: any[]; expires_at: string }[]>`
-      SELECT id, job_id, members, expires_at FROM trip_rooms WHERE share_token = ${token} LIMIT 1
-    `.catch(() => []);
-
-    if (rows.length === 0) return c.json({ error: 'Not found' }, 404);
-    const room = rows[0]!;
+    const room = await loadRoom(sql, token);
+    if (!room) return c.json({ error: 'Not found' }, 404);
+    if (new Date(room.expires_at) < new Date()) {
+      return c.json({ error: 'This trip has ended' }, 410);
+    }
 
     const job = await sql<{ status: string; metadata: any }[]>`
       SELECT status, metadata FROM payment_intents WHERE id = ${room.job_id} LIMIT 1
@@ -151,7 +229,7 @@ tripRoomsRouter.get('/:token', async (c) => {
     const meta      = job[0]?.metadata ?? {};
     const train     = meta.trainDetails ?? null;
     const flight    = meta.flightDetails ?? null;
-    const members   = Array.isArray(room.members) ? room.members : [];
+    const members   = normalizeMembers(room.members);
 
     return c.json({
       shareToken:   token,
@@ -194,15 +272,13 @@ tripRoomsRouter.get('/view/:token', async (c) => {
 
   const sql = createDb(c.env);
   try {
-    const rows = await sql<{ job_id: string; members: any[]; expires_at: string }[]>`
-      SELECT job_id, members, expires_at FROM trip_rooms WHERE share_token = ${token} LIMIT 1
-    `.catch(() => []);
-
-    if (rows.length === 0) {
+    const room = await loadRoom(sql, token);
+    if (!room) {
       return new Response(notFoundHtml(), { headers: { 'Content-Type': 'text/html' } });
     }
-
-    const room = rows[0]!;
+    if (new Date(room.expires_at) < new Date()) {
+      return new Response(notFoundHtml('This trip has ended.'), { headers: { 'Content-Type': 'text/html' }, status: 410 });
+    }
     const job  = await sql<{ status: string; metadata: any }[]>`
       SELECT status, metadata FROM payment_intents WHERE id = ${room.job_id} LIMIT 1
     `.catch(() => []);
@@ -213,7 +289,7 @@ tripRoomsRouter.get('/view/:token', async (c) => {
     const status = job[0]?.status ?? 'unknown';
     const ref    = meta.broRef ?? meta.bookingReference ?? null;
 
-    const html = tripRoomHtml({ token, train, flight, status, ref, memberCount: Array.isArray(room.members) ? room.members.length : 0 });
+    const html = tripRoomHtml({ token, train, flight, status, ref, memberCount: normalizeMembers(room.members).length });
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   } finally {
     await sql.end().catch(() => {});
@@ -229,12 +305,10 @@ export async function fanOutToTripRoom(
   db: ReturnType<typeof createDb>,
 ): Promise<void> {
   try {
-    const rows = await db<{ members: any[] }[]>`
-      SELECT members FROM trip_rooms WHERE job_id = ${jobId} LIMIT 1
-    `;
-    if (rows.length === 0) return;
+    const room = await loadRoomForJob(db, jobId);
+    if (!room) return;
 
-    const members: any[] = Array.isArray(rows[0]?.members) ? rows[0]!.members : [];
+    const members: any[] = Array.isArray(room.members) ? room.members : [];
     const pushTokens = members.map((m: any) => m.pushToken).filter(Boolean) as string[];
 
     if (pushTokens.length === 0) return;
@@ -251,7 +325,7 @@ export async function fanOutToTripRoom(
       }))),
     }).catch(() => {});
 
-    console.info(JSON.stringify({ bro: true, event: 'trip_room_fanout', jobId, memberCount: pushTokens.length }));
+    console.info(JSON.stringify({ bro: true, event: 'trip_room_fanout', jobId, roomJobId: room.job_id, memberCount: pushTokens.length }));
   } catch {
     // Fire-and-forget — never block the main flow
   }
@@ -259,12 +333,12 @@ export async function fanOutToTripRoom(
 
 // ── HTML templates ────────────────────────────────────────────────────────────
 
-function notFoundHtml(): string {
+function notFoundHtml(message = 'This trip may have ended or the link is invalid.'): string {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trip not found</title>
 <style>body{background:#080808;color:#f8fafc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
 .card{background:#111;border:1px solid #1e293b;border-radius:12px;padding:32px;max-width:340px;text-align:center}
 h1{color:#4ade80;font-size:18px;margin:0 0 8px}p{color:#94a3b8;font-size:14px;margin:0}</style>
-</head><body><div class="card"><h1>Trip not found</h1><p>This trip may have ended or the link is invalid.</p></div></body></html>`;
+</head><body><div class="card"><h1>Trip not found</h1><p>${message}</p></div></body></html>`;
 }
 
 interface TripHtmlParams {

@@ -26,8 +26,8 @@ import { getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '..
 import { saveActiveTrip } from '../../../lib/storage';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
-import { statusNarration } from '../../../lib/concierge';
 import { C } from '../../../lib/theme';
+import { formatMoneyAmount } from '../../../lib/money';
 import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const POLL_MS = 3000;
@@ -56,6 +56,7 @@ export default function StatusScreen() {
   const [payLoading, setPayLoading]           = useState(false);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
+  const [suggestedEvent, setSuggestedEvent]   = useState<{ name: string; venue: string; date: string; price?: string; url?: string } | null>(null);
 
   const [countdown, setCountdown]       = useState<string | null>(null);
   const spokenRef   = useRef({ t30: false, t10: false, arrived: false });
@@ -78,7 +79,7 @@ export default function StatusScreen() {
       intentId: jobId,
       jobId,
       status: 'securing',
-      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
@@ -134,6 +135,10 @@ export default function StatusScreen() {
             // Trip room share token (auto-created for family bookings in Phase 2)
             const resolvedShareToken = data.metadata?.shareToken ?? shareToken ?? null;
             if (resolvedShareToken && resolvedShareToken !== shareToken) setShareToken(resolvedShareToken);
+            // Proactive event suggestion (fire-and-forget from Phase 2 for trips 2+ days ahead)
+            if (data.metadata?.suggestedEvent) {
+              setSuggestedEvent(data.metadata.suggestedEvent as { name: string; venue: string; date: string; price?: string; url?: string });
+            }
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
@@ -158,7 +163,7 @@ export default function StatusScreen() {
               intentId: jobId,
               jobId,
               status: 'ticketed',
-              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Train journey',
+              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey',
               fromStation: proof.fromStation ?? null,
               toStation: proof.toStation ?? null,
               departureTime: proof.departureTime ?? null,
@@ -200,7 +205,7 @@ export default function StatusScreen() {
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -228,7 +233,7 @@ export default function StatusScreen() {
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -427,6 +432,25 @@ export default function StatusScreen() {
           </View>
         )}
 
+        {/* Proactive event suggestion — shown when trip is 2+ days ahead */}
+        {isDone && suggestedEvent && suggestedEvent.url ? (
+          <Pressable onPress={() => Linking.openURL(suggestedEvent!.url!)} style={styles.eventCard}>
+            <Text style={styles.eventTitle}>🎭 {suggestedEvent.name}</Text>
+            <Text style={styles.eventVenue}>{suggestedEvent.venue}</Text>
+            {suggestedEvent.price && (
+              <Text style={styles.eventPrice}>{suggestedEvent.price} · Tap to view</Text>
+            )}
+          </Pressable>
+        ) : isDone && suggestedEvent ? (
+          <View style={styles.eventCard}>
+            <Text style={styles.eventTitle}>🎭 {suggestedEvent.name}</Text>
+            <Text style={styles.eventVenue}>{suggestedEvent.venue}</Text>
+            {suggestedEvent.price && (
+              <Text style={styles.eventPrice}>{suggestedEvent.price}</Text>
+            )}
+          </View>
+        ) : null}
+
         {/* Payment button — shown until Stripe payment confirmed */}
         {cards.length > 0 && (
           <View style={styles.proactiveWrap}>
@@ -476,7 +500,7 @@ export default function StatusScreen() {
             >
               <Ionicons name="card-outline" size={20} color="#93c5fd" />
               <Text style={styles.payBtnText}>
-                {payLoading ? 'Opening…' : `Pay ${paramSymbol ?? '£'}${parseFloat(fiatAmount).toFixed(2)}`}
+                {payLoading ? 'Opening…' : `Pay ${paramSymbol ?? '£'}${formatMoneyAmount(parseFloat(fiatAmount), paramCode ?? 'GBP')}`}
               </Text>
             </LinearGradient>
           </Pressable>
@@ -858,4 +882,35 @@ const styles = StyleSheet.create({
     borderColor: C.emGlow,
   },
   countdownText: { fontSize: 13, fontWeight: '600', color: C.emBright, letterSpacing: 0.2 },
+
+  eventCard: {
+    width: '100%',
+    backgroundColor: '#0d0718',
+    borderWidth: 1,
+    borderColor: '#4c1d95',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+  },
+  eventTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.textPrimary,
+    marginBottom: 4,
+  },
+  eventVenue: {
+    fontSize: 12,
+    color: C.textSecondary,
+    marginBottom: 4,
+  },
+  eventPrice: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#a78bfa',
+  },
 });

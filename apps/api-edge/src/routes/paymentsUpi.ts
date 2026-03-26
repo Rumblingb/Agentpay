@@ -128,6 +128,7 @@ router.post('/', async (c) => {
     const paymentId     = paymentEntity?.id       as string | undefined;
     const notes         = paymentLinkEntity?.notes as Record<string, unknown> | undefined;
     const referenceId   = paymentLinkEntity?.reference_id as string | undefined;
+    const journeyId     = notes?.journeyId as string | undefined;
     const jobId         = (notes?.jobId as string | undefined) ?? referenceId;
 
     console.info('[razorpay-webhook] payment_link.paid confirmed', {
@@ -151,18 +152,27 @@ router.post('/', async (c) => {
             razorpayPaymentId: paymentId ?? null,
             razorpayPaymentLinkId: paymentLinkId ?? null,
           })}::jsonb
-          WHERE id = ${jobId}
+          WHERE (
+            id = ${jobId}
+            OR (${journeyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${journeyId ?? ''})
+          )
             AND metadata->>'protocol' = 'marketplace_hire'
         `;
 
         if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
           const jobRows = await sql<any[]>`
-            SELECT metadata FROM payment_intents WHERE id = ${jobId} LIMIT 1
+            SELECT id, metadata
+            FROM payment_intents
+            WHERE (
+              id = ${jobId}
+              OR (${journeyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${journeyId ?? ''})
+            )
+            LIMIT 10
           `.catch(() => []);
 
-          if (jobRows.length) {
-            const jobMeta = jobRows[0].metadata ?? {};
-            const clawResult = await dispatchToOpenClaw(c.env, jobId, jobMeta);
+          for (const jobRow of jobRows) {
+            const jobMeta = jobRow.metadata ?? {};
+            const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
             const clawPatch = JSON.stringify({
               openclawDispatched: clawResult.status === 'dispatched',
               openclawJobId: clawResult.openclawJobId ?? null,
@@ -172,7 +182,7 @@ router.post('/', async (c) => {
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${clawPatch}::jsonb
-              WHERE id = ${jobId}
+              WHERE id = ${jobRow.id}
             `.catch(() => {});
           }
         }

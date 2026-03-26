@@ -146,6 +146,7 @@ router.post('/', async (c) => {
 
           // Also confirm Bro marketplace jobs linked to this checkout session
           const broJobId = session.metadata?.jobId as string | undefined;
+          const broJourneyId = session.metadata?.journeyId as string | undefined;
           if (broJobId) {
             // Step 1: mark payment confirmed
             const confirmPatch = JSON.stringify({
@@ -159,24 +160,31 @@ router.post('/', async (c) => {
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${confirmPatch}::jsonb
-              WHERE id = ${broJobId}
+              WHERE (
+                id = ${broJobId}
+                OR (${broJourneyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${broJourneyId ?? ''})
+              )
                 AND metadata->>'protocol' = 'marketplace_hire'
             `.catch((e: unknown) =>
               console.error('[stripe-webhook] bro job confirm failed:', e instanceof Error ? e.message : e),
             );
-            console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, sessionId });
+            console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, broJourneyId: broJourneyId ?? null, sessionId });
 
             // Step 2: auto-dispatch to OpenClaw if configured
             if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
               const jobRows = await sql<any[]>`
-                SELECT metadata FROM payment_intents WHERE id = ${broJobId} LIMIT 1
+                SELECT id, metadata
+                FROM payment_intents
+                WHERE (
+                  id = ${broJobId}
+                  OR (${broJourneyId ?? null} IS NOT NULL AND metadata->>'journeyId' = ${broJourneyId ?? ''})
+                )
+                LIMIT 10
               `.catch(() => []);
 
-              if (jobRows.length) {
-                const jobMeta = jobRows[0].metadata ?? {};
-                const clawResult = await dispatchToOpenClaw(c.env, broJobId, jobMeta);
-
-                // Persist dispatch outcome back to job metadata
+              for (const jobRow of jobRows) {
+                const jobMeta = jobRow.metadata ?? {};
+                const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
                 const clawPatch = JSON.stringify({
                   openclawDispatched: clawResult.status === 'dispatched',
                   openclawJobId: clawResult.openclawJobId ?? null,
@@ -186,7 +194,7 @@ router.post('/', async (c) => {
                 await sql`
                   UPDATE payment_intents
                   SET metadata = metadata || ${clawPatch}::jsonb
-                  WHERE id = ${broJobId}
+                  WHERE id = ${jobRow.id}
                 `.catch(() => {});
               }
             }
