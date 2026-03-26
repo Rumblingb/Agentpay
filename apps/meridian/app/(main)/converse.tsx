@@ -864,11 +864,27 @@ export default function ConverseScreen() {
           const passengers = tpFam.length > 0
             ? [{ name: 'You', relationship: 'adult' as const }, ...tpFam]
             : null;
+          const adultCount = passengers?.filter((p) => p.relationship !== 'child' && p.relationship !== 'infant').length ?? 1;
+          const childCount = passengers?.filter((p) => p.relationship === 'child').length ?? 0;
+          const travellerCount = passengers?.length ?? 1;
+          const familyRailcardReady = adultCount >= 2 && childCount >= 1 && childCount <= 4
+            && plan.some((item) => item.toolName === 'book_train' || item.toolName === 'book_train_india');
+          const flightFamilyGaps = tpFam.filter((member) =>
+            plan.some((item) => !!item.flightDetails) && member.relationship !== 'infant' && !member.name,
+          ).length;
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
           const tripDest   = planInput.destination ?? planInput.to ?? '';
           const tripContext = (plan[0]?.tripContext ?? null) as TripContext | null;
-          const tripDesc   = tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
+          const tripDesc   = plan.length > 1
+            ? (() => {
+                const first = (plan[0]?.input ?? {}) as Record<string, string>;
+                const last  = (plan[plan.length - 1]?.input ?? {}) as Record<string, string>;
+                const from  = first.origin ?? first.from ?? tripOrigin;
+                const to    = last.destination ?? last.to ?? tripDest;
+                return from && to ? `${from} → ${to} · ${plan.length} legs` : `${plan.length}-leg journey`;
+              })()
+            : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
             ? `${tripOrigin} → ${tripDest}`
           */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
           const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
@@ -940,6 +956,32 @@ export default function ConverseScreen() {
             <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
+              )}
+
+              {travellerCount > 1 && (
+                <View style={styles.groupSummaryCard}>
+                  <View style={styles.groupSummaryRow}>
+                    <Ionicons name="people-outline" size={14} color="#38bdf8" />
+                    <Text style={styles.groupSummaryTitle}>
+                      {travellerCount} travellers · {adultCount} adult{adultCount === 1 ? '' : 's'}{childCount > 0 ? ` · ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.groupSummaryBody}>
+                    {passengers?.map((p) => p.name).join(', ')}
+                  </Text>
+                  {familyRailcardReady && (
+                    <View style={styles.groupReadyBadge}>
+                      <Ionicons name="ticket-outline" size={13} color="#4ade80" />
+                      <Text style={styles.groupReadyText}>Family & Friends Railcard should apply on eligible UK rail legs.</Text>
+                    </View>
+                  )}
+                  {flightFamilyGaps > 0 && (
+                    <View style={styles.groupWarnBadge}>
+                      <Ionicons name="airplane-outline" size={13} color="#f59e0b" />
+                      <Text style={styles.groupWarnText}>Some passenger details may still be needed before flight ticketing.</Text>
+                    </View>
+                  )}
+                </View>
               )}
 
               {/* Multi-leg journey timeline */}
@@ -1658,6 +1700,14 @@ const styles = StyleSheet.create({
   hotelDate:       { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
   hotelRate:       { fontSize: 12, color: '#4ade80', marginTop: 4 },
   hotelArea:       { fontSize: 11, color: '#64748b' },
+  groupSummaryCard:{ backgroundColor: '#081826', borderWidth: 1, borderColor: '#0c4a6e', borderRadius: 12, padding: 12, gap: 8 },
+  groupSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  groupSummaryTitle:{ fontSize: 12, color: '#38bdf8', fontWeight: '700' },
+  groupSummaryBody:{ fontSize: 12, color: '#cbd5e1', lineHeight: 18 },
+  groupReadyBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#052e16', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#166534' },
+  groupReadyText:  { flex: 1, fontSize: 12, color: '#4ade80', lineHeight: 17 },
+  groupWarnBadge:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#451a03', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#b45309' },
+  groupWarnText:   { flex: 1, fontSize: 12, color: '#fdba74', lineHeight: 17 },
   myTripsBtn:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   myTripsBtnText:  { fontSize: 13, color: '#64748b' },
 });

@@ -120,7 +120,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
         <h2>Ops Queue</h2>
         <p class="sub">Actionable jobs ordered by urgency.</p>
         <table>
-          <thead><tr><th>Job</th><th>Priority</th><th>State</th><th>Action</th><th>Summary</th></tr></thead>
+          <thead><tr><th>Job</th><th>Priority</th><th>State</th><th>Actions</th><th>Summary</th></tr></thead>
           <tbody id="opsQueueRows"></tbody>
         </table>
       </div>
@@ -157,6 +157,23 @@ broInsightsRouter.get('/dashboard', async (c) => {
       function priorityPill(priority){
         return '<span class="pill p'+priority+'">P'+priority+'</span>';
       }
+      async function postJson(path, body) {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'x-admin-key': adminKey, 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!res.ok) throw new Error('Request failed: ' + res.status);
+        return res.json();
+      }
+      function actionButtons(job) {
+        const buttons = [];
+        if (job.recommendedAction === 'retry_dispatch') {
+          buttons.push('<button data-action="recover" data-job-id="'+job.jobId+'">Recover</button>');
+        }
+        buttons.push('<button class="secondary" data-action="escalate" data-job-id="'+job.jobId+'">Escalate</button>');
+        return '<div class="actions">'+buttons.join('')+'</div>';
+      }
       async function loadDashboard() {
         const [metrics, ops, health] = await Promise.all([
           getJson('/api/admin/founder-metrics'),
@@ -178,7 +195,7 @@ broInsightsRouter.get('/dashboard', async (c) => {
             '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div></td>'+
             '<td>'+priorityPill(job.opsPriority)+'</td>'+
             '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div></td>'+
-            '<td>'+(job.recommendedAction || 'none')+'</td>'+
+            '<td>'+actionButtons(job)+'</td>'+
             '<td>'+job.summary+'</td>'+
           '</tr>'
         ).join('') || '<tr><td colspan="5" class="muted">No actionable jobs.</td></tr>';
@@ -206,6 +223,26 @@ broInsightsRouter.get('/dashboard', async (c) => {
           await loadDashboard();
         } finally {
           btn.disabled = false;
+        }
+      });
+      document.getElementById('opsQueueRows').addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const action = target.dataset.action;
+        const jobId = target.dataset.jobId;
+        if (!action || !jobId) return;
+        target.disabled = true;
+        try {
+          if (action === 'recover') {
+            await postJson('/api/admin/booking-health/' + jobId + '/recover');
+          } else if (action === 'escalate') {
+            await postJson('/api/admin/booking-health/' + jobId + '/escalate', {
+              reason: 'Manual escalation requested from founder console',
+            });
+          }
+          await loadDashboard();
+        } finally {
+          target.disabled = false;
         }
       });
       void loadDashboard();
