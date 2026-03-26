@@ -172,6 +172,7 @@ app.route('/trip', tripRoomsRouter);  // /trip/:token → joinable HTML web view
 app.route('/api/concierge', conciergeRouter);
 app.route('/api/skills', conciergeRouter);
 app.route('/api/admin', broInsightsRouter);
+app.route('/api/admin/insights', broInsightsRouter);
 // Admin shortcuts — bro-jobs debug lives in concierge router
 app.route('/api/admin', conciergeRouter);
 

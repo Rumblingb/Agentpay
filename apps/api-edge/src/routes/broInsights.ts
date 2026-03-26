@@ -1,759 +1,242 @@
+/**
+ * broInsights — /api/admin/insights/*
+ *
+ * Founder-facing recovery dashboard for failed/pending jobs.
+ *
+ * GET  /api/admin/insights/queue        — list failed/pending jobs from last 7 days
+ * POST /api/admin/insights/retry/:jobId — re-queue a job for the next cron run
+ *
+ * All endpoints require: x-admin-key header matching ADMIN_SECRET_KEY
+ */
+
 import { Hono } from 'hono';
-import { createDb } from '../lib/db';
 import type { Env, Variables } from '../types';
-import { deriveBookingHealth } from '../lib/bookingHealth';
-import { dispatchToOpenClaw } from '../lib/openclaw';
-import { withBookingState } from '../lib/bookingState';
-import { evaluateRecoveryPolicy } from '../lib/recoveryPolicy';
-import { runAutoRecoverySweep } from '../lib/bookingRecovery';
+import { createDb } from '../lib/db';
 
 export const broInsightsRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type BookingHealthRow = {
-  id: string;
-  status: string;
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-};
+// ── Auth helper ───────────────────────────────────────────────────────────────
 
-function opsPriorityForRecoveryBucket(bucket: string): 1 | 2 | 3 | 4 {
-  if (bucket === 'fulfilment_failed' || bucket === 'failed') return 1;
-  if (bucket === 'stuck_securing') return 2;
-  if (bucket === 'ready_for_dispatch') return 3;
-  return 4;
+function checkAdminKey(c: { req: { header: (k: string) => string | undefined }; env: Env }): boolean {
+  const key = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key') ?? '';
+  return !!key && key === c.env.ADMIN_SECRET_KEY;
 }
 
-function mapBookingHealthRow(row: BookingHealthRow) {
-  const metadata = row.metadata ?? {};
-  const health = deriveBookingHealth(row.status, metadata);
-  const policy = evaluateRecoveryPolicy(health.recoveryBucket, metadata);
-  const shareToken = (metadata.shareToken as string | undefined) ?? null;
-  const corridor = [
-    (metadata.trainDetails as Record<string, unknown> | undefined)?.origin as string | undefined
-      ?? (metadata.flightDetails as Record<string, unknown> | undefined)?.origin as string | undefined
-      ?? (metadata.hotelDetails as Record<string, unknown> | undefined)?.city as string | undefined,
-    (metadata.trainDetails as Record<string, unknown> | undefined)?.destination as string | undefined
-      ?? (metadata.flightDetails as Record<string, unknown> | undefined)?.destination as string | undefined
-      ?? (metadata.hotelDetails as Record<string, unknown> | undefined)?.city as string | undefined,
-  ].filter(Boolean).join(' -> ') || null;
-  return {
-    jobId: row.id,
-    intentStatus: row.status,
-    bookingState: health.bookingState,
-    recoveryBucket: health.recoveryBucket,
-    shouldEscalate: health.shouldEscalate,
-    summary: health.summary,
-    provider: (metadata.paymentProvider as string | undefined) ?? null,
-    corridor,
-    journeyId: (metadata.journeyId as string | undefined) ?? null,
-    bookingRef: (metadata.ticketRef as string | undefined) ?? (metadata.pnr as string | undefined) ?? (metadata.broRef as string | undefined) ?? null,
-    shareToken,
-    tripRoomUrl: shareToken ? `https://api.agentpay.so/trip/view/${shareToken}` : null,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    recommendedAction: policy.action,
-    recommendationReason: policy.reason,
-    canAutoRun: policy.canAutoRun,
-    opsPriority: opsPriorityForRecoveryBucket(health.recoveryBucket),
-    recoveryAttemptCount: Number((metadata.recoveryAttemptCount as number | string | undefined) ?? 0),
-    recoveryLastResult: (metadata.recoveryLastResult as string | undefined) ?? null,
-    recoveryLastError: (metadata.recoveryLastError as string | undefined) ?? null,
-    metadata,
-  };
-}
+// ── GET /api/admin/insights/queue ─────────────────────────────────────────────
+// Lists failed/pending jobs created in the last 7 days (max 50).
 
-function requireAdmin(c: { req: { header: (name: string) => string | undefined }; env: Env; json: (data: unknown, status?: number) => Response }) {
-  if (c.req.header('x-admin-key') !== c.env.ADMIN_SECRET_KEY) {
-    return c.json({ error: 'Unauthorized' }, 401);
+broInsightsRouter.get('/queue', async (c) => {
+  if (!checkAdminKey(c as any)) return c.json({ error: 'UNAUTHORIZED' }, 401);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<{
+      id: string;
+      status: string;
+      provider: string | null;
+      corridor: string | null;
+      created_at: string;
+      recoveryAttemptCount: string | null;
+      recommendedAction: string | null;
+    }[]>`
+      SELECT
+        id,
+        status,
+        metadata->>'provider'              AS provider,
+        metadata->>'corridor'              AS corridor,
+        created_at,
+        metadata->>'recoveryAttemptCount'  AS "recoveryAttemptCount",
+        metadata->>'recommendedAction'     AS "recommendedAction"
+      FROM payment_intents
+      WHERE status IN ('failed', 'pending')
+        AND created_at > NOW() - INTERVAL '7 days'
+      ORDER BY created_at DESC
+      LIMIT 50
+    `.catch(() => []);
+
+    return c.json(rows);
+  } finally {
+    await sql.end().catch(() => {});
   }
-  return null;
-}
+});
 
-function hasAdminAccess(c: { req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined }; env: Env }) {
-  const headerKey = c.req.header('x-admin-key');
-  const queryKey = c.req.query('key');
-  return headerKey === c.env.ADMIN_SECRET_KEY || queryKey === c.env.ADMIN_SECRET_KEY;
-}
+// ── POST /api/admin/insights/retry/:jobId ─────────────────────────────────────
+// Resets a failed/pending job so the next cron run picks it up.
 
-broInsightsRouter.get('/dashboard', async (c) => {
-  if (!hasAdminAccess(c)) {
-    return c.html('<!doctype html><title>Unauthorized</title><h1>Unauthorized</h1>', 401);
+broInsightsRouter.post('/retry/:jobId', async (c) => {
+  if (!checkAdminKey(c as any)) return c.json({ error: 'UNAUTHORIZED' }, 401);
+
+  const jobId = c.req.param('jobId');
+  if (!jobId) return c.json({ error: 'jobId required' }, 400);
+
+  const sql = createDb(c.env);
+  try {
+    // Verify the job exists
+    const rows = await sql`
+      SELECT id FROM payment_intents WHERE id = ${jobId} LIMIT 1
+    `.catch(() => []);
+
+    if (rows.length === 0) return c.json({ error: 'Job not found' }, 404);
+
+    // Reset recoveryAttemptCount to 0 and re-queue by setting status = 'pending'.
+    // The next cron run will pick it up for automatic recovery.
+    await sql`
+      UPDATE payment_intents
+      SET status   = 'pending',
+          metadata = jsonb_set(metadata, '{recoveryAttemptCount}', '0')
+      WHERE id = ${jobId}
+    `;
+
+    return c.json({ ok: true, jobId });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── GET /api/admin/insights ───────────────────────────────────────────────────
+// Dashboard HTML — founder-facing recovery UI.
+
+broInsightsRouter.get('/', async (c) => {
+  if (!checkAdminKey(c as any)) {
+    return new Response('Unauthorized', { status: 401 });
   }
 
-  const key = c.req.query('key') ?? c.req.header('x-admin-key') ?? '';
-  const html = `<!doctype html>
+  const sql = createDb(c.env);
+  type QueueRow = { id: string; status: string; provider: string | null; corridor: string | null; created_at: string; recoveryAttemptCount: string | null; recommendedAction: string | null };
+  let rows: QueueRow[] = [];
+  try {
+    rows = await sql<QueueRow[]>`
+      SELECT
+        id,
+        status,
+        metadata->>'provider'              AS provider,
+        metadata->>'corridor'              AS corridor,
+        created_at,
+        metadata->>'recoveryAttemptCount'  AS "recoveryAttemptCount",
+        metadata->>'recommendedAction'     AS "recommendedAction"
+      FROM payment_intents
+      WHERE status IN ('failed', 'pending')
+        AND created_at > NOW() - INTERVAL '7 days'
+      ORDER BY created_at DESC
+      LIMIT 50
+    `.catch(() => [] as QueueRow[]);
+  } finally {
+    await sql.end().catch(() => {});
+  }
+
+  const rows_html = rows.map(r => `
+    <tr>
+      <td style="padding:8px 6px;font-family:monospace;font-size:12px">${r.id.slice(0, 16)}…</td>
+      <td style="padding:8px 6px"><span style="background:${r.status === 'failed' ? '#fef2f2' : '#fffbeb'};color:${r.status === 'failed' ? '#dc2626' : '#d97706'};padding:2px 8px;border-radius:4px;font-size:12px">${r.status}</span></td>
+      <td style="padding:8px 6px;font-size:12px">${r.provider ?? '—'}</td>
+      <td style="padding:8px 6px;font-size:12px">${r.corridor ?? '—'}</td>
+      <td style="padding:8px 6px;font-size:12px">${r.recoveryAttemptCount ?? '0'}</td>
+      <td style="padding:8px 6px;font-size:12px;color:#6b7280">${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</td>
+      <td style="padding:8px 6px">
+        <button
+          onclick="retryJob('${r.id}')"
+          style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px">
+          Retry
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  const html = `<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Bro Admin Dashboard</title>
-    <style>
-      :root{color-scheme:dark;--bg:#020617;--panel:#0f172a;--panel2:#111827;--border:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--green:#4ade80;--amber:#f59e0b;--blue:#38bdf8;--red:#f87171}
-      *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:linear-gradient(180deg,#020617,#0b1120 45%,#020617);color:var(--text)}
-      .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
-      h1,h2{margin:0} h1{font-size:30px;font-weight:800} h2{font-size:16px;font-weight:700}
-      p{margin:0;color:var(--muted)} .sub{margin-top:8px}
-      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:22px}
-      .card{background:rgba(15,23,42,.9);border:1px solid var(--border);border-radius:16px;padding:16px;backdrop-filter:blur(10px)}
-      .metric{font-size:30px;font-weight:800;margin-top:10px}
-      .metric-sm{font-size:22px;font-weight:800;margin-top:10px}
-      .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-      .section{margin-top:28px}
-      .panel{background:rgba(15,23,42,.92);border:1px solid var(--border);border-radius:18px;padding:18px}
-      table{width:100%;border-collapse:collapse;margin-top:12px}
-      th,td{text-align:left;padding:10px 8px;border-top:1px solid #172133;font-size:13px;vertical-align:top}
-      th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
-      .pill{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:700}
-      .p1{background:#3f0a0a;color:#fecaca}.p2{background:#3f220a;color:#fdba74}.p3{background:#082f49;color:#7dd3fc}.p4{background:#0f172a;color:#cbd5e1;border:1px solid #243246}
-      .good{color:var(--green)} .warn{color:var(--amber)} .bad{color:var(--red)} .muted{color:var(--muted)}
-      .row{display:flex;justify-content:space-between;gap:12px;margin-top:10px;font-size:13px}
-      .actions{display:flex;gap:8px;flex-wrap:wrap}
-      select{background:#0b2440;border:1px solid #1d4ed8;color:#bfdbfe;border-radius:10px;padding:8px 12px;font-weight:700}
-      button{background:#0b2440;border:1px solid #1d4ed8;color:#bfdbfe;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}
-      button.secondary{background:#2b1108;border-color:#b45309;color:#fdba74}
-      button:disabled{opacity:.5;cursor:default}
-      .small{font-size:12px;color:var(--muted)}
-      .header-row{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;flex-wrap:wrap}
-      .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
-      .notice{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #1e293b;background:#0b1220;font-size:13px;color:#cbd5e1;display:none}
-      .notice.ok{display:block;border-color:#166534;background:#052e16;color:#bbf7d0}
-      .notice.error{display:block;border-color:#7f1d1d;background:#2b1111;color:#fecaca}
-      a.link{color:#7dd3fc;text-decoration:none}
-      a.link:hover{text-decoration:underline}
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <div class="header-row">
-        <div>
-          <h1>Bro Founder Console</h1>
-          <p class="sub">Metrics, recovery state, and ops queue in one place.</p>
-        </div>
-        <div class="actions">
-          <button id="refreshBtn">Refresh</button>
-          <button id="runRecoveryBtn" class="secondary">Run Auto-Recovery</button>
-        </div>
-      </div>
-      <div class="toolbar">
-        <select id="priorityFilter">
-          <option value="all">All priorities</option>
-          <option value="p1">P1 only</option>
-          <option value="p2">P2 only</option>
-          <option value="p3">P3 only</option>
-          <option value="p4">P4 only</option>
-        </select>
-        <select id="actionFilter">
-          <option value="all">All actions</option>
-          <option value="retry_dispatch">Recoverable</option>
-          <option value="escalate_manual">Escalations</option>
-        </select>
-        <select id="providerFilter">
-          <option value="all">All providers</option>
-        </select>
-      </div>
-      <div id="notice" class="notice"></div>
+<head>
+  <meta charset="UTF-8">
+  <title>Bro Recovery Queue</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f9fafb; color: #111; padding: 32px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .sub { color: #6b7280; font-size: 13px; margin-bottom: 28px; }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.06); padding: 24px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #f3f4f6; }
+    thead th { text-align: left; padding: 8px 6px; font-size: 12px; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; }
+    tbody tr:hover { background: #f9fafb; }
+    .btn-run { background: #16a34a; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 600; margin-bottom: 20px; }
+    .btn-run:hover { background: #15803d; }
+    #status { margin-top: 12px; font-size: 13px; color: #374151; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Recovery Queue</h1>
+  <p class="sub">Failed and pending jobs from the last 7 days. Reset a job to re-queue it for the next cron run.</p>
 
-      <div class="grid" id="topMetrics"></div>
+  <button class="btn-run" onclick="runAutoRecovery()">Run Auto Recovery</button>
+  <div id="status"></div>
 
-      <div class="section panel">
-        <h2>Ops Queue</h2>
-        <p class="sub">Actionable jobs ordered by urgency.</p>
-        <table>
-          <thead><tr><th>Job</th><th>Priority</th><th>State</th><th>Actions</th><th>Summary</th></tr></thead>
-          <tbody id="opsQueueRows"></tbody>
-        </table>
-      </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>Status</th>
+          <th>Provider</th>
+          <th>Corridor</th>
+          <th>Attempts</th>
+          <th>Created</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="queueBody">
+        ${rows_html || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#9ca3af">No failed or pending jobs in the last 7 days.</td></tr>'}
+      </tbody>
+    </table>
+  </div>
 
-      <div class="section panel">
-        <h2>Provider Performance</h2>
-        <p class="sub">Issued/completed success only.</p>
-        <table>
-          <thead><tr><th>Provider</th><th>Corridor</th><th>Total</th><th>Succeeded</th><th>Rate</th></tr></thead>
-          <tbody id="providerRows"></tbody>
-        </table>
-      </div>
+  <script>
+    function getAdminKey() {
+      return prompt('Enter admin key:') || '';
+    }
+    let _adminKey = '';
 
-      <div class="section panel">
-        <h2>Booking Health</h2>
-        <p class="sub">Recovery buckets across the last 7 days.</p>
-        <div id="healthBuckets" class="grid"></div>
-      </div>
-    </div>
-    <script>
-      const adminKey = ${JSON.stringify(key)};
-      async function getJson(path, init) {
-        const res = await fetch(path, {
-          ...init,
-          headers: { 'x-admin-key': adminKey, ...(init && init.headers ? init.headers : {}) }
-        });
-        if (!res.ok) throw new Error('Request failed: ' + res.status);
-        return res.json();
-      }
-      function fmtPct(value){ return (value * 100).toFixed(1) + '%'; }
-      function metricCard(label, value, tone){
-        return '<div class="card"><div class="label">'+label+'</div><div class="'+(String(value).length > 10 ? 'metric-sm' : 'metric')+' '+(tone||'')+'">'+value+'</div></div>';
-      }
-      function priorityPill(priority){
-        return '<span class="pill p'+priority+'">P'+priority+'</span>';
-      }
-      function showNotice(text, kind) {
-        const el = document.getElementById('notice');
-        el.textContent = text;
-        el.className = 'notice ' + kind;
-      }
-      function clearNotice() {
-        const el = document.getElementById('notice');
-        el.textContent = '';
-        el.className = 'notice';
-      }
-      async function postJson(path, body) {
-        const res = await fetch(path, {
-          method: 'POST',
-          headers: { 'x-admin-key': adminKey, 'Content-Type': 'application/json' },
-          body: body ? JSON.stringify(body) : undefined,
-        });
-        if (!res.ok) {
-          let detail = 'Request failed: ' + res.status;
-          try {
-            const payload = await res.json();
-            if (payload && payload.error) detail = payload.error;
-          } catch {}
-          throw new Error(detail);
-        }
-        return res.json();
-      }
-      function actionButtons(job) {
-        const buttons = [];
-        if (job.recommendedAction === 'retry_dispatch') {
-          buttons.push('<button data-action="recover" data-job-id="'+job.jobId+'">Recover</button>');
-        }
-        buttons.push('<button class="secondary" data-action="escalate" data-job-id="'+job.jobId+'">Escalate</button>');
-        if (job.tripRoomUrl) {
-          buttons.push('<a class="link" target="_blank" rel="noreferrer" href="'+job.tripRoomUrl+'">Open trip</a>');
-        }
-        return '<div class="actions">'+buttons.join('')+'</div>';
-      }
-      function populateProviderFilter(jobs) {
-        const select = document.getElementById('providerFilter');
-        const current = select.value || 'all';
-        const providers = Array.from(new Set(jobs.map((job) => job.provider).filter(Boolean))).sort();
-        select.innerHTML = '<option value="all">All providers</option>' + providers.map((provider) =>
-          '<option value="'+provider+'">'+provider+'</option>'
-        ).join('');
-        if (providers.includes(current)) select.value = current;
-      }
-      async function loadDashboard() {
-        const [metrics, ops, health] = await Promise.all([
-          getJson('/api/admin/founder-metrics'),
-          getJson('/api/admin/ops-queue'),
-          getJson('/api/admin/booking-health'),
-        ]);
-        window.__opsJobs = ops.jobs || [];
-        populateProviderFilter(window.__opsJobs);
-
-        document.getElementById('topMetrics').innerHTML = [
-          metricCard('Issued', metrics.funnel.issued || 0, 'good'),
-          metricCard('Failed', metrics.funnel.failed || 0, metrics.funnel.failed ? 'bad' : ''),
-          metricCard('Recovery Save Rate', fmtPct(metrics.recovery.saveRate || 0), metrics.recovery.saveRate > 0.5 ? 'good' : 'warn'),
-          metricCard('Platform Revenue', '$' + (metrics.economics.totalPlatformRevenueUsdc || 0).toFixed(2), 'good'),
-          metricCard('Avg Time To Issue', metrics.timeToIssue.avgMinutes == null ? 'n/a' : metrics.timeToIssue.avgMinutes + ' min'),
-          metricCard('Ops Queue', ops.queueDepth || 0, ops.queueDepth ? 'warn' : 'good'),
-        ].join('');
-
-        renderOpsQueue(window.__opsJobs);
-
-        document.getElementById('providerRows').innerHTML = metrics.providerPerformance.map((row) =>
-          '<tr>'+
-            '<td>'+row.provider+'</td>'+
-            '<td>'+row.corridor+'</td>'+
-            '<td>'+row.total+'</td>'+
-            '<td>'+row.succeeded+'</td>'+
-            '<td>'+(row.successRate >= 0.8 ? '<span class="good">' : row.successRate >= 0.5 ? '<span class="warn">' : '<span class="bad">')+fmtPct(row.successRate)+'</span></td>'+
-          '</tr>'
-        ).join('') || '<tr><td colspan="5" class="muted">No provider data.</td></tr>';
-
-        document.getElementById('healthBuckets').innerHTML = Object.entries(health.byRecoveryBucket || {}).map(([bucket, count]) =>
-          metricCard(bucket.replace(/_/g, ' '), count, bucket.includes('failed') ? 'bad' : bucket.includes('stuck') ? 'warn' : '')
-        ).join('') || metricCard('healthy', 0);
-      }
-      function renderOpsQueue(jobs) {
-        const priorityFilter = document.getElementById('priorityFilter').value;
-        const actionFilter = document.getElementById('actionFilter').value;
-        const providerFilter = document.getElementById('providerFilter').value;
-        const filtered = jobs.filter((job) => {
-          const matchPriority = priorityFilter === 'all' || ('p' + job.opsPriority) === priorityFilter;
-          const matchAction = actionFilter === 'all' || job.recommendedAction === actionFilter;
-          const matchProvider = providerFilter === 'all' || job.provider === providerFilter;
-          return matchPriority && matchAction && matchProvider;
-        });
-        document.getElementById('opsQueueRows').innerHTML = filtered.map((job) =>
-          '<tr>'+
-            '<td><strong>'+job.jobId+'</strong><div class="small">'+(job.provider || 'unknown provider')+'</div><div class="small">'+(job.corridor || 'unknown corridor')+'</div></td>'+
-            '<td>'+priorityPill(job.opsPriority)+'</td>'+
-            '<td><div>'+job.bookingState+'</div><div class="small">'+job.recoveryBucket+'</div><div class="small">Attempts: '+job.recoveryAttemptCount+(job.recoveryLastResult ? ' · '+job.recoveryLastResult : '')+'</div>'+(job.recoveryLastError ? '<div class="small bad">'+job.recoveryLastError+'</div>' : '')+'</td>'+
-            '<td>'+actionButtons(job)+'</td>'+
-            '<td>'+job.summary+'</td>'+
-          '</tr>'
-        ).join('') || '<tr><td colspan="5" class="muted">No jobs match the current filters.</td></tr>';
-      }
-      document.getElementById('refreshBtn').addEventListener('click', () => { void loadDashboard(); });
-      document.getElementById('runRecoveryBtn').addEventListener('click', async (event) => {
-        const btn = event.currentTarget;
+    async function retryJob(jobId) {
+      if (!_adminKey) _adminKey = getAdminKey();
+      const res = await fetch('/api/admin/insights/retry/' + jobId, {
+        method: 'POST',
+        headers: { 'x-admin-key': _adminKey },
+      });
+      const data = await res.json();
+      document.getElementById('status').textContent = data.ok
+        ? 'Queued job ' + jobId + ' for recovery.'
+        : 'Error: ' + (data.error || 'unknown');
+      if (data.ok) {
+        const btn = event.target;
+        btn.textContent = 'Queued';
         btn.disabled = true;
-        try {
-          await getJson('/api/admin/booking-health/run-auto-recovery', { method: 'POST' });
-          showNotice('Auto-recovery sweep completed.', 'ok');
-          await loadDashboard();
-        } catch (error) {
-          showNotice(error.message || 'Auto-recovery failed.', 'error');
-        } finally {
-          btn.disabled = false;
-        }
+        btn.style.background = '#6b7280';
+      }
+    }
+
+    async function runAutoRecovery() {
+      if (!_adminKey) _adminKey = getAdminKey();
+      document.getElementById('status').textContent = 'Fetching queue…';
+      const res = await fetch('/api/admin/insights/queue', {
+        headers: { 'x-admin-key': _adminKey },
       });
-      document.getElementById('priorityFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
-      document.getElementById('actionFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
-      document.getElementById('providerFilter').addEventListener('change', () => renderOpsQueue(window.__opsJobs || []));
-      document.getElementById('opsQueueRows').addEventListener('click', async (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) return;
-        const action = target.dataset.action;
-        const jobId = target.dataset.jobId;
-        if (!action || !jobId) return;
-        target.disabled = true;
-        try {
-          if (action === 'recover') {
-            await postJson('/api/admin/booking-health/' + jobId + '/recover');
-            showNotice('Recovery queued for ' + jobId + '.', 'ok');
-          } else if (action === 'escalate') {
-            await postJson('/api/admin/booking-health/' + jobId + '/escalate', {
-              reason: 'Manual escalation requested from founder console',
-            });
-            showNotice('Escalated ' + jobId + ' for manual review.', 'ok');
-          }
-          await loadDashboard();
-        } catch (error) {
-          showNotice((error && error.message) || 'Action failed.', 'error');
-        } finally {
-          target.disabled = false;
-        }
-      });
-      clearNotice();
-      void loadDashboard();
-    </script>
-  </body>
+      const jobs = await res.json();
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        document.getElementById('status').textContent = 'Queue is empty — nothing to recover.';
+        return;
+      }
+      document.getElementById('status').textContent = 'Re-queuing ' + jobs.length + ' job(s)…';
+      let ok = 0;
+      for (const job of jobs) {
+        const r = await fetch('/api/admin/insights/retry/' + job.id, {
+          method: 'POST',
+          headers: { 'x-admin-key': _adminKey },
+        });
+        const d = await r.json();
+        if (d.ok) ok++;
+      }
+      document.getElementById('status').textContent = 'Done — re-queued ' + ok + ' of ' + jobs.length + ' jobs.';
+    }
+  </script>
+</body>
 </html>`;
 
-  return c.html(html);
-});
-
-broInsightsRouter.get('/bro-insights', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const sql = createDb(c.env);
-  try {
-    const statusRows = await sql<Array<{ status: string; count: string | number }>>`
-      SELECT status, COUNT(*) as count
-      FROM payment_intents
-      WHERE created_at > NOW() - INTERVAL '7 days'
-      GROUP BY status
-    `;
-    const failedSkillRows = await sql<Array<{ skill: string | null; count: string | number }>>`
-      SELECT metadata->>'skill' as skill, COUNT(*) as count
-      FROM payment_intents
-      WHERE status = 'failed'
-        AND created_at > NOW() - INTERVAL '7 days'
-      GROUP BY metadata->>'skill'
-      ORDER BY count DESC
-      LIMIT 10
-    `;
-
-    const byStatus = statusRows.reduce<Record<string, number>>((acc, row) => {
-      acc[row.status] = Number(row.count);
-      return acc;
-    }, {});
-    const totalIntents = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
-    const failureCount = byStatus.failed ?? 0;
-
-    return c.json({
-      window: '7d',
-      totalIntents,
-      failureRate: totalIntents > 0 ? Number((failureCount / totalIntents).toFixed(4)) : 0,
-      byStatus,
-      topFailedSkills: failedSkillRows
-        .filter((row) => !!row.skill)
-        .map((row) => ({ skill: row.skill as string, count: Number(row.count) })),
-      corrections: 'manual review needed — check CF logs for bro_signal type=user_correction',
-      generatedAt: new Date().toISOString(),
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-broInsightsRouter.get('/booking-health', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const sql = createDb(c.env);
-  try {
-    const rows = await sql<BookingHealthRow[]>`
-      SELECT
-        id,
-        status,
-        metadata,
-        created_at::text AS "createdAt",
-        updated_at::text AS "updatedAt"
-      FROM payment_intents
-      WHERE created_at > NOW() - INTERVAL '7 days'
-        AND metadata->>'protocol' = 'marketplace_hire'
-      ORDER BY updated_at DESC
-      LIMIT 100
-    `;
-
-    const jobs = rows.map(mapBookingHealthRow);
-
-    const byRecoveryBucket = jobs.reduce<Record<string, number>>((acc, job) => {
-      acc[job.recoveryBucket] = (acc[job.recoveryBucket] ?? 0) + 1;
-      return acc;
-    }, {});
-
-    return c.json({
-      window: '7d',
-      totalJobs: jobs.length,
-      escalations: jobs.filter((job) => job.shouldEscalate).length,
-      byRecoveryBucket,
-      jobs: jobs.map(({ metadata, ...job }) => job),
-      generatedAt: new Date().toISOString(),
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-broInsightsRouter.get('/ops-queue', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const sql = createDb(c.env);
-  try {
-    const rows = await sql<BookingHealthRow[]>`
-      SELECT
-        id,
-        status,
-        metadata,
-        created_at::text AS "createdAt",
-        updated_at::text AS "updatedAt"
-      FROM payment_intents
-      WHERE created_at > NOW() - INTERVAL '7 days'
-        AND metadata->>'protocol' = 'marketplace_hire'
-      ORDER BY updated_at DESC
-      LIMIT 100
-    `;
-
-    const actionable = rows
-      .map(mapBookingHealthRow)
-      .filter((job) => job.recommendedAction !== 'none' || job.shouldEscalate)
-      .sort((a, b) => a.opsPriority - b.opsPriority || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-
-    return c.json({
-      window: '7d',
-      queueDepth: actionable.length,
-      byPriority: actionable.reduce<Record<string, number>>((acc, job) => {
-        const key = `p${job.opsPriority}`;
-        acc[key] = (acc[key] ?? 0) + 1;
-        return acc;
-      }, {}),
-      jobs: actionable.map(({ metadata, ...job }) => job),
-      generatedAt: new Date().toISOString(),
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-broInsightsRouter.post('/booking-health/:jobId/recover', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const jobId = c.req.param('jobId');
-  const sql = createDb(c.env);
-  try {
-    const rows = await sql<BookingHealthRow[]>`
-      SELECT
-        id,
-        status,
-        metadata,
-        created_at::text AS "createdAt",
-        updated_at::text AS "updatedAt"
-      FROM payment_intents
-      WHERE id = ${jobId}
-        AND metadata->>'protocol' = 'marketplace_hire'
-      LIMIT 1
-    `;
-    if (!rows[0]) {
-      return c.json({ error: 'Not found' }, 404);
-    }
-
-    const mapped = mapBookingHealthRow(rows[0]);
-    if (!['ready_for_dispatch', 'stuck_securing'].includes(mapped.recoveryBucket)) {
-      return c.json({
-        error: 'NOT_RECOVERABLE',
-        recoveryBucket: mapped.recoveryBucket,
-        summary: mapped.summary,
-      }, 409);
-    }
-
-    const recoveryAttemptedAt = new Date().toISOString();
-    const recoveryResult = await dispatchToOpenClaw(c.env, jobId, mapped.metadata ?? {});
-    const recoveryPatch = JSON.stringify({
-      recoveryAttemptedAt,
-      recoveryAttemptCount: Number((mapped.metadata?.recoveryAttemptCount as number | string | undefined) ?? 0) + 1,
-      recoveryLastResult: recoveryResult.status,
-      recoveryLastError: recoveryResult.error ?? null,
-      openclawDispatched: recoveryResult.status === 'dispatched',
-      openclawJobId: recoveryResult.openclawJobId ?? (mapped.metadata?.openclawJobId as string | undefined) ?? null,
-      openclawDispatchedAt: recoveryResult.dispatchedAt,
-      openclawError: recoveryResult.error ?? null,
-      ...withBookingState(recoveryResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
-    });
-
-    await sql`
-      UPDATE payment_intents
-      SET metadata = metadata || ${recoveryPatch}::jsonb
-      WHERE id = ${jobId}
-    `;
-
-    return c.json({
-      ok: true,
-      jobId,
-      attemptedAt: recoveryAttemptedAt,
-      result: recoveryResult,
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-broInsightsRouter.post('/booking-health/:jobId/escalate', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const jobId = c.req.param('jobId');
-  let body: { reason?: string } = {};
-  try {
-    body = await c.req.json<{ reason?: string }>();
-  } catch {
-    body = {};
-  }
-
-  const sql = createDb(c.env);
-  try {
-    const rows = await sql<Array<{ id: string }>>`
-      SELECT id
-      FROM payment_intents
-      WHERE id = ${jobId}
-        AND metadata->>'protocol' = 'marketplace_hire'
-      LIMIT 1
-    `;
-    if (!rows[0]) {
-      return c.json({ error: 'Not found' }, 404);
-    }
-
-    const patch = JSON.stringify({
-      manualReviewRequired: true,
-      manualReviewReason: body.reason ?? 'Manual escalation requested from booking health console',
-      manualReviewMarkedAt: new Date().toISOString(),
-    });
-    await sql`
-      UPDATE payment_intents
-      SET metadata = metadata || ${patch}::jsonb
-      WHERE id = ${jobId}
-    `;
-
-    return c.json({
-      ok: true,
-      jobId,
-      manualReviewRequired: true,
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-broInsightsRouter.post('/booking-health/run-auto-recovery', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-  const result = await runAutoRecoverySweep(c.env, { limit: 100 });
-  return c.json({
-    ok: true,
-    ...result,
-    generatedAt: new Date().toISOString(),
-  });
-});
-
-broInsightsRouter.get('/founder-metrics', async (c) => {
-  const unauthorized = requireAdmin(c);
-  if (unauthorized) return unauthorized;
-
-  const sql = createDb(c.env);
-  try {
-    const [statusRows, bookingStateRows, providerRows, recoveryRows, issueRows, economicsRows] = await Promise.all([
-      sql<Array<{ status: string; count: string | number }>>`
-        SELECT status, COUNT(*) AS count
-        FROM payment_intents
-        WHERE created_at > NOW() - INTERVAL '30 days'
-        GROUP BY status
-      `,
-      sql<Array<{ bookingState: string | null; count: string | number }>>`
-        SELECT metadata->>'bookingState' AS "bookingState", COUNT(*) AS count
-        FROM payment_intents
-        WHERE created_at > NOW() - INTERVAL '30 days'
-          AND metadata->>'protocol' = 'marketplace_hire'
-        GROUP BY metadata->>'bookingState'
-      `,
-      sql<Array<{ provider: string | null; corridor: string | null; total: string | number; succeeded: string | number }>>`
-        SELECT
-          metadata->>'paymentProvider' AS provider,
-          CONCAT_WS(
-            ' -> ',
-            COALESCE(metadata->'trainDetails'->>'origin', metadata->'flightDetails'->>'origin', metadata->'hotelDetails'->>'city'),
-            COALESCE(metadata->'trainDetails'->>'destination', metadata->'flightDetails'->>'destination', metadata->'hotelDetails'->>'city')
-          ) AS corridor,
-          COUNT(*) AS total,
-          COUNT(*) FILTER (
-            WHERE status = 'completed'
-               OR metadata->>'bookingState' = 'issued'
-          ) AS succeeded
-        FROM payment_intents
-        WHERE created_at > NOW() - INTERVAL '30 days'
-          AND metadata->>'protocol' = 'marketplace_hire'
-          AND metadata->>'paymentProvider' IS NOT NULL
-        GROUP BY metadata->>'paymentProvider', corridor
-        ORDER BY total DESC, succeeded DESC
-        LIMIT 20
-      `,
-      sql<Array<{ attempted: string | number; saved: string | number; escalated: string | number }>>`
-        SELECT
-          COUNT(*) FILTER (WHERE COALESCE((metadata->>'recoveryAttemptCount')::int, 0) > 0) AS attempted,
-          COUNT(*) FILTER (
-            WHERE COALESCE((metadata->>'recoveryAttemptCount')::int, 0) > 0
-              AND metadata->>'bookingState' = 'issued'
-          ) AS saved,
-          COUNT(*) FILTER (WHERE metadata->>'manualReviewRequired' = 'true') AS escalated
-        FROM payment_intents
-        WHERE created_at > NOW() - INTERVAL '30 days'
-          AND metadata->>'protocol' = 'marketplace_hire'
-      `,
-      sql<Array<{ avgMinutes: string | number | null; p95Minutes: string | number | null }>>`
-        SELECT
-          AVG(EXTRACT(EPOCH FROM (COALESCE((metadata->>'fulfilledAt')::timestamptz, (metadata->>'completedAt')::timestamptz) - (metadata->>'hiredAt')::timestamptz)) / 60.0) AS "avgMinutes",
-          PERCENTILE_CONT(0.95) WITHIN GROUP (
-            ORDER BY EXTRACT(EPOCH FROM (COALESCE((metadata->>'fulfilledAt')::timestamptz, (metadata->>'completedAt')::timestamptz) - (metadata->>'hiredAt')::timestamptz)) / 60.0
-          ) AS "p95Minutes"
-        FROM payment_intents
-        WHERE created_at > NOW() - INTERVAL '30 days'
-          AND metadata->>'protocol' = 'marketplace_hire'
-          AND metadata->>'hiredAt' IS NOT NULL
-          AND COALESCE(metadata->>'fulfilledAt', metadata->>'completedAt') IS NOT NULL
-      `,
-      sql<Array<{ protocol: string | null; intents: string | number; grossVolumeUsdc: string | number | null; platformRevenueUsdc: string | number | null }>>`
-        SELECT
-          protocol,
-          SUM(intents) AS intents,
-          SUM(gross_amount) AS "grossVolumeUsdc",
-          SUM(platform_fee_amount) AS "platformRevenueUsdc"
-        FROM (
-          SELECT
-            COALESCE(pi.metadata->>'protocol', 'direct') AS protocol,
-            COUNT(*) AS intents,
-            COALESCE(SUM(fle.gross_amount), 0) AS gross_amount,
-            COALESCE(SUM(fle.platform_fee_amount), 0) AS platform_fee_amount
-          FROM fee_ledger_entries fle
-          JOIN payment_intents pi ON pi.id = fle.intent_id
-          WHERE pi.created_at > NOW() - INTERVAL '30 days'
-            AND COALESCE(pi.metadata->>'protocol', 'direct') <> 'marketplace_hire'
-          GROUP BY COALESCE(pi.metadata->>'protocol', 'direct')
-
-          UNION ALL
-
-          SELECT
-            'marketplace_hire' AS protocol,
-            COUNT(*) AS intents,
-            COALESCE(SUM(amount), 0) AS gross_amount,
-            COALESCE(SUM((metadata->>'platformFee')::numeric), 0) AS platform_fee_amount
-          FROM payment_intents
-          WHERE created_at > NOW() - INTERVAL '30 days'
-            AND metadata->>'protocol' = 'marketplace_hire'
-        ) metrics
-        GROUP BY protocol
-        ORDER BY "grossVolumeUsdc" DESC
-      `,
-    ]);
-
-    const byStatus = statusRows.reduce<Record<string, number>>((acc, row) => {
-      acc[row.status] = Number(row.count);
-      return acc;
-    }, {});
-    const totalIntents = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
-
-    const byBookingState = bookingStateRows.reduce<Record<string, number>>((acc, row) => {
-      if (!row.bookingState) return acc;
-      acc[row.bookingState] = Number(row.count);
-      return acc;
-    }, {});
-
-    const recovery = recoveryRows[0] ?? { attempted: 0, saved: 0, escalated: 0 };
-    const recoveryAttempted = Number(recovery.attempted);
-    const recoverySaved = Number(recovery.saved);
-    const issueTiming = issueRows[0] ?? { avgMinutes: null, p95Minutes: null };
-
-    return c.json({
-      window: '30d',
-      generatedAt: new Date().toISOString(),
-      funnel: {
-        totalIntents,
-        byStatus,
-        byBookingState,
-        paymentConfirmed: (byBookingState.payment_confirmed ?? 0) + (byBookingState.securing ?? 0) + (byBookingState.issued ?? 0),
-        securing: byBookingState.securing ?? 0,
-        issued: byBookingState.issued ?? 0,
-        failed: (byStatus.failed ?? 0) + (byBookingState.failed ?? 0),
-      },
-      providerPerformance: providerRows.map((row) => {
-        const total = Number(row.total);
-        const succeeded = Number(row.succeeded);
-        return {
-          provider: row.provider ?? 'unknown',
-          corridor: row.corridor || 'unknown',
-          total,
-          succeeded,
-          successRate: total > 0 ? Number((succeeded / total).toFixed(4)) : 0,
-        };
-      }),
-      recovery: {
-        attempted: recoveryAttempted,
-        saved: recoverySaved,
-        escalated: Number(recovery.escalated),
-        saveRate: recoveryAttempted > 0 ? Number((recoverySaved / recoveryAttempted).toFixed(4)) : 0,
-      },
-      timeToIssue: {
-        avgMinutes: issueTiming.avgMinutes == null ? null : Number(Number(issueTiming.avgMinutes).toFixed(1)),
-        p95Minutes: issueTiming.p95Minutes == null ? null : Number(Number(issueTiming.p95Minutes).toFixed(1)),
-      },
-      economics: {
-        byProtocol: economicsRows.map((row) => ({
-          protocol: row.protocol ?? 'direct',
-          intents: Number(row.intents),
-          grossVolumeUsdc: Number(row.grossVolumeUsdc ?? 0),
-          platformRevenueUsdc: Number(row.platformRevenueUsdc ?? 0),
-        })),
-        totalGrossVolumeUsdc: Number(economicsRows.reduce((sum, row) => sum + Number(row.grossVolumeUsdc ?? 0), 0).toFixed(6)),
-        totalPlatformRevenueUsdc: Number(economicsRows.reduce((sum, row) => sum + Number(row.platformRevenueUsdc ?? 0), 0).toFixed(6)),
-      },
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
+  return new Response(html, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 });

@@ -26,95 +26,13 @@ import { getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '..
 import { saveActiveTrip } from '../../../lib/storage';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
+import { statusNarration } from '../../../lib/concierge';
 import { C } from '../../../lib/theme';
-import { formatMoneyAmount } from '../../../lib/money';
 import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
-import { getExpoPushToken, requestNotificationPermission, scheduleJourneyNotifications } from '../../../lib/notifications';
-import { registerJobWatch } from '../../../lib/api';
 
 const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
-
-type HotelDetails = {
-  city: string;
-  checkIn: string;
-  checkOut: string;
-  bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string };
-};
-
-function statusModeMeta(params: {
-  tripContext?: TripContext | null;
-  totalLegs: number;
-  hotelDetails?: HotelDetails | null;
-  flightDetails?: string | null;
-}) {
-  const mode = params.tripContext?.mode
-    ?? (params.hotelDetails?.bestOption ? 'hotel' : params.flightDetails ? 'flight' : 'rail');
-  if (params.totalLegs > 1 || mode === 'mixed') {
-    return {
-      payCopy: 'Your journey is lined up. Pay below to confirm every leg.',
-      doneCopy: `All ${params.totalLegs} legs confirmed. Details arrive by email for each leg.`,
-      showDepartureCompanion: true,
-    };
-  }
-  if (mode === 'hotel') {
-    return {
-      payCopy: 'Your stay is lined up. Pay below to confirm it.',
-      doneCopy: 'Bro has your stay lined up. Booking details arrive by email shortly.',
-      showDepartureCompanion: false,
-    };
-  }
-  if (mode === 'flight') {
-    return {
-      payCopy: 'Your flight is lined up. Pay below to confirm it.',
-      doneCopy: 'Bro has your flight lined up. Booking details arrive by email shortly.',
-      showDepartureCompanion: true,
-    };
-  }
-  if (mode === 'bus' || mode === 'local') {
-    return {
-      payCopy: 'Your route is lined up. Pay below to confirm it.',
-      doneCopy: 'Bro has your route lined up. Details arrive by email shortly.',
-      showDepartureCompanion: true,
-    };
-  }
-  return {
-    payCopy: 'Your request is in. Tap below to pay and secure your ticket.',
-    doneCopy: 'Bro has your journey moving. Ticket details arrive by email shortly.',
-    showDepartureCompanion: true,
-  };
-}
-
-function completionVoiceCopy(params: {
-  bookingRef?: string | null;
-  hotelDetails?: HotelDetails | null;
-  flightDetails?: string | null;
-  tripContext?: TripContext | null;
-  totalLegs?: number;
-}): string {
-  const refLine = params.bookingRef ? ` Bro reference ${params.bookingRef.replace(/-/g, ' ')}.` : '';
-  if ((params.totalLegs ?? 1) > 1 || params.tripContext?.mode === 'mixed') {
-    return `Holding your journey.${refLine} Details by email within 15 minutes for each leg.`;
-  }
-  if (params.hotelDetails?.bestOption) {
-    return `Holding your stay.${refLine} Booking details by email within 15 minutes.`;
-  }
-  if (params.flightDetails) {
-    return `Holding your flight.${refLine} Booking details by email within 15 minutes.`;
-  }
-  return params.bookingRef
-    ? `Securing your ticket.${refLine} Ticket details by email within 15 minutes.`
-    : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
-}
-
-function statusLegIcon(mode: TripContext['mode'] | TripContext['legs'][number]['mode']) {
-  if (mode === 'flight') return '✈️';
-  if (mode === 'hotel') return '🏨';
-  if (mode === 'bus') return '🚌';
-  if (mode === 'local') return '🚇';
-  return '🚂';
-}
 
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
@@ -127,7 +45,6 @@ export default function StatusScreen() {
   const [errorMsg, setErrorMsg]         = useState<string | null>(null);
   const [bookingRef, setBookingRef]     = useState<string | null>(null);
   const [departureTime, setDepartureTime] = useState<string | null>(null);
-  const [arrivalTime, setArrivalTime]     = useState<string | null>(null);
   const [platform, setPlatform]         = useState<string | null>(null);
   const [operator, setOperator]         = useState<string | null>(null);
   const [fromStation, setFromStation]   = useState<string | null>(null);
@@ -139,12 +56,6 @@ export default function StatusScreen() {
   const [payLoading, setPayLoading]           = useState(false);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
-  const [suggestedEvent, setSuggestedEvent]   = useState<{ name: string; venue: string; date: string; price?: string; url?: string } | null>(null);
-  const [hotelDetails, setHotelDetails]       = useState<HotelDetails | null>(null);
-
-  const [countdown, setCountdown]       = useState<string | null>(null);
-  const spokenRef   = useRef({ t30: false, t10: false, arrived: false });
-  const companionSetupRef = useRef(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -164,11 +75,10 @@ export default function StatusScreen() {
       intentId: jobId,
       jobId,
       status: 'securing',
-      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
+      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
-      arrivalTime: arrivalTime ?? null,
       platform: platform ?? null,
       operator: operator ?? null,
       finalLegSummary: finalLegSummary ?? null,
@@ -179,7 +89,7 @@ export default function StatusScreen() {
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, arrivalTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
+  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -210,7 +120,6 @@ export default function StatusScreen() {
             const ref = proof.bookingRef ?? null;
             if (ref) setBookingRef(ref);
             if (proof.departureTime) setDepartureTime(proof.departureTime);
-            if (proof.arrivalTime)   setArrivalTime(proof.arrivalTime);
             if (proof.platform)      setPlatform(proof.platform);
             if (proof.operator)      setOperator(proof.operator);
             if (proof.fromStation)   setFromStation(proof.fromStation);
@@ -219,14 +128,9 @@ export default function StatusScreen() {
             if (proof.finalLegSummary)   setFinalLegSummary(proof.finalLegSummary);
             if (proof.departureDatetime) setDepartureDatetime(proof.departureDatetime);
             if (data.metadata?.flightDetails) setFlightData(JSON.stringify(data.metadata.flightDetails));
-            if (data.metadata?.hotelDetails) setHotelDetails(data.metadata.hotelDetails as HotelDetails);
             // Trip room share token (auto-created for family bookings in Phase 2)
             const resolvedShareToken = data.metadata?.shareToken ?? shareToken ?? null;
             if (resolvedShareToken && resolvedShareToken !== shareToken) setShareToken(resolvedShareToken);
-            // Proactive event suggestion (fire-and-forget from Phase 2 for trips 2+ days ahead)
-            if (data.metadata?.suggestedEvent) {
-              setSuggestedEvent(data.metadata.suggestedEvent as { name: string; venue: string; date: string; price?: string; url?: string });
-            }
             if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
               setPaymentConfirmed(true);
             }
@@ -251,11 +155,10 @@ export default function StatusScreen() {
               intentId: jobId,
               jobId,
               status: 'ticketed',
-              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey',
+              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Train journey',
               fromStation: proof.fromStation ?? null,
               toStation: proof.toStation ?? null,
               departureTime: proof.departureTime ?? null,
-              arrivalTime: proof.arrivalTime ?? null,
               platform: proof.platform ?? null,
               operator: proof.operator ?? null,
               bookingRef: ref,
@@ -268,13 +171,9 @@ export default function StatusScreen() {
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            const doneMsg = completionVoiceCopy({
-              bookingRef: ref,
-              hotelDetails: data.metadata?.hotelDetails as HotelDetails | null | undefined,
-              flightDetails: data.metadata?.flightDetails ? JSON.stringify(data.metadata.flightDetails) : null,
-              tripContext: nextTripContext,
-              totalLegs,
-            });
+            const doneMsg = ref
+              ? `Securing your ticket. Bro reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
+              : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
             await speak(doneMsg);
             // Animate success
             Animated.parallel([
@@ -298,7 +197,7 @@ export default function StatusScreen() {
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -326,7 +225,7 @@ export default function StatusScreen() {
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Journey',
+            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -348,7 +247,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, arrivalTime, platform, operator, finalLegSummary, tripContext]);
+  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -370,86 +269,12 @@ export default function StatusScreen() {
     return () => clearInterval(t);
   }, [statusPhase, paymentConfirmed, jobId]);
 
-  // ── Active journey companion — countdown + voice-overs ────────────────────
+  // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
-    if (statusPhase !== 'done' || !departureDatetime) return;
-    const mode = tripContext?.mode ?? (hotelDetails?.bestOption ? 'hotel' : flightData ? 'flight' : 'rail');
-    if (mode === 'hotel' || mode === 'dining' || mode === 'event') {
-      setCountdown(null);
-      return;
-    }
-
-    const tick = () => {
-      const depMs   = new Date(departureDatetime).getTime();
-      const diffMs  = depMs - Date.now();
-      const diffMin = Math.floor(diffMs / 60_000);
-
-      // Countdown text
-      if (diffMs <= 0) {
-        setCountdown(null);
-      } else if (diffMin >= 60) {
-        const h = Math.floor(diffMin / 60);
-        const m = diffMin % 60;
-        setCountdown(`Departing in ${h}h ${m}m${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
-      } else if (diffMin > 0) {
-        setCountdown(`Departing in ${diffMin} min${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
-      } else {
-        setCountdown(`Departing now${mode === 'rail' && platform ? ` · Platform ${platform}` : ''}`);
-      }
-
-      // Voice-overs — each fires once
-      const dest = toStation ?? 'your destination';
-      if (diffMin <= 30 && diffMin > 25 && !spokenRef.current.t30) {
-        spokenRef.current.t30 = true;
-        if (mode === 'flight') {
-          void speak('30 minutes to departure. Make your way through the airport when you are ready.');
-        } else {
-          void speak(`30 minutes to departure.${mode === 'rail' && platform ? ` Platform ${platform}.` : ''}`);
-        }
-      } else if (diffMin <= 10 && diffMin > 7 && !spokenRef.current.t10) {
-        spokenRef.current.t10 = true;
-        if (mode === 'flight') {
-          void speak('10 minutes to departure. Head to the gate now.');
-        } else if (mode === 'rail' && platform) {
-          void speak(`Head to the platform now. 10 minutes to departure. Platform ${platform}.`);
-        } else {
-          void speak('10 minutes to departure. Time to move.');
-        }
-      } else if (diffMs <= 0 && diffMs > -3 * 60_000 && !spokenRef.current.arrived) {
-        spokenRef.current.arrived = true;
-        void speak(`Welcome to ${dest}. You've arrived.`);
-      }
-    };
-
-    tick(); // run immediately
-    const t = setInterval(tick, 30_000); // update every 30s
-    return () => clearInterval(t);
-  }, [statusPhase, departureDatetime, platform, toStation, tripContext, hotelDetails, flightData]);
-
-  // Schedule local companion nudges and register server-side disruption watch once the booking lands.
-  useEffect(() => {
-    if (statusPhase !== 'done' || companionSetupRef.current) return;
-    const depStr = departureDatetime ?? departureTime;
-    if (!jobId || !depStr) return;
-    companionSetupRef.current = true;
-
-    const route = fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey';
-    void (async () => {
-      const granted = await requestNotificationPermission();
-      if (!granted) return;
-      await scheduleJourneyNotifications(jobId, depStr, route, platform ?? null, {
-        arrivalISO: arrivalTime ?? tripContext?.arrivalTime ?? null,
-        destination: toStation ?? tripContext?.destination ?? null,
-        finalLegSummary: finalLegSummary ?? tripContext?.finalLegSummary ?? null,
-        shareToken,
-      });
-      const token = await getExpoPushToken();
-      if (token) await registerJobWatch(jobId, token);
-    })();
-  }, [statusPhase, jobId, departureDatetime, departureTime, arrivalTime, fromStation, toStation, platform, finalLegSummary, tripContext, shareToken]);
-
-  // Keep execution quiet. Voice is reserved for completion, failure,
-  // and other material state changes rather than periodic reassurance.
+    if (statusPhase !== 'executing' || !currentAgent) return;
+    if (elapsed === 0 || elapsed % 20 !== 0) return;
+    speak(statusNarration(currentAgent, elapsed));
+  }, [elapsed, statusPhase, currentAgent]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -459,14 +284,6 @@ export default function StatusScreen() {
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
-  const modeMeta = statusModeMeta({ tripContext, totalLegs, hotelDetails, flightDetails: flightData });
-  const tripLegs = tripContext?.legs ?? [];
-  const activeLegIndex = tripContext?.journeyGraph?.activeLegId
-    ? Math.max(0, tripLegs.findIndex((leg) => leg.id === tripContext.journeyGraph?.activeLegId))
-    : Math.max(0, tripLegs.findIndex((leg) => leg.status !== 'completed' && leg.status !== 'booked'));
-  const shownLegIndex = tripLegs.length > 0
-    ? (activeLegIndex === -1 ? tripLegs.length - 1 : activeLegIndex)
-    : 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -517,51 +334,90 @@ export default function StatusScreen() {
 
         <Text style={styles.statusSub}>
           {isFullyDone
-            ? modeMeta.doneCopy
+            ? totalLegs > 1
+              ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
+              : 'Bro has your journey moving. Ticket details arrive by email shortly.'
             : isDone && needsPayment && !paymentConfirmed
-            ? modeMeta.payCopy
+            ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
         </Text>
-        {isFullyDone && modeMeta.showDepartureCompanion && countdown && (
-          <View style={styles.countdownBadge}>
-            <Ionicons name="time-outline" size={13} color={C.emBright} />
-            <Text style={styles.countdownText}>{countdown}</Text>
-          </View>
-        )}
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
-            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg {shownLegIndex + 1} of {totalLegs}</Text>
+            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg 1 of {totalLegs}</Text>
           </View>
         )}
 
-        {isDone && tripLegs.length > 1 && (
-          <View style={styles.legSummaryCard}>
-            {tripLegs.map((leg, index) => (
-              <View key={leg.id ?? `${leg.mode}-${index}`} style={styles.legSummaryRow}>
-                <Text style={styles.legSummaryIcon}>{statusLegIcon(leg.mode)}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.legSummaryTitle}>
-                    {`Leg ${index + 1} · ${leg.label ?? leg.operator ?? 'Journey leg'}`}
-                  </Text>
-                  <Text style={styles.legSummaryBody}>
-                    {leg.origin ?? 'Origin'} → {leg.destination ?? 'Destination'}
-                  </Text>
-                </View>
-                <View style={[
-                  styles.legSummaryDot,
-                  leg.status === 'completed' || leg.status === 'booked'
-                    ? styles.legSummaryDotDone
-                    : leg.status === 'attention'
-                    ? styles.legSummaryDotWarn
-                    : styles.legSummaryDotActive,
-                ]} />
-              </View>
-            ))}
-          </View>
-        )}
+        {/* Multi-leg timeline — shown only for 2+ leg journeys */}
+        {isFullyDone && (() => {
+          const legs: Array<{
+            mode?: string;
+            operator?: string;
+            departureTime?: string;
+            origin?: string;
+            destination?: string;
+            status?: string;
+          }> = (tripContext as any)?.legs ?? [];
+          if (legs.length <= 1) return null;
+          return (
+            <View style={legStyles.container}>
+              {legs.map((leg, idx) => {
+                const legStatus: string = (leg.status ?? 'pending');
+                const isDot   = legStatus === 'confirmed' || legStatus === 'completed';
+                const isSpinner = legStatus === 'securing' || legStatus === 'pending_payment';
+                const isFailed  = legStatus === 'failed';
+                const dotColor  = isDot ? '#4ade80' : isSpinner ? '#f59e0b' : isFailed ? '#ef4444' : '#475569';
+                const dotSymbol = isDot ? '✓' : isSpinner ? '⟳' : isFailed ? '✗' : '○';
+
+                const modeRaw = (leg.mode ?? '').toLowerCase();
+                const modeIcon = modeRaw.includes('flight') || modeRaw.includes('fly')
+                  ? '✈'
+                  : modeRaw.includes('hotel') || modeRaw.includes('accommodation')
+                  ? '🏨'
+                  : modeRaw.includes('bus') || modeRaw.includes('coach')
+                  ? '🚌'
+                  : '🚂';
+
+                const timeStr = leg.departureTime ? ` ${leg.departureTime}` : '';
+                const operatorStr = leg.operator ? `${leg.operator}${timeStr}` : timeStr.trim();
+                const routeStr = leg.origin && leg.destination
+                  ? `${leg.origin} → ${leg.destination}`
+                  : leg.destination ?? '';
+
+                return (
+                  <View key={idx} style={legStyles.row}>
+                    <Text style={legStyles.legNum}>Leg {idx + 1}</Text>
+                    <Text style={legStyles.icon}>{modeIcon}</Text>
+                    <View style={{ flex: 1 }}>
+                      {operatorStr ? <Text style={legStyles.operator}>{operatorStr}</Text> : null}
+                      {routeStr ? <Text style={legStyles.route}>{routeStr}</Text> : null}
+                    </View>
+                    <Text style={[legStyles.dot, { color: dotColor }]}>{dotSymbol}</Text>
+                  </View>
+                );
+              })}
+
+              {/* Share with family — below the timeline, visible when shareToken is set */}
+              {shareToken && (
+                <Pressable
+                  onPress={() => {
+                    void Share.share({
+                      title: 'Join my trip on Bro',
+                      message: `Track our journey live → https://bro.app/trip/${shareToken}`,
+                      url: `https://bro.app/trip/${shareToken}`,
+                    });
+                  }}
+                  style={legStyles.shareBtn}
+                >
+                  <Ionicons name="share-outline" size={15} color="#38bdf8" style={{ marginRight: 6 }} />
+                  <Text style={legStyles.shareText}>Share with family</Text>
+                </Pressable>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Booking reference pill */}
         {isDone && bookingRef && (
@@ -593,43 +449,6 @@ export default function StatusScreen() {
           </View>
         )}
 
-        {/* Hotel booking card */}
-        {isDone && hotelDetails?.bestOption && (
-          <View style={[styles.bookingRefWrap, { borderColor: '#1e3a5f', marginTop: 8 }]}>
-            <Text style={styles.bookingRefLabel}>🏨 {hotelDetails.bestOption.name}</Text>
-            <View style={styles.journeyMeta}>
-              <View style={styles.journeyBadge}>
-                <Text style={styles.journeyBadgeText}>Check-in {hotelDetails.checkIn}</Text>
-              </View>
-              <View style={styles.journeyBadge}>
-                <Text style={styles.journeyBadgeText}>Check-out {hotelDetails.checkOut}</Text>
-              </View>
-              <Text style={[styles.journeyOperator, { color: '#4ade80' }]}>
-                {hotelDetails.bestOption.currency} {hotelDetails.bestOption.ratePerNight}/night · {hotelDetails.city}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Proactive event suggestion — shown when trip is 2+ days ahead */}
-        {isDone && suggestedEvent && suggestedEvent.url ? (
-          <Pressable onPress={() => Linking.openURL(suggestedEvent!.url!)} style={styles.eventCard}>
-            <Text style={styles.eventTitle}>🎭 {suggestedEvent.name}</Text>
-            <Text style={styles.eventVenue}>{suggestedEvent.venue}</Text>
-            {suggestedEvent.price && (
-              <Text style={styles.eventPrice}>{suggestedEvent.price} · Tap to view</Text>
-            )}
-          </Pressable>
-        ) : isDone && suggestedEvent ? (
-          <View style={styles.eventCard}>
-            <Text style={styles.eventTitle}>🎭 {suggestedEvent.name}</Text>
-            <Text style={styles.eventVenue}>{suggestedEvent.venue}</Text>
-            {suggestedEvent.price && (
-              <Text style={styles.eventPrice}>{suggestedEvent.price}</Text>
-            )}
-          </View>
-        ) : null}
-
         {/* Payment button — shown until Stripe payment confirmed */}
         {cards.length > 0 && (
           <View style={styles.proactiveWrap}>
@@ -648,7 +467,6 @@ export default function StatusScreen() {
                 if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
                   const { shortUrl } = await createUpiPaymentLink({
                     jobId,
-                    journeyId: paramJourneyId,
                     amountInr: Math.round(parseFloat(fiatAmount)),
                     description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Bro booking',
                   });
@@ -656,7 +474,6 @@ export default function StatusScreen() {
                 } else {
                   const { url } = await createCheckoutSession({
                     jobId,
-                    journeyId: paramJourneyId,
                     amountFiat:   parseFloat(fiatAmount),
                     currencyCode: paramCode ?? 'GBP',
                     description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
@@ -679,7 +496,7 @@ export default function StatusScreen() {
             >
               <Ionicons name="card-outline" size={20} color="#93c5fd" />
               <Text style={styles.payBtnText}>
-                {payLoading ? 'Opening…' : `Pay ${paramSymbol ?? '£'}${formatMoneyAmount(parseFloat(fiatAmount), paramCode ?? 'GBP')}`}
+                {payLoading ? 'Opening…' : `Pay ${paramSymbol ?? '£'}${parseFloat(fiatAmount).toFixed(2)}`}
               </Text>
             </LinearGradient>
           </Pressable>
@@ -707,7 +524,6 @@ export default function StatusScreen() {
                 if (toStation)     qs.set('toStation', toStation);
                 if (finalLegSummary)   qs.set('finalLegSummary',   finalLegSummary);
                 if (departureDatetime) qs.set('departureDatetime', departureDatetime);
-                if (arrivalTime) qs.set('arrivalTime', arrivalTime);
                 if (flightData)        qs.set('flightData',        flightData);
                 if (fiatAmount)  qs.set('fiatAmount',    fiatAmount);
               if (paramSymbol) qs.set('currencySymbol', paramSymbol);
@@ -743,26 +559,6 @@ export default function StatusScreen() {
               >
                 <Ionicons name="share-outline" size={16} color={C.sky} style={{ marginRight: 6 }} />
                 <Text style={styles.shareTripText}>Share Trip</Text>
-              </Pressable>
-            )}
-
-            {toStation && (
-              <Pressable
-                onPress={async () => {
-                  const dest = encodeURIComponent(toStation);
-                  const citymapperUrl = `citymapper://directions?endname=${dest}&endaddress=${dest}`;
-                  const mapsUrl = `https://maps.google.com/?q=${dest}`;
-                  try {
-                    const canOpen = await Linking.canOpenURL(citymapperUrl);
-                    await Linking.openURL(canOpen ? citymapperUrl : mapsUrl);
-                  } catch {
-                    await Linking.openURL(mapsUrl);
-                  }
-                }}
-                style={styles.navigateBtn}
-              >
-                <Ionicons name="navigate-outline" size={16} color="#38bdf8" style={{ marginRight: 6 }} />
-                <Text style={styles.navigateBtnText}>Navigate to {toStation}</Text>
               </Pressable>
             )}
 
@@ -1005,54 +801,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     letterSpacing: 0.3,
   },
-  legSummaryCard: {
-    width: '100%',
-    backgroundColor: '#0b1220',
-    borderWidth: 1,
-    borderColor: '#1e293b',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
-    gap: 10,
-  },
-  legSummaryRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  legSummaryIcon: {
-    fontSize: 16,
-    width: 20,
-    textAlign: 'center',
-    marginTop: 1,
-  },
-  legSummaryTitle: {
-    fontSize: 12,
-    color: C.textPrimary,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  legSummaryBody: {
-    fontSize: 12,
-    color: C.textMuted,
-    lineHeight: 17,
-  },
-  legSummaryDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 5,
-  },
-  legSummaryDotDone: {
-    backgroundColor: '#4ade80',
-  },
-  legSummaryDotWarn: {
-    backgroundColor: '#f59e0b',
-  },
-  legSummaryDotActive: {
-    backgroundColor: '#60a5fa',
-  },
 
   ctaWrap: { width: '100%', alignItems: 'center' },
   receiptBtn: {
@@ -1075,9 +823,7 @@ const styles = StyleSheet.create({
   },
   receiptBtnText: { fontSize: 17, fontWeight: '700', color: C.emBright, letterSpacing: 0.2 },
 
-  newRequestBtn:    { paddingVertical: 14 },
-  navigateBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#0c4a6e', marginBottom: 10 },
-  navigateBtnText:  { fontSize: 14, color: '#38bdf8', fontWeight: '500' },
+  newRequestBtn: { paddingVertical: 14 },
   newRequestText: { fontSize: 14, color: C.textMuted, letterSpacing: 0.3 },
 
   retryBtn: { paddingVertical: 16 },
@@ -1118,49 +864,67 @@ const styles = StyleSheet.create({
   paidBadgeText: { fontSize: 13, fontWeight: '600', color: C.green },
   shareTripBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   shareTripText: { fontSize: 15, color: C.sky, fontWeight: '500' },
+});
 
-  countdownBadge: {
+// ── Leg timeline styles ────────────────────────────────────────────────────────
+const legStyles = StyleSheet.create({
+  container: {
+    width: '100%',
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 20,
+    gap: 10,
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: C.emDim,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: C.emGlow,
+    gap: 8,
   },
-  countdownText: { fontSize: 13, fontWeight: '600', color: C.emBright, letterSpacing: 0.2 },
-
-  eventCard: {
-    width: '100%',
-    backgroundColor: '#0d0718',
-    borderWidth: 1,
-    borderColor: '#4c1d95',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 16,
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-  },
-  eventTitle: {
-    fontSize: 14,
+  legNum: {
+    fontSize: 11,
     fontWeight: '700',
-    color: C.textPrimary,
-    marginBottom: 4,
+    color: '#64748b',
+    width: 36,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  eventVenue: {
-    fontSize: 12,
-    color: C.textSecondary,
-    marginBottom: 4,
+  icon: {
+    fontSize: 16,
+    width: 22,
+    textAlign: 'center',
   },
-  eventPrice: {
+  operator: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#a78bfa',
+    color: '#e2e8f0',
+  },
+  route: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 1,
+  },
+  dot: {
+    fontSize: 16,
+    fontWeight: '700',
+    width: 20,
+    textAlign: 'center',
+  },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
+    marginTop: 4,
+  },
+  shareText: {
+    fontSize: 13,
+    color: '#38bdf8',
+    fontWeight: '500',
   },
 });
