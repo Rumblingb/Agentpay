@@ -46,6 +46,7 @@ import { crewRouter } from './routes/crew';
 import { supportRouter } from './routes/support';
 import { scrapeRouter } from './routes/scrape';
 import { tripRoomsRouter } from './routes/tripRooms';
+import { broInsightsRouter } from './routes/broInsights';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -169,6 +170,7 @@ app.route('/trip', tripRoomsRouter);  // /trip/:token → joinable HTML web view
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
 app.route('/api/skills', conciergeRouter);
+app.route('/api/admin', broInsightsRouter);
 // Admin shortcuts — bro-jobs debug lives in concierge router
 app.route('/api/admin', conciergeRouter);
 

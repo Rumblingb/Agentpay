@@ -51,6 +51,16 @@ import { normalizeProactiveCards, type NearbyPlace, type RouteData, type TripCon
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+/**
+ * Known active issues injected into every concierge request.
+ * Update this when a pattern is identified from /api/admin/bro-insights.
+ * Keep to 1-3 bullet points max — injected into system prompt.
+ */
+const KNOWN_ISSUES: string[] = [
+  // 'Darwin platform data can lag 2-3 min — caveat platform info as live but verify on board.',
+  // 'Duffel sandbox occasionally returns empty offers for same-day flights — suggest next-day if no results.',
+];
+
 // ── Structured logging ────────────────────────────────────────────────────────
 // Each request gets a short trace ID so events can be correlated in CF logs.
 
@@ -356,6 +366,7 @@ conciergeRouter.post('/intent', async (c) => {
   }
 
   const traceId = makeTrace();
+  const userMessage = transcript;
   broLog('request_received', {
     traceId,
     hirerId: hirerId.slice(0, 12),
@@ -364,6 +375,9 @@ conciergeRouter.post('/intent', async (c) => {
     hasTravelProfile: !!travelProfile,
     planItemCount: plan?.length ?? 0,
   });
+  if (/\b(no[,.]?\s|that'?s wrong|actually[,.]?\s|not that|wrong|incorrect)\b/i.test(userMessage)) {
+    broLog('bro_signal', { traceId, type: 'user_correction', messageLength: userMessage.length, hirerId });
+  }
 
   // ── Location-aware currency + nationality context ─────────────────────────
 
@@ -510,6 +524,10 @@ conciergeRouter.post('/intent', async (c) => {
     }
   }
 
+  const knownIssuesBlock = KNOWN_ISSUES.length > 0
+    ? `\n\nKnown active issues:\n${KNOWN_ISSUES.map(i => `- ${i}`).join('\n')}`
+    : '';
+
   const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}${tripHistoryContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
@@ -623,7 +641,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 - Format: "[Ref] — securing your [destination] ticket. Details by email."
 - Example: "BRO-A1B2C3 — securing your Edinburgh ticket. Details by email."
 - If destination is unknown, omit it: "BRO-A1B2C3 — securing your ticket. Details by email."
-- Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
+- Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.${knownIssuesBlock}`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
@@ -1701,18 +1719,24 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           live:  hotelResults.filter(h => h.isLive).length,
         });
 
-      } else if (toolCall.name === 'research' && c.env.PERPLEXITY_API_KEY) {
+      } else if (toolCall.name === 'research') {
         // ── Real-time travel intel via Perplexity Sonar ───────────────────
         const query    = (input.query    as string | undefined) ?? '';
         const location = (input.location as string | undefined) ?? '';
         const sonarQ   = location ? `${query} (location: ${location})` : query;
-        const sonarResult = await askSonar(sonarQ, c.env.PERPLEXITY_API_KEY, { maxTokens: 256 }).catch(() => null);
-        toolResultContent = formatSonarForClaude(sonarResult, sonarQ);
+        if (c.env.PERPLEXITY_API_KEY) {
+          const sonarResult = await askSonar(sonarQ, c.env.PERPLEXITY_API_KEY, { maxTokens: 256 }).catch(() => null);
+          toolResultContent = formatSonarForClaude(sonarResult, sonarQ);
+          broLog('sonar_result', { traceId, query: sonarQ, found: !!sonarResult });
+        } else {
+          toolResultContent = `No live intel available for: ${sonarQ}`;
+          broLog('sonar_skipped', { traceId, query: sonarQ, reason: 'no_key' });
+        }
         (toolCall as any)._skipPlan = true;  // research is info-only — no hire needed
-        broLog('sonar_result', { traceId, query: sonarQ, found: !!sonarResult });
 
       } else {
         // Non-train skills: tell Claude the agent is available
+        broLog('bro_signal', { traceId, type: 'tool_fallthrough', skill: toolCall.name, hirerId });
         const agentName = agent?.name ?? skill.displayName;
         const priceStr  = agent?.pricePerTaskUsd ? `$${agent.pricePerTaskUsd.toFixed(2)} USDC` : 'standard rate';
         toolResultContent = `${skill.displayName} is available via ${agentName} at ${priceStr}. Ready to book.`;
@@ -1720,6 +1744,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
       // Darwin hard failure — return user-friendly error immediately
       if (toolResultContent === 'ERROR:DARWIN_UNAVAILABLE') {
+        broLog('bro_signal', { traceId, type: 'tool_failure', skill: 'search_trains_uk', reason: 'darwin_unavailable', hirerId });
         broLog('darwin_unavailable', { traceId, origin: input.origin, destination: input.destination });
         return c.json({
           narration: "Having trouble with live times right now. Please try again in a moment.",
