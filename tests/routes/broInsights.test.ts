@@ -2,12 +2,7 @@ jest.mock('../../apps/api-edge/src/lib/db', () => ({
   createDb: jest.fn(),
 }));
 
-jest.mock('../../apps/api-edge/src/lib/openclaw', () => ({
-  dispatchToOpenClaw: jest.fn(),
-}));
-
 import { createDb } from '../../apps/api-edge/src/lib/db';
-import { dispatchToOpenClaw } from '../../apps/api-edge/src/lib/openclaw';
 import { broInsightsRouter } from '../../apps/api-edge/src/routes/broInsights';
 
 function makeSql(responses: unknown[]) {
@@ -17,98 +12,67 @@ function makeSql(responses: unknown[]) {
   return sql;
 }
 
-describe('broInsights founder metrics route', () => {
+describe('broInsights recovery queue routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('rejects unauthorized access', async () => {
+  it('rejects unauthorized queue access', async () => {
     const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/founder-metrics'),
+      new Request('http://bro.test/queue'),
       { ADMIN_SECRET_KEY: 'secret' } as never,
       {} as never,
     );
 
     expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toEqual({ error: 'UNAUTHORIZED' });
   });
 
-  it('serves the admin dashboard html when authorized', async () => {
+  it('serves the recovery dashboard html when authorized', async () => {
+    const sql = makeSql([[]]);
+    (createDb as jest.Mock).mockReturnValue(sql);
+
     const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/dashboard?key=secret'),
+      new Request('http://bro.test/', {
+        headers: { 'x-admin-key': 'secret' },
+      }),
       { ADMIN_SECRET_KEY: 'secret' } as never,
       {} as never,
     );
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    expect(body).toContain('Bro Founder Console');
-    expect(body).toContain('/api/admin/founder-metrics');
-  });
-
-  it('reports issued-only provider success and marketplace economics', async () => {
-    const sql = makeSql([
-      [{ status: 'completed', count: 4 }, { status: 'failed', count: 1 }],
-      [{ bookingState: 'issued', count: 2 }, { bookingState: 'payment_confirmed', count: 1 }],
-      [{ provider: 'stripe', corridor: 'London -> Paris', total: 3, succeeded: 1 }],
-      [{ attempted: 2, saved: 1, escalated: 1 }],
-      [{ avgMinutes: 18.4, p95Minutes: 42.7 }],
-      [{ protocol: 'marketplace_hire', intents: 5, grossVolumeUsdc: 250, platformRevenueUsdc: 12.5 }],
-    ]);
-    (createDb as jest.Mock).mockReturnValue(sql);
-
-    const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/founder-metrics', {
-        headers: { 'x-admin-key': 'secret' },
-      }),
-      { ADMIN_SECRET_KEY: 'secret' } as never,
-      {} as never,
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.providerPerformance[0]).toMatchObject({
-      provider: 'stripe',
-      total: 3,
-      succeeded: 1,
-      successRate: 0.3333,
-    });
-    expect(body.economics.byProtocol[0]).toMatchObject({
-      protocol: 'marketplace_hire',
-      grossVolumeUsdc: 250,
-      platformRevenueUsdc: 12.5,
-    });
-    expect(body.recovery.saveRate).toBe(0.5);
+    expect(body).toContain('Recovery Queue');
+    expect(body).toContain('/api/admin/insights/queue');
+    expect(body).toContain('/api/admin/insights/retry/');
     expect(sql.end).toHaveBeenCalled();
   });
 
-  it('builds an actionable ops queue sorted by urgency', async () => {
+  it('returns the queue rows for failed and pending jobs', async () => {
     const sql = makeSql([[
       {
-        id: 'job-dispatch',
-        status: 'confirmed',
-        metadata: {
-          protocol: 'marketplace_hire',
-          paymentConfirmed: true,
-          paymentConfirmedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date('2026-03-26T10:00:00.000Z').toISOString(),
+        id: 'job-pending',
+        status: 'pending',
+        provider: 'airwallex',
+        corridor: 'Bristol -> Rome',
+        created_at: '2026-03-26T10:00:00.000Z',
+        recoveryAttemptCount: '1',
+        recommendedAction: 'retry_dispatch',
       },
       {
         id: 'job-failed',
         status: 'failed',
-        metadata: {
-          protocol: 'marketplace_hire',
-          fulfilmentFailed: true,
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date('2026-03-26T11:00:00.000Z').toISOString(),
+        provider: 'stripe',
+        corridor: 'London -> Paris',
+        created_at: '2026-03-26T09:00:00.000Z',
+        recoveryAttemptCount: '2',
+        recommendedAction: 'manual_review',
       },
     ]]);
     (createDb as jest.Mock).mockReturnValue(sql);
 
     const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/ops-queue', {
+      new Request('http://bro.test/queue', {
         headers: { 'x-admin-key': 'secret' },
       }),
       { ADMIN_SECRET_KEY: 'secret' } as never,
@@ -117,87 +81,36 @@ describe('broInsights founder metrics route', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.queueDepth).toBe(2);
-    expect(body.byPriority).toEqual({ p1: 1, p3: 1 });
-    expect(body.jobs[0]).toMatchObject({
-      jobId: 'job-failed',
-      opsPriority: 1,
-      recommendedAction: 'escalate_manual',
-    });
-    expect(body.jobs[1]).toMatchObject({
-      jobId: 'job-dispatch',
-      opsPriority: 3,
-      recommendedAction: 'retry_dispatch',
-    });
-  });
-
-  it('exposes trip-room links and recovery metadata in the ops queue', async () => {
-    const sql = makeSql([[
-      {
-        id: 'job-room',
-        status: 'confirmed',
-        metadata: {
-          protocol: 'marketplace_hire',
-          paymentProvider: 'stripe',
-          shareToken: 'share_123',
-          recoveryAttemptCount: 2,
-          recoveryLastResult: 'dispatched',
-          trainDetails: {
-            origin: 'Bristol Temple Meads',
-            destination: 'Roma Termini',
-          },
-          paymentConfirmed: true,
-          paymentConfirmedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]]);
-    (createDb as jest.Mock).mockReturnValue(sql);
-
-    const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/ops-queue', {
-        headers: { 'x-admin-key': 'secret' },
+    expect(body).toEqual([
+      expect.objectContaining({
+        id: 'job-pending',
+        status: 'pending',
+        provider: 'airwallex',
+        corridor: 'Bristol -> Rome',
+        recoveryAttemptCount: '1',
+        recommendedAction: 'retry_dispatch',
       }),
-      { ADMIN_SECRET_KEY: 'secret' } as never,
-      {} as never,
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.jobs[0]).toMatchObject({
-      provider: 'stripe',
-      corridor: 'Bristol Temple Meads -> Roma Termini',
-      tripRoomUrl: 'https://api.agentpay.so/trip/view/share_123',
-      recoveryAttemptCount: 2,
-      recoveryLastResult: 'dispatched',
-    });
+      expect.objectContaining({
+        id: 'job-failed',
+        status: 'failed',
+        provider: 'stripe',
+        corridor: 'London -> Paris',
+        recoveryAttemptCount: '2',
+        recommendedAction: 'manual_review',
+      }),
+    ]);
+    expect(sql.end).toHaveBeenCalled();
   });
 
-  it('recovers a dispatchable booking-health job', async () => {
+  it('retries an existing job', async () => {
     const sql = makeSql([
-      [{
-        id: 'job-dispatch',
-        status: 'confirmed',
-        metadata: {
-          protocol: 'marketplace_hire',
-          paymentConfirmed: true,
-          paymentConfirmedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }],
+      [{ id: 'job-retry' }],
       undefined,
     ]);
     (createDb as jest.Mock).mockReturnValue(sql);
-    (dispatchToOpenClaw as jest.Mock).mockResolvedValue({
-      status: 'dispatched',
-      openclawJobId: 'oc-123',
-      dispatchedAt: '2026-03-26T12:00:00.000Z',
-    });
 
     const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/booking-health/job-dispatch/recover', {
+      new Request('http://bro.test/retry/job-retry', {
         method: 'POST',
         headers: { 'x-admin-key': 'secret' },
       }),
@@ -207,40 +120,28 @@ describe('broInsights founder metrics route', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({
-      ok: true,
-      jobId: 'job-dispatch',
-    });
-    expect(dispatchToOpenClaw).toHaveBeenCalledWith(expect.anything(), 'job-dispatch', expect.objectContaining({
-      paymentConfirmed: true,
-    }));
+    expect(body).toEqual({ ok: true, jobId: 'job-retry' });
     expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql.end).toHaveBeenCalled();
   });
 
-  it('escalates a booking-health job for manual review', async () => {
-    const sql = makeSql([
-      [{ id: 'job-failed' }],
-      undefined,
-    ]);
+  it('returns 404 when retrying a missing job', async () => {
+    const sql = makeSql([[]]);
     (createDb as jest.Mock).mockReturnValue(sql);
 
     const res = await broInsightsRouter.fetch(
-      new Request('http://bro.test/booking-health/job-failed/escalate', {
+      new Request('http://bro.test/retry/missing-job', {
         method: 'POST',
-        headers: { 'x-admin-key': 'secret', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Needs human help' }),
+        headers: { 'x-admin-key': 'secret' },
       }),
       { ADMIN_SECRET_KEY: 'secret' } as never,
       {} as never,
     );
     const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({
-      ok: true,
-      jobId: 'job-failed',
-      manualReviewRequired: true,
-    });
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(404);
+    expect(body).toEqual({ error: 'Job not found' });
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql.end).toHaveBeenCalled();
   });
 });
