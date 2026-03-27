@@ -36,5 +36,11 @@ module.exports = {
     },
     // plugins stays exactly as in app.json — no react-native-maps entry
     plugins: appJson.expo.plugins,
+    updates: {
+      url: 'https://u.expo.dev/17f2ea0c-cced-4664-bc42-36c0583bf021',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
   },
 };
