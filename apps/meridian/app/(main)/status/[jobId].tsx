@@ -34,6 +34,11 @@ const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
+function activeLegIndex(legs: Array<{ status?: string }>): number {
+  const active = legs.findIndex((leg) => !['completed', 'confirmed', 'verified', 'booked'].includes(String(leg.status ?? '')));
+  return active >= 0 ? active : Math.max(0, legs.length - 1);
+}
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
@@ -284,6 +289,7 @@ export default function StatusScreen() {
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
+  const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -346,7 +352,9 @@ export default function StatusScreen() {
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
-            <Text style={{ fontSize: 12, color: '#818cf8' }}>{totalLegs}-leg journey · Leg 1 of {totalLegs}</Text>
+            <Text style={{ fontSize: 12, color: '#818cf8' }}>
+              {totalLegs}-leg journey · Leg {Math.min(currentLegIndex + 1, totalLegs)} of {totalLegs}
+            </Text>
           </View>
         )}
 

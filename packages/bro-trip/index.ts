@@ -18,6 +18,7 @@ export type ProactiveCardKind =
   | 'connection_risk'
   | 'destination_suggestion'
   | 'check_in'
+  | 'hotel_checkout'
   | 'gate_changed'
   | 'arrival_tip'
   | 'boarding_tip';
@@ -180,6 +181,8 @@ export function deriveProactiveCards(
   const cards: ProactiveCard[] = [];
   const mins = minutesUntil(trip.watchState?.leaveNowAt ?? trip.departureTime, nowIso);
   const isTransitMode = ['rail', 'bus', 'flight', 'local', 'mixed'].includes(trip.mode);
+  const hotelCheckInMins = trip.mode === 'hotel' ? minutesUntil(trip.departureTime, nowIso) : null;
+  const hotelCheckoutMins = trip.mode === 'hotel' ? minutesUntil(trip.arrivalTime, nowIso) : null;
 
   if (isTransitMode && mins != null && mins >= 0 && mins <= 60 && trip.phase !== 'arrived') {
     cards.push({
@@ -244,6 +247,34 @@ export function deriveProactiveCards(
     });
   }
 
+  if (trip.mode === 'hotel' && hotelCheckInMins != null && hotelCheckInMins >= 0 && hotelCheckInMins <= 24 * 60) {
+    const hoursToCheckIn = Math.max(1, Math.round(hotelCheckInMins / 60));
+    cards.push({
+      id: 'hotel-check-in',
+      kind: 'check_in',
+      title: hotelCheckInMins <= 180 ? 'Hotel check-in soon' : `Hotel check-in in ${hoursToCheckIn}h`,
+      body: trip.destination
+        ? `${trip.destination} stay is coming up. Keep your hotel checkout ready.`
+        : 'Hotel check-in is coming up soon.',
+      severity: hotelCheckInMins <= 180 ? 'warning' : 'info',
+      ctaLabel: 'View stay',
+    });
+  }
+
+  if (trip.mode === 'hotel' && hotelCheckoutMins != null && hotelCheckoutMins >= 0 && hotelCheckoutMins <= 18 * 60) {
+    const hoursToCheckout = Math.max(1, Math.round(hotelCheckoutMins / 60));
+    cards.push({
+      id: 'hotel-checkout',
+      kind: 'hotel_checkout',
+      title: hotelCheckoutMins <= 180 ? 'Checkout soon' : `Checkout in ${hoursToCheckout}h`,
+      body: trip.destination
+        ? `Your stay in ${trip.destination} is nearing checkout time.`
+        : 'Your hotel stay is nearing checkout time.',
+      severity: hotelCheckoutMins <= 180 ? 'warning' : 'info',
+      ctaLabel: 'Review stay',
+    });
+  }
+
   const hasUrgentCard = cards.some((card) => card.severity === 'warning');
   if (
     isTransitMode
@@ -279,8 +310,9 @@ export function normalizeProactiveCards(cards: ProactiveCard[]): ProactiveCard[]
     delay_risk: 5,
     boarding_tip: 6,
     check_in: 7,
-    arrival_tip: 8,
-    destination_suggestion: 9,
+    hotel_checkout: 8,
+    arrival_tip: 9,
+    destination_suggestion: 10,
   };
   return cards
     .filter((card) => {

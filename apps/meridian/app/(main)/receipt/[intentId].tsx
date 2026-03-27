@@ -31,7 +31,7 @@ import { getReceipt, type Receipt, reportIssue, registerJobWatch } from '../../.
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
-import { scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
+import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -45,6 +45,7 @@ function qrUrl(ref: string) {
 function receiptModeMeta(trip: TripContext | null, hasFlightDetails: boolean) {
   if (trip?.mode === 'mixed') return { icon: 'navigate-outline' as const, title: 'Journey details', noun: 'journey' };
   if (trip?.mode === 'bus') return { icon: 'bus-outline' as const, title: 'Coach details', noun: 'coach' };
+  if (trip?.mode === 'hotel') return { icon: 'bed-outline' as const, title: 'Stay details', noun: 'stay' };
   if (trip?.mode === 'local') return { icon: 'subway-outline' as const, title: 'Local details', noun: 'route' };
   if (trip?.mode === 'flight' || hasFlightDetails) {
     return { icon: 'airplane-outline' as const, title: 'Flight details', noun: 'flight' };
@@ -98,6 +99,9 @@ export default function ReceiptScreen() {
     shareToken?: string;
     arrived?: string;
     destination?: string;
+    hotelCheckInSoon?: string;
+    hotelCheckoutSoon?: string;
+    partnerCheckoutUrl?: string;
   }>();
   const {
     intentId, bookingRef, departureTime, departureDatetime, arrivalTime, platform, operator,
@@ -117,6 +121,9 @@ export default function ReceiptScreen() {
     shareToken: shareTokenParam,
     arrived,
     destination,
+    hotelCheckInSoon,
+    hotelCheckoutSoon,
+    partnerCheckoutUrl: partnerCheckoutUrlParam,
   } = params;
 
   const isCancelled = cancelled === 'true';
@@ -124,6 +131,8 @@ export default function ReceiptScreen() {
   const isDelayed = delayed === 'true';
   const hasPlatformChanged = platformChanged === 'true';
   const hasGateUpdated = gateUpdated === 'true';
+  const hasHotelCheckInSoon = hotelCheckInSoon === 'true';
+  const hasHotelCheckoutSoon = hotelCheckoutSoon === 'true';
 
   // Flight card: parse JSON param if present
   type FlightData = {
@@ -180,6 +189,12 @@ export default function ReceiptScreen() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [intentId]);
+
+  useEffect(() => {
+    if (partnerCheckoutUrlParam) {
+      setPartnerCheckoutUrl(partnerCheckoutUrlParam);
+    }
+  }, [partnerCheckoutUrlParam]);
 
   useEffect(() => {
     if (finalLegSummary) {
@@ -318,6 +333,38 @@ export default function ReceiptScreen() {
       if (token) await registerJobWatch(intentId, token);
     })();
   }, [intentId, departureTime, departureDatetime, arrivalTime, fromStation, toStation, destination, platform, preservedFinalLegSummary, tripContext, shareToken]);
+
+  useEffect(() => {
+    const hotelLegs = (tripContext?.legs ?? []).filter((leg) => leg.mode === 'hotel');
+    const primaryHotel = hotelDetails?.bestOption
+      ? {
+          hotelName: hotelDetails.bestOption.name,
+          city: hotelDetails.city,
+          checkInISO: hotelDetails.checkIn,
+          checkOutISO: hotelDetails.checkOut,
+          bookingUrl: partnerCheckoutUrl ?? hotelDetails.bestOption.bookingUrl ?? null,
+        }
+      : hotelLegs[0]
+      ? {
+          hotelName: hotelLegs[0].label ?? hotelLegs[0].operator ?? 'Hotel',
+          city: hotelLegs[0].destination ?? hotelLegs[0].origin ?? '',
+          checkInISO: hotelLegs[0].departureTime ?? '',
+          checkOutISO: hotelLegs[0].arrivalTime ?? null,
+          bookingUrl: partnerCheckoutUrl,
+        }
+      : null;
+
+    if (!intentId || !primaryHotel?.checkInISO) return;
+
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleHotelNotifications(intentId, {
+        ...primaryHotel,
+        shareToken,
+      });
+    })();
+  }, [intentId, hotelDetails, tripContext, shareToken, partnerCheckoutUrl]);
 
   const handleShare = async () => {
     const heading = receipt ? `Bro — ${modeMeta.title}` : 'Bro — Saved details';
@@ -485,6 +532,48 @@ export default function ReceiptScreen() {
                 }}
               >
                 <Text style={[styles.cancelBannerBtnText, { color: '#38bdf8' }]}>Navigate</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {(hasHotelCheckInSoon || hasHotelCheckoutSoon) && (
+          <View style={[styles.cancelBanner, hasHotelCheckInSoon ? styles.hotelBanner : styles.delayBanner]}>
+            <Ionicons
+              name={hasHotelCheckInSoon ? 'bed-outline' : 'exit-outline'}
+              size={18}
+              color={hasHotelCheckInSoon ? '#c084fc' : '#fbbf24'}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.cancelBannerTitle,
+                  hasHotelCheckInSoon ? styles.hotelBannerTitle : styles.delayBannerTitle,
+                ]}
+              >
+                {hasHotelCheckInSoon ? 'Hotel check-in coming up' : 'Hotel checkout coming up'}
+              </Text>
+              <Text
+                style={[
+                  styles.cancelBannerBody,
+                  hasHotelCheckInSoon ? styles.hotelBannerBody : styles.delayBannerBody,
+                ]}
+              >
+                {hasHotelCheckInSoon
+                  ? hotelDetails?.bestOption
+                    ? `${hotelDetails.bestOption.name} in ${hotelDetails.city} is coming up soon.`
+                    : 'Your hotel stay is coming up soon.'
+                  : hotelDetails?.bestOption
+                  ? `${hotelDetails.bestOption.name} checkout is getting close.`
+                  : 'Your hotel checkout is getting close.'}
+              </Text>
+            </View>
+            {partnerCheckoutUrl && hasHotelCheckInSoon && (
+              <Pressable
+                style={[styles.cancelBannerBtn, styles.hotelBannerBtn]}
+                onPress={() => { void Linking.openURL(partnerCheckoutUrl); }}
+              >
+                <Text style={[styles.cancelBannerBtnText, styles.hotelBannerBtnText]}>Open</Text>
               </Pressable>
             )}
           </View>
@@ -1026,6 +1115,22 @@ const styles = StyleSheet.create({
   },
   delayBannerBtnText: {
     color: '#fbbf24',
+  },
+  hotelBanner: {
+    backgroundColor: '#2e1065',
+    borderColor: '#6d28d9',
+  },
+  hotelBannerTitle: {
+    color: '#c084fc',
+  },
+  hotelBannerBody: {
+    color: '#ddd6fe',
+  },
+  hotelBannerBtn: {
+    backgroundColor: '#4c1d95',
+  },
+  hotelBannerBtnText: {
+    color: '#e9d5ff',
   },
 
   badge: {

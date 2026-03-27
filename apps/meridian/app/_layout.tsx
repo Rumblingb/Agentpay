@@ -20,6 +20,8 @@ export default function RootLayout() {
         if (data?.action === 'platform_changed') params.platformChanged = 'true';
         if (data?.action === 'delay') params.delayed = 'true';
         if (data?.action === 'gate_changed' || data?.action === 'gate_assigned') params.gateUpdated = 'true';
+        if (data?.action === 'hotel_checkin') params.hotelCheckInSoon = 'true';
+        if (data?.action === 'hotel_checkout') params.hotelCheckoutSoon = 'true';
         if (data?.destination) params.destination = data.destination;
         if (data?.finalLegSummary) params.finalLegSummary = data.finalLegSummary;
         if (data?.shareToken) params.shareToken = data.shareToken;
@@ -28,6 +30,7 @@ export default function RootLayout() {
         if (data?.gate) params.notifiedGate = String(data.gate);
         if (data?.disruptionRoute) params.disruptionRoute = String(data.disruptionRoute);
         if (data?.transcript) params.transcript = String(data.transcript);
+        if (data?.bookingUrl) params.partnerCheckoutUrl = String(data.bookingUrl);
         router.push({ pathname: '/(main)/receipt/[intentId]', params });
       }
     });

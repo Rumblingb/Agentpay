@@ -31,6 +31,18 @@ function notifId(intentId: string, tag: string): string {
   return `bro_${intentId}_${tag}`;
 }
 
+function parseMoment(s: string): Date | null {
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (ymd) {
+    return new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]), 15, 0, 0);
+  }
+
+  return parseDeparture(s);
+}
+
 /**
  * Parses departure time. Accepts:
  *   - Full ISO string ("2026-03-24T17:42:00")   ← preferred, passed when travelDate is available
@@ -51,6 +63,16 @@ function parseDeparture(s: string): Date | null {
     return d;
   }
   return null;
+}
+
+function formatWhen(d: Date): string {
+  return d.toLocaleString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export async function scheduleJourneyNotifications(
@@ -133,6 +155,88 @@ export async function scheduleJourneyNotifications(
   }
 }
 
+export async function scheduleHotelNotifications(
+  intentId: string,
+  params: {
+    hotelName: string;
+    city: string;
+    checkInISO: string;
+    checkOutISO?: string | null;
+    shareToken?: string | null;
+    bookingUrl?: string | null;
+  },
+): Promise<void> {
+  const checkIn = parseMoment(params.checkInISO);
+  if (!checkIn) return;
+
+  const now = Date.now();
+  const checkIn24h = Math.floor((checkIn.getTime() - 24 * 60 * 60 * 1000 - now) / 1000);
+  if (checkIn24h > 0) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: notifId(intentId, 'hotel-24h'),
+      content: {
+        title: 'Bro · Hotel tomorrow',
+        body: `${params.hotelName} in ${params.city}. Check-in ${formatWhen(checkIn)}.`,
+        data: {
+          intentId,
+          screen: 'receipt',
+          action: 'hotel_checkin',
+          hotelName: params.hotelName,
+          city: params.city,
+          bookingUrl: params.bookingUrl ?? undefined,
+          shareToken: params.shareToken ?? undefined,
+        },
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: checkIn24h },
+    });
+  }
+
+  const checkIn2h = Math.floor((checkIn.getTime() - 2 * 60 * 60 * 1000 - now) / 1000);
+  if (checkIn2h > 0) {
+    await Notifications.scheduleNotificationAsync({
+      identifier: notifId(intentId, 'hotel-2h'),
+      content: {
+        title: 'Bro · Hotel check-in soon',
+        body: `${params.hotelName}. Keep your checkout link and ID ready.`,
+        data: {
+          intentId,
+          screen: 'receipt',
+          action: 'hotel_checkin',
+          hotelName: params.hotelName,
+          city: params.city,
+          bookingUrl: params.bookingUrl ?? undefined,
+          shareToken: params.shareToken ?? undefined,
+        },
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: checkIn2h },
+    });
+  }
+
+  const checkOut = params.checkOutISO ? parseMoment(params.checkOutISO) : null;
+  if (checkOut) {
+    const checkout12h = Math.floor((checkOut.getTime() - 12 * 60 * 60 * 1000 - now) / 1000);
+    if (checkout12h > 0) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: notifId(intentId, 'hotel-checkout'),
+        content: {
+          title: 'Bro · Checkout tomorrow',
+          body: `${params.hotelName} checkout is coming up. Review onward plans.`,
+          data: {
+            intentId,
+            screen: 'receipt',
+            action: 'hotel_checkout',
+            hotelName: params.hotelName,
+            city: params.city,
+            bookingUrl: params.bookingUrl ?? undefined,
+            shareToken: params.shareToken ?? undefined,
+          },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: checkout12h },
+      });
+    }
+  }
+}
+
 export async function getExpoPushToken(): Promise<string | null> {
   try {
     const granted = await requestNotificationPermission();
@@ -151,5 +255,8 @@ export async function cancelJourneyNotifications(intentId: string): Promise<void
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '30min')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '10min')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'arrival')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-24h')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-2h')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-checkout')),
   ]);
 }
