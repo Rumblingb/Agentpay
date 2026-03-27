@@ -70,6 +70,10 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@react-native/assets-registry": "0.76.9",
+    "@react-native/js-polyfills": "0.76.9",
+    "@react-native/normalize-colors": "0.76.9",
+    "@react-native/virtualized-lists": "0.76.9",
     "@types/jest": "^29.5.14",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
