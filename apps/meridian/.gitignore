@@ -4,3 +4,5 @@ android/
 ios/
 dist/
 web-build/
+dist-export-android/
+dist-export-ios/
