@@ -1,6 +1,12 @@
 // Minimal @solana/web3.js mock for tests
 const Keypair = {
-  generate: () => ({ publicKey: { toString: () => 'TestWalletAddress111111111111111111111111' } }),
+  generate: () => ({
+    publicKey: {
+      toString: () => 'TestWalletAddress111111111111111111111111',
+      toBase58: () => 'TestWalletAddress111111111111111111111111',
+    },
+    secretKey: new Uint8Array(64),
+  }),
 };
 // Minimal PublicKey implementation for tests. Accepts base58-like strings
 // of typical Solana address lengths and provides `toBytes()` returning a
