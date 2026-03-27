@@ -314,6 +314,7 @@ export interface ConciergePlanItem {
       currency: string;
       area: string;
       isLive: boolean;
+      bookingUrl?: string;
     };
     allOptions?: Array<{
       name: string;
@@ -323,6 +324,7 @@ export interface ConciergePlanItem {
       currency: string;
       area: string;
       isLive: boolean;
+      bookingUrl?: string;
     }>;
   };
   tripContext?: TripContext;

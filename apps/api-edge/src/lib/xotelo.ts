@@ -282,6 +282,7 @@ export interface HotelResult {
   stars: number;
   ratePerNight: number;
   currency: string;
+  bookingUrl?: string;
   /** Total for the stay */
   totalCost: number;
   /** GBP-equivalent of totalCost (for hire-layer escrow) */
@@ -322,6 +323,21 @@ async function fetchXoteloRate(
   } catch {
     return null;
   }
+}
+
+function buildHotelBookingUrl(params: {
+  name: string;
+  city: string;
+  checkIn: string;
+  checkOut: string;
+}): string {
+  const url = new URL('https://www.booking.com/searchresults.html');
+  url.searchParams.set('ss', `${params.name} ${params.city}`.trim());
+  url.searchParams.set('checkin', params.checkIn);
+  url.searchParams.set('checkout', params.checkOut);
+  url.searchParams.set('group_adults', '2');
+  url.searchParams.set('no_rooms', '1');
+  return url.toString();
 }
 
 // ── Search hotels ─────────────────────────────────────────────────────────
@@ -379,6 +395,12 @@ export async function searchHotels(params: SearchHotelsParams): Promise<HotelRes
       const bookingNote  = isLive
         ? `Live price from Xotelo. Book via app — ops team confirms.`
         : `Indicative rate — final price confirmed at booking.`;
+      const bookingUrl = buildHotelBookingUrl({
+        name: hotel.name,
+        city: params.city,
+        checkIn,
+        checkOut,
+      });
 
       return {
         name: hotel.name,
@@ -386,6 +408,7 @@ export async function searchHotels(params: SearchHotelsParams): Promise<HotelRes
         stars: hotel.stars,
         ratePerNight,
         currency: hotel.currency,
+        bookingUrl,
         totalCost,
         totalCostGbp,
         nights,
@@ -425,7 +448,8 @@ export function formatHotelsForClaude(
     const total     = sym + h.totalCost.toLocaleString();
     const perNight  = sym + h.ratePerNight.toLocaleString();
     const liveTag   = h.isLive ? ' [live]' : '';
-    return `${i + 1}. ${h.name} ${stars} — ${h.area}. ${perNight}/night${liveTag}. ${nights} night${nights === 1 ? '' : 's'} = ${total}.`;
+    const bookTag   = h.bookingUrl ? ' [Book →]' : '';
+    return `${i + 1}. ${h.name} ${stars} — ${h.area}. ${perNight}/night${liveTag}. ${nights} night${nights === 1 ? '' : 's'} = ${total}.${bookTag}`;
   });
 
   const source = top.some(h => h.isLive) ? '[Xotelo live prices]' : '[Indicative — book to confirm]';

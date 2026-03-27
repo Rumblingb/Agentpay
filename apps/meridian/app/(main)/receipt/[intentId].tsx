@@ -157,7 +157,8 @@ export default function ReceiptScreen() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [tripContext, setTripContext] = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
-  const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string } } | null>(null);
+  const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; bookingUrl?: string } } | null>(null);
+  const [partnerCheckoutUrl, setPartnerCheckoutUrl] = useState<string | null>(null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const cards = tripCards(tripContext);
@@ -173,6 +174,8 @@ export default function ReceiptScreen() {
         setReceipt(r);
         const hd = (r as any)?.metadata?.hotelDetails;
         if (hd?.bestOption) setHotelDetails(hd);
+        const checkoutUrl = (r as any)?.metadata?.partnerCheckoutUrl;
+        if (checkoutUrl) setPartnerCheckoutUrl(checkoutUrl);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -638,6 +641,15 @@ export default function ReceiptScreen() {
                 <Row label="Total"     value={`${hotelDetails.bestOption.currency} ${hotelDetails.bestOption.totalCost}`} />
                 {hotelDetails.bestOption.area && (
                   <Row label="Area" value={hotelDetails.bestOption.area} />
+                )}
+                {partnerCheckoutUrl && (
+                  <Pressable
+                    onPress={() => { void Linking.openURL(partnerCheckoutUrl); }}
+                    style={styles.shareBtn}
+                  >
+                    <Ionicons name="open-outline" size={18} color="#4ade80" />
+                    <Text style={[styles.shareBtnText, { color: '#4ade80' }]}>Open hotel checkout</Text>
+                  </Pressable>
                 )}
               </View>
             )}

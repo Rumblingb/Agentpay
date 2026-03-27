@@ -41,7 +41,8 @@ import {
 import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
-import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext } from '../lib/broTrip';
+import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
+import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -693,6 +694,38 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             }
           }
 
+          if (item.hotelDetails) {
+            const hotelRef = `HOT-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+            const hotelTripContext = toPaymentConfirmedTripContext(executingTripContext, {
+              bookingRef: hotelRef,
+              destination: item.hotelDetails.city,
+              departureTime: item.hotelDetails.checkIn,
+              arrivalTime: item.hotelDetails.checkOut,
+              operator: item.hotelDetails.bestOption.name,
+            });
+
+            await sql`
+              UPDATE payment_intents
+              SET metadata = metadata || ${JSON.stringify({
+                hotelDetails: item.hotelDetails,
+                hotelReference: hotelRef,
+                bookingReference: hotelRef,
+                partnerCheckoutUrl: item.hotelDetails.bestOption.bookingUrl ?? null,
+                pendingFulfilment: false,
+                tripContext: hotelTripContext,
+              })}::jsonb
+              WHERE id = ${hireResult.jobId}
+            `.catch(() => null);
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: item.toolUseId,
+              content: item.hotelDetails.bestOption.bookingUrl
+                ? `${item.hotelDetails.bestOption.name} selected. Hotel checkout link attached.`
+                : `${item.hotelDetails.bestOption.name} selected. Hotel details attached.`,
+            });
+          }
+
           // ── Pending manual fulfilment — store ops data, send request email ──
           // Job stays in escrow_pending. Real ticket ref added via /fulfill endpoint.
           if (item.trainDetails) {
@@ -826,7 +859,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               tool_use_id: item.toolUseId,
               content:     confirmLine,
             });
-          } else {
+          } else if (!item.hotelDetails) {
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${JSON.stringify({
@@ -1320,6 +1353,67 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           });
         }
 
+      } else if (toolCall.name === 'book_hotel') {
+        const city = (input.location as string | undefined) ?? '';
+        const checkIn = (input.check_in as string | undefined) ?? (input.date as string | undefined);
+        const checkOut = input.check_out as string | undefined;
+        const rooms = input.rooms ? Number(input.rooms) : 1;
+        const stars = input.stars ? Number(input.stars) : undefined;
+        const hotels = await searchHotels({
+          city,
+          checkIn,
+          checkOut,
+          rooms,
+          stars,
+        }).catch(() => []);
+
+        toolResultContent = formatHotelOptionsForClaude(hotels.map((hotel) => ({
+          name: hotel.name,
+          city,
+          checkIn: checkIn ?? '',
+          checkOut: checkOut ?? '',
+          pricePerNight: hotel.ratePerNight,
+          currency: hotel.currency,
+          bookingUrl: hotel.bookingUrl,
+          hotelId: hotel.xoteloKey,
+        })));
+
+        if (hotels[0]) {
+          (toolCall as any)._hotelDetails = {
+            city,
+            checkIn: checkIn ?? '',
+            checkOut: checkOut ?? '',
+            bestOption: {
+              name: hotels[0].name,
+              stars: hotels[0].stars,
+              ratePerNight: hotels[0].ratePerNight,
+              totalCost: hotels[0].totalCost,
+              currency: hotels[0].currency,
+              area: hotels[0].area,
+              isLive: hotels[0].isLive,
+              bookingUrl: hotels[0].bookingUrl,
+            },
+            allOptions: hotels.slice(0, 3).map((hotel) => ({
+              name: hotel.name,
+              stars: hotel.stars,
+              ratePerNight: hotel.ratePerNight,
+              totalCost: hotel.totalCost,
+              currency: hotel.currency,
+              area: hotel.area,
+              isLive: hotel.isLive,
+              bookingUrl: hotel.bookingUrl,
+            })),
+          };
+        }
+
+        broLog('hotels_result', {
+          traceId,
+          city,
+          found: hotels.length,
+          checkIn: checkIn ?? null,
+          checkOut: checkOut ?? null,
+        });
+
       } else if (toolCall.name === 'discover_events') {
         // ── Ticketmaster event discovery ───────────────────────────────────
         const events = await searchEvents({
@@ -1478,6 +1572,15 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       let estimatedPriceUsdc = agent?.pricePerTaskUsd ?? 1;
       if (trainDetails?.estimatedFareGbp) {
         estimatedPriceUsdc = trainDetails.estimatedFareGbp;
+      } else if ((toolCall as any)._hotelDetails?.bestOption?.totalCost) {
+        const bestHotel = (toolCall as any)._hotelDetails.bestOption as { totalCost: number; currency: string };
+        const hotelCurrency = String(bestHotel.currency ?? 'GBP').toUpperCase();
+        const hotelAmount = Number(bestHotel.totalCost);
+        const toGbp: Record<string, number> = {
+          GBP: 1, EUR: 0.85, USD: 0.80, CAD: 0.58, AUD: 0.51,
+          SGD: 0.58, AED: 0.22, THB: 0.022, JPY: 0.0052, IDR: 0.000047, CZK: 0.034,
+        };
+        estimatedPriceUsdc = Math.round(hotelAmount * (toGbp[hotelCurrency] ?? 0.80) * 100) / 100;
       } else if ((toolCall as any)._flightDetails?.totalAmount) {
         // Convert flight price to GBP-equivalent for the hire layer.
         // Duffel returns amounts in the offer's native currency (GBP/EUR/USD).
@@ -1535,6 +1638,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         routeData:          (toolCall as any)._routeData     ?? undefined,
         nearbyPlaces:       (toolCall as any)._nearbyPlaces  ?? undefined,
         flightDetails:      (toolCall as any)._flightDetails ?? undefined,
+        hotelDetails:       (toolCall as any)._hotelDetails  ?? undefined,
         tripContext,
       });
     }
@@ -2493,6 +2597,31 @@ interface PlanItem {
     totalAmount: number; currency: string;
     stops: number; durationMinutes: number; cabinClass: string;
     offerId: string; offerExpiresAt: string; isReturn: boolean;
+  };
+  hotelDetails?: {
+    city: string;
+    checkIn: string;
+    checkOut: string;
+    bestOption: {
+      name: string;
+      stars: number;
+      ratePerNight: number;
+      totalCost: number;
+      currency: string;
+      area: string;
+      isLive: boolean;
+      bookingUrl?: string;
+    };
+    allOptions?: Array<{
+      name: string;
+      stars: number;
+      ratePerNight: number;
+      totalCost: number;
+      currency: string;
+      area: string;
+      isLive: boolean;
+      bookingUrl?: string;
+    }>;
   };
   tripContext?:       TripContext;
   journeyId?:         string;
