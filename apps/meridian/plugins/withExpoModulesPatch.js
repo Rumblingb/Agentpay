@@ -88,4 +88,56 @@ const withExpoModulesPatch = (config) => {
   ]);
 };
 
-module.exports = withExpoModulesPatch;
+const withExpoModulesPatchIOS = (config) => {
+  return withDangerousMod(config, [
+    'ios',
+    async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
+
+      let invokerPath;
+      try {
+        const pkgJson = require.resolve('expo-modules-core/package.json', {
+          paths: [projectRoot, __dirname],
+        });
+        invokerPath = path.join(
+          path.dirname(pkgJson),
+          'common',
+          'cpp',
+          'TestingSyncJSCallInvoker.h',
+        );
+      } catch (e) {
+        console.log('[withExpoModulesPatch] expo-modules-core not found for iOS patch:', e.message);
+        return config;
+      }
+
+      if (!fs.existsSync(invokerPath)) {
+        console.log('[withExpoModulesPatch] ⚠ TestingSyncJSCallInvoker.h not found');
+        return config;
+      }
+
+      let hContent = fs.readFileSync(invokerPath, 'utf8');
+      if (hContent.includes('#if REACT_NATIVE_TARGET_VERSION >= 75')) {
+        hContent = hContent
+          .replace('#if REACT_NATIVE_TARGET_VERSION >= 75\n', '')
+          .replace(
+            /\n#else\n  void invokeAsync\(std::function<void\(\)> &&func\) noexcept override \{\n    func\(\);\n  \}\n\n  void invokeSync\(std::function<void\(\)> &&func\) override \{\n    func\(\);\n  \}\n#endif/,
+            '',
+          );
+        fs.writeFileSync(invokerPath, hContent);
+        console.log('[withExpoModulesPatch] ✓ Patched TestingSyncJSCallInvoker.h for RN 0.76+');
+      } else {
+        console.log('[withExpoModulesPatch] ✓ TestingSyncJSCallInvoker.h already patched');
+      }
+
+      return config;
+    },
+  ]);
+};
+
+const withExpoModulesFullPatch = (config) => {
+  config = withExpoModulesPatch(config);
+  config = withExpoModulesPatchIOS(config);
+  return config;
+};
+
+module.exports = withExpoModulesFullPatch;
