@@ -77,30 +77,30 @@ function buildConciergeStages(params: {
   const stages: ConciergeStage[] = [
     {
       key: 'received',
-      label: 'Request received',
-      detail: 'Ace has your trip brief and is holding the journey context.',
+      label: 'Trip in hand',
+      detail: 'Ace has your route, traveller context, and booking brief.',
       state: reachedIndex > 0 || bookingCurrent === 'received' ? (bookingCurrent === 'received' ? 'current' : 'done') : 'upcoming',
     },
     {
       key: 'checking',
       label: 'Checking live availability',
-      detail: 'Ace is comparing the live options and confirming the route it wants to secure.',
+      detail: 'Ace is checking live availability, timing, and the best path to secure.',
       state: reachedIndex > 1 || bookingCurrent === 'checking' ? (bookingCurrent === 'checking' ? 'current' : 'done') : 'upcoming',
     },
     {
       key: 'securing',
       label: 'Securing the booking',
-      detail: 'Ace is running the booking flow with the current tooling while direct APIs are still coming online.',
+      detail: 'Ace is carrying the booking through the live fulfilment flow now.',
       state: reachedIndex > 2 || bookingCurrent === 'securing' || bookingCurrent === 'finalising'
         ? (bookingCurrent === 'securing' || bookingCurrent === 'finalising' ? 'current' : 'done')
         : 'upcoming',
     },
     {
       key: 'payment',
-      label: needsPayment ? 'Waiting for payment' : 'Payment step not needed',
+      label: needsPayment ? 'Ready for payment' : 'No payment step needed',
       detail: needsPayment
         ? 'Once payment clears, Ace can finish ticket issue and lock the journey in.'
-        : 'This journey does not need a separate payment step right now.',
+        : 'This journey can move forward without a separate payment step.',
       state: !needsPayment
         ? (params.isFullyDone ? 'done' : 'upcoming')
         : params.paymentConfirmed || params.isFullyDone
@@ -112,15 +112,15 @@ function buildConciergeStages(params: {
     {
       key: 'issued',
       label: 'Ticket issued',
-      detail: 'Booking reference, timing, and onward guidance are ready.',
+      detail: 'Your booking reference, timing, and next steps are ready.',
       state: params.isFullyDone ? 'done' : 'upcoming',
     },
   ];
 
   if (params.isError) {
     return {
-      headline: 'Ace hit a booking problem',
-      subline: 'The trip is still in context, but this one needs intervention before it is safe to rely on.',
+      headline: 'This journey needs intervention',
+      subline: 'Ace still has the trip in hand, but something changed before it was safe to lock in.',
       eta: 'This should normally complete within about 5 minutes. This one needs attention.',
       stages,
     };
@@ -128,7 +128,7 @@ function buildConciergeStages(params: {
 
   if (params.isFullyDone) {
     return {
-      headline: 'Ace finished the journey handoff',
+      headline: 'Your journey is locked in',
       subline: 'Booking, payment, and ticketing are aligned.',
       eta: 'Done. Your live trip state is now locked in.',
       stages,
@@ -137,16 +137,16 @@ function buildConciergeStages(params: {
 
   if (bookingCurrent === 'payment') {
     return {
-      headline: 'Ace is waiting on you for payment',
-      subline: 'Everything else is lined up. Paying now lets Ace finish the issue flow.',
+      headline: 'Everything is lined up for payment',
+      subline: 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.',
       eta: 'Most requests reach this point inside about 5 minutes.',
       stages,
     };
   }
 
   return {
-    headline: 'Ace is actively handling this booking',
-    subline: 'This is a concierge flow, not a fake instant spinner. The live booking can take a few minutes while Ace works through the current tooling.',
+    headline: 'Ace is handling the booking now',
+    subline: 'This is a managed concierge flow. Ace is working through the live booking steps for you.',
     eta: params.elapsed < 300
       ? 'Expected booking time: up to about 5 minutes.'
       : 'This is running longer than the usual 5-minute booking window.',
@@ -532,6 +532,7 @@ export default function StatusScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <StatusAtmosphere />
       <View style={styles.container}>
 
         {/* Back */}
@@ -569,12 +570,13 @@ export default function StatusScreen() {
         </View>
 
         {/* Status text */}
+        <Text style={styles.statusEyebrow}>Ace is handling the journey</Text>
         <Text style={[styles.statusTitle, isFullyDone && styles.statusTitleDone, isError && styles.statusTitleError,
           isDone && needsPayment && !paymentConfirmed && { color: '#fbbf24' }]}>
-          {isFullyDone ? 'Journey in hand'
-            : isDone && needsPayment && !paymentConfirmed ? 'Request received'
-            : isError ? 'Needs attention'
-            : 'Working on it'}
+          {isFullyDone ? 'Journey secured'
+            : isDone && needsPayment && !paymentConfirmed ? 'Ready for payment'
+            : isError ? 'Journey paused'
+            : 'Ace is on it'}
         </Text>
 
         <Text style={styles.statusSub}>
@@ -591,7 +593,7 @@ export default function StatusScreen() {
         <View style={styles.conciergeCard}>
           <View style={styles.conciergeHeader}>
             <Ionicons name="sparkles-outline" size={14} color="#93c5fd" />
-            <Text style={styles.conciergeEyebrow}>Live concierge flow</Text>
+            <Text style={styles.conciergeEyebrow}>What Ace is doing</Text>
           </View>
           <Text style={styles.conciergeHeadline}>{conciergeFlow.headline}</Text>
           <Text style={styles.conciergeBody}>{conciergeFlow.subline}</Text>
@@ -696,10 +698,11 @@ export default function StatusScreen() {
               {shareToken && (
                 <Pressable
                   onPress={() => {
+                    const url = `https://api.agentpay.so/trip/view/${shareToken}`;
                     void Share.share({
                       title: 'Join my trip on Ace',
-                      message: `Track our journey live → https://bro.app/trip/${shareToken}`,
-                      url: `https://bro.app/trip/${shareToken}`,
+                      message: `Track our journey live → ${url}`,
+                      url,
                     });
                   }}
                   style={legStyles.shareBtn}
@@ -812,14 +815,14 @@ export default function StatusScreen() {
               style={styles.helpPrimaryBtn}
             >
               <Ionicons name="sparkles-outline" size={16} color="#93c5fd" />
-              <Text style={styles.helpPrimaryText}>Ask Ace to fix this</Text>
+              <Text style={styles.helpPrimaryText}>Let Ace sort this</Text>
             </Pressable>
             <Pressable
               onPress={() => openIssueModal(isDone && needsPayment && !paymentConfirmed ? 'payment' : isError ? 'ticket' : 'delay')}
               style={styles.helpSecondaryBtn}
             >
               <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fcd34d" />
-              <Text style={styles.helpSecondaryText}>Need help now</Text>
+              <Text style={styles.helpSecondaryText}>Get help now</Text>
             </Pressable>
           </View>
         )}
@@ -899,9 +902,9 @@ export default function StatusScreen() {
       <Modal visible={showIssueModal} transparent animationType="fade" onRequestClose={() => setShowIssueModal(false)}>
         <View style={styles.modalScrim}>
           <View style={styles.issueModal}>
-            <Text style={styles.issueTitle}>Need help right now?</Text>
+            <Text style={styles.issueTitle}>Need help with this journey?</Text>
             <Text style={styles.issueBody}>
-              Send the Ace team the exact issue from this live booking screen so they can pick it up with context.
+              Ace support gets the live trip context from this screen automatically, so you do not have to explain everything again.
             </Text>
             <View style={styles.issueChips}>
               {(['payment', 'delay', 'ticket', 'other'] as const).map((category) => (
@@ -924,7 +927,7 @@ export default function StatusScreen() {
               multiline
               style={styles.issueInput}
             />
-            {issueSent && <Text style={styles.issueSent}>Sent. Ace support now has this live trip context.</Text>}
+            {issueSent && <Text style={styles.issueSent}>Sent. Ace support now has this journey context.</Text>}
             <View style={styles.issueActions}>
               <Pressable onPress={() => setShowIssueModal(false)} style={styles.issueCancelBtn}>
                 <Text style={styles.issueCancelText}>Close</Text>
@@ -975,6 +978,25 @@ function OrbWorking() {
   );
 }
 
+function StatusAtmosphere() {
+  return (
+    <View pointerEvents="none" style={styles.atmosphere}>
+      <LinearGradient
+        colors={['rgba(16, 185, 129, 0.14)', 'rgba(16, 185, 129, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowLeft}
+      />
+      <LinearGradient
+        colors={['rgba(56, 189, 248, 0.12)', 'rgba(99, 102, 241, 0.02)', 'rgba(99, 102, 241, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowRight}
+      />
+    </View>
+  );
+}
+
 const statusStyles = StyleSheet.create({
   ring: {
     position: 'absolute',
@@ -1001,6 +1023,25 @@ function ProactiveStatusCard({ card }: { card: ProactiveCard }) {
 
 const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: C.bg },
+  atmosphere: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  atmosphereGlowLeft: {
+    position: 'absolute',
+    top: -50,
+    left: -120,
+    width: 300,
+    height: 300,
+    borderRadius: 170,
+  },
+  atmosphereGlowRight: {
+    position: 'absolute',
+    top: 80,
+    right: -120,
+    width: 340,
+    height: 340,
+    borderRadius: 190,
+  },
   container: { flex: 1, paddingHorizontal: 28, alignItems: 'center' },
 
   back: { alignSelf: 'flex-start', marginTop: 8, marginBottom: 20 },
@@ -1042,6 +1083,14 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
 
+  statusEyebrow: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
   statusTitle:            { fontSize: 32, fontWeight: '800', color: C.textPrimary, marginBottom: 10, letterSpacing: -0.5 },
   statusTitleDone:        { color: C.green },
   statusTitleRequested:   { color: C.amber },
@@ -1057,11 +1106,11 @@ const styles = StyleSheet.create({
   },
   conciergeCard: {
     width: '100%',
-    backgroundColor: '#0b1220',
+    backgroundColor: 'rgba(11, 18, 32, 0.9)',
     borderWidth: 1,
-    borderColor: '#1e293b',
-    borderRadius: 18,
-    padding: 16,
+    borderColor: 'rgba(53, 83, 122, 0.34)',
+    borderRadius: 24,
+    padding: 18,
     marginBottom: 18,
     gap: 10,
   },

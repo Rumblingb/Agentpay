@@ -166,14 +166,14 @@ function activeTripStatusCopy(activeTrip: ActiveTrip): { pill: string; body: str
   if (activeTrip.status === 'securing') {
     return {
       pill: 'Booking in progress',
-      body: 'Ace is lining this trip up now. Open it to track payment, ticketing, and any issues.',
+      body: 'Ace is lining this trip up now. Open it for live progress and anything that still needs you.',
     };
   }
 
   if (activeTrip.status === 'attention') {
     return {
-      pill: 'Needs attention',
-      body: 'Something changed or needs your input. Open this trip now to recover it quickly.',
+      pill: 'Journey paused',
+      body: 'Something changed or still needs you. Open it and Ace will guide the next step.',
     };
   }
 
@@ -579,7 +579,7 @@ export default function ConverseScreen() {
           trustScore:      0,
           grade:           'B',
           verified:        true,
-          passportUrl:     `https://agentpay.gg/agent/${firstAction.agentId}`,
+          passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
         });
         setPhase('done');
         const fiat   = pending.fiatAmount;
@@ -785,12 +785,16 @@ export default function ConverseScreen() {
     : null;
   return (
     <SafeAreaView style={styles.safe}>
+      <Atmosphere />
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerBrand}>
           <View style={styles.headerDot} />
-          <Text style={styles.headerTitle}>ace</Text>
+          <View>
+            <Text style={styles.headerTitle}>ACE</Text>
+            <Text style={styles.headerSubtitle}>Voice concierge</Text>
+          </View>
         </View>
         <View style={styles.headerActions}>
           {nearestStation && (
@@ -826,17 +830,39 @@ export default function ConverseScreen() {
       >
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEyebrow}>Door-to-door outdoor AI</Text>
-            <Text style={styles.emptyGreeting}>
-              {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
-            </Text>
-            <Text style={styles.emptyHint}>
-              {lastRouteHint
-                ? `${lastRouteHint}\nHold the orb and I'll sort it.`
-                : nearestStation
-                ? `You are near ${nearestStation.name}.\nHold the orb and say the destination.`
-                : `Hold the orb. Say where you're going.\nAce handles the rest.`}
-            </Text>
+            <View style={styles.heroCard}>
+              <View style={styles.heroTopline}>
+                <Text style={styles.emptyEyebrow}>Spoken travel concierge</Text>
+                <View style={styles.heroToplineRule} />
+              </View>
+              <Text style={styles.emptyGreeting}>
+                {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
+              </Text>
+              <Text style={styles.heroHeadline}>Travel, handled in one sentence.</Text>
+              <Text style={styles.emptyHint}>
+                {lastRouteHint
+                  ? `${lastRouteHint} Hold the orb and Ace will take it from there.`
+                  : nearestStation
+                  ? `You are near ${nearestStation.name}. Hold the orb, say the destination, and Ace will line up the best next move.`
+                  : `Hold the orb, say where you are going, and Ace will handle the route, booking, and live follow-through.`}
+              </Text>
+              <View style={styles.heroStatRow}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>Voice first</Text>
+                  <Text style={styles.heroStatLabel}>natural requests</Text>
+                </View>
+                <View style={styles.heroStatDivider} />
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>~5 min</Text>
+                  <Text style={styles.heroStatLabel}>concierge booking</Text>
+                </View>
+                <View style={styles.heroStatDivider} />
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>Live recovery</Text>
+                  <Text style={styles.heroStatLabel}>delays and changes</Text>
+                </View>
+              </View>
+            </View>
               {activeTrip && (
                 <Pressable
                 onPress={() => {
@@ -921,7 +947,7 @@ export default function ConverseScreen() {
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
                 <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
-                <Text style={styles.suggestionsHint}>One sentence. Hold to talk. Ace works out the route and suggests the best next move.</Text>
+                <Text style={styles.suggestionsHint}>Keep it natural. Ace hears the destination, infers the route, and suggests the strongest next step.</Text>
               </View>
               <View style={styles.suggestions}>
                 {idleSuggestions.map((suggestion) => (
@@ -1063,6 +1089,14 @@ export default function ConverseScreen() {
 
           return (
             <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
+              <View style={styles.confirmEyebrowRow}>
+                <Text style={styles.confirmEyebrow}>Ace briefing</Text>
+                {sourceLabel && !isMultiLeg && (
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
+                  </View>
+                )}
+              </View>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
@@ -1121,11 +1155,6 @@ export default function ConverseScreen() {
                 </View>
               )}
 
-              {sourceLabel && !isMultiLeg && (
-                <View style={styles.sourceBadge}>
-                  <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
-                </View>
-              )}
               {priceLabel && !isMultiLeg && !hotel && (
                 <Text style={styles.confirmPrice}>{priceLabel}</Text>
               )}
@@ -1191,7 +1220,7 @@ export default function ConverseScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
                 <Text style={{ fontSize: 11, color: '#6b7280' }}>Service fee </Text>
                 <View style={{ backgroundColor: '#052e16', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Free · Beta</Text>
+                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Included · Beta</Text>
                 </View>
               </View>
               <Text style={styles.confirmReason}>
@@ -1262,7 +1291,7 @@ export default function ConverseScreen() {
                   style={styles.confirmBtnGrad}
                 >
                   <Ionicons name="finger-print-outline" size={20} color={C.emBright} />
-                  <Text style={styles.confirmText}>Book this journey</Text>
+                  <Text style={styles.confirmText}>Let Ace secure this</Text>
                 </LinearGradient>
               </Pressable>
               {isIndia && (
@@ -1317,6 +1346,15 @@ export default function ConverseScreen() {
           </View>
         )}
 
+        {(isIdle || isError || phase === 'listening') && (
+          <View style={styles.holdPlaque}>
+            <View style={styles.holdPlaqueDot} />
+            <Text style={styles.holdPlaqueText}>
+              {phase === 'listening' ? 'Listening now' : 'Hold Ace to speak'}
+            </Text>
+          </View>
+        )}
+
         <Text style={[styles.phaseLabel, { color: PHASE_LABEL_COLOR[phase] ?? C.textMuted }]}>
           {phaseLabel}
         </Text>
@@ -1348,6 +1386,31 @@ function Suggestion({ icon, text }: { icon: string; text: string }) {
         <Ionicons name={icon as any} size={13} color={C.em} />
       </View>
       <Text style={suggStyles.text}>{text}</Text>
+    </View>
+  );
+}
+
+function Atmosphere() {
+  return (
+    <View pointerEvents="none" style={styles.atmosphere}>
+      <LinearGradient
+        colors={['rgba(16, 185, 129, 0.18)', 'rgba(16, 185, 129, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowLeft}
+      />
+      <LinearGradient
+        colors={['rgba(56, 189, 248, 0.14)', 'rgba(99, 102, 241, 0.03)', 'rgba(99, 102, 241, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowRight}
+      />
+      <LinearGradient
+        colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.atmosphereHairline}
+      />
     </View>
   );
 }
@@ -1394,6 +1457,33 @@ function ProactiveCardRow({ card }: { card: ProactiveCard }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  atmosphere: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  atmosphereGlowLeft: {
+    position: 'absolute',
+    top: -60,
+    left: -120,
+    width: 320,
+    height: 320,
+    borderRadius: 180,
+  },
+  atmosphereGlowRight: {
+    position: 'absolute',
+    top: 80,
+    right: -130,
+    width: 360,
+    height: 360,
+    borderRadius: 200,
+  },
+  atmosphereHairline: {
+    position: 'absolute',
+    top: 84,
+    left: 24,
+    right: 24,
+    height: 1,
+    opacity: 0.7,
+  },
 
   header: {
     flexDirection: 'row',
@@ -1426,10 +1516,17 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   headerTitle: {
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '700',
     color: C.textPrimary,
-    letterSpacing: -0.3,
+    letterSpacing: 1.8,
+  },
+  headerSubtitle: {
+    fontSize: 10,
+    color: C.textMuted,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    marginTop: 2,
   },
   nearBadge: {
     backgroundColor: '#111111',
@@ -1454,36 +1551,90 @@ const styles = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
 
-  emptyState:    { paddingTop: 32, paddingBottom: 20 },
+  emptyState:    { paddingTop: 22, paddingBottom: 20 },
+  heroCard: {
+    backgroundColor: 'rgba(6, 13, 24, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.4)',
+    borderRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 18,
+    marginBottom: 18,
+    shadowColor: '#020617',
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  heroTopline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  heroToplineRule: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(148, 163, 184, 0.16)',
+  },
   emptyEyebrow: {
     fontSize: 11,
-    color: C.emBright,
+    color: '#cbd5e1',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
-    marginBottom: 10,
   },
   emptyGreeting: {
-    fontSize: 34,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#93c5fd',
+    marginBottom: 6,
+    letterSpacing: 0.2,
+  },
+  heroHeadline: {
+    fontSize: 36,
     fontWeight: '800',
     color: C.textPrimary,
-    marginBottom: 10,
-    letterSpacing: -1,
+    marginBottom: 12,
+    letterSpacing: -1.3,
     lineHeight: 40,
   },
   emptyHint: {
-    fontSize: 16,
-    color: C.textMuted,
+    fontSize: 15,
+    color: C.textSecondary,
     marginBottom: 18,
-    lineHeight: 26,
+    lineHeight: 24,
     letterSpacing: 0.1,
   },
+  heroStatRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 12,
+  },
+  heroStat: {
+    flex: 1,
+  },
+  heroStatValue: {
+    fontSize: 13,
+    color: '#f8fafc',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  heroStatLabel: {
+    fontSize: 11,
+    color: C.textMuted,
+    lineHeight: 15,
+  },
+  heroStatDivider: {
+    width: 1,
+    backgroundColor: 'rgba(148, 163, 184, 0.14)',
+  },
   activeTripCard: {
-    backgroundColor: C.surface,
+    backgroundColor: 'rgba(8, 18, 32, 0.9)',
     borderWidth: 1,
-    borderColor: C.borderMd,
-    borderRadius: 18,
-    padding: 16,
+    borderColor: 'rgba(56, 189, 248, 0.18)',
+    borderRadius: 24,
+    padding: 18,
     marginBottom: 22,
   },
   activeTripTop: {
@@ -1531,18 +1682,18 @@ const styles = StyleSheet.create({
   },
   suggestionsCard: {
     marginTop: 2,
-    backgroundColor: C.surface,
+    backgroundColor: 'rgba(6, 13, 24, 0.82)',
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 18,
-    padding: 16,
+    borderColor: 'rgba(53, 83, 122, 0.34)',
+    borderRadius: 24,
+    padding: 18,
   },
   suggestionsHeader: {
     marginBottom: 10,
   },
   suggestionsEyebrow: {
     fontSize: 11,
-    color: C.textMuted,
+    color: '#cbd5e1',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -1560,6 +1711,35 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     marginBottom: 14,
+  },
+  holdPlaque: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
+    backgroundColor: 'rgba(6, 13, 24, 0.84)',
+  },
+  holdPlaqueDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.emBright,
+    shadowColor: C.emBright,
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  holdPlaqueText: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
   shortcutBtn: {
     flexDirection: 'row',
@@ -1624,9 +1804,9 @@ const styles = StyleSheet.create({
   confirmCard: {
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: C.emGlow,
-    borderRadius: 20,
-    padding: 22,
+    borderColor: 'rgba(52, 211, 153, 0.3)',
+    borderRadius: 26,
+    padding: 24,
     marginBottom: 12,
     alignSelf: 'stretch',
     gap: 14,
@@ -1636,25 +1816,38 @@ const styles = StyleSheet.create({
     shadowRadius: 40,
     elevation: 12,
   },
+  confirmEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  confirmEyebrow: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
   confirmTrip: {
     fontSize: 14,
-    color: C.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
+    color: '#dbeafe',
+    textAlign: 'left',
+    lineHeight: 21,
     letterSpacing: 0.1,
   },
   sourceBadge: {
     alignSelf: 'center',
-    backgroundColor: C.surface2,
+    backgroundColor: 'rgba(8, 18, 32, 0.8)',
     borderWidth: 1,
-    borderColor: C.borderMd,
+    borderColor: 'rgba(56, 189, 248, 0.22)',
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
   sourceBadgeText: {
     fontSize: 11,
-    color: C.textMuted,
+    color: '#93c5fd',
     fontWeight: '600',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -1669,7 +1862,7 @@ const styles = StyleSheet.create({
   confirmReason: {
     fontSize: 13,
     color: C.textMuted,
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 20,
     marginTop: -6,
   },
@@ -1800,13 +1993,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 50,
     paddingTop: 18,
-    backgroundColor: 'rgba(3,7,15,0.97)',
+    backgroundColor: 'rgba(3,7,15,0.92)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: C.border,
+    borderTopColor: 'rgba(148, 163, 184, 0.16)',
   },
   phaseLabel: {
     fontSize: 11,
-    marginBottom: 16,
+    marginBottom: 14,
     letterSpacing: 2,
     fontWeight: '600',
     textTransform: 'uppercase',

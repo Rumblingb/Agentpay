@@ -53,6 +53,24 @@ function tripModeMeta(trip: TripEntry) {
   }
 }
 
+function tripStateMeta(trip: TripEntry): { label: string; tone: 'success' | 'warning' | 'neutral' } | null {
+  if (trip.tripContext?.status === 'attention' || trip.tripContext?.phase === 'attention') {
+    return { label: 'Journey paused', tone: 'warning' };
+  }
+  switch (trip.tripContext?.watchState?.bookingState) {
+    case 'payment_pending':
+      return { label: 'Awaiting payment', tone: 'warning' };
+    case 'issued':
+      return { label: 'Ready to travel', tone: 'success' };
+    case 'failed':
+      return { label: 'Needs a hand', tone: 'warning' };
+    case 'securing':
+      return { label: 'Booking underway', tone: 'neutral' };
+    default:
+      return null;
+  }
+}
+
 function tripMetaLine(trip: TripEntry) {
   const meta = tripModeMeta(trip);
   return [meta.label, trip.operator].filter(Boolean).join(' · ');
@@ -145,6 +163,7 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
   const meta = tripModeMeta(trip);
   const metaLine = tripMetaLine(trip);
   const repeat = repeatPrompt(trip);
+  const stateMeta = tripStateMeta(trip);
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -171,6 +190,25 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
           ) : null}
         </View>
         <Text style={styles.cardDate}>{dateStr}</Text>
+        {stateMeta && (
+          <View
+            style={[
+              styles.statePill,
+              stateMeta.tone === 'success' && styles.statePillSuccess,
+              stateMeta.tone === 'warning' && styles.statePillWarning,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statePillText,
+                stateMeta.tone === 'success' && styles.statePillTextSuccess,
+                stateMeta.tone === 'warning' && styles.statePillTextWarning,
+              ]}
+            >
+              {stateMeta.label}
+            </Text>
+          </View>
+        )}
         {repeat && (
           <Pressable
             onPress={() => router.replace({ pathname: '/(main)/converse', params: { prefill: repeat } } as any)}
@@ -235,6 +273,35 @@ const styles = StyleSheet.create({
   cardMetaText: { fontSize: 12, color: '#6b7280' },
   cardRef: { fontSize: 11, color: '#4ade80', fontFamily: 'monospace' },
   cardDate: { fontSize: 11, color: '#374151' },
+  statePill: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  statePillSuccess: {
+    backgroundColor: '#052e16',
+    borderColor: '#166534',
+  },
+  statePillWarning: {
+    backgroundColor: '#1c1917',
+    borderColor: '#92400e',
+  },
+  statePillText: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    fontWeight: '700',
+  },
+  statePillTextSuccess: {
+    color: '#86efac',
+  },
+  statePillTextWarning: {
+    color: '#fcd34d',
+  },
   repeatBtn: {
     marginTop: 10,
     alignSelf: 'flex-start',

@@ -1,7 +1,7 @@
 /**
  * generate-assets.js
  *
- * Generates Meridian app icons + splash screen as SVG files
+ * Generates Ace app icons + splash screen as SVG files
  * that Expo can use directly, or converts to PNG via sharp if available.
  *
  * Run: node scripts/generate-assets.js
@@ -76,8 +76,7 @@ function splashSvg(w = 1242, h = 2688) {
   <path d="M ${cx - w*0.08} ${cy - h*0.03} Q ${cx} ${cy + h*0.02} ${cx + w*0.08} ${cy - h*0.03}" stroke="white" stroke-width="${w*0.015}" fill="none" stroke-linecap="round" opacity="0.95"/>
   <line x1="${cx}" y1="${cy + h*0.02}" x2="${cx}" y2="${cy + h*0.05}" stroke="white" stroke-width="${w*0.015}" stroke-linecap="round" opacity="0.95"/>
   <!-- wordmark -->
-  <text x="${cx}" y="${cy + h*0.12}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.1}" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-2">Meridian</text>
-  <text x="${cx}" y="${cy + h*0.155}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.038}" fill="#6366f1" text-anchor="middle" letter-spacing="2">by AgentPay</text>
+  <text x="${cx}" y="${cy + h*0.137}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.11}" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-2">Ace</text>
 </svg>`;
 }
 

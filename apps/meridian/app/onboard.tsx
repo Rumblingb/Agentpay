@@ -70,22 +70,22 @@ const MARKET_COPY: Record<Nationality, {
   setupTagline: string;
 }> = {
   uk: {
-    intro: 'Hey. I book UK trains by voice. Hold the orb and try me.',
-    fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and book it with your fingerprint.",
+    intro: 'I am Ace. A spoken travel concierge for UK rail. Hold Ace and try me.',
+    fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and carry the booking through for you.",
     demoPrompt: 'book a train to London tomorrow',
-    setupTagline: 'The more you tell Ace up front, the fewer questions it asks later and the better it can book UK rail with the right railcard, route, and passenger details.',
+    setupTagline: 'This is not a normal booking app. The more you tell Ace up front, the more completely it can handle UK rail with the right railcard, route, and passenger details.',
   },
   india: {
-    intro: 'Hey. I book Indian trains by voice. Hold the orb and try me.',
-    fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and get you through payment fast.",
+    intro: 'I am Ace. A spoken travel concierge for Indian rail. Hold Ace and try me.',
+    fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and carry the booking through with you.",
     demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
-    setupTagline: 'The more you set up now, the faster Ace can move later with IRCTC details, class preferences, and payment-ready journeys.',
+    setupTagline: 'This is a more hands-off way to travel. The more you set up now, the faster Ace can move later with IRCTC details, class preferences, and payment-ready journeys.',
   },
   other: {
-    intro: 'Hey. I handle trains, flights, and buses by voice. Hold the orb and try me.',
-    fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line it up with your fingerprint.",
+    intro: 'I am Ace. A spoken concierge for movement. Hold Ace and try me.',
+    fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line the journey up for you.",
     demoPrompt: 'new york to boston tomorrow morning',
-    setupTagline: 'Ace works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
+    setupTagline: 'Ace is building a new category of concierge travel. It works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
   },
 };
 
@@ -428,7 +428,7 @@ export default function OnboardScreen() {
                 <Text style={demoStyles.wordmark}>ace</Text>
 
                 <View style={demoStyles.marketWrap}>
-                  <Text style={demoStyles.marketLabel}>Choose your primary travel market</Text>
+                  <Text style={demoStyles.marketLabel}>Choose the world Ace should learn first</Text>
                   <View style={styles.chipRow}>
                     {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
                       <Pressable
@@ -467,7 +467,7 @@ export default function OnboardScreen() {
                 {/* CTA — appears after demo */}
                 {demoPhase === 'done' && (
                   <View style={demoStyles.ctaArea}>
-                    <Text style={demoStyles.demoTagline}>That's what I do — every time.</Text>
+                    <Text style={demoStyles.demoTagline}>That is how Ace should feel every time.</Text>
                     <PrimaryBtn onPress={() => fadeToNext('name')} label="Let's get you set up" />
                   </View>
                 )}
@@ -985,7 +985,7 @@ export default function OnboardScreen() {
                 </Pressable>
 
                 <Text style={styles.legalNote}>
-                  Payments powered by AgentPay · agentpay.gg{'\n'}
+                  Secure payments are built in.{'\n'}
                   Ace works best when your profile is complete, your consent choices are clear, and your budget matches how hands-off you want it to be.
                 </Text>
               </View>

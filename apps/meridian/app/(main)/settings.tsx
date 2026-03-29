@@ -311,7 +311,7 @@ export default function SettingsScreen() {
         {/* Footer */}
         <Text style={styles.footer}>
           Ace 1.0{'\n'}
-          Powered by AgentPay · agentpay.gg
+          Built to handle the trip for you.
         </Text>
 
       </ScrollView>

@@ -33,7 +33,7 @@ import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
-import { parseTripContext, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { applyTripDisruption, parseTripContext, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -198,12 +198,12 @@ export default function ReceiptScreen() {
   const paymentRequired = !!((fiatAmountNum ?? receipt?.amount ?? 0) > 0);
   const bookingState = tripContext?.watchState?.bookingState;
   const receiptStatusLabel = receipt?.verifiedAt
-    ? 'Paid and confirmed'
+    ? 'Payment cleared'
     : bookingState === 'payment_pending'
-    ? 'Booked, payment pending'
+    ? 'Awaiting payment'
     : receipt
-    ? 'Confirmed'
-    : 'Saved locally';
+    ? 'Booking confirmed'
+    : 'Saved on this device';
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -245,6 +245,22 @@ export default function ReceiptScreen() {
       }
     });
   }, [finalLegSummary, intentId]);
+
+  useEffect(() => {
+    if (!tripContext || (!isDelayed && !hasPlatformChanged && !hasGateUpdated)) return;
+    const nextTripContext = applyTripDisruption(tripContext, {
+      delayed: isDelayed,
+      delayMinutes: delayMinutes ?? null,
+      platformChanged: hasPlatformChanged,
+      notifiedPlatform: notifiedPlatform ?? null,
+      gateUpdated: hasGateUpdated,
+      notifiedGate: notifiedGate ?? null,
+      disruptionRoute: disruptionRoute ?? null,
+    });
+    if (nextTripContext) {
+      setTripContext(nextTripContext);
+    }
+  }, [tripContext, isDelayed, delayMinutes, hasPlatformChanged, notifiedPlatform, hasGateUpdated, notifiedGate, disruptionRoute]);
 
   useEffect(() => {
     let active = true;
@@ -426,7 +442,7 @@ export default function ReceiptScreen() {
           ? `Amount: ${formatMoney(fiatAmountNum, fiatSymbol, fiatCode)}`
           : null,
         '',
-        'agentpay.gg',
+        'Shared from Ace',
       ].filter(Boolean).join('\n'),
     });
   };
@@ -457,6 +473,7 @@ export default function ReceiptScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <ReceiptAtmosphere />
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
         <Pressable onPress={() => router.back()} style={styles.back} hitSlop={12}>
@@ -617,6 +634,7 @@ export default function ReceiptScreen() {
 
         {((receipt && !loading) || (!loading && hasJourneyDetails)) && (
           <>
+            <Text style={styles.receiptEyebrow}>Ace journey brief</Text>
             {/* Success badge */}
             <View style={styles.badge}>
               <LinearGradient colors={['#052e16', '#14532d']} style={styles.badgeGrad}>
@@ -629,13 +647,13 @@ export default function ReceiptScreen() {
                 ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
                 : receipt
                 ? `${fiatSymbol}${receipt.amount}`
-                : 'Journey ready'}
+                : 'Journey details'}
             </Text>
             <Text style={styles.subtitle}>
               {fromStation && toStation
                 ? `${fromStation} → ${toStation}`
                 : receipt
-                ? 'Ready to move'
+                ? 'Your trip, all together'
                 : 'Saved on this device'}
             </Text>
 
@@ -655,7 +673,7 @@ export default function ReceiptScreen() {
               )}
               {bookingState === 'payment_pending' && (
                 <Text style={styles.localNotice}>
-                  Booking details are in place, but payment still needs to clear before this journey is fully locked in.
+                  Ace has the booking details in place, but payment still needs to clear before this journey is fully locked in.
                 </Text>
               )}
               {error && (
@@ -787,7 +805,7 @@ export default function ReceiptScreen() {
             {/* Actions */}
               <Pressable onPress={handleShare} style={styles.shareBtn}>
                 <Ionicons name="share-outline" size={18} color="#818cf8" />
-                <Text style={styles.shareBtnText}>Share details</Text>
+                <Text style={styles.shareBtnText}>Share this journey</Text>
               </Pressable>
 
               {repeatRoutePrompt && (
@@ -796,7 +814,7 @@ export default function ReceiptScreen() {
                   style={styles.shareBtn}
                 >
                   <Ionicons name="refresh-outline" size={18} color="#93c5fd" />
-                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Book this route again</Text>
+                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Ask Ace for this again</Text>
                 </Pressable>
               )}
 
@@ -813,17 +831,17 @@ export default function ReceiptScreen() {
                 style={styles.shareBtn}
               >
                 <Ionicons name="people-outline" size={18} color="#4ade80" />
-                <Text style={[styles.shareBtnText, { color: '#4ade80' }]}>Share live journey</Text>
+                <Text style={[styles.shareBtnText, { color: '#4ade80' }]}>Share live tracking</Text>
               </Pressable>
             )}
 
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
               <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
-              <Text style={styles.issueBtnText}>Problem with this booking?</Text>
+              <Text style={styles.issueBtnText}>Something not right?</Text>
             </Pressable>
 
             <Pressable onPress={handleDone} style={styles.doneBtn}>
-              <Text style={styles.doneBtnText}>Plan another trip</Text>
+              <Text style={styles.doneBtnText}>Ask Ace for another trip</Text>
             </Pressable>
           </>
         )}
@@ -931,6 +949,25 @@ export default function ReceiptScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+function ReceiptAtmosphere() {
+  return (
+    <View pointerEvents="none" style={styles.atmosphere}>
+      <LinearGradient
+        colors={['rgba(16, 185, 129, 0.12)', 'rgba(16, 185, 129, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowLeft}
+      />
+      <LinearGradient
+        colors={['rgba(56, 189, 248, 0.1)', 'rgba(99, 102, 241, 0.02)', 'rgba(99, 102, 241, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGlowRight}
+      />
+    </View>
   );
 }
 
@@ -1116,6 +1153,25 @@ function ProactiveReceiptCard({ card }: { card: ProactiveCard }) {
 
 const styles = StyleSheet.create({
   safe:      { flex: 1, backgroundColor: '#080808' },
+  atmosphere: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  atmosphereGlowLeft: {
+    position: 'absolute',
+    top: -50,
+    left: -120,
+    width: 300,
+    height: 300,
+    borderRadius: 170,
+  },
+  atmosphereGlowRight: {
+    position: 'absolute',
+    top: 140,
+    right: -120,
+    width: 320,
+    height: 320,
+    borderRadius: 180,
+  },
   container: { padding: 24, alignItems: 'center', paddingBottom: 60 },
   back:      { alignSelf: 'flex-start', marginBottom: 32 },
 
@@ -1199,9 +1255,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  receiptEyebrow: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 12,
+  },
 
-  amount:   { fontSize: 36, fontWeight: '800', color: '#f9fafb', letterSpacing: -1, marginBottom: 6 },
-  subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 32 },
+  amount:   { fontSize: 40, fontWeight: '800', color: '#f9fafb', letterSpacing: -1.2, marginBottom: 6 },
+  subtitle: { fontSize: 14, color: '#94a3b8', marginBottom: 32, lineHeight: 21, textAlign: 'center' },
   proactiveWrap: { width: '100%', gap: 10, marginBottom: 14 },
   proactiveCard: {
     flexDirection: 'row',
@@ -1218,12 +1282,12 @@ const styles = StyleSheet.create({
 
   card: {
     width: '100%',
-    backgroundColor: '#0d0d0d',
-    borderRadius: 16,
-    padding: 18,
+    backgroundColor: 'rgba(13, 13, 13, 0.88)',
+    borderRadius: 22,
+    padding: 20,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
-    marginBottom: 12,
+    borderColor: 'rgba(53, 83, 122, 0.28)',
+    marginBottom: 14,
   },
   localNotice: {
     marginTop: 4,
@@ -1234,12 +1298,12 @@ const styles = StyleSheet.create({
 
   journeyCard: {
     width: '100%',
-    backgroundColor: '#0a1a0a',
-    borderRadius: 16,
-    padding: 18,
+    backgroundColor: 'rgba(10, 26, 10, 0.9)',
+    borderRadius: 22,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#14532d',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   journeyHeader: {
     flexDirection: 'row',
@@ -1350,18 +1414,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#1e1b4b',
-    borderRadius: 14,
+    borderColor: 'rgba(67, 56, 202, 0.35)',
+    borderRadius: 18,
     paddingHorizontal: 28,
-    paddingVertical: 14,
+    paddingVertical: 15,
     marginBottom: 10,
     width: '100%',
     justifyContent: 'center',
+    backgroundColor: 'rgba(8, 10, 26, 0.65)',
   },
   shareBtnText: { fontSize: 15, fontWeight: '600', color: '#818cf8' },
 
-  doneBtn:     { width: '100%', alignItems: 'center', paddingVertical: 14 },
-  doneBtnText: { fontSize: 14, color: '#4b5563' },
+  doneBtn:     { width: '100%', alignItems: 'center', paddingVertical: 16 },
+  doneBtnText: { fontSize: 14, color: '#94a3b8', letterSpacing: 0.2 },
 
   issueBtn: {
     flexDirection: 'row',
@@ -1373,7 +1438,7 @@ const styles = StyleSheet.create({
   },
   issueBtnText: {
     fontSize: 13,
-    color: '#6b7280',
+    color: '#94a3b8',
   },
 
   errorBox:  { marginTop: 60, padding: 20 },

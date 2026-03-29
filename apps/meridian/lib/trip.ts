@@ -99,3 +99,42 @@ export function syncTripBookingState(
     },
   });
 }
+
+export type TripDisruptionInput = {
+  delayed?: boolean;
+  delayMinutes?: string | number | null;
+  platformChanged?: boolean;
+  notifiedPlatform?: string | null;
+  gateUpdated?: boolean;
+  notifiedGate?: string | null;
+  disruptionRoute?: string | null;
+};
+
+export function applyTripDisruption(
+  trip: TripContext | null | undefined,
+  disruption: TripDisruptionInput,
+): TripContext | null {
+  if (!trip) return null;
+
+  const routeLabel =
+    disruption.disruptionRoute
+    || [trip.origin, trip.destination].filter(Boolean).join(' → ')
+    || trip.title;
+
+  const watchState = {
+    ...trip.watchState,
+    delayRisk: disruption.delayed ? true : trip.watchState?.delayRisk,
+    platformInfo: disruption.platformChanged
+      ? `${routeLabel}${disruption.notifiedPlatform ? ` is now boarding from Platform ${disruption.notifiedPlatform}.` : ' has a new platform assignment.'}`
+      : trip.watchState?.platformInfo,
+    gateInfo: disruption.gateUpdated
+      ? `${routeLabel}${disruption.notifiedGate ? ` is now departing from Gate ${disruption.notifiedGate}.` : ' has a new gate assignment.'}`
+      : trip.watchState?.gateInfo,
+  };
+
+  return updateTripContext(
+    trip,
+    disruption.delayed ? 'attention' : trip.phase,
+    { watchState },
+  );
+}

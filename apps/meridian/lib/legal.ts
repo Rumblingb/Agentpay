@@ -11,7 +11,7 @@ export interface LegalDoc {
   }>;
 }
 
-export const LEGAL_SUPPORT_EMAIL = 'bro@agentpay.gg';
+export const LEGAL_SUPPORT_EMAIL = 'bro@agentpay.so';
 
 export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
   terms: {

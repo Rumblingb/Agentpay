@@ -57,7 +57,7 @@ export default function LegalDocScreen() {
           </Text>
           <Pressable onPress={() => { void openSupportEmail(); }} style={styles.supportBtn}>
             <Ionicons name="mail-outline" size={16} color="#cbd5e1" />
-            <Text style={styles.supportBtnText}>{doc.supportEmail}</Text>
+            <Text style={styles.supportBtnText}>Email the Ace team</Text>
           </Pressable>
         </View>
       </ScrollView>

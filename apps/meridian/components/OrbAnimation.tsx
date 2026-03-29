@@ -249,7 +249,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
                 color={phase === 'done' ? '#4ade80' : '#f87171'}
               />
             ) : (
-              <CompassNeedle rotation={needleRotDeg} color={needleColor} />
+              <AceSigil rotation={needleRotDeg} color={needleColor} />
             )}
           </LinearGradient>
         </Pressable>
@@ -286,6 +286,31 @@ function CompassNeedle({
   );
 }
 
+function AceSigil({
+  rotation,
+  color,
+}: {
+  rotation: Animated.AnimatedInterpolation<string>;
+  color: string;
+}) {
+  return (
+    <View style={sigilStyles.wrap}>
+      <View style={[sigilStyles.cap, { borderColor: `${color}55` }]} />
+      <View style={sigilStyles.body}>
+        <View style={[sigilStyles.facet, { backgroundColor: `${color}30`, borderColor: `${color}40` }]} />
+        <View style={sigilStyles.core}>
+          <CompassNeedle rotation={rotation} color={color} />
+          <View style={[sigilStyles.coreDot, { backgroundColor: color }]} />
+        </View>
+        <View style={[sigilStyles.facet, { backgroundColor: `${color}30`, borderColor: `${color}40` }]} />
+      </View>
+      <View style={sigilStyles.nibWrap}>
+        <View style={[sigilStyles.nib, { borderTopColor: `${color}50` }]} />
+      </View>
+    </View>
+  );
+}
+
 const compassStyles = StyleSheet.create({
   wrap: {
     width:  NEEDLE_W,
@@ -317,6 +342,66 @@ const compassStyles = StyleSheet.create({
     borderLeftColor:  'transparent',
     borderRightColor: 'transparent',
     // borderTopColor provided via prop
+  },
+});
+
+const sigilStyles = StyleSheet.create({
+  wrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cap: {
+    width: 44,
+    height: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  body: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  facet: {
+    width: 12,
+    height: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  core: {
+    width: 44,
+    height: 64,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coreDot: {
+    position: 'absolute',
+    bottom: 10,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    opacity: 0.8,
+  },
+  nibWrap: {
+    marginTop: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
+    height: 14,
+  },
+  nib: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 14,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
   },
 });
 

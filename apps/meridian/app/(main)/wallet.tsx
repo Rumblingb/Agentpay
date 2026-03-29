@@ -104,7 +104,7 @@ export default function WalletScreen() {
                   <Text style={styles.depositTitle}>Add Funds</Text>
                 </View>
                 <Text style={styles.depositNote}>
-                  Top up your Ace balance. Contact support to add funds to your account.
+                  Top up your Ace balance here so booking can move without payment friction later.
                 </Text>
 
                 <View style={styles.depositField}>
@@ -119,7 +119,7 @@ export default function WalletScreen() {
                 <View style={styles.depositActions}>
                   <Pressable onPress={handleShareDeposit} style={styles.shareBtn}>
                     <Ionicons name="share-outline" size={15} color="#6366f1" />
-                    <Text style={styles.shareBtnText}>Share details</Text>
+                    <Text style={styles.shareBtnText}>Share top-up details</Text>
                   </Pressable>
                   <Pressable onPress={handleCopyAddress} style={styles.copyBtn}>
                     <Ionicons name="copy-outline" size={15} color="#6b7280" />

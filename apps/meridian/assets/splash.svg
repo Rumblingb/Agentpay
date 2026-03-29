@@ -21,6 +21,5 @@
   <path d="M 521.64 1263.36 Q 621 1397.76 720.36 1263.36" stroke="white" stroke-width="18.63" fill="none" stroke-linecap="round" opacity="0.95"/>
   <line x1="621" y1="1397.76" x2="621" y2="1478.4" stroke="white" stroke-width="18.63" stroke-linecap="round" opacity="0.95"/>
   <!-- wordmark -->
-  <text x="621" y="1666.56" font-family="system-ui, -apple-system, sans-serif" font-size="124.2" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-2">Meridian</text>
-  <text x="621" y="1760.6399999999999" font-family="system-ui, -apple-system, sans-serif" font-size="47.196" fill="#6366f1" text-anchor="middle" letter-spacing="2">by AgentPay</text>
+  <text x="621" y="1713.6" font-family="system-ui, -apple-system, sans-serif" font-size="136" font-weight="700" fill="white" text-anchor="middle" letter-spacing="-2">Ace</text>
 </svg>
