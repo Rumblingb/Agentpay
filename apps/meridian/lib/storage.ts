@@ -128,7 +128,23 @@ export async function loadPrefs(): Promise<StoredPrefs> {
 
 export async function savePrefs(prefs: Partial<StoredPrefs>): Promise<void> {
   const current = await loadPrefs();
-  await AsyncStorage.setItem(KEYS.prefs, JSON.stringify({ ...current, ...prefs }));
+  const next: StoredPrefs = {
+    ...current,
+    ...prefs,
+  };
+
+  if ('homeStation' in prefs && !prefs.homeStation) {
+    delete next.homeStation;
+  }
+  if ('workStation' in prefs && !prefs.workStation) {
+    delete next.workStation;
+  }
+
+  await AsyncStorage.setItem(KEYS.prefs, JSON.stringify(next));
+}
+
+export async function clearPrefs(): Promise<void> {
+  await AsyncStorage.removeItem(KEYS.prefs);
 }
 
 // ── Conversation history ──────────────────────────────────────────────────────
@@ -190,4 +206,11 @@ export async function upsertTrip(entry: TripEntry): Promise<void> {
   const serialized = JSON.stringify(filtered.slice(0, 30));
   await AsyncStorage.setItem(KEYS.trips, serialized);
   await AsyncStorage.setItem(KEYS.legacyTrips, serialized);
+}
+
+export async function clearTrips(): Promise<void> {
+  await Promise.all([
+    AsyncStorage.removeItem(KEYS.trips),
+    AsyncStorage.removeItem(KEYS.legacyTrips),
+  ]);
 }

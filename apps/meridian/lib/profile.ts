@@ -162,6 +162,10 @@ export async function loadConsents(): Promise<PrivacyConsents | null> {
   }
 }
 
+export async function clearConsents(): Promise<void> {
+  await SecureStore.deleteItemAsync(CONSENTS_KEY);
+}
+
 // ── Booking context builder ───────────────────────────────────────────────
 
 export const RAILCARD_LABELS: Record<RailcardType, string> = {

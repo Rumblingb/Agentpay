@@ -32,6 +32,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import * as Location from 'expo-location';
 
 import { registerAgent } from '../lib/api';
 import { saveCredentials, savePrefs } from '../lib/storage';
@@ -52,6 +53,7 @@ import {
   type IndiaClassTier,
 } from '../lib/profile';
 import { getBiometricLabel } from '../lib/biometric';
+import { requestNotificationPermission } from '../lib/notifications';
 import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
 import { speak, stopSpeaking } from '../lib/tts';
 import { OrbAnimation } from '../components/OrbAnimation';
@@ -71,19 +73,19 @@ const MARKET_COPY: Record<Nationality, {
     intro: 'Hey. I book UK trains by voice. Hold the orb and try me.',
     fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and book it with your fingerprint.",
     demoPrompt: 'book a train to London tomorrow',
-    setupTagline: 'UK trains, voice-first, with railcards and station-to-station booking handled for you.',
+    setupTagline: 'The more you tell Bro up front, the fewer questions it asks later and the better it can book UK rail with the right railcard, route, and passenger details.',
   },
   india: {
     intro: 'Hey. I book Indian trains by voice. Hold the orb and try me.',
     fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and get you through payment fast.",
     demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
-    setupTagline: 'India rail, voice-first, with IRCTC and UPI-ready booking where it matters.',
+    setupTagline: 'The more you set up now, the faster Bro can move later with IRCTC details, class preferences, and payment-ready journeys.',
   },
   other: {
     intro: 'Hey. I handle trains, flights, and buses by voice. Hold the orb and try me.',
     fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line it up with your fingerprint.",
     demoPrompt: 'new york to boston tomorrow morning',
-    setupTagline: 'Bro is ground-first globally now: rail where it wins, coach where it is cheaper, flights when distance demands it.',
+    setupTagline: 'Bro works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
   },
 };
 
@@ -333,12 +335,43 @@ export default function OnboardScreen() {
   };
 
   const handleAcceptPrivacy = async () => {
+    let locationGranted = false;
+    let notificationsGranted = false;
+
+    if (locationConsent) {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        locationGranted = status === 'granted';
+      } catch {
+        locationGranted = false;
+      }
+    }
+
+    if (notifConsent) {
+      try {
+        notificationsGranted = await requestNotificationPermission();
+      } catch {
+        notificationsGranted = false;
+      }
+    }
+
     await saveConsents({
       profileConsented:        true,
-      locationConsented:       locationConsent,
-      notificationsConsented:  notifConsent,
+      locationConsented:       locationConsent && locationGranted,
+      notificationsConsented:  notifConsent && notificationsGranted,
       consentedAt:             new Date().toISOString(),
     });
+
+    if ((locationConsent && !locationGranted) || (notifConsent && !notificationsGranted)) {
+      Alert.alert(
+        'Some permissions are still off',
+        [
+          locationConsent && !locationGranted ? 'Location stayed off, so nearby-station shortcuts will stay disabled.' : null,
+          notifConsent && !notificationsGranted ? 'Notifications stayed off, so booking updates will stay inside the app only.' : null,
+        ].filter(Boolean).join('\n\n'),
+      );
+    }
+
     fadeToNext('profile');
   };
 
@@ -518,16 +551,16 @@ export default function OnboardScreen() {
                   <Ionicons name="shield-checkmark" size={40} color="#4ade80" />
                 </View>
 
-                <Text style={styles.stepTitle}>Your privacy.{'\n'}Our promise.</Text>
+                <Text style={styles.stepTitle}>Your data.{'\n'}Your advantage.</Text>
                 <Text style={styles.stepSub}>
-                  Safety is our priority. No one can access your information without your permission.
+                  Bro needs real booking data to do real booking work. More detail means fewer follow-up questions, fewer failed checkouts, better fares, and faster confirmations. We keep that data locked down and only use it when you want the trip to move.
                 </Text>
 
                 <View style={styles.promiseList}>
                   <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
                   <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
-                  <PromiseRow icon="person"         text="Only the details needed for your journey are shared" />
-                  <PromiseRow icon="checkmark-done" text="Shared only to secure the booking you confirm" />
+                    <PromiseRow icon="person"         text="More profile detail means Bro can stop asking basics on every booking" />
+                    <PromiseRow icon="checkmark-done" text="Only the details needed for the journey you approve are shared" />
                   <PromiseRow icon="server"         text="Trip and receipt records may be kept so Bro can reopen your journey" />
                   <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
                 </View>
@@ -535,22 +568,22 @@ export default function OnboardScreen() {
                 <View style={styles.consentToggles}>
                   <ConsentRow
                     label="Allow location for nearby stations"
-                    sub="Used only when you ask — never in background"
+                      sub="Lets Bro suggest the right nearby station instead of making you type it every time"
                     value={locationConsent}
                     onToggle={setLocationConsent}
                   />
                   <ConsentRow
                     label="Booking updates"
-                    sub="Notifications when your booking request is submitted"
+                      sub="Lets Bro warn you about booking progress, delays, and last-minute changes"
                     value={notifConsent}
                     onToggle={setNotifConsent}
                   />
                 </View>
 
-                <PrimaryBtn onPress={handleAcceptPrivacy} label="I understand — continue" />
+                  <PrimaryBtn onPress={handleAcceptPrivacy} label="Continue with these protections" />
 
                 <Text style={styles.legalNote}>
-                  By continuing you accept our{' '}
+                    Bro asks for meaningful data because it is trying to act, not just chat. By continuing you accept our{' '}
                   <Text style={styles.legalLink} onPress={() => router.push('/legal/terms')}>
                     Terms of Service
                   </Text>
@@ -566,10 +599,9 @@ export default function OnboardScreen() {
             {/* ── Step 4: Travel Profile ───────────────────────────────── */}
             {step === 'profile' && (
               <View style={styles.stepWrap}>
-                <Text style={styles.stepTitle}>Your booking details.</Text>
+                <Text style={styles.stepTitle}>Set Bro up properly.</Text>
                 <Text style={styles.stepSub}>
-                  Stays on this device. {biometricLabel} protected.{'\n'}
-                  I need these to book and send your e-ticket.
+                  This is the data that makes Bro useful. The more complete this is, the less back-and-forth you get during booking and the less likely you are to hit fare, identity, or ticket-delivery issues. It stays on this device and is protected with {biometricLabel}.
                 </Text>
 
                 {/* ── Voice fill ─────────────────────────────────────── */}
@@ -592,12 +624,12 @@ export default function OnboardScreen() {
                 )}
 
                 {/* ── Train essentials (always visible) ─────────────── */}
-                <SectionLabel text="FOR BOOKING CONFIRMATION" />
+                  <SectionLabel text="ESSENTIALS FOR REAL BOOKINGS" />
                 <TextInput
                   style={styles.input}
                   value={legalName}
                   onChangeText={setLegalName}
-                  placeholder="Full name (as you want it on the ticket)"
+                    placeholder="Full name exactly as it should appear on tickets"
                   placeholderTextColor="#374151"
                   autoCapitalize="words"
                 />
@@ -839,7 +871,11 @@ export default function OnboardScreen() {
                   </>
                 )}
 
-                {profileError && <Text style={styles.error}>{profileError}</Text>}
+                  {profileError && <Text style={styles.error}>{profileError}</Text>}
+
+                  <Text style={styles.profileExplainer}>
+                    Name and contact details help Bro complete checkout without stopping to ask you again. Travel preferences and railcards help it search better options before it gets to payment.
+                  </Text>
 
                 <Pressable
                   onPress={handleSaveProfile}
@@ -857,9 +893,9 @@ export default function OnboardScreen() {
                     ) : (
                       <>
                         <Ionicons name="finger-print" size={20} color="#4ade80" />
-                        <Text style={[styles.btnText, { color: '#4ade80' }]}>
-                          Save with {biometricLabel}
-                        </Text>
+                          <Text style={[styles.btnText, { color: '#4ade80' }]}>
+                          Save securely with {biometricLabel}
+                          </Text>
                       </>
                     )}
                   </LinearGradient>
@@ -871,8 +907,8 @@ export default function OnboardScreen() {
                 >
                   <Text style={styles.skipText}>
                     {!email.trim()
-                      ? "Skip — I won't be able to send your e-ticket without an email"
-                      : "Skip for now — edit anytime in Settings"}
+                      ? "Skip — but Bro will be weaker without an email for ticket delivery"
+                      : "Skip for now — but fuller details mean fewer booking interruptions later"}
                   </Text>
                 </Pressable>
               </View>
@@ -885,13 +921,12 @@ export default function OnboardScreen() {
                   Almost there{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  Set your auto-approve limit. Below this amount, I'll act without asking.
-                  Above it, I'll confirm with you first.
+                  This is the handoff between speed and control. Below this amount, Bro can move fast. Above it, you stay in the loop before any money goes out.
                 </Text>
 
                 <FieldLabel
                   text="Auto-approve limit (USDC)"
-                  hint="Bro will secure bookings automatically up to this amount."
+                  hint="A higher limit means fewer confirmation prompts. A lower limit means more explicit approval moments."
                 />
                 <View style={styles.chipRow}>
                   {['2', '5', '10', '25'].map((v) => (
@@ -951,7 +986,7 @@ export default function OnboardScreen() {
 
                 <Text style={styles.legalNote}>
                   Payments powered by AgentPay · agentpay.gg{'\n'}
-                  Your Bro setup is created automatically.
+                  Bro works best when your profile is complete, your consent choices are clear, and your budget matches how hands-off you want it to be.
                 </Text>
               </View>
             )}
@@ -1187,6 +1222,7 @@ const styles = StyleSheet.create({
   skipText: { fontSize: 13, color: '#374151', textAlign: 'center' },
 
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
+  profileExplainer: { fontSize: 12, color: '#4b5563', lineHeight: 18, textAlign: 'center', marginBottom: 16, marginTop: -4 },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
   legalLink:{ color: '#818cf8', textDecorationLine: 'underline' },
 });

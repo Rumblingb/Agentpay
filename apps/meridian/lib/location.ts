@@ -1,9 +1,15 @@
 import * as Location from 'expo-location';
 
 import { findNearestStation, type StationGeo } from './stationGeo';
+import { loadConsents } from './profile';
 
 export async function getNearestStation(): Promise<StationGeo | null> {
   try {
+    const consents = await loadConsents();
+    if (consents && !consents.locationConsented) {
+      return null;
+    }
+
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
       return null;

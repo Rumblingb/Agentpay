@@ -11,6 +11,7 @@
 
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { loadConsents } from './profile';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -21,6 +22,11 @@ Notifications.setNotificationHandler({
 });
 
 export async function requestNotificationPermission(): Promise<boolean> {
+  const consents = await loadConsents().catch(() => null);
+  if (consents && !consents.notificationsConsented) {
+    return false;
+  }
+
   const { status: existing } = await Notifications.getPermissionsAsync();
   if (existing === 'granted') return true;
   const { status } = await Notifications.requestPermissionsAsync();

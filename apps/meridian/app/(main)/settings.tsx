@@ -16,8 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
-import { savePrefs, clearCredentials, clearHistory, clearActiveTrip } from '../../lib/storage';
-import { hasProfile, deleteProfile, loadProfileRaw, shouldApplyFamilyRailcard, type FamilyMember } from '../../lib/profile';
+import { savePrefs, clearCredentials, clearHistory, clearActiveTrip, clearPrefs, clearTrips } from '../../lib/storage';
+import { hasProfile, deleteProfile, loadProfileRaw, shouldApplyFamilyRailcard, clearConsents, type FamilyMember } from '../../lib/profile';
 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset } = useStore();
@@ -78,14 +78,22 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       'Reset Bro',
-      'This will clear your Bro setup, recent journeys, and local credentials. You will need to set up again.',
+      'This will clear your Bro setup, travel profile, saved trips, stations, consent choices, and local credentials. You will need to set up again.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Reset',
           style: 'destructive',
           onPress: async () => {
-            await Promise.all([clearCredentials(), clearHistory(), clearActiveTrip()]);
+            await Promise.all([
+              clearCredentials(),
+              clearHistory(),
+              clearActiveTrip(),
+              clearTrips(),
+              clearPrefs(),
+              clearConsents(),
+              deleteProfile(),
+            ]);
             reset();
             router.replace('/onboard');
           },
