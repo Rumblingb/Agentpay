@@ -168,6 +168,10 @@ function recoveryPrompt(params: {
   return 'Help with my current booking';
 }
 
+function isRollbackState(bookingState: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never, totalLegs: number) {
+  return totalLegs > 1 && (bookingState === 'failed' || bookingState === 'refunded');
+}
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
@@ -480,6 +484,8 @@ export default function StatusScreen() {
   // Only show full green success once payment is confirmed (or no payment needed)
   const needsPayment = isDone && fiatAmount && parseFloat(fiatAmount) > 0;
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
+  const bookingState = tripContext?.watchState?.bookingState;
+  const rolledBackJourney = isRollbackState(bookingState, totalLegs);
   const cards = tripCards(tripContext);
   const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
   const conciergeFlow = buildConciergeStages({
@@ -637,14 +643,17 @@ export default function StatusScreen() {
         <Text style={styles.statusEyebrow}>Ace is handling the journey</Text>
         <Text style={[styles.statusTitle, isFullyDone && styles.statusTitleDone, isError && styles.statusTitleError,
           isDone && needsPayment && !paymentConfirmed && { color: '#fbbf24' }]}>
-          {isFullyDone ? 'Journey secured'
+          {rolledBackJourney ? 'Journey safely unwound'
+            : isFullyDone ? 'Journey secured'
             : isDone && needsPayment && !paymentConfirmed ? 'Ready for payment'
             : isError ? 'Journey paused'
             : 'Ace is on it'}
         </Text>
 
         <Text style={styles.statusSub}>
-          {isFullyDone
+          {rolledBackJourney
+            ? 'One leg could not be secured, so Ace cancelled the rest to avoid leaving you half-booked.'
+            : isFullyDone
             ? totalLegs > 1
               ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
               : 'Ace has your journey moving. Ticket details arrive by email shortly.'
@@ -704,13 +713,23 @@ export default function StatusScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
             <Text style={{ fontSize: 12, color: '#818cf8' }}>
-              {totalLegs}-leg journey · Leg {Math.min(currentLegIndex + 1, totalLegs)} of {totalLegs}
+              {rolledBackJourney
+                ? `${totalLegs}-leg journey · safely cancelled before confirmation`
+                : `${totalLegs}-leg journey · Leg ${Math.min(currentLegIndex + 1, totalLegs)} of ${totalLegs}`}
+            </Text>
+          </View>
+        )}
+        {rolledBackJourney && (
+          <View style={styles.rollbackCard}>
+            <Ionicons name="refresh-circle-outline" size={16} color="#93c5fd" />
+            <Text style={styles.rollbackText}>
+              Ace has already unwound the other legs. You can ask for an alternative now without worrying about a partial booking.
             </Text>
           </View>
         )}
 
         {/* Multi-leg timeline — shown only for 2+ leg journeys */}
-        {isFullyDone && (() => {
+        {(isFullyDone || rolledBackJourney) && (() => {
           const legs: Array<{
             mode?: string;
             operator?: string;
@@ -1173,6 +1192,26 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginBottom: 18,
     paddingHorizontal: 16,
+  },
+  rollbackCard: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(8, 16, 30, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(147, 197, 253, 0.24)',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 10,
+    marginBottom: 18,
+  },
+  rollbackText: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 19,
+    color: '#dbeafe',
   },
   conciergeCard: {
     width: '100%',

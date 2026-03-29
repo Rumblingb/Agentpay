@@ -109,6 +109,10 @@ function formatLegMoment(value?: string) {
   return value;
 }
 
+function isRollbackState(bookingState: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never, totalLegs: number) {
+  return totalLegs > 1 && (bookingState === 'failed' || bookingState === 'refunded');
+}
+
 export default function ReceiptScreen() {
   const params = useLocalSearchParams<{
     intentId: string;
@@ -227,10 +231,15 @@ export default function ReceiptScreen() {
   const isMultiLegJourney = tripLegs.length > 1;
   const paymentRequired = !!((fiatAmountNum ?? receipt?.amount ?? 0) > 0);
   const bookingState = tripContext?.watchState?.bookingState;
+  const rolledBackJourney = isRollbackState(bookingState, tripLegs.length || 1);
   const receiptStatusLabel = receipt?.verifiedAt
     ? 'Payment cleared'
+    : rolledBackJourney
+    ? 'Journey safely unwound'
     : bookingState === 'payment_pending'
     ? 'Awaiting payment'
+    : bookingState === 'failed'
+    ? 'Needs attention'
     : receipt
     ? 'Booking confirmed'
     : 'Saved on this device';
@@ -796,6 +805,20 @@ export default function ReceiptScreen() {
                       </Text>
                     </Pressable>
                   </View>
+                </View>
+              )}
+              {rolledBackJourney && (
+                <View style={styles.paymentRecoveryCard}>
+                  <View style={styles.paymentRecoveryHeader}>
+                    <Ionicons name="shield-checkmark-outline" size={15} color="#93c5fd" />
+                    <Text style={styles.paymentRecoveryTitle}>Ace stopped this safely</Text>
+                  </View>
+                  <Text style={styles.paymentRecoveryBody}>
+                    One leg of this journey could not be secured, so Ace cancelled the rest to avoid leaving you half-booked.
+                  </Text>
+                  <Text style={styles.paymentRecoveryNote}>
+                    Nothing here is being treated as confirmed. Ask Ace for the next best route and it will rebuild the trip cleanly.
+                  </Text>
                 </View>
               )}
               {error && (

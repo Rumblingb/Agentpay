@@ -8,6 +8,7 @@
  *
  * Route buckets and limits:
  *   'register'          10 req / 60s  — merchant registration (costly DB write)
+ *   'concierge_intent'  20 req / 60s  — voice concierge planning/execution
  *   'intent_create'     60 req / 60s  — agent intent creation per IP
  *   'intent_verify'     30 req / 60s  — txHash submission per IP
  *   'key_rotate'        5  req / 60s  — API key rotation
@@ -52,6 +53,7 @@ const TIER_MULTIPLIER: Record<Tier, number> = {
 
 const BASE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   register:       { max: 10,  windowMs: 60_000 },
+  concierge_intent:{ max: 20, windowMs: 60_000 },
   intent_create:  { max: 60,  windowMs: 60_000 },
   intent_verify:  { max: 30,  windowMs: 60_000 },
   key_rotate:     { max: 5,   windowMs: 60_000 },
@@ -64,6 +66,7 @@ const BASE_LIMITS: Record<string, { max: number; windowMs: number }> = {
 function getBucket(path: string, method: string): string {
   if (method === 'POST' && path.includes('/merchants/register'))   return 'register';
   if (method === 'POST' && path.includes('/merchants/rotate-key')) return 'key_rotate';
+  if (method === 'POST' && path.includes('/api/concierge/intent')) return 'concierge_intent';
   if (method === 'POST' && /\/v1\/payment-intents$/.test(path))    return 'intent_create';
   if (method === 'POST' && path.includes('/verify'))               return 'intent_verify';
   if (method === 'POST' && path.includes('/v1/agents/register'))   return 'agent_register';

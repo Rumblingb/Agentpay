@@ -64,6 +64,8 @@ function tripStateMeta(trip: TripEntry): { label: string; tone: 'success' | 'war
       return { label: 'Ready to travel', tone: 'success' };
     case 'failed':
       return { label: 'Needs a hand', tone: 'warning' };
+    case 'refunded':
+      return { label: 'Safely unwound', tone: 'neutral' };
     case 'securing':
       return { label: 'Booking underway', tone: 'neutral' };
     default:

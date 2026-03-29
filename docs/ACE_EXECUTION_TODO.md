@@ -6,11 +6,15 @@ Last updated: 2026-03-29
 
 - [x] Build a concrete execution list from the latest Ace audit.
 - [x] Replace raw operator transparency with a tighter Ace assurance layer.
-- [ ] Audit the current multi-leg flow against the “missing UI” claim and only fill true gaps.
+- [x] Tighten concierge rate limiting so the core voice surface has a dedicated guardrail.
+- [x] Keep biometric confirmation failures inside the booking moment instead of forcing a restart.
+- [x] Surface partial multi-leg rollback as a visible customer state, not just backend narration.
 - [x] Tighten payment recovery so retry, reopen, and escalation are explicit instead of generic.
 
 ## Next
 
+- [ ] Add richer multi-leg rollback language on status and receipt:
+  explain when Ace cancelled earlier legs to avoid leaving the customer half-booked.
 - [ ] Add a richer multi-leg breakdown on receipt and live status when more than one leg is involved.
 - [ ] Add flight booking completion details:
   PNR, seat selection state, baggage state, and what still needs the customer.
@@ -25,6 +29,7 @@ Last updated: 2026-03-29
 - [x] Add structured client-side error telemetry from Meridian to the API.
 - [ ] Remove silent fire-and-forget failures where they hide customer-impacting issues.
 - [ ] Reduce loose `any` parsing in trip, receipt, and metadata flows.
+- [ ] Move long-running Phase 2 booking execution off the request-response path.
 - [ ] Add a minimal `apps/meridian` README covering env vars, build profiles, and launch assumptions.
 
 ## Product Standard
@@ -34,6 +39,21 @@ Last updated: 2026-03-29
 - [ ] Every long-running booking state should have:
   progress, recovery, support, and graceful re-entry after app reopen.
 - [ ] Every partial product area should still feel premium, not hidden.
+
+## Ground Travel Sprints
+
+- [x] Sprint 1 start:
+  concierge rate limiting, biometric retry, and rollback visibility.
+- [ ] Sprint 1 finish:
+  clearer multi-leg rollback language, stale-trip reopen confidence, and customer-safe failure handling.
+- [ ] Sprint 2:
+  async Phase 2 booking queue with immediate `jobId` handoff.
+- [ ] Sprint 3:
+  global rail/bus provider normalization and source-confidence model.
+- [ ] Sprint 4:
+  repeat-route delight and stronger disruption recovery for ground travel.
+- [ ] Sprint 5:
+  direct rail/bus partnership cutover by market.
 
 ## What We Keep From The Audit
 

@@ -351,6 +351,7 @@ export default function ConverseScreen() {
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
   const [textFallbackVisible, setTextFallbackVisible] = useState(false);
   const [textFallbackDraft, setTextFallbackDraft] = useState('');
+  const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -466,6 +467,7 @@ export default function ConverseScreen() {
 
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
+    setConfirmRetryNote(null);
     setTranscript(text);
     const userTurn = { role: 'user' as const, text, ts: Date.now() };
     addTurn(userTurn);
@@ -565,6 +567,7 @@ export default function ConverseScreen() {
       }
 
       // Above limit — show confirmation card with price + fingerprint gate
+      setConfirmRetryNote(null);
       setPhase('confirming');
       return;
     }
@@ -585,6 +588,7 @@ export default function ConverseScreen() {
     if (!text) return;
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
+    setConfirmRetryNote(null);
     setError(null);
     await handleIntent(text);
   }, [handleIntent, setError, textFallbackDraft]);
@@ -650,11 +654,13 @@ export default function ConverseScreen() {
         }
         router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
       } else {
-        setPhase('idle');
+        setError(response.narration);
+        setPhase('error');
       }
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
       setError(msg);
+      setConfirmRetryNote(null);
       await speakIfEnabled(`Sorry. ${msg}`);
     }
   }, [agentId, setCurrentAgent, speakIfEnabled]);
@@ -667,11 +673,13 @@ export default function ConverseScreen() {
 
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
-      addTurn({ role: 'meridian', text: 'Payment cancelled.', ts: Date.now() });
-      pendingPlanRef.current = null;
-      setPhase('idle');
+      const retryMsg = 'Confirmation was not completed. You can try again when you are ready.';
+      setConfirmRetryNote(retryMsg);
+      addTurn({ role: 'meridian', text: retryMsg, ts: Date.now() });
       return;
     }
+
+    setConfirmRetryNote(null);
 
     // Load full profile NOW — only after biometric success.
     // This is the first time legalName, email, phone, and documents enter memory.
@@ -689,6 +697,7 @@ export default function ConverseScreen() {
 
   const handleCancelConfirm = useCallback(async () => {
     pendingPlanRef.current = null;
+    setConfirmRetryNote(null);
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
   }, [speakIfEnabled]);
@@ -1369,6 +1378,12 @@ export default function ConverseScreen() {
                   </View>
                 ))}
               </View>
+              {confirmRetryNote && (
+                <View style={styles.confirmRetryCard}>
+                  <Ionicons name="refresh-outline" size={14} color="#fcd34d" />
+                  <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
+                </View>
+              )}
               {cards.length > 0 && (
                 <View style={styles.proactiveCardList}>
                   {cards.slice(0, 2).map((card) => (
@@ -2119,6 +2134,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#d6d3d1',
     lineHeight: 16,
+  },
+  confirmRetryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(252, 211, 77, 0.28)',
+    backgroundColor: 'rgba(120, 53, 15, 0.16)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  confirmRetryText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#fef3c7',
+    lineHeight: 18,
   },
   proactiveCardList: {
     gap: 8,
