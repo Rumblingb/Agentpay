@@ -30,15 +30,128 @@ import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
 import { C } from '../../../lib/theme';
-import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
+type ConciergeStageState = 'done' | 'current' | 'upcoming';
+
+type ConciergeStage = {
+  key: string;
+  label: string;
+  detail: string;
+  state: ConciergeStageState;
+};
+
 function activeLegIndex(legs: Array<{ status?: string }>): number {
   const active = legs.findIndex((leg) => !['completed', 'confirmed', 'verified', 'booked'].includes(String(leg.status ?? '')));
   return active >= 0 ? active : Math.max(0, legs.length - 1);
+}
+
+function buildConciergeStages(params: {
+  statusPhase: StatusPhase;
+  elapsed: number;
+  needsPayment: boolean | string | undefined;
+  paymentConfirmed: boolean;
+  isFullyDone: boolean;
+  isError: boolean;
+}): { headline: string; subline: string; eta: string; stages: ConciergeStage[] } {
+  const needsPayment = !!params.needsPayment;
+  const bookingCurrent =
+    params.isError ? 'attention'
+    : params.isFullyDone ? 'issued'
+    : needsPayment && !params.paymentConfirmed && params.statusPhase === 'done' ? 'payment'
+    : params.elapsed < 45 ? 'received'
+    : params.elapsed < 120 ? 'checking'
+    : params.elapsed < 240 ? 'securing'
+    : 'finalising';
+
+  const stageOrder = ['received', 'checking', 'securing', 'payment', 'issued'] as const;
+  const reachedIndex = (() => {
+    const idx = stageOrder.indexOf(bookingCurrent as any);
+    return idx >= 0 ? idx : 0;
+  })();
+
+  const stages: ConciergeStage[] = [
+    {
+      key: 'received',
+      label: 'Request received',
+      detail: 'Ace has your trip brief and is holding the journey context.',
+      state: reachedIndex > 0 || bookingCurrent === 'received' ? (bookingCurrent === 'received' ? 'current' : 'done') : 'upcoming',
+    },
+    {
+      key: 'checking',
+      label: 'Checking live availability',
+      detail: 'Ace is comparing the live options and confirming the route it wants to secure.',
+      state: reachedIndex > 1 || bookingCurrent === 'checking' ? (bookingCurrent === 'checking' ? 'current' : 'done') : 'upcoming',
+    },
+    {
+      key: 'securing',
+      label: 'Securing the booking',
+      detail: 'Ace is running the booking flow with the current tooling while direct APIs are still coming online.',
+      state: reachedIndex > 2 || bookingCurrent === 'securing' || bookingCurrent === 'finalising'
+        ? (bookingCurrent === 'securing' || bookingCurrent === 'finalising' ? 'current' : 'done')
+        : 'upcoming',
+    },
+    {
+      key: 'payment',
+      label: needsPayment ? 'Waiting for payment' : 'Payment step not needed',
+      detail: needsPayment
+        ? 'Once payment clears, Ace can finish ticket issue and lock the journey in.'
+        : 'This journey does not need a separate payment step right now.',
+      state: !needsPayment
+        ? (params.isFullyDone ? 'done' : 'upcoming')
+        : params.paymentConfirmed || params.isFullyDone
+        ? 'done'
+        : bookingCurrent === 'payment'
+        ? 'current'
+        : 'upcoming',
+    },
+    {
+      key: 'issued',
+      label: 'Ticket issued',
+      detail: 'Booking reference, timing, and onward guidance are ready.',
+      state: params.isFullyDone ? 'done' : 'upcoming',
+    },
+  ];
+
+  if (params.isError) {
+    return {
+      headline: 'Ace hit a booking problem',
+      subline: 'The trip is still in context, but this one needs intervention before it is safe to rely on.',
+      eta: 'This should normally complete within about 5 minutes. This one needs attention.',
+      stages,
+    };
+  }
+
+  if (params.isFullyDone) {
+    return {
+      headline: 'Ace finished the journey handoff',
+      subline: 'Booking, payment, and ticketing are aligned.',
+      eta: 'Done. Your live trip state is now locked in.',
+      stages,
+    };
+  }
+
+  if (bookingCurrent === 'payment') {
+    return {
+      headline: 'Ace is waiting on you for payment',
+      subline: 'Everything else is lined up. Paying now lets Ace finish the issue flow.',
+      eta: 'Most requests reach this point inside about 5 minutes.',
+      stages,
+    };
+  }
+
+  return {
+    headline: 'Ace is actively handling this booking',
+    subline: 'This is a concierge flow, not a fake instant spinner. The live booking can take a few minutes while Ace works through the current tooling.',
+    eta: params.elapsed < 300
+      ? 'Expected booking time: up to about 5 minutes.'
+      : 'This is running longer than the usual 5-minute booking window.',
+    stages,
+  };
 }
 
 function recoveryPrompt(params: {
@@ -59,6 +172,7 @@ export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
   const totalLegs = paramTotalLegs ? Number(paramTotalLegs) : 1;
+  const paymentRequired = !!(fiatAmount && parseFloat(fiatAmount) > 0);
   const { currentAgent, setPhase, agentId } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
@@ -84,6 +198,7 @@ export default function StatusScreen() {
   const [issueSent, setIssueSent]             = useState(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
+  const elapsedRef  = useRef(0);
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
   const fadeSuccess = useRef(new Animated.Value(0)).current;
   const orbScale    = useRef(new Animated.Value(1)).current;
@@ -94,6 +209,10 @@ export default function StatusScreen() {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    elapsedRef.current = elapsed;
+  }, [elapsed]);
+
   // ── Status polling ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!jobId) return;
@@ -101,13 +220,13 @@ export default function StatusScreen() {
       intentId: jobId,
       jobId,
       status: 'securing',
-      title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
-      fromStation: fromStation ?? null,
-      toStation: toStation ?? null,
-      departureTime: departureTime ?? null,
+      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
+      fromStation: fromStation ?? tripContext?.origin ?? null,
+      toStation: toStation ?? tripContext?.destination ?? null,
+      departureTime: departureTime ?? tripContext?.departureTime ?? null,
       platform: platform ?? null,
-      operator: operator ?? null,
-      finalLegSummary: finalLegSummary ?? null,
+      operator: operator ?? tripContext?.operator ?? null,
+      finalLegSummary: finalLegSummary ?? tripContext?.finalLegSummary ?? null,
       fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
       currencySymbol: paramSymbol ?? null,
       currencyCode: paramCode ?? null,
@@ -128,11 +247,14 @@ export default function StatusScreen() {
         if (serverTrip) {
           setTripContext(serverTrip);
         }
-        if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+        if (paymentConfirmedFromMetadata(data.metadata)) {
           setPaymentConfirmed(true);
           if (serverTrip) {
-            setTripContext(updateTripContext(serverTrip, serverTrip.phase, {
-              watchState: { ...serverTrip.watchState, paymentConfirmed: true },
+            setTripContext(syncTripBookingState(serverTrip, {
+              phase: serverTrip.phase,
+              bookingConfirmed: serverTrip.watchState?.bookingConfirmed,
+              paymentConfirmed: true,
+              paymentRequired,
             }));
           }
         }
@@ -157,10 +279,15 @@ export default function StatusScreen() {
             // Trip room share token (auto-created for family bookings in Phase 2)
             const resolvedShareToken = data.metadata?.shareToken ?? shareToken ?? null;
             if (resolvedShareToken && resolvedShareToken !== shareToken) setShareToken(resolvedShareToken);
-            if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+            const paymentWasConfirmed = paymentConfirmedFromMetadata(data.metadata);
+            if (paymentWasConfirmed) {
               setPaymentConfirmed(true);
             }
-            const nextTripContext = updateTripContext(serverTrip ?? tripContext, 'booked', {
+            const nextTripContext = syncTripBookingState(serverTrip ?? tripContext, {
+              phase: 'booked',
+              bookingConfirmed: true,
+              paymentConfirmed: paymentWasConfirmed,
+              paymentRequired,
               bookingRef: ref ?? undefined,
               origin: proof.fromStation ?? undefined,
               destination: proof.toStation ?? undefined,
@@ -168,11 +295,6 @@ export default function StatusScreen() {
               arrivalTime: proof.arrivalTime ?? undefined,
               operator: proof.operator ?? undefined,
               finalLegSummary: proof.finalLegSummary ?? undefined,
-              watchState: {
-                ...(serverTrip ?? tripContext)?.watchState,
-                bookingConfirmed: true,
-                paymentConfirmed: !!(data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed),
-              },
             });
             setTripContext(nextTripContext);
             setStatusPhase('done');
@@ -181,7 +303,7 @@ export default function StatusScreen() {
               intentId: jobId,
               jobId,
               status: 'ticketed',
-              title: [proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Train journey',
+              title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey'),
               fromStation: proof.fromStation ?? null,
               toStation: proof.toStation ?? null,
               departureTime: proof.departureTime ?? null,
@@ -217,13 +339,17 @@ export default function StatusScreen() {
             : 'Booking couldn\'t be completed. Please try again.';
           setErrorMsg(errMsg);
           setPhase('error');
-          const attentionTrip = updateTripContext(serverTrip ?? tripContext, 'attention');
+          const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
+            phase: 'attention',
+            paymentRequired,
+            failed: true,
+          });
           setTripContext(attentionTrip);
           void saveActiveTrip({
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -238,20 +364,24 @@ export default function StatusScreen() {
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
-        } else if (elapsed >= POLL_TIMEOUT_S) {
+        } else if (elapsedRef.current >= POLL_TIMEOUT_S) {
           // Booking confirmation is taking too long — auto-complete may have failed.
           // Show a soft message rather than spinning forever.
           clearInterval(t);
           setStatusPhase('error');
           setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
           setPhase('error');
-          const attentionTrip = updateTripContext(serverTrip ?? tripContext, 'attention');
+          const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
+            phase: 'attention',
+            paymentRequired,
+            failed: true,
+          });
           setTripContext(attentionTrip);
           void saveActiveTrip({
             intentId: jobId,
             jobId,
             status: 'attention',
-            title: [fromStation, toStation].filter(Boolean).join(' → ') || 'Train journey',
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
             departureTime: departureTime ?? null,
@@ -273,7 +403,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, elapsed, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext]);
+  }, [statusPhase, jobId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext, paymentRequired]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -286,7 +416,7 @@ export default function StatusScreen() {
       if (polls >= MAX_POLLS) { clearInterval(t); return; }
       try {
         const data = await getIntentStatus(jobId);
-        if (data.metadata?.paymentConfirmed || data.metadata?.stripePaymentConfirmed || data.metadata?.razorpayPaymentConfirmed) {
+        if (paymentConfirmedFromMetadata(data.metadata)) {
           setPaymentConfirmed(true);
           clearInterval(t);
         }
@@ -294,6 +424,45 @@ export default function StatusScreen() {
     }, 3000);
     return () => clearInterval(t);
   }, [statusPhase, paymentConfirmed, jobId]);
+
+  useEffect(() => {
+    if (!paymentConfirmed || !jobId) return;
+    const nextTripContext = syncTripBookingState(tripContext, {
+      phase: statusPhase === 'error' ? 'attention' : 'booked',
+      bookingConfirmed: true,
+      paymentConfirmed: true,
+      paymentRequired,
+      bookingRef: bookingRef ?? undefined,
+      origin: fromStation ?? undefined,
+      destination: toStation ?? undefined,
+      departureTime: departureDatetime ?? departureTime ?? undefined,
+      arrivalTime: undefined,
+      operator: operator ?? undefined,
+      finalLegSummary: finalLegSummary ?? undefined,
+    });
+    if (nextTripContext) {
+      setTripContext(nextTripContext);
+      void saveActiveTrip({
+        intentId: jobId,
+        jobId,
+        status: isError ? 'attention' : 'ticketed',
+        title: nextTripContext.title,
+        fromStation: fromStation ?? nextTripContext.origin ?? null,
+        toStation: toStation ?? nextTripContext.destination ?? null,
+        departureTime: departureTime ?? nextTripContext.departureTime ?? null,
+        platform: platform ?? null,
+        operator: operator ?? nextTripContext.operator ?? null,
+        bookingRef: bookingRef ?? nextTripContext.bookingRef ?? null,
+        finalLegSummary: finalLegSummary ?? nextTripContext.finalLegSummary ?? null,
+        fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+        currencySymbol: paramSymbol ?? null,
+        currencyCode: paramCode ?? null,
+        tripContext: nextTripContext,
+        shareToken,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }, [paymentConfirmed, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
@@ -311,6 +480,14 @@ export default function StatusScreen() {
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
   const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
+  const conciergeFlow = buildConciergeStages({
+    statusPhase,
+    elapsed,
+    needsPayment,
+    paymentConfirmed,
+    isFullyDone,
+    isError,
+  });
   const supportPrompt = recoveryPrompt({
     fromStation,
     toStation,
@@ -411,6 +588,52 @@ export default function StatusScreen() {
             ? (errorMsg ?? 'Something went wrong.')
             : `${currentAgent?.name ?? 'Ace'} is lining everything up · ${elapsed}s`}
         </Text>
+        <View style={styles.conciergeCard}>
+          <View style={styles.conciergeHeader}>
+            <Ionicons name="sparkles-outline" size={14} color="#93c5fd" />
+            <Text style={styles.conciergeEyebrow}>Live concierge flow</Text>
+          </View>
+          <Text style={styles.conciergeHeadline}>{conciergeFlow.headline}</Text>
+          <Text style={styles.conciergeBody}>{conciergeFlow.subline}</Text>
+          <View style={styles.conciergeEtaPill}>
+            <Ionicons name="time-outline" size={13} color="#cbd5e1" />
+            <Text style={styles.conciergeEtaText}>{conciergeFlow.eta}</Text>
+          </View>
+          <View style={styles.conciergeSteps}>
+            {conciergeFlow.stages.map((stage, index) => (
+              <View key={stage.key} style={styles.conciergeStepRow}>
+                <View style={styles.conciergeRail}>
+                  <View
+                    style={[
+                      styles.conciergeDot,
+                      stage.state === 'done' && styles.conciergeDotDone,
+                      stage.state === 'current' && styles.conciergeDotCurrent,
+                    ]}
+                  />
+                  {index < conciergeFlow.stages.length - 1 && (
+                    <View
+                      style={[
+                        styles.conciergeLine,
+                        (stage.state === 'done' || stage.state === 'current') && styles.conciergeLineActive,
+                      ]}
+                    />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.conciergeStepTitle,
+                      stage.state === 'upcoming' && styles.conciergeStepTitleMuted,
+                    ]}
+                  >
+                    {stage.label}
+                  </Text>
+                  <Text style={styles.conciergeStepBody}>{stage.detail}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
@@ -537,6 +760,7 @@ export default function StatusScreen() {
                 if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
                   const { shortUrl } = await createUpiPaymentLink({
                     jobId,
+                    journeyId: paramJourneyId,
                     amountInr: Math.round(parseFloat(fiatAmount)),
                     description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
                   });
@@ -544,6 +768,7 @@ export default function StatusScreen() {
                 } else {
                   const { url } = await createCheckoutSession({
                     jobId,
+                    journeyId: paramJourneyId,
                     amountFiat:   parseFloat(fiatAmount),
                     currencyCode: paramCode ?? 'GBP',
                     description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
@@ -827,8 +1052,110 @@ const styles = StyleSheet.create({
     color: C.textSecondary,
     textAlign: 'center',
     lineHeight: 23,
-    marginBottom: 40,
+    marginBottom: 18,
     paddingHorizontal: 16,
+  },
+  conciergeCard: {
+    width: '100%',
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 18,
+    gap: 10,
+  },
+  conciergeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  conciergeEyebrow: {
+    fontSize: 11,
+    color: '#93c5fd',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '700',
+  },
+  conciergeHeadline: {
+    fontSize: 16,
+    color: '#f8fafc',
+    fontWeight: '800',
+  },
+  conciergeBody: {
+    fontSize: 13,
+    color: '#94a3b8',
+    lineHeight: 19,
+  },
+  conciergeEtaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  conciergeEtaText: {
+    fontSize: 12,
+    color: '#cbd5e1',
+    fontWeight: '600',
+  },
+  conciergeSteps: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  conciergeStepRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  conciergeRail: {
+    alignItems: 'center',
+    width: 18,
+  },
+  conciergeDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#475569',
+    backgroundColor: '#0f172a',
+    marginTop: 2,
+  },
+  conciergeDotDone: {
+    borderColor: '#22c55e',
+    backgroundColor: '#22c55e',
+  },
+  conciergeDotCurrent: {
+    borderColor: '#60a5fa',
+    backgroundColor: '#60a5fa',
+  },
+  conciergeLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#1e293b',
+    marginTop: 4,
+    minHeight: 18,
+  },
+  conciergeLineActive: {
+    backgroundColor: '#334155',
+  },
+  conciergeStepTitle: {
+    fontSize: 13,
+    color: '#e2e8f0',
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  conciergeStepTitleMuted: {
+    color: '#94a3b8',
+  },
+  conciergeStepBody: {
+    fontSize: 12,
+    color: '#94a3b8',
+    lineHeight: 17,
   },
   proactiveWrap: {
     width: '100%',

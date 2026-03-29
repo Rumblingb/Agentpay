@@ -33,7 +33,7 @@ import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
-import { parseTripContext, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { parseTripContext, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -195,6 +195,15 @@ export default function ReceiptScreen() {
   const modeMeta = receiptModeMeta(tripContext, !!flightDetails);
   const tripLegs = tripContext?.legs ?? [];
   const isMultiLegJourney = tripLegs.length > 1;
+  const paymentRequired = !!((fiatAmountNum ?? receipt?.amount ?? 0) > 0);
+  const bookingState = tripContext?.watchState?.bookingState;
+  const receiptStatusLabel = receipt?.verifiedAt
+    ? 'Paid and confirmed'
+    : bookingState === 'payment_pending'
+    ? 'Booked, payment pending'
+    : receipt
+    ? 'Confirmed'
+    : 'Saved locally';
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -283,7 +292,11 @@ export default function ReceiptScreen() {
   // ── Save trip to My Trips history ────────────────────────────────────────
   useEffect(() => {
     if (!receipt || !intentId) return;
-    const nextTripContext = updateTripContext(tripContext, 'booked', {
+    const nextTripContext = syncTripBookingState(tripContext, {
+      phase: 'booked',
+      bookingConfirmed: true,
+      paymentConfirmed: !!receipt.verifiedAt,
+      paymentRequired,
       bookingRef: bookingRef ?? undefined,
       origin: fromStation ?? undefined,
       destination: toStation ?? undefined,
@@ -295,7 +308,7 @@ export default function ReceiptScreen() {
     if (nextTripContext) setTripContext(nextTripContext);
     const entry = {
       intentId,
-      title:         nextTripContext?.title ?? 'Journey',
+      title:         nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
       bookingRef:    bookingRef    ?? null,
       fromStation:   fromStation   ?? null,
       toStation:     toStation     ?? null,
@@ -316,7 +329,7 @@ export default function ReceiptScreen() {
     void saveActiveTrip({
       intentId,
       status: 'ticketed',
-      title: fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey',
+      title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
       departureTime: departureTime ?? null,
@@ -332,7 +345,7 @@ export default function ReceiptScreen() {
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken]);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -636,9 +649,14 @@ export default function ReceiptScreen() {
 
             {/* Receipt card */}
             <View style={styles.card}>
-              <Row label="Status" value={receipt ? 'Confirmed' : 'Saved locally'} pill />
+              <Row label="Status" value={receiptStatusLabel} pill />
               {receipt?.verifiedAt && (
                 <Row label="Processed" value={new Date(receipt.verifiedAt).toLocaleString()} />
+              )}
+              {bookingState === 'payment_pending' && (
+                <Text style={styles.localNotice}>
+                  Booking details are in place, but payment still needs to clear before this journey is fully locked in.
+                </Text>
               )}
               {error && (
                 <Text style={styles.localNotice}>
