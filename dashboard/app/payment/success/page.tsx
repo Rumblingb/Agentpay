@@ -5,26 +5,25 @@ import { Suspense } from 'react';
 
 function SuccessContent() {
   const params = useSearchParams();
-  const jobId  = params.get('jobId') ?? '';
-
-  // Deep-link back into the Bro app — scheme is "meridian" as registered in app.json
-  const broDeepLink = `meridian://status/${jobId}`;
+  const jobId = params.get('jobId') ?? '';
+  const aceDeepLink = `meridian://status/${jobId}`;
 
   return (
     <main style={styles.page}>
       <div style={styles.card}>
+        <div style={styles.eyebrow}>ACE</div>
         <div style={styles.icon}>✓</div>
         <h1 style={styles.title}>Payment confirmed</h1>
         <p style={styles.body}>
-          Your payment went through. Bro is securing your ticket — details arrive by email within 15 minutes.
+          Ace has your payment and is securing the journey now. Your ticket details should arrive within 15 minutes.
         </p>
-        {jobId && (
-          <a href={broDeepLink} style={styles.btn}>
-            Return to Bro
+        {jobId ? (
+          <a href={aceDeepLink} style={styles.btn}>
+            Return to Ace
           </a>
-        )}
+        ) : null}
         <p style={styles.hint}>
-          If the app doesn&apos;t open automatically, switch back to Bro manually.
+          If Ace does not reopen automatically, return to the app and your live trip will be waiting.
         </p>
       </div>
     </main>
@@ -42,7 +41,8 @@ export default function PaymentSuccessPage() {
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#0a0a0a',
+    background:
+      'radial-gradient(circle at top, rgba(212, 194, 163, 0.12), transparent 36%), linear-gradient(180deg, #070707, #0f1115)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -50,20 +50,28 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'system-ui, sans-serif',
   },
   card: {
-    background: '#111',
-    border: '1px solid #1f2937',
-    borderRadius: '16px',
+    background: 'linear-gradient(180deg, rgba(17,17,17,0.98), rgba(10,10,10,0.98))',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '24px',
     padding: '40px 32px',
     maxWidth: '420px',
     width: '100%',
     textAlign: 'center',
+    boxShadow: '0 32px 80px rgba(0,0,0,0.45)',
+  },
+  eyebrow: {
+    color: '#d4c2a3',
+    fontSize: '11px',
+    letterSpacing: '0.36em',
+    textTransform: 'uppercase',
+    marginBottom: '18px',
   },
   icon: {
     fontSize: '48px',
-    color: '#4ade80',
-    marginBottom: '16px',
+    color: '#d6f5b0',
+    marginBottom: '18px',
     display: 'block',
-    background: '#052e16',
+    background: 'radial-gradient(circle at 30% 30%, #2e4b27, #102012 72%)',
     borderRadius: '50%',
     width: '72px',
     height: '72px',
@@ -72,29 +80,29 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     color: '#f9fafb',
-    fontSize: '22px',
+    fontSize: '24px',
     fontWeight: '700',
     margin: '0 0 12px',
   },
   body: {
-    color: '#9ca3af',
+    color: '#c8ccd2',
     fontSize: '15px',
     lineHeight: '1.6',
     margin: '0 0 28px',
   },
   btn: {
     display: 'block',
-    background: 'linear-gradient(135deg, #052e16, #14532d)',
-    color: '#4ade80',
+    background: 'linear-gradient(135deg, #252d1c, #475532)',
+    color: '#f4f0e6',
     padding: '14px 24px',
-    borderRadius: '10px',
+    borderRadius: '14px',
     textDecoration: 'none',
     fontWeight: '600',
     fontSize: '15px',
     marginBottom: '16px',
   },
   hint: {
-    color: '#4b5563',
+    color: '#8a8f98',
     fontSize: '13px',
     margin: 0,
   },
