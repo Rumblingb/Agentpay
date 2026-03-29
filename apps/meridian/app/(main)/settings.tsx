@@ -20,7 +20,7 @@ import { savePrefs, clearCredentials, clearHistory, clearActiveTrip, clearPrefs,
 import { hasProfile, deleteProfile, loadProfileRaw, shouldApplyFamilyRailcard, clearConsents, type FamilyMember } from '../../lib/profile';
 
 export default function SettingsScreen() {
-  const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset } = useStore();
+  const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset, clearTurns } = useStore();
   const [name, setName]           = useState(userName);
   const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
   const [home, setHome]           = useState(homeStation ?? '');
@@ -113,7 +113,7 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             await clearHistory();
-            reset();
+            clearTurns();
             router.back();
           },
         },
@@ -225,6 +225,8 @@ export default function SettingsScreen() {
                         onPress: async () => {
                           await deleteProfile();
                           setProfileSaved(false);
+                          setFamilyMembers([]);
+                          setFamilyRailcardReady(false);
                         },
                       },
                     ],

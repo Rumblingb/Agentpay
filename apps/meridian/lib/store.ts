@@ -77,6 +77,7 @@ interface MeridianState {
   setWallet: (wallet: WalletInfo) => void;
   setError: (error: string | null) => void;
   addTurn: (turn: HistoryTurn) => void;
+  clearTurns: () => void;
   reset: () => void;
 }
 
@@ -146,6 +147,8 @@ export const useStore = create<MeridianState>((set) => ({
   setError: (error) => set({ error, phase: error ? 'error' : 'idle' }),
 
   addTurn: (turn) => set((s) => ({ turns: [...s.turns, turn].slice(-50) })),
+
+  clearTurns: () => set({ turns: [] }),
 
   reset: () => set(SESSION_INITIAL),
 }));

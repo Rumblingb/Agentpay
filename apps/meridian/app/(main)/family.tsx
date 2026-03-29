@@ -196,6 +196,15 @@ export default function FamilyScreen() {
   }, []);
 
   const handleSave = useCallback(async () => {
+    const namelessCount = members.filter((member) => !member.name.trim()).length;
+    if (namelessCount > 0) {
+      Alert.alert(
+        'Add each traveller name',
+        `${namelessCount} family member${namelessCount === 1 ? '' : 's'} still need${namelessCount === 1 ? 's' : ''} a name before Bro can use them in voice bookings.`,
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       const profile = await loadProfileRaw();
@@ -207,7 +216,12 @@ export default function FamilyScreen() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: any) {
-      Alert.alert('Cancelled', 'Authentication is required to save family members.');
+      Alert.alert(
+        e?.message === 'Authentication cancelled.' ? 'Save cancelled' : 'Could not save family members',
+        e?.message === 'Authentication cancelled.'
+          ? 'Bro keeps this data biometric-protected, so authentication is required to save changes.'
+          : 'Please try again. Your changes are still on screen.',
+      );
     } finally {
       setSaving(false);
     }
@@ -283,7 +297,7 @@ export default function FamilyScreen() {
             <Ionicons name="people-outline" size={40} color="#374151" />
             <Text style={styles.emptyText}>No family members yet</Text>
             <Text style={styles.emptyHint}>
-              Add your travel companions below. Bro will remember them across all bookings.
+              Add the people you travel with often. Bro will remember them so group bookings feel like one request instead of a form every time.
             </Text>
           </View>
         ) : (
@@ -306,7 +320,7 @@ export default function FamilyScreen() {
         {/* Hint about documents */}
         {members.length > 0 && (
           <Text style={styles.docHint}>
-            Passport details for flights can be added in your travel profile. Bro will ask if they're needed for a booking.
+            Add companion document details here only if you want faster flight booking later. For rail and most coach trips, names and ages are usually enough.
           </Text>
         )}
 
