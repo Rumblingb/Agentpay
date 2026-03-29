@@ -189,6 +189,8 @@ export default function StatusScreen() {
   const [flightData, setFlightData]                 = useState<string | null>(null);
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [payLoading, setPayLoading]           = useState(false);
+  const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
+  const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
   const [showIssueModal, setShowIssueModal]   = useState(false);
@@ -530,6 +532,68 @@ export default function StatusScreen() {
     }
   };
 
+  const openPaymentFlow = async () => {
+    if (!jobId || !fiatAmount || payLoading) return;
+    setPayLoading(true);
+    setPaymentRecoveryNote('Complete payment, then return here. Ace will keep checking automatically.');
+    try {
+      if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
+        const { shortUrl } = await createUpiPaymentLink({
+          jobId,
+          journeyId: paramJourneyId,
+          amountInr: Math.round(parseFloat(fiatAmount)),
+          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+        });
+        await Linking.openURL(shortUrl);
+      } else {
+        const { url } = await createCheckoutSession({
+          jobId,
+          journeyId: paramJourneyId,
+          amountFiat: parseFloat(fiatAmount),
+          currencyCode: paramCode ?? 'GBP',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
+        });
+        await Linking.openURL(url);
+      }
+    } catch (e: any) {
+      const message = e?.message ?? 'Could not open payment. Please try again.';
+      setErrorMsg(message);
+      setPaymentRecoveryNote(message);
+    } finally {
+      setPayLoading(false);
+    }
+  };
+
+  const checkPaymentNow = async () => {
+    if (!jobId || paymentCheckLoading) return;
+    setPaymentCheckLoading(true);
+    try {
+      const data = await getIntentStatus(jobId);
+      const serverTrip = parseTripContext(data.metadata?.tripContext);
+      if (serverTrip) {
+        setTripContext(serverTrip);
+      }
+      if (paymentConfirmedFromMetadata(data.metadata)) {
+        setPaymentConfirmed(true);
+        setPaymentRecoveryNote('Payment cleared. Ace is finishing the journey now.');
+        if (serverTrip) {
+          setTripContext(syncTripBookingState(serverTrip, {
+            phase: serverTrip.phase,
+            bookingConfirmed: serverTrip.watchState?.bookingConfirmed,
+            paymentConfirmed: true,
+            paymentRequired,
+          }));
+        }
+        return;
+      }
+      setPaymentRecoveryNote('Payment has not cleared yet. If you already paid, give it a moment and check again.');
+    } catch (e: any) {
+      setPaymentRecoveryNote(e?.message ?? 'Ace could not confirm payment yet. Please try again in a moment.');
+    } finally {
+      setPaymentCheckLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusAtmosphere />
@@ -756,34 +820,7 @@ export default function StatusScreen() {
 
         {isDone && !paymentConfirmed && fiatAmount && parseFloat(fiatAmount) > 0 && (
           <Pressable
-            onPress={async () => {
-              if (payLoading) return;
-              setPayLoading(true);
-              try {
-                if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
-                  const { shortUrl } = await createUpiPaymentLink({
-                    jobId,
-                    journeyId: paramJourneyId,
-                    amountInr: Math.round(parseFloat(fiatAmount)),
-                    description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
-                  });
-                  await Linking.openURL(shortUrl);
-                } else {
-                  const { url } = await createCheckoutSession({
-                    jobId,
-                    journeyId: paramJourneyId,
-                    amountFiat:   parseFloat(fiatAmount),
-                    currencyCode: paramCode ?? 'GBP',
-                    description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
-                  });
-                  await Linking.openURL(url);
-                }
-              } catch (e: any) {
-                setErrorMsg(e?.message ?? 'Could not open payment — please try again.');
-              } finally {
-                setPayLoading(false);
-              }
-            }}
+            onPress={() => { void openPaymentFlow(); }}
             style={[styles.payBtn, payLoading && { opacity: 0.5 }]}
           >
             <LinearGradient
@@ -798,6 +835,39 @@ export default function StatusScreen() {
               </Text>
             </LinearGradient>
           </Pressable>
+        )}
+
+        {isDone && needsPayment && !paymentConfirmed && (
+          <View style={styles.paymentRecoveryCard}>
+            <View style={styles.paymentRecoveryHeader}>
+              <Ionicons name="refresh-outline" size={15} color="#93c5fd" />
+              <Text style={styles.paymentRecoveryTitle}>After payment</Text>
+            </View>
+            <Text style={styles.paymentRecoveryBody}>
+              Return here after payment and Ace will keep moving the booking forward.
+            </Text>
+            {paymentRecoveryNote ? (
+              <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
+            ) : null}
+            <View style={styles.paymentRecoveryActions}>
+              <Pressable
+                onPress={() => { void checkPaymentNow(); }}
+                style={styles.paymentRecoveryPrimary}
+              >
+                <Text style={styles.paymentRecoveryPrimaryText}>
+                  {paymentCheckLoading ? 'Checking…' : 'I already paid'}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { void openPaymentFlow(); }}
+                style={styles.paymentRecoverySecondary}
+              >
+                <Text style={styles.paymentRecoverySecondaryText}>
+                  {payLoading ? 'Opening…' : 'Open payment again'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
         )}
 
         {/* Payment confirmed badge */}
@@ -1354,6 +1424,67 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
   },
   payBtnText: { fontSize: 17, fontWeight: '700', color: '#93c5fd', letterSpacing: 0.2 },
+  paymentRecoveryCard: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    backgroundColor: 'rgba(8, 15, 28, 0.88)',
+    padding: 14,
+    gap: 10,
+    marginBottom: 14,
+  },
+  paymentRecoveryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paymentRecoveryTitle: {
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: '#93c5fd',
+    fontWeight: '700',
+  },
+  paymentRecoveryBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#cbd5e1',
+  },
+  paymentRecoveryNote: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#94a3b8',
+  },
+  paymentRecoveryActions: {
+    gap: 8,
+  },
+  paymentRecoveryPrimary: {
+    borderRadius: 12,
+    backgroundColor: '#1d4ed8',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentRecoveryPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#eff6ff',
+  },
+  paymentRecoverySecondary: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#0f172a',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentRecoverySecondaryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#cbd5e1',
+  },
 
   paidBadge: {
     flexDirection: 'row',

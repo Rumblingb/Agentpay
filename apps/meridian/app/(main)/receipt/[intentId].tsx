@@ -27,13 +27,13 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import { getReceipt, type Receipt, reportIssue, registerJobWatch } from '../../../lib/api';
+import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
-import { applyTripDisruption, parseTripContext, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -63,6 +63,33 @@ function receiptModeMeta(trip: TripContext | null, hasFlightDetails: boolean) {
     return { icon: 'airplane-outline' as const, title: 'Flight details', noun: 'flight' };
   }
   return { icon: 'train-outline' as const, title: 'Journey details', noun: 'service' };
+}
+
+function flightCompletionRows(flight: {
+  pnr?: string;
+  isReturn?: boolean;
+}) {
+  return [
+    {
+      label: 'Confirmed now',
+      value: flight.pnr ? `Booking reference ${flight.pnr} is in place.` : 'Flights, timing, and fare are lined up.',
+      tone: 'ready' as const,
+    },
+    {
+      label: 'Still to come',
+      value: flight.pnr
+        ? 'Seat and baggage details stay under the airline flow from here.'
+        : 'Booking reference lands once the airline finishes issuing the order.',
+      tone: 'pending' as const,
+    },
+    flight.isReturn
+      ? {
+          label: 'Return leg',
+          value: 'Both directions stay together under the same trip record.',
+          tone: 'ready' as const,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; value: string; tone: 'ready' | 'pending' }>;
 }
 
 function legModeIcon(mode: TripContext['mode'] | TripContext['legs'][number]['mode']) {
@@ -180,6 +207,9 @@ export default function ReceiptScreen() {
   const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
   const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; bookingUrl?: string } } | null>(null);
   const [partnerCheckoutUrl, setPartnerCheckoutUrl] = useState<string | null>(null);
+  const [payLoading, setPayLoading] = useState(false);
+  const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
+  const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const repeatRoutePrompt = repeatPrompt({
@@ -452,6 +482,77 @@ export default function ReceiptScreen() {
     router.replace('/(main)/converse');
   };
 
+  const openPendingPayment = async () => {
+    if (!intentId || !paymentRequired || payLoading) return;
+    const amount = fiatAmountNum ?? receipt?.amount ?? null;
+    if (!amount) return;
+    setPayLoading(true);
+    setPaymentRecoveryNote('Complete payment, then return here. Ace will keep watching the booking.');
+    try {
+      if ((fiatCode ?? 'GBP').toUpperCase() === 'INR') {
+        const { shortUrl } = await createUpiPaymentLink({
+          jobId: intentId,
+          amountInr: Math.round(amount),
+          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+        });
+        await Linking.openURL(shortUrl);
+      } else {
+        const { url } = await createCheckoutSession({
+          jobId: intentId,
+          amountFiat: amount,
+          currencyCode: fiatCode ?? 'GBP',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
+        });
+        await Linking.openURL(url);
+      }
+    } catch (e: any) {
+      const message = e?.message ?? 'Could not reopen payment right now.';
+      setPaymentRecoveryNote(message);
+      setError(message);
+    } finally {
+      setPayLoading(false);
+    }
+  };
+
+  const refreshPendingPayment = async () => {
+    if (!intentId || paymentCheckLoading) return;
+    setPaymentCheckLoading(true);
+    try {
+      const status = await getIntentStatus(intentId);
+      const serverTrip = parseTripContext(status.metadata?.tripContext);
+      if (serverTrip) {
+        setTripContext(serverTrip);
+      }
+      if (paymentConfirmedFromMetadata(status.metadata)) {
+        const refreshedReceipt = await getReceipt(intentId);
+        setReceipt(refreshedReceipt);
+        setError(null);
+        setPaymentRecoveryNote('Payment cleared. Ace has the journey locked in.');
+        if (serverTrip) {
+          setTripContext(syncTripBookingState(serverTrip, {
+            phase: 'booked',
+            bookingConfirmed: true,
+            paymentConfirmed: true,
+            paymentRequired,
+            bookingRef: bookingRef ?? undefined,
+            origin: fromStation ?? undefined,
+            destination: toStation ?? undefined,
+            departureTime: departureDatetime ?? departureTime ?? undefined,
+            arrivalTime: arrivalTime ?? undefined,
+            operator: operator ?? undefined,
+            finalLegSummary: preservedFinalLegSummary ?? undefined,
+          }));
+        }
+        return;
+      }
+      setPaymentRecoveryNote('Payment has not cleared yet. If you already paid, give it a moment and check again.');
+    } catch (e: any) {
+      setPaymentRecoveryNote(e?.message ?? 'Ace could not confirm payment yet. Please try again in a moment.');
+    } finally {
+      setPaymentCheckLoading(false);
+    }
+  };
+
   const handleReportIssue = async () => {
     if (!issueText.trim() || issueSending) return;
     setIssueSending(true);
@@ -672,9 +773,30 @@ export default function ReceiptScreen() {
                 <Row label="Processed" value={new Date(receipt.verifiedAt).toLocaleString()} />
               )}
               {bookingState === 'payment_pending' && (
-                <Text style={styles.localNotice}>
-                  Ace has the booking details in place, but payment still needs to clear before this journey is fully locked in.
-                </Text>
+                <View style={styles.paymentRecoveryCard}>
+                  <View style={styles.paymentRecoveryHeader}>
+                    <Ionicons name="card-outline" size={15} color="#93c5fd" />
+                    <Text style={styles.paymentRecoveryTitle}>Payment still needs to clear</Text>
+                  </View>
+                  <Text style={styles.paymentRecoveryBody}>
+                    Ace has the journey lined up. Once payment clears, everything here updates automatically.
+                  </Text>
+                  {paymentRecoveryNote ? (
+                    <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
+                  ) : null}
+                  <View style={styles.paymentRecoveryActions}>
+                    <Pressable onPress={() => { void openPendingPayment(); }} style={styles.paymentRecoveryPrimary}>
+                      <Text style={styles.paymentRecoveryPrimaryText}>
+                        {payLoading ? 'Opening…' : 'Open payment'}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => { void refreshPendingPayment(); }} style={styles.paymentRecoverySecondary}>
+                      <Text style={styles.paymentRecoverySecondaryText}>
+                        {paymentCheckLoading ? 'Checking…' : 'I already paid'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
               )}
               {error && (
                 <Text style={styles.localNotice}>
@@ -767,6 +889,22 @@ export default function ReceiptScreen() {
                 {flightDetails.isReturn && (
                   <Row label="Type" value="Return" />
                 )}
+                <View style={styles.flightCompletionCard}>
+                  <Text style={styles.flightCompletionTitle}>Flight completion</Text>
+                  {flightCompletionRows(flightDetails).map((item) => (
+                    <View key={`${item.label}-${item.value}`} style={styles.flightCompletionRow}>
+                      <Ionicons
+                        name={item.tone === 'ready' ? 'checkmark-circle' : 'time-outline'}
+                        size={15}
+                        color={item.tone === 'ready' ? '#4ade80' : '#f59e0b'}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.flightCompletionLabel}>{item.label}</Text>
+                        <Text style={styles.flightCompletionBody}>{item.value}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
               </View>
             )}
 
@@ -1295,6 +1433,66 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     lineHeight: 18,
   },
+  paymentRecoveryCard: {
+    marginTop: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    backgroundColor: 'rgba(8, 15, 28, 0.82)',
+    padding: 14,
+    gap: 10,
+  },
+  paymentRecoveryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paymentRecoveryTitle: {
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: '#93c5fd',
+    fontWeight: '700',
+  },
+  paymentRecoveryBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#cbd5e1',
+  },
+  paymentRecoveryNote: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#94a3b8',
+  },
+  paymentRecoveryActions: {
+    gap: 8,
+  },
+  paymentRecoveryPrimary: {
+    borderRadius: 12,
+    backgroundColor: '#1d4ed8',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentRecoveryPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#eff6ff',
+  },
+  paymentRecoverySecondary: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#0f172a',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentRecoverySecondaryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#cbd5e1',
+  },
 
   journeyCard: {
     width: '100%',
@@ -1341,6 +1539,38 @@ const styles = StyleSheet.create({
     color: '#4ade80',
     letterSpacing: 2.5,
     fontFamily: 'monospace',
+  },
+  flightCompletionCard: {
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+    backgroundColor: 'rgba(8, 15, 28, 0.58)',
+    padding: 12,
+    gap: 10,
+  },
+  flightCompletionTitle: {
+    fontSize: 12,
+    color: '#cbd5e1',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '700',
+  },
+  flightCompletionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  flightCompletionLabel: {
+    fontSize: 12,
+    color: '#e5e7eb',
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  flightCompletionBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#94a3b8',
   },
   departureMeta: {
     alignItems: 'flex-end',

@@ -426,3 +426,22 @@ export async function registerJobWatch(jobId: string, pushToken: string): Promis
     body: JSON.stringify({ jobId, pushToken }),
   }).catch(() => {}); // fire-and-forget — never block receipt display
 }
+
+export async function fetchFxRate(from: string, to: string): Promise<number | null> {
+  const query = new URLSearchParams({ from, to });
+  const response = await apiFetch<{ rate?: number }>(`/api/concierge/fx-rate?${query.toString()}`);
+  return typeof response.rate === 'number' ? response.rate : null;
+}
+
+export async function logClientTelemetry(params: {
+  event: string;
+  screen: string;
+  severity?: 'info' | 'warning' | 'error';
+  message?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await apiFetch('/api/concierge/telemetry', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  }).catch(() => {});
+}

@@ -59,6 +59,81 @@ function broLog(event: string, data: Record<string, unknown>) {
   console.info(JSON.stringify({ bro: true, event, ...data }));
 }
 
+conciergeRouter.get('/fx-rate', async (c) => {
+  const from = (c.req.query('from') ?? '').trim().toLowerCase();
+  const to = (c.req.query('to') ?? '').trim().toLowerCase();
+
+  if (!from || !to) {
+    return c.json({ error: 'from and to are required' }, 400);
+  }
+
+  if (from === to) {
+    return c.json({ rate: 1, from: from.toUpperCase(), to: to.toUpperCase(), source: 'identity' });
+  }
+
+  try {
+    const response = await fetch(
+      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${from}.json`,
+    );
+    if (!response.ok) {
+      return c.json({ error: 'FX lookup unavailable' }, 503);
+    }
+
+    const payload = await response.json<Record<string, Record<string, number>>>();
+    const rate = payload?.[from]?.[to];
+    if (typeof rate !== 'number') {
+      return c.json({ error: 'FX pair unavailable' }, 404);
+    }
+
+    return c.json({
+      rate,
+      from: from.toUpperCase(),
+      to: to.toUpperCase(),
+      source: 'currency-api',
+      fetchedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    broLog('fx_lookup_failed', {
+      from,
+      to,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: 'FX lookup unavailable' }, 503);
+  }
+});
+
+conciergeRouter.post('/telemetry', async (c) => {
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+
+  const body = await c.req.json<{
+    event?: string;
+    severity?: 'info' | 'warning' | 'error';
+    screen?: string;
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }>().catch(() => null);
+
+  if (!body?.event || !body?.screen) {
+    return c.json({ error: 'event and screen are required' }, 400);
+  }
+
+  broLog('mobile_telemetry', {
+    severity: body.severity ?? 'info',
+    screen: body.screen,
+    event: body.event,
+    message: body.message ?? null,
+    metadata: body.metadata ?? null,
+    userAgent: c.req.header('user-agent') ?? null,
+  });
+
+  return c.json({ ok: true });
+});
+
 // ── GET /api/admin/bro-jobs ───────────────────────────────────────────────────
 // Last 20 Bro-created jobs with their metadata, for debugging.
 // Protected by x-admin-key header.

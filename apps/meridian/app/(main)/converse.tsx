@@ -21,6 +21,7 @@ import {
   ScrollView,
   Pressable,
   SafeAreaView,
+  TextInput,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +44,7 @@ import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
+import { trackClientEvent } from '../../lib/telemetry';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -276,6 +278,31 @@ function buildBookingReadiness(params: {
   ];
 }
 
+function buildAssuranceItems(params: {
+  plan: ConciergePlanItem[];
+  fiatAmount: number;
+  hasCards: boolean;
+}): string[] {
+  const items: string[] = ['Live source checked'];
+  if (params.fiatAmount > 0) items.push('Protected payment handoff');
+  items.push('Monitored until confirmed');
+  if (params.hasCards) items.push('Ace support has context');
+  return items.slice(0, 3);
+}
+
+function shouldOfferTextFallback(message: string): boolean {
+  const copy = message.toLowerCase();
+  return (
+    copy.includes('voice') ||
+    copy.includes('microphone') ||
+    copy.includes('hold') ||
+    copy.includes('connection') ||
+    copy.includes('service') ||
+    copy.includes('timed out') ||
+    copy.includes('timeout')
+  );
+}
+
 export default function ConverseScreen() {
   const {
     phase, setPhase,
@@ -322,6 +349,8 @@ export default function ConverseScreen() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
+  const [textFallbackVisible, setTextFallbackVisible] = useState(false);
+  const [textFallbackDraft, setTextFallbackDraft] = useState('');
 
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -422,11 +451,21 @@ export default function ConverseScreen() {
     await speakBro(text);
   }, [voiceEnabled]);
 
+  const openTextFallback = useCallback((message: string, seed?: string) => {
+    setError(message);
+    setTextFallbackVisible(true);
+    if (seed != null) {
+      setTextFallbackDraft(seed);
+    }
+  }, [setError]);
+
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
   const handleIntent = useCallback(async (text: string) => {
     if (!agentId) throw new Error('Ace is not ready yet. Please restart the app.');
 
+    setTextFallbackVisible(false);
+    setTextFallbackDraft('');
     setTranscript(text);
     const userTurn = { role: 'user' as const, text, ts: Date.now() };
     addTurn(userTurn);
@@ -541,6 +580,15 @@ export default function ConverseScreen() {
     handleIntent(prefill).catch(() => {});
   }, [prefill, agentId, handleIntent]);
 
+  const handleTextFallbackSend = useCallback(async () => {
+    const text = textFallbackDraft.trim();
+    if (!text) return;
+    setTextFallbackVisible(false);
+    setTextFallbackDraft('');
+    setError(null);
+    await handleIntent(text);
+  }, [handleIntent, setError, textFallbackDraft]);
+
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
   const executePhase2 = useCallback(async (pending: NonNullable<typeof pendingPlanRef.current>) => {
@@ -572,14 +620,14 @@ export default function ConverseScreen() {
         setCurrentAgent({
           agentId:         firstAction.agentId,
           name:            firstAction.agentName,
-          category:        firstAction.toolName,
-          description:     firstAction.displayName,
-          capabilities:    [],
+          category: firstAction.toolName,
+          description: firstAction.displayName,
           pricePerTaskUsd: firstAction.agreedPriceUsdc,
-          trustScore:      0,
-          grade:           'B',
-          verified:        true,
-          passportUrl:     `https://app.agentpay.so/agent/${firstAction.agentId}`,
+          capabilities: [],
+          trustScore: 0,
+          grade: 'B',
+          verified: true,
+          passportUrl: `https://app.agentpay.so/agent/${firstAction.agentId}`,
         });
         setPhase('done');
         const fiat   = pending.fiatAmount;
@@ -609,7 +657,7 @@ export default function ConverseScreen() {
       setError(msg);
       await speakIfEnabled(`Sorry. ${msg}`);
     }
-  }, [agentId, speakIfEnabled]);
+  }, [agentId, setCurrentAgent, speakIfEnabled]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
 
@@ -662,6 +710,7 @@ export default function ConverseScreen() {
     if (phase !== 'idle' && phase !== 'error') return;
     cancelSpeech();
     if (phase === 'error') reset();
+    setTextFallbackVisible(false);
     pressStartRef.current    = Date.now();
     recordingReadyRef.current = false;
     setPhase('listening');
@@ -670,9 +719,17 @@ export default function ConverseScreen() {
       recordingReadyRef.current = true;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
-      setError('Microphone access denied. Go to Settings → Apps → Ace → Permissions → Microphone.');
+      const message = 'Microphone access denied. You can enable it in Settings, or type the trip instead.';
+      setError(message);
+      setTextFallbackVisible(true);
+      void trackClientEvent({
+        event: 'voice_permission_denied',
+        screen: 'converse',
+        severity: 'warning',
+        message,
+      });
     }
-  }, [phase, reset]);
+  }, [phase, reset, setError]);
 
   const handlePressOut = useCallback(async () => {
     if (phase !== 'listening') return;
@@ -698,45 +755,75 @@ export default function ConverseScreen() {
         text = await transcribeAudio(uri);
       } catch (e: any) {
         const msg = (e.message ?? '').toLowerCase();
-        console.error('[bro/stt]', e.message);
+        const rawMessage = e.message ?? 'Voice transcription failed.';
+        console.error('[bro/stt]', rawMessage);
+        void trackClientEvent({
+          event: 'stt_transcription_failed',
+          screen: 'converse',
+          severity: 'warning',
+          message: rawMessage,
+          metadata: { phase: 'transcribe' },
+        });
+        let nextMessage = __DEV__ ? `STT: ${rawMessage}` : 'Voice error — try again.';
         if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
-          setError('Voice service is slow — try again.');
+          nextMessage = 'Ace did not catch that in time. Say it again, or type it below.';
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
-          setError('Voice service is unavailable right now — try again shortly.');
+          nextMessage = 'Voice service is unavailable right now. You can type the trip below.';
         } else if (msg.includes('503') || msg.includes('not configured')) {
-          setError('Voice service offline — try again in a moment.');
+          nextMessage = 'Voice service is offline for the moment. You can type the trip below.';
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
-          setError("Didn't catch that — hold and speak clearly.");
+          nextMessage = "Ace did not catch enough audio. Hold to speak again, or type it below.";
         } else if (msg.includes('network error') || msg.includes('network request')) {
-          setError('Cannot reach voice service — check your connection.');
+          nextMessage = 'Ace cannot reach voice right now. Check your connection, or type the trip below.';
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
-          setError('Voice service error — please try again.');
+          nextMessage = 'Voice service had trouble with that request. You can type the trip below.';
+        }
+        if (shouldOfferTextFallback(nextMessage)) {
+          openTextFallback(nextMessage);
         } else {
-          // Show the real error in dev so we can diagnose it
-          setError(__DEV__ ? `STT: ${e.message}` : 'Voice error — try again.');
+          setError(nextMessage);
         }
         return;
       }
 
       if (!text.trim()) {
-        setError("Didn't catch that — hold and speak clearly.");
+        const message = "Ace did not catch that. Hold to speak again, or type the trip below.";
+        openTextFallback(message);
+        void trackClientEvent({
+          event: 'stt_empty_transcript',
+          screen: 'converse',
+          severity: 'warning',
+          message,
+        });
         return;
       }
 
       await handleIntent(text);
     } catch (e: any) {
       const msg = (e.message ?? '').toLowerCase();
+      const rawMessage = e.message ?? 'Voice capture failed.';
+      void trackClientEvent({
+        event: 'voice_capture_failed',
+        screen: 'converse',
+        severity: 'warning',
+        message: rawMessage,
+        metadata: { phase: 'capture' },
+      });
+      let nextMessage = 'Something went wrong — hold to try again.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
-        setError('Ace took too long — hold to try again.');
+        nextMessage = 'Ace took too long on that request. Hold to speak again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet')) {
-        setError('No connection — check your internet and try again.');
+        nextMessage = 'No connection. Check your internet, or type the trip below.';
       } else if (msg.includes('offline')) {
-        setError('Service offline — try again in a moment.');
+        nextMessage = 'Service is offline right now. You can type the trip below.';
+      }
+      if (shouldOfferTextFallback(nextMessage)) {
+        openTextFallback(nextMessage);
       } else {
-        setError('Something went wrong — hold to try again.');
+        setError(nextMessage);
       }
     }
-  }, [phase, handleIntent]);
+  }, [phase, handleIntent, openTextFallback, setError]);
 
   const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
     if (!nearestStation) return;
@@ -783,6 +870,7 @@ export default function ConverseScreen() {
   const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
     ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
     : null;
+  const recentTurns = turns.slice(-4);
   return (
     <SafeAreaView style={styles.safe}>
       <Atmosphere />
@@ -871,6 +959,14 @@ export default function ConverseScreen() {
                     if (activeTrip.fiatAmount != null) params.fiatAmount = String(activeTrip.fiatAmount);
                     if (activeTrip.currencySymbol) params.currencySymbol = activeTrip.currencySymbol;
                     if (activeTrip.currencyCode) params.currencyCode = activeTrip.currencyCode;
+                    if (activeTrip.fromStation) params.fromStation = activeTrip.fromStation;
+                    if (activeTrip.toStation) params.toStation = activeTrip.toStation;
+                    if (activeTrip.departureTime) params.departureTime = activeTrip.departureTime;
+                    if (activeTrip.platform) params.platform = activeTrip.platform;
+                    if (activeTrip.operator) params.operator = activeTrip.operator;
+                    if (activeTrip.finalLegSummary) params.finalLegSummary = activeTrip.finalLegSummary;
+                    if (activeTrip.shareToken) params.shareToken = activeTrip.shareToken;
+                    if (activeTrip.tripContext) params.tripContext = JSON.stringify(activeTrip.tripContext);
                     router.push({ pathname: '/(main)/status/[jobId]', params });
                     return;
                   }
@@ -967,27 +1063,37 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        {turns.map((turn, i) => (
-          <View
-            key={i}
-            style={[
-              styles.bubble,
-              turn.role === 'user' ? styles.bubbleUser : styles.bubbleMeridian,
-            ]}
-          >
-            {turn.role === 'meridian' && (
-              <View style={styles.bubbleAvatar}>
-                <View style={styles.avatarDot} />
+        {recentTurns.length > 0 && (
+          <View style={styles.recentTurnsCard}>
+            <View style={styles.recentTurnsHeader}>
+              <Text style={styles.recentTurnsEyebrow}>Recent exchange</Text>
+              {turns.length > recentTurns.length && (
+                <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
+              )}
+            </View>
+            {recentTurns.map((turn, i) => (
+              <View
+                key={`${turn.ts}-${i}`}
+                style={[
+                  styles.bubble,
+                  turn.role === 'user' ? styles.bubbleUser : styles.bubbleMeridian,
+                ]}
+              >
+                {turn.role === 'meridian' && (
+                  <View style={styles.bubbleAvatar}>
+                    <View style={styles.avatarDot} />
+                  </View>
+                )}
+                <Text style={[
+                  styles.bubbleText,
+                  turn.role === 'user' ? styles.bubbleTextUser : styles.bubbleTextMeridian,
+                ]}>
+                  {turn.text}
+                </Text>
               </View>
-            )}
-            <Text style={[
-              styles.bubbleText,
-              turn.role === 'user' ? styles.bubbleTextUser : styles.bubbleTextMeridian,
-            ]}>
-              {turn.text}
-            </Text>
+            ))}
           </View>
-        ))}
+        )}
 
         {isConfirming && (() => {
           const fiat    = pendingPlanRef.current?.fiatAmount ?? 0;
@@ -1247,6 +1353,22 @@ export default function ConverseScreen() {
                   </View>
                 ))}
               </View>
+              <View style={styles.assuranceCard}>
+                <View style={styles.assuranceHeader}>
+                  <Ionicons name="sparkles-outline" size={14} color="#d4c2a3" />
+                  <Text style={styles.assuranceTitle}>Ace assurance</Text>
+                </View>
+                {buildAssuranceItems({
+                  plan,
+                  fiatAmount: fiat,
+                  hasCards: cards.length > 0,
+                }).map((item) => (
+                  <View key={item} style={styles.assuranceRow}>
+                    <View style={styles.assuranceDot} />
+                    <Text style={styles.assuranceText}>{item}</Text>
+                  </View>
+                ))}
+              </View>
               {cards.length > 0 && (
                 <View style={styles.proactiveCardList}>
                   {cards.slice(0, 2).map((card) => (
@@ -1352,6 +1474,42 @@ export default function ConverseScreen() {
             <Text style={styles.holdPlaqueText}>
               {phase === 'listening' ? 'Listening now' : 'Hold Ace to speak'}
             </Text>
+          </View>
+        )}
+
+        {textFallbackVisible && (
+          <View style={styles.textFallbackCard}>
+            <View style={styles.textFallbackHeader}>
+              <Ionicons name="create-outline" size={14} color="#d4c2a3" />
+              <Text style={styles.textFallbackTitle}>Type the trip instead</Text>
+            </View>
+            <Text style={styles.textFallbackBody}>
+              Keep it short. Ace will still handle the rest.
+            </Text>
+            <TextInput
+              value={textFallbackDraft}
+              onChangeText={setTextFallbackDraft}
+              placeholder="King's Cross to Edinburgh tomorrow morning"
+              placeholderTextColor="#6b7280"
+              style={styles.textFallbackInput}
+              returnKeyType="send"
+              onSubmitEditing={() => { void handleTextFallbackSend(); }}
+            />
+            <View style={styles.textFallbackActions}>
+              <Pressable onPress={() => setTextFallbackVisible(false)} style={styles.textFallbackSecondary}>
+                <Text style={styles.textFallbackSecondaryText}>Not now</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { void handleTextFallbackSend(); }}
+                style={[
+                  styles.textFallbackPrimary,
+                  !textFallbackDraft.trim() && styles.textFallbackPrimaryDisabled,
+                ]}
+                disabled={!textFallbackDraft.trim()}
+              >
+                <Text style={styles.textFallbackPrimaryText}>Send to Ace</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -1549,7 +1707,7 @@ const styles = StyleSheet.create({
   },
 
   scroll:        { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 260 },
 
   emptyState:    { paddingTop: 22, paddingBottom: 20 },
   heroCard: {
@@ -1800,6 +1958,31 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: C.em,
   },
+  recentTurnsCard: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(6, 13, 24, 0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.24)',
+  },
+  recentTurnsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  recentTurnsEyebrow: {
+    fontSize: 11,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '700',
+  },
+  recentTurnsCount: {
+    fontSize: 11,
+    color: '#64748b',
+  },
 
   confirmCard: {
     overflow: 'hidden',
@@ -1901,6 +2084,42 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: '#94a3b8',
   },
+  assuranceCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 194, 163, 0.18)',
+    backgroundColor: 'rgba(19, 15, 10, 0.55)',
+    padding: 12,
+    gap: 8,
+  },
+  assuranceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  assuranceTitle: {
+    fontSize: 12,
+    color: '#f4ead6',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  assuranceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  assuranceDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#d4c2a3',
+  },
+  assuranceText: {
+    fontSize: 11,
+    color: '#d6d3d1',
+    lineHeight: 16,
+  },
   proactiveCardList: {
     gap: 8,
   },
@@ -1996,6 +2215,73 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,7,15,0.92)',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(148, 163, 184, 0.16)',
+  },
+  textFallbackCard: {
+    width: '100%',
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(12, 12, 11, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 194, 163, 0.24)',
+    gap: 10,
+  },
+  textFallbackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  textFallbackTitle: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: '#f4ead6',
+    fontWeight: '700',
+  },
+  textFallbackBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#cbd5e1',
+  },
+  textFallbackInput: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 85, 105, 0.55)',
+    backgroundColor: 'rgba(2, 6, 12, 0.85)',
+    color: '#e5e7eb',
+    fontSize: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  textFallbackActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  textFallbackPrimary: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: '#d4c2a3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  textFallbackPrimaryDisabled: {
+    opacity: 0.45,
+  },
+  textFallbackPrimaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  textFallbackSecondary: {
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textFallbackSecondaryText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '600',
   },
   phaseLabel: {
     fontSize: 11,

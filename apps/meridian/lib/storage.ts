@@ -150,6 +150,22 @@ export async function clearPrefs(): Promise<void> {
 // ── Conversation history ──────────────────────────────────────────────────────
 
 const MAX_HISTORY = 50;
+const ACTIVE_TRIP_STALE_MS = 15 * 60 * 1000;
+
+function normalizeActiveTrip(trip: ActiveTrip | null): ActiveTrip | null {
+  if (!trip?.intentId || !trip?.title || !trip?.updatedAt) return null;
+  const updatedAtMs = Date.parse(trip.updatedAt);
+  if (Number.isNaN(updatedAtMs)) return null;
+
+  if (trip.status === 'securing' && Date.now() - updatedAtMs > ACTIVE_TRIP_STALE_MS) {
+    return {
+      ...trip,
+      status: 'attention',
+    };
+  }
+
+  return trip;
+}
 
 export async function loadHistory(): Promise<HistoryTurn[]> {
   try {
@@ -174,14 +190,28 @@ export async function clearHistory(): Promise<void> {
 export async function loadActiveTrip(): Promise<ActiveTrip | null> {
   try {
     const raw = await AsyncStorage.getItem(KEYS.activeTrip);
-    return raw ? (JSON.parse(raw) as ActiveTrip) : null;
+    const parsed = raw ? (JSON.parse(raw) as ActiveTrip) : null;
+    const normalized = normalizeActiveTrip(parsed);
+    if (raw && !normalized) {
+      await AsyncStorage.removeItem(KEYS.activeTrip);
+      return null;
+    }
+    if (normalized && JSON.stringify(normalized) !== raw) {
+      await AsyncStorage.setItem(KEYS.activeTrip, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return null;
   }
 }
 
 export async function saveActiveTrip(trip: ActiveTrip): Promise<void> {
-  await AsyncStorage.setItem(KEYS.activeTrip, JSON.stringify(trip));
+  const normalized = normalizeActiveTrip(trip);
+  if (!normalized) {
+    await AsyncStorage.removeItem(KEYS.activeTrip);
+    return;
+  }
+  await AsyncStorage.setItem(KEYS.activeTrip, JSON.stringify(normalized));
 }
 
 export async function clearActiveTrip(): Promise<void> {

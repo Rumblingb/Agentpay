@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
@@ -6,12 +6,17 @@ import * as Notifications from 'expo-notifications';
 
 export default function RootLayout() {
   const router = useRouter();
+  const handledNotificationRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+    const handleNotificationResponse = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      const responseId = response.notification.request.identifier;
+      if (handledNotificationRef.current === responseId) return;
+      handledNotificationRef.current = responseId;
       const data = response.notification.request.content.data as any;
       if (data?.screen === 'converse' && data?.action === 'rebook' && data?.transcript) {
-        // Cancellation rebook — open Bro with pre-filled transcript
+        // Cancellation rebook — open Ace with pre-filled transcript
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });
       } else if (data?.intentId && data?.screen === 'receipt') {
         const params: Record<string, string> = { intentId: data.intentId };
@@ -33,7 +38,10 @@ export default function RootLayout() {
         if (data?.bookingUrl) params.partnerCheckoutUrl = String(data.bookingUrl);
         router.push({ pathname: '/(main)/receipt/[intentId]', params });
       }
-    });
+    };
+
+    void Notifications.getLastNotificationResponseAsync().then(handleNotificationResponse).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     return () => sub.remove();
   }, []);
 
