@@ -2,7 +2,7 @@
  * Onboard — premium first-launch experience
  *
  * Five steps:
- *   1. Welcome  — intro to Bro
+ *   1. Welcome  — intro to Ace
  *   2. Name     — "What should I call you?"
  *   3. Privacy  — consent to profile storage, biometric protection, location
  *   4. Profile  — travel details (voice-fill or form, biometric-gated save)
@@ -73,19 +73,19 @@ const MARKET_COPY: Record<Nationality, {
     intro: 'Hey. I book UK trains by voice. Hold the orb and try me.',
     fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and book it with your fingerprint.",
     demoPrompt: 'book a train to London tomorrow',
-    setupTagline: 'The more you tell Bro up front, the fewer questions it asks later and the better it can book UK rail with the right railcard, route, and passenger details.',
+    setupTagline: 'The more you tell Ace up front, the fewer questions it asks later and the better it can book UK rail with the right railcard, route, and passenger details.',
   },
   india: {
     intro: 'Hey. I book Indian trains by voice. Hold the orb and try me.',
     fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and get you through payment fast.",
     demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
-    setupTagline: 'The more you set up now, the faster Bro can move later with IRCTC details, class preferences, and payment-ready journeys.',
+    setupTagline: 'The more you set up now, the faster Ace can move later with IRCTC details, class preferences, and payment-ready journeys.',
   },
   other: {
     intro: 'Hey. I handle trains, flights, and buses by voice. Hold the orb and try me.',
     fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line it up with your fingerprint.",
     demoPrompt: 'new york to boston tomorrow morning',
-    setupTagline: 'Bro works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
+    setupTagline: 'Ace works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
   },
 };
 
@@ -184,7 +184,7 @@ export default function OnboardScreen() {
     }
   };
 
-  // ── Demo: Bro speaks first on welcome screen ─────────────────────────────
+  // ── Demo: Ace speaks first on welcome screen ─────────────────────────────
 
   React.useEffect(() => {
     if (step !== 'welcome' || demoIntroPlayedRef.current) return;
@@ -425,7 +425,7 @@ export default function OnboardScreen() {
                 <LinearGradient colors={['#0c0a1e', '#080808']} style={StyleSheet.absoluteFill} />
 
                 {/* Wordmark */}
-                <Text style={demoStyles.wordmark}>bro</Text>
+                <Text style={demoStyles.wordmark}>ace</Text>
 
                 <View style={demoStyles.marketWrap}>
                   <Text style={demoStyles.marketLabel}>Choose your primary travel market</Text>
@@ -553,28 +553,28 @@ export default function OnboardScreen() {
 
                 <Text style={styles.stepTitle}>Your data.{'\n'}Your advantage.</Text>
                 <Text style={styles.stepSub}>
-                  Bro needs real booking data to do real booking work. More detail means fewer follow-up questions, fewer failed checkouts, better fares, and faster confirmations. We keep that data locked down and only use it when you want the trip to move.
+                  Ace needs real booking data to do real booking work. More detail means fewer follow-up questions, fewer failed checkouts, better fares, and faster confirmations. We keep that data locked down and only use it when you want the trip to move.
                 </Text>
 
                 <View style={styles.promiseList}>
                   <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
                   <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
-                    <PromiseRow icon="person"         text="More profile detail means Bro can stop asking basics on every booking" />
+                    <PromiseRow icon="person"         text="More profile detail means Ace can stop asking basics on every booking" />
                     <PromiseRow icon="checkmark-done" text="Only the details needed for the journey you approve are shared" />
-                  <PromiseRow icon="server"         text="Trip and receipt records may be kept so Bro can reopen your journey" />
+                  <PromiseRow icon="server"         text="Trip and receipt records may be kept so Ace can reopen your journey" />
                   <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
                 </View>
 
                 <View style={styles.consentToggles}>
                   <ConsentRow
                     label="Allow location for nearby stations"
-                      sub="Lets Bro suggest the right nearby station instead of making you type it every time"
+                      sub="Lets Ace suggest the right nearby station instead of making you type it every time"
                     value={locationConsent}
                     onToggle={setLocationConsent}
                   />
                   <ConsentRow
                     label="Booking updates"
-                      sub="Lets Bro warn you about booking progress, delays, and last-minute changes"
+                      sub="Lets Ace warn you about booking progress, delays, and last-minute changes"
                     value={notifConsent}
                     onToggle={setNotifConsent}
                   />
@@ -583,7 +583,7 @@ export default function OnboardScreen() {
                   <PrimaryBtn onPress={handleAcceptPrivacy} label="Continue with these protections" />
 
                 <Text style={styles.legalNote}>
-                    Bro asks for meaningful data because it is trying to act, not just chat. By continuing you accept our{' '}
+                    Ace asks for meaningful data because it is trying to act, not just chat. By continuing you accept our{' '}
                   <Text style={styles.legalLink} onPress={() => router.push('/legal/terms')}>
                     Terms of Service
                   </Text>
@@ -599,9 +599,9 @@ export default function OnboardScreen() {
             {/* ── Step 4: Travel Profile ───────────────────────────────── */}
             {step === 'profile' && (
               <View style={styles.stepWrap}>
-                <Text style={styles.stepTitle}>Set Bro up properly.</Text>
+                <Text style={styles.stepTitle}>Set Ace up properly.</Text>
                 <Text style={styles.stepSub}>
-                  This is the data that makes Bro useful. The more complete this is, the less back-and-forth you get during booking and the less likely you are to hit fare, identity, or ticket-delivery issues. It stays on this device and is protected with {biometricLabel}.
+                  This is the data that makes Ace useful. The more complete this is, the less back-and-forth you get during booking and the less likely you are to hit fare, identity, or ticket-delivery issues. It stays on this device and is protected with {biometricLabel}.
                 </Text>
 
                 {/* ── Voice fill ─────────────────────────────────────── */}
@@ -702,7 +702,7 @@ export default function OnboardScreen() {
                     </ScrollView>
                     {railcardType !== 'none' && (
                       <Text style={profileStyles.voiceHint} numberOfLines={1}>
-                        {RAILCARD_LABELS[railcardType]} — Bro will apply your discount automatically
+                        {RAILCARD_LABELS[railcardType]} — Ace will apply your discount automatically
                       </Text>
                     )}
                   </>
@@ -874,7 +874,7 @@ export default function OnboardScreen() {
                   {profileError && <Text style={styles.error}>{profileError}</Text>}
 
                   <Text style={styles.profileExplainer}>
-                    Name and contact details help Bro complete checkout without stopping to ask you again. Travel preferences and railcards help it search better options before it gets to payment.
+                    Name and contact details help Ace complete checkout without stopping to ask you again. Travel preferences and railcards help it search better options before it gets to payment.
                   </Text>
 
                 <Pressable
@@ -907,7 +907,7 @@ export default function OnboardScreen() {
                 >
                   <Text style={styles.skipText}>
                     {!email.trim()
-                      ? "Skip — but Bro will be weaker without an email for ticket delivery"
+                      ? "Skip — but Ace will be weaker without an email for ticket delivery"
                       : "Skip for now — but fuller details mean fewer booking interruptions later"}
                   </Text>
                 </Pressable>
@@ -921,7 +921,7 @@ export default function OnboardScreen() {
                   Almost there{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  This is the handoff between speed and control. Below this amount, Bro can move fast. Above it, you stay in the loop before any money goes out.
+                  This is the handoff between speed and control. Below this amount, Ace can move fast. Above it, you stay in the loop before any money goes out.
                 </Text>
 
                 <FieldLabel
@@ -978,7 +978,7 @@ export default function OnboardScreen() {
                     ) : (
                       <>
                         <Ionicons name="mic" size={20} color="#fff" />
-                        <Text style={styles.btnText}>Launch Bro</Text>
+                        <Text style={styles.btnText}>Launch Ace</Text>
                       </>
                     )}
                   </LinearGradient>
@@ -986,7 +986,7 @@ export default function OnboardScreen() {
 
                 <Text style={styles.legalNote}>
                   Payments powered by AgentPay · agentpay.gg{'\n'}
-                  Bro works best when your profile is complete, your consent choices are clear, and your budget matches how hands-off you want it to be.
+                  Ace works best when your profile is complete, your consent choices are clear, and your budget matches how hands-off you want it to be.
                 </Text>
               </View>
             )}
@@ -1024,7 +1024,7 @@ function getDemoResponse(transcript: string, nationality: Nationality): string {
     return "Found an Avanti at 09:45 for around £28. In the real app, that's confirmed with your fingerprint in 3 seconds.";
   }
   if (t.match(/taxi|cab|ride|uber|driver|lift|car/)) {
-    return "Bro is strongest on the booked trip and the final leg. Ask for the journey first, then I'll carry you through the rest.";
+    return "Ace is strongest on the booked trip and the final leg. Ask for the journey first, then I'll carry you through the rest.";
   }
   if (t.match(/hotel|room|stay|night|accommodation|b&b|inn/)) {
     return "I can work the trip around the stay, but transport is still the strongest part of the product.";

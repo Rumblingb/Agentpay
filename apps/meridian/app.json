@@ -77,10 +77,10 @@
         ]
       },
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Bro uses your microphone to capture voice requests.",
-        "NSSpeechRecognitionUsageDescription": "Bro uses speech recognition to understand your requests.",
-        "NSFaceIDUsageDescription": "Bro uses Face ID to protect your stored credentials.",
-        "NSLocationWhenInUseUsageDescription": "Bro uses your location to find your nearest station and suggest quick routes.",
+        "NSMicrophoneUsageDescription": "Ace uses your microphone to capture voice requests.",
+        "NSSpeechRecognitionUsageDescription": "Ace uses speech recognition to understand your requests.",
+        "NSFaceIDUsageDescription": "Ace uses Face ID to protect your stored credentials.",
+        "NSLocationWhenInUseUsageDescription": "Ace uses your location to find your nearest station and suggest quick routes.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -125,7 +125,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Bro uses your location to find your nearest station.",
+          "locationAlwaysAndWhenInUsePermission": "Ace uses your location to find your nearest station.",
           "isIosBackgroundLocationEnabled": false
         }
       ]

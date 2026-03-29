@@ -33,7 +33,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const serverMsg = (data as any)?.error ?? '';
     // Translate server errors into user-friendly messages
     if (res.status === 503) throw new Error('Service offline — try again in a moment.');
-    if (res.status === 502 || res.status === 504 || res.status === 524) throw new Error('Bro is slow right now — try again.');
+    if (res.status === 502 || res.status === 504 || res.status === 524) throw new Error('Ace is slow right now — try again.');
     if (res.status === 401 || res.status === 403) throw new Error('Not authorised — please restart the app.');
     throw new Error(serverMsg || `API error ${res.status}`);
   }
@@ -146,7 +146,7 @@ export async function registerAgent(params: {
     body: JSON.stringify({
       name: params.name,
       category: params.category ?? 'human_user',
-      description: 'Bro user — voice-first agentic commerce',
+      description: 'Ace user — voice-first agentic commerce',
       capabilities: ['hire', 'commission'],
       metadata: { source: 'bro_app', version: '1.0.0' },
     }),

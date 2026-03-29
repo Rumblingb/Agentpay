@@ -103,7 +103,7 @@ export async function scheduleJourneyNotifications(
     await Notifications.scheduleNotificationAsync({
       identifier: notifId(intentId, '30min'),
       content: {
-        title: 'Bro · 30 minutes to go',
+        title: 'Ace · 30 minutes to go',
         body: `${route}${platformSuffix}`,
         data: {
           intentId,
@@ -121,7 +121,7 @@ export async function scheduleJourneyNotifications(
     await Notifications.scheduleNotificationAsync({
       identifier: notifId(intentId, '10min'),
       content: {
-        title: 'Bro · 10 minutes to go',
+        title: 'Ace · 10 minutes to go',
         body: `${route}${platformSuffix ? `${platformSuffix}` : ''}`,
         data: {
           intentId,
@@ -144,8 +144,8 @@ export async function scheduleJourneyNotifications(
         content: {
           title: `You've arrived in ${destination}`,
           body: options?.finalLegSummary
-            ? `${options.finalLegSummary} Tap to open Bro.`
-            : `${destination} is next. Tap to open Bro navigation.`,
+            ? `${options.finalLegSummary} Tap to open Ace.`
+            : `${destination} is next. Tap to open Ace navigation.`,
           data: {
             intentId,
             screen: 'receipt',
@@ -181,7 +181,7 @@ export async function scheduleHotelNotifications(
     await Notifications.scheduleNotificationAsync({
       identifier: notifId(intentId, 'hotel-24h'),
       content: {
-        title: 'Bro · Hotel tomorrow',
+        title: 'Ace · Hotel tomorrow',
         body: `${params.hotelName} in ${params.city}. Check-in ${formatWhen(checkIn)}.`,
         data: {
           intentId,
@@ -202,7 +202,7 @@ export async function scheduleHotelNotifications(
     await Notifications.scheduleNotificationAsync({
       identifier: notifId(intentId, 'hotel-2h'),
       content: {
-        title: 'Bro · Hotel check-in soon',
+        title: 'Ace · Hotel check-in soon',
         body: `${params.hotelName}. Keep your checkout link and ID ready.`,
         data: {
           intentId,
@@ -225,7 +225,7 @@ export async function scheduleHotelNotifications(
       await Notifications.scheduleNotificationAsync({
         identifier: notifId(intentId, 'hotel-checkout'),
         content: {
-          title: 'Bro · Checkout tomorrow',
+          title: 'Ace · Checkout tomorrow',
           body: `${params.hotelName} checkout is coming up. Review onward plans.`,
           data: {
             intentId,

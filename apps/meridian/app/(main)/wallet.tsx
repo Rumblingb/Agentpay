@@ -104,7 +104,7 @@ export default function WalletScreen() {
                   <Text style={styles.depositTitle}>Add Funds</Text>
                 </View>
                 <Text style={styles.depositNote}>
-                  Top up your Bro balance. Contact support to add funds to your account.
+                  Top up your Ace balance. Contact support to add funds to your account.
                 </Text>
 
                 <View style={styles.depositField}>

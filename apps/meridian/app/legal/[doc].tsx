@@ -17,7 +17,7 @@ export default function LegalDocScreen() {
   const doc = LEGAL_DOCS[key];
 
   const openSupportEmail = async () => {
-    const url = `mailto:${doc.supportEmail}?subject=${encodeURIComponent(`Bro ${doc.title}`)}`;
+    const url = `mailto:${doc.supportEmail}?subject=${encodeURIComponent(`Ace ${doc.title}`)}`;
     try {
       await Linking.openURL(url);
     } catch {
@@ -53,7 +53,7 @@ export default function LegalDocScreen() {
         <View style={styles.footerCard}>
           <Text style={styles.footerTitle}>Train-first release</Text>
           <Text style={styles.footerText}>
-            Bro is currently focused on supported journey flows. If something in the app looks unclear, pause and review before confirming a booking.
+            Ace is currently focused on supported journey flows. If something in the app looks unclear, pause and review before confirming a booking.
           </Text>
           <Pressable onPress={() => { void openSupportEmail(); }} style={styles.supportBtn}>
             <Ionicons name="mail-outline" size={16} color="#cbd5e1" />

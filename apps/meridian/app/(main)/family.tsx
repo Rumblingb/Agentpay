@@ -1,7 +1,7 @@
 /**
  * Family Members screen
  *
- * Add, edit, and remove travel companions so Bro can book group tickets by voice.
+ * Add, edit, and remove travel companions so Ace can book group tickets by voice.
  * "Book me, Maya, and Dad on the 10:15" just works.
  *
  * Data stored in SecureStore as part of TravelProfile.
@@ -200,7 +200,7 @@ export default function FamilyScreen() {
     if (namelessCount > 0) {
       Alert.alert(
         'Add each traveller name',
-        `${namelessCount} family member${namelessCount === 1 ? '' : 's'} still need${namelessCount === 1 ? 's' : ''} a name before Bro can use them in voice bookings.`,
+        `${namelessCount} family member${namelessCount === 1 ? '' : 's'} still need${namelessCount === 1 ? 's' : ''} a name before Ace can use them in voice bookings.`,
       );
       return;
     }
@@ -219,7 +219,7 @@ export default function FamilyScreen() {
       Alert.alert(
         e?.message === 'Authentication cancelled.' ? 'Save cancelled' : 'Could not save family members',
         e?.message === 'Authentication cancelled.'
-          ? 'Bro keeps this data biometric-protected, so authentication is required to save changes.'
+          ? 'Ace keeps this data biometric-protected, so authentication is required to save changes.'
           : 'Please try again. Your changes are still on screen.',
       );
     } finally {
@@ -261,7 +261,7 @@ export default function FamilyScreen() {
         </View>
 
         <Text style={styles.subtitle}>
-          Add travel companions so Bro can book group tickets by voice.
+          Add travel companions so Ace can book group tickets by voice.
           {'\n'}Try: "Book me, Maya, and Dad on the 10:15 to Edinburgh"
         </Text>
 
@@ -270,7 +270,7 @@ export default function FamilyScreen() {
           <View style={styles.familyBadge}>
             <Ionicons name="ticket-outline" size={14} color="#4ade80" style={{ marginRight: 6 }} />
             <Text style={styles.familyBadgeText}>
-              Family & Friends Railcard applies — Bro will apply 1/3 off adult fares + 60% off children automatically
+              Family & Friends Railcard applies — Ace will apply 1/3 off adult fares + 60% off children automatically
             </Text>
           </View>
         )}
@@ -283,7 +283,7 @@ export default function FamilyScreen() {
             </View>
             <Text style={styles.readinessBody}>
               {missingFlightDocs === 0
-                ? 'All saved family members have the basics Bro needs for flight pricing and passenger setup.'
+                ? 'All saved family members have the basics Ace needs for flight pricing and passenger setup.'
                 : `${missingFlightDocs} member${missingFlightDocs === 1 ? '' : 's'} still need date of birth, nationality, or document info for faster flight booking.`}
             </Text>
           </View>
@@ -297,7 +297,7 @@ export default function FamilyScreen() {
             <Ionicons name="people-outline" size={40} color="#374151" />
             <Text style={styles.emptyText}>No family members yet</Text>
             <Text style={styles.emptyHint}>
-              Add the people you travel with often. Bro will remember them so group bookings feel like one request instead of a form every time.
+              Add the people you travel with often. Ace will remember them so group bookings feel like one request instead of a form every time.
             </Text>
           </View>
         ) : (

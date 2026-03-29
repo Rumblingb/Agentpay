@@ -319,7 +319,7 @@ function ExploreCard({ places }: { places: NearbyPlace[] }) {
   if (places.length === 0) {
     return (
       <View style={styles.exploreEmpty}>
-        <Text style={styles.exploreEmptyText}>Ask Bro to find something nearby</Text>
+        <Text style={styles.exploreEmptyText}>Ask Ace to find something nearby</Text>
       </View>
     );
   }

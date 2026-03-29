@@ -21,6 +21,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { loadTrips as loadTripsFromStorage, type TripEntry } from '../../lib/storage';
 import { formatMoneyAmount } from '../../lib/money';
 
+function repeatPrompt(trip: TripEntry): string | null {
+  if (trip.fromStation && trip.toStation) {
+    return `${trip.fromStation} to ${trip.toStation} again`;
+  }
+  if (trip.title) {
+    return `${trip.title} again`;
+  }
+  return null;
+}
+
 function tripModeMeta(trip: TripEntry) {
   switch (trip.tripContext?.mode) {
     case 'flight':
@@ -103,7 +113,7 @@ export default function TripsScreen() {
           <Text style={styles.emptyTitle}>No journeys yet</Text>
           <Text style={styles.emptyBody}>Confirmed trips stay here so you can reopen them without explaining the route again.</Text>
           <Pressable onPress={() => router.replace('/(main)/converse')} style={styles.bookBtn}>
-            <Text style={styles.bookBtnText}>Ask Bro</Text>
+            <Text style={styles.bookBtnText}>Ask Ace</Text>
           </Pressable>
         </View>
       ) : (
@@ -134,6 +144,7 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
   });
   const meta = tripModeMeta(trip);
   const metaLine = tripMetaLine(trip);
+  const repeat = repeatPrompt(trip);
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -160,6 +171,15 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
           ) : null}
         </View>
         <Text style={styles.cardDate}>{dateStr}</Text>
+        {repeat && (
+          <Pressable
+            onPress={() => router.replace({ pathname: '/(main)/converse', params: { prefill: repeat } } as any)}
+            style={styles.repeatBtn}
+          >
+            <Ionicons name="refresh-outline" size={13} color="#93c5fd" />
+            <Text style={styles.repeatBtnText}>Book again</Text>
+          </Pressable>
+        )}
       </View>
       <View style={styles.cardRight}>
         {trip.fiatAmount != null && trip.currencySymbol ? (
@@ -215,6 +235,20 @@ const styles = StyleSheet.create({
   cardMetaText: { fontSize: 12, color: '#6b7280' },
   cardRef: { fontSize: 11, color: '#4ade80', fontFamily: 'monospace' },
   cardDate: { fontSize: 11, color: '#374151' },
+  repeatBtn: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  repeatBtnText: { fontSize: 12, fontWeight: '600', color: '#93c5fd' },
   cardRight: { alignItems: 'flex-end' },
   cardAmount: { fontSize: 15, fontWeight: '700', color: '#f9fafb' },
   cardCurrency: { fontSize: 11, color: '#6b7280' },

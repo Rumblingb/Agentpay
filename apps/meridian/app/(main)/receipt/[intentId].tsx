@@ -42,6 +42,18 @@ function qrUrl(ref: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(ref)}&format=png&margin=2`;
 }
 
+function repeatPrompt(params: {
+  transcript?: string | null;
+  fromStation?: string | null;
+  toStation?: string | null;
+  destination?: string | null;
+}) {
+  if (params.transcript?.trim()) return params.transcript.trim();
+  if (params.fromStation && params.toStation) return `${params.fromStation} to ${params.toStation} again`;
+  if (params.destination) return `${params.destination} again`;
+  return null;
+}
+
 function receiptModeMeta(trip: TripContext | null, hasFlightDetails: boolean) {
   if (trip?.mode === 'mixed') return { icon: 'navigate-outline' as const, title: 'Journey details', noun: 'journey' };
   if (trip?.mode === 'bus') return { icon: 'bus-outline' as const, title: 'Coach details', noun: 'coach' };
@@ -170,6 +182,15 @@ export default function ReceiptScreen() {
   const [partnerCheckoutUrl, setPartnerCheckoutUrl] = useState<string | null>(null);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
+  const repeatRoutePrompt = repeatPrompt({
+    transcript: transcript ?? null,
+    fromStation: fromStation ?? null,
+    toStation: toStation ?? null,
+    destination: destination ?? null,
+  });
+  const recoveryPrompt =
+    transcript ||
+    (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
   const cards = tripCards(tripContext);
   const modeMeta = receiptModeMeta(tripContext, !!flightDetails);
   const tripLegs = tripContext?.legs ?? [];
@@ -367,7 +388,7 @@ export default function ReceiptScreen() {
   }, [intentId, hotelDetails, tripContext, shareToken, partnerCheckoutUrl]);
 
   const handleShare = async () => {
-    const heading = receipt ? `Bro — ${modeMeta.title}` : 'Bro — Saved details';
+    const heading = receipt ? `Ace — ${modeMeta.title}` : 'Ace — Saved details';
     const detailLine = fromStation && toStation
       ? `${fromStation} → ${toStation}`
       : hotelDetails?.bestOption
@@ -443,7 +464,7 @@ export default function ReceiptScreen() {
             <Ionicons name="warning" size={18} color="#fbbf24" />
             <View style={{ flex: 1 }}>
               <Text style={styles.cancelBannerTitle}>This {modeMeta.noun} was cancelled</Text>
-              <Text style={styles.cancelBannerBody}>Ask Bro for the next available option on this route.</Text>
+              <Text style={styles.cancelBannerBody}>Ask Ace for the next available option on this route.</Text>
             </View>
             <Pressable
               style={styles.cancelBannerBtn}
@@ -452,7 +473,7 @@ export default function ReceiptScreen() {
                 router.replace({ pathname: '/(main)/converse', params: query ? { prefill: query } : undefined } as any);
               }}
             >
-              <Text style={styles.cancelBannerBtnText}>Ask Bro</Text>
+              <Text style={styles.cancelBannerBtnText}>Ask Ace</Text>
             </Pressable>
           </View>
         )}
@@ -478,19 +499,21 @@ export default function ReceiptScreen() {
               <Text style={[styles.cancelBannerBody, styles.delayBannerBody]}>
                 {(disruptionRoute ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Your journey'))}
                 {delayMinutes ? ` is running ${delayMinutes} min late.` : ' is running late.'}
-                {transcript ? ' Bro can line up the next option.' : ' Keep this screen handy for live updates.'}
+                {transcript ? ' Ace can line up the next option.' : ' Keep this screen handy for live updates.'}
               </Text>
             </View>
-            {transcript && (
-              <Pressable
-                style={[styles.cancelBannerBtn, styles.delayBannerBtn]}
-                onPress={() => {
-                  router.replace({ pathname: '/(main)/converse', params: { prefill: transcript } } as any);
-                }}
-              >
-                <Text style={[styles.cancelBannerBtnText, styles.delayBannerBtnText]}>Rebook</Text>
-              </Pressable>
-            )}
+              {recoveryPrompt && (
+                <Pressable
+                  style={[styles.cancelBannerBtn, styles.delayBannerBtn]}
+                  onPress={() => {
+                    router.replace({ pathname: '/(main)/converse', params: { prefill: recoveryPrompt } } as any);
+                  }}
+                >
+                  <Text style={[styles.cancelBannerBtnText, styles.delayBannerBtnText]}>
+                    {transcript ? 'Rebook' : 'Find next option'}
+                  </Text>
+                </Pressable>
+              )}
           </View>
         )}
 
@@ -513,7 +536,7 @@ export default function ReceiptScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.cancelBannerTitle, { color: '#38bdf8' }]}>You&apos;ve arrived</Text>
               <Text style={[styles.cancelBannerBody, { color: '#7dd3fc' }]}>
-                {preservedFinalLegSummary ?? (destination ? `${destination} is next. Open navigation?` : 'Bro can guide the final stretch from here.')}
+                {preservedFinalLegSummary ?? (destination ? `${destination} is next. Open navigation?` : 'Ace can guide the final stretch from here.')}
               </Text>
             </View>
             {(toStation || destination) && (
@@ -619,7 +642,7 @@ export default function ReceiptScreen() {
               )}
               {error && (
                 <Text style={styles.localNotice}>
-                  Live receipt lookup is unavailable right now. Bro is showing the journey details saved on this device.
+                  Live receipt lookup is unavailable right now. Ace is showing the journey details saved on this device.
                 </Text>
               )}
             </View>
@@ -744,17 +767,27 @@ export default function ReceiptScreen() {
             )}
 
             {/* Actions */}
-            <Pressable onPress={handleShare} style={styles.shareBtn}>
-              <Ionicons name="share-outline" size={18} color="#818cf8" />
-              <Text style={styles.shareBtnText}>Share details</Text>
-            </Pressable>
+              <Pressable onPress={handleShare} style={styles.shareBtn}>
+                <Ionicons name="share-outline" size={18} color="#818cf8" />
+                <Text style={styles.shareBtnText}>Share details</Text>
+              </Pressable>
 
-            {shareToken && (
-              <Pressable
+              {repeatRoutePrompt && (
+                <Pressable
+                  onPress={() => router.replace({ pathname: '/(main)/converse', params: { prefill: repeatRoutePrompt } } as any)}
+                  style={styles.shareBtn}
+                >
+                  <Ionicons name="refresh-outline" size={18} color="#93c5fd" />
+                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Book this route again</Text>
+                </Pressable>
+              )}
+
+              {shareToken && (
+                <Pressable
                 onPress={async () => {
                   const url = `https://api.agentpay.so/trip/view/${shareToken}`;
                   await Share.share({
-                    title: 'Join my trip on Bro',
+                    title: 'Join my trip on Ace',
                     message: `Track this journey live -> ${url}`,
                     url,
                   });
@@ -840,7 +873,7 @@ export default function ReceiptScreen() {
           <View style={issueStyles.handle} />
           <Text style={issueStyles.title}>Report an issue</Text>
           <Text style={issueStyles.subtitle}>
-            Describe the problem and Bro will look into it.
+            Describe the problem and Ace will look into it.
           </Text>
           {issueSent ? (
             <View style={issueStyles.sentBox}>

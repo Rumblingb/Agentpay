@@ -1,9 +1,9 @@
 /**
- * Converse — the Bro concierge screen
+ * Converse — the Ace concierge screen
  *
  * Flow:
  *   Hold to talk → Whisper STT → Phase 1 (plan, no hire)
- *   → Bro speaks price → fingerprint gate
+ *   → Ace speaks price → fingerprint gate
  *   → Phase 2 (execute hire) → receipt
  *
  * Two biometric moments:
@@ -36,7 +36,7 @@ import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech
 import { speakBro, cancelSpeech } from '../../lib/tts';
 import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
-import { loadProfileRaw, loadProfileAuthenticated, hasProfile } from '../../lib/profile';
+import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getNearestStation } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
@@ -81,6 +81,14 @@ const PHASE_LABEL: Record<string, string> = {
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
+
+type BookingReadinessTone = 'ready' | 'warning';
+
+type BookingReadinessItem = {
+  label: string;
+  detail: string;
+  tone: BookingReadinessTone;
+};
 
 function firstSentence(text: string): string {
   const trimmed = text.trim();
@@ -154,6 +162,35 @@ function getCountdown(departureTime: string | null | undefined): string | null {
   return 'Now';
 }
 
+function activeTripStatusCopy(activeTrip: ActiveTrip): { pill: string; body: string } {
+  if (activeTrip.status === 'securing') {
+    return {
+      pill: 'Booking in progress',
+      body: 'Ace is lining this trip up now. Open it to track payment, ticketing, and any issues.',
+    };
+  }
+
+  if (activeTrip.status === 'attention') {
+    return {
+      pill: 'Needs attention',
+      body: 'Something changed or needs your input. Open this trip now to recover it quickly.',
+    };
+  }
+
+  const countdown = getCountdown(activeTrip.departureTime);
+  const platformPart = activeTrip.platform ? `Platform ${activeTrip.platform}` : null;
+  const timingLine = countdown
+    ? platformPart
+      ? `Leaves in ${countdown} · ${platformPart}`
+      : `Leaves in ${countdown}`
+    : [activeTrip.departureTime, platformPart].filter(Boolean).join(' · ');
+
+  return {
+    pill: 'Latest journey',
+    body: activeTrip.finalLegSummary || timingLine || 'Open for journey details',
+  };
+}
+
 function getConfirmBaseGbp(plan: ConciergePlanItem[]): number | null {
   const total = plan.reduce((sum, item) => {
     // India rail has no GBP equivalent — skip to avoid labelling USDC as £
@@ -168,6 +205,75 @@ function getConfirmBaseGbp(plan: ConciergePlanItem[]): number | null {
   }, 0);
 
   return total > 0 ? total : null;
+}
+
+function buildBookingReadiness(params: {
+  profile: TravelProfile | null;
+  plan: ConciergePlanItem[];
+  fiatAmount: number;
+  autoConfirmLimitUsdc: number;
+}): BookingReadinessItem[] {
+  const { profile, plan, fiatAmount, autoConfirmLimitUsdc } = params;
+  const hasRailLeg = plan.some((item) => item.toolName === 'book_train' || item.toolName === 'book_train_india');
+  const hasFlightLeg = plan.some((item) => !!item.flightDetails);
+  const familyMembers = profile?.familyMembers ?? [];
+  const namelessFamily = familyMembers.filter((member) => !member.name?.trim()).length;
+  const missingFlightDob = hasFlightLeg
+    ? familyMembers.filter((member) => member.relationship !== 'infant' && !member.dateOfBirth).length
+    : 0;
+
+  return [
+    profile?.legalName?.trim() && profile?.email?.trim() && profile?.phone?.trim()
+      ? {
+          label: 'Checkout details ready',
+          detail: 'Ace has the name, email, and phone it needs to move without stopping.',
+          tone: 'ready',
+        }
+      : {
+          label: 'Profile may slow booking down',
+          detail: 'Missing name, email, or phone means Ace may have to stop later for checkout details.',
+          tone: 'warning',
+        },
+    namelessFamily === 0 && missingFlightDob === 0
+      ? {
+          label: familyMembers.length > 0 ? 'Party details ready' : 'Solo traveller ready',
+          detail: familyMembers.length > 0
+            ? 'Saved companion basics are in place for this booking request.'
+            : 'Ace can move this booking as a solo trip.',
+          tone: 'ready',
+        }
+      : {
+          label: 'Passenger details may still be needed',
+          detail: missingFlightDob > 0
+            ? 'Some travellers still need dates of birth before flight ticketing can finish cleanly.'
+            : 'Saved companions should each have a name so Ace can use them reliably by voice.',
+          tone: 'warning',
+        },
+    hasRailLeg && profile?.railcardType && profile.railcardType !== 'none'
+      ? {
+          label: 'Rail savings in play',
+          detail: 'Ace will carry your saved railcard into eligible rail searches and checkout.',
+          tone: 'ready',
+        }
+      : {
+          label: hasRailLeg ? 'No rail discount saved' : 'Route preferences loaded',
+          detail: hasRailLeg
+            ? 'If you hold a railcard, adding it later can improve fares on future trips.'
+            : 'Ace is using your saved preferences to keep this journey simple.',
+          tone: hasRailLeg ? 'warning' : 'ready',
+        },
+    fiatAmount > autoConfirmLimitUsdc
+      ? {
+          label: 'You stay in control of payment',
+          detail: 'Ace has the route ready. Face ID or fingerprint is the final go-ahead before money moves.',
+          tone: 'ready',
+        }
+      : {
+          label: 'Fast lane is active',
+          detail: 'This trip sits within your auto-approve limit, so Ace can move faster once you confirm.',
+          tone: 'ready',
+        },
+  ];
 }
 
 export default function ConverseScreen() {
@@ -196,6 +302,7 @@ export default function ConverseScreen() {
     travelProfile?: Record<string, unknown>;
     /** Full profile — only loaded for Phase 2 after biometric confirmation */
     fullProfile?: Record<string, unknown>;
+    readiness: BookingReadinessItem[];
     /** Total estimated cost across all plan items */
     totalPriceUsdc: number;
     /** Fiat display amount — what the user sees */
@@ -318,7 +425,7 @@ export default function ConverseScreen() {
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
   const handleIntent = useCallback(async (text: string) => {
-    if (!agentId) throw new Error('Bro is not ready yet. Please restart the app.');
+    if (!agentId) throw new Error('Ace is not ready yet. Please restart the app.');
 
     setTranscript(text);
     const userTurn = { role: 'user' as const, text, ts: Date.now() };
@@ -331,10 +438,11 @@ export default function ConverseScreen() {
     // Full profile (legalName, email, phone, documents) is loaded AFTER biometric
     // confirmation in handleBiometricConfirm. This ensures sensitive data never
     // reaches memory before the user explicitly authorises the booking.
+    let profile: TravelProfile | null = null;
     let travelProfile: Record<string, unknown> | undefined;
     try {
       if (await hasProfile()) {
-        const profile = await loadProfileRaw();
+        profile = await loadProfileRaw();
         if (profile) {
           // Phase 1: non-identity prefs only — railcard/class/nationality for narration personalisation.
           // familyMembers included (no documents or contact details) so Claude can resolve names.
@@ -398,9 +506,16 @@ export default function ConverseScreen() {
       const fiatAmount = response.fiatAmount          ?? total;
       const fiatSymbol = response.currencySymbol      ?? currencySymbol;
       const fiatCode   = response.currencyCode        ?? currencyCode;
+      const readiness  = buildBookingReadiness({
+        profile,
+        plan: response.plan,
+        fiatAmount,
+        autoConfirmLimitUsdc,
+      });
       // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
         transcript: text, plan: response.plan, travelProfile, fullProfile: undefined,
+        readiness,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
       };
 
@@ -533,7 +648,7 @@ export default function ConverseScreen() {
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
   const handleUpiPay = useCallback(async () => {
-    await speakIfEnabled('Payment happens after Bro creates the booking request.');
+    await speakIfEnabled('Payment happens after Ace creates the booking request.');
   }, [speakIfEnabled]);
 
   // ── Hold-to-talk (press = start recording, release = send) ──────────────
@@ -555,7 +670,7 @@ export default function ConverseScreen() {
       recordingReadyRef.current = true;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
-      setError('Microphone access denied. Go to Settings → Apps → Bro → Permissions → Microphone.');
+      setError('Microphone access denied. Go to Settings → Apps → Ace → Permissions → Microphone.');
     }
   }, [phase, reset]);
 
@@ -612,7 +727,7 @@ export default function ConverseScreen() {
     } catch (e: any) {
       const msg = (e.message ?? '').toLowerCase();
       if (msg.includes('timed out') || msg.includes('timeout')) {
-        setError('Bro took too long — hold to try again.');
+        setError('Ace took too long — hold to try again.');
       } else if (msg.includes('no connection') || msg.includes('internet')) {
         setError('No connection — check your internet and try again.');
       } else if (msg.includes('offline')) {
@@ -675,7 +790,7 @@ export default function ConverseScreen() {
       <View style={styles.header}>
         <View style={styles.headerBrand}>
           <View style={styles.headerDot} />
-          <Text style={styles.headerTitle}>bro</Text>
+          <Text style={styles.headerTitle}>ace</Text>
         </View>
         <View style={styles.headerActions}>
           {nearestStation && (
@@ -720,10 +835,10 @@ export default function ConverseScreen() {
                 ? `${lastRouteHint}\nHold the orb and I'll sort it.`
                 : nearestStation
                 ? `You are near ${nearestStation.name}.\nHold the orb and say the destination.`
-                : `Hold the orb. Say where you're going.\nBro handles the rest.`}
+                : `Hold the orb. Say where you're going.\nAce handles the rest.`}
             </Text>
-            {activeTrip && (
-              <Pressable
+              {activeTrip && (
+                <Pressable
                 onPress={() => {
                   if ((activeTrip.status === 'securing' || activeTrip.status === 'attention') && activeTrip.jobId) {
                     const params: Record<string, string> = { jobId: activeTrip.jobId };
@@ -751,43 +866,37 @@ export default function ConverseScreen() {
                     },
                   });
                 }}
-                style={styles.activeTripCard}
-              >
-                <View style={styles.activeTripTop}>
-                  <View style={[
-                    styles.activeTripPill,
+                  style={styles.activeTripCard}
+                >
+                  {(() => {
+                    const statusCopy = activeTripStatusCopy(activeTrip);
+                    return (
+                      <>
+                  <View style={styles.activeTripTop}>
+                    <View style={[
+                      styles.activeTripPill,
                     activeTrip.status === 'attention' && styles.activeTripPillWarn,
                     activeTrip.status === 'ticketed' && styles.activeTripPillDone,
-                  ]}>
-                    <Text style={[
-                      styles.activeTripPillText,
-                      activeTrip.status === 'attention' && styles.activeTripPillTextWarn,
-                      activeTrip.status === 'ticketed' && styles.activeTripPillTextDone,
                     ]}>
-                      {activeTrip.status === 'securing'
-                        ? 'In progress'
-                        : activeTrip.status === 'ticketed'
-                        ? 'Latest journey'
-                        : 'Needs attention'}
-                    </Text>
+                      <Text style={[
+                        styles.activeTripPillText,
+                        activeTrip.status === 'attention' && styles.activeTripPillTextWarn,
+                        activeTrip.status === 'ticketed' && styles.activeTripPillTextDone,
+                      ]}>
+                        {statusCopy.pill}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
-                </View>
-                <Text style={styles.activeTripTitle} numberOfLines={1}>{activeTrip.title}</Text>
-                <Text style={styles.activeTripMeta} numberOfLines={2}>
-                  {activeTrip.status === 'securing'
-                    ? 'Bro is securing this journey now.'
-                    : activeTrip.finalLegSummary
-                    ? activeTrip.finalLegSummary
-                    : (() => {
-                        const countdown = getCountdown(activeTrip.departureTime);
-                        const platformPart = activeTrip.platform ? `Platform ${activeTrip.platform}` : null;
-                        if (countdown) return [platformPart ? `Leaves in ${countdown} · ${platformPart}` : `Leaves in ${countdown}`].join('');
-                        return [activeTrip.departureTime, platformPart].filter(Boolean).join(' · ') || 'Open for journey details';
-                      })()}
-                </Text>
-              </Pressable>
-            )}
+                  <Text style={styles.activeTripTitle} numberOfLines={1}>{activeTrip.title}</Text>
+                  <Text style={styles.activeTripMeta} numberOfLines={2}>
+                    {statusCopy.body}
+                  </Text>
+                      </>
+                    );
+                  })()}
+                </Pressable>
+              )}
             {usualRoute && (
               <Pressable
                 onPress={() => handleIntent(`${usualRoute.origin} to ${usualRoute.destination}`).catch(() => {})}
@@ -812,7 +921,7 @@ export default function ConverseScreen() {
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
                 <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
-                <Text style={styles.suggestionsHint}>One sentence. Bro works out the route quietly.</Text>
+                <Text style={styles.suggestionsHint}>One sentence. Hold to talk. Ace works out the route and suggests the best next move.</Text>
               </View>
               <View style={styles.suggestions}>
                 {idleSuggestions.map((suggestion) => (
@@ -1090,6 +1199,25 @@ export default function ConverseScreen() {
                   ? 'Best balance of speed, certainty, and payment flow for this trip.'
                   : 'Best balance of timing, fare, and journey simplicity.'}
               </Text>
+              <View style={styles.readinessCard}>
+                <View style={styles.readinessHeader}>
+                  <Ionicons name="shield-checkmark-outline" size={14} color="#38bdf8" />
+                  <Text style={styles.readinessTitle}>Ready before Ace books</Text>
+                </View>
+                {(pendingPlanRef.current?.readiness ?? []).map((item) => (
+                  <View key={`${item.label}-${item.detail}`} style={styles.readinessRow}>
+                    <Ionicons
+                      name={item.tone === 'ready' ? 'checkmark-circle' : 'alert-circle-outline'}
+                      size={15}
+                      color={item.tone === 'ready' ? '#4ade80' : '#f59e0b'}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.readinessLabel}>{item.label}</Text>
+                      <Text style={styles.readinessDetail}>{item.detail}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
               {cards.length > 0 && (
                 <View style={styles.proactiveCardList}>
                   {cards.slice(0, 2).map((card) => (
@@ -1144,7 +1272,7 @@ export default function ConverseScreen() {
                     <Ionicons name="qr-code-outline" size={16} color="#f97316" />
                     <Text style={styles.upiBtnText}>Why</Text>
                   </Pressable>
-                  <Text style={styles.upiHint}>Bro creates the job first, then collects UPI against that job.</Text>
+                  <Text style={styles.upiHint}>Ace creates the job first, then collects UPI against that job.</Text>
                 </View>
               )}
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
@@ -1544,6 +1672,41 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginTop: -6,
+  },
+  readinessCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.18)',
+    backgroundColor: 'rgba(8, 47, 73, 0.28)',
+    padding: 12,
+    gap: 10,
+  },
+  readinessHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  readinessTitle: {
+    fontSize: 12,
+    color: '#bae6fd',
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  readinessRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  readinessLabel: {
+    fontSize: 12,
+    color: '#e2e8f0',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  readinessDetail: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#94a3b8',
   },
   proactiveCardList: {
     gap: 8,

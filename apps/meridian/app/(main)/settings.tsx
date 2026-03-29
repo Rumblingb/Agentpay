@@ -77,8 +77,8 @@ export default function SettingsScreen() {
 
   const handleReset = () => {
     Alert.alert(
-      'Reset Bro',
-      'This will clear your Bro setup, travel profile, saved trips, stations, consent choices, and local credentials. You will need to set up again.',
+      'Reset Ace',
+      'This will clear your Ace setup, travel profile, saved trips, stations, consent choices, and local credentials. You will need to set up again.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -105,7 +105,7 @@ export default function SettingsScreen() {
   const handleClearHistory = () => {
     Alert.alert(
       'Clear History',
-      'Clear all conversation history? Your Bro setup will be preserved.',
+      'Clear all conversation history? Your Ace setup will be preserved.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -171,7 +171,7 @@ export default function SettingsScreen() {
         {/* Auto-confirm spending limit */}
         <Section
           label="BOOKING LIMIT"
-          hint="Bro will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
+          hint="Ace will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
         >
           <View style={styles.budgetRow}>
             {['2', '5', '10', '25'].map((v) => (
@@ -244,7 +244,7 @@ export default function SettingsScreen() {
         {/* Family */}
         <Section
           label="FAMILY & GROUP"
-          hint="Add family members so Bro can book group tickets by voice. Names and ages only — no documents needed here."
+          hint="Add family members so Ace can book group tickets by voice. Names and ages only — no documents needed here."
         >
           <View style={styles.familySummary}>
             <View style={styles.familySummaryRow}>
@@ -257,8 +257,8 @@ export default function SettingsScreen() {
             </View>
             <Text style={styles.familySummaryBody}>
               {familyMembers.length > 0
-                ? `Bro can book for ${familyMembers.map((member) => member.name).filter(Boolean).join(', ')} without re-entering their details.`
-                : 'Add your regular companions here so Bro can understand “me, Maya, and Dad” in one shot.'}
+                ? `Ace can book for ${familyMembers.map((member) => member.name).filter(Boolean).join(', ')} without re-entering their details.`
+                : 'Add your regular companions here so Ace can understand “me, Maya, and Dad” in one shot.'}
             </Text>
             {familyRailcardReady && (
               <View style={styles.familyRailcardBadge}>
@@ -284,13 +284,13 @@ export default function SettingsScreen() {
           </Pressable>
           <Pressable onPress={handleReset} style={[styles.dangerRow, { marginTop: 8 }]}>
             <Ionicons name="refresh-outline" size={16} color="#ef4444" />
-            <Text style={[styles.dangerText, { color: '#ef4444' }]}>Reset Bro</Text>
+            <Text style={[styles.dangerText, { color: '#ef4444' }]}>Reset Ace</Text>
           </Pressable>
         </Section>
 
         <Section
           label="LEGAL"
-          hint="Review what Bro stores locally and what it sends only when you confirm a journey."
+          hint="Review what Ace stores locally and what it sends only when you confirm a journey."
         >
           <Pressable onPress={() => router.push('/legal/terms')} style={styles.linkRow}>
             <View style={styles.linkCopy}>
@@ -302,7 +302,7 @@ export default function SettingsScreen() {
           <Pressable onPress={() => router.push('/legal/privacy')} style={[styles.linkRow, { marginTop: 10 }]}>
             <View style={styles.linkCopy}>
               <Text style={styles.linkTitle}>Privacy Policy</Text>
-              <Text style={styles.linkSubtitle}>What stays on your device and what Bro shares only when needed</Text>
+              <Text style={styles.linkSubtitle}>What stays on your device and what Ace shares only when needed</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#6b7280" />
           </Pressable>
@@ -310,7 +310,7 @@ export default function SettingsScreen() {
 
         {/* Footer */}
         <Text style={styles.footer}>
-          Bro 1.0{'\n'}
+          Ace 1.0{'\n'}
           Powered by AgentPay · agentpay.gg
         </Text>
 

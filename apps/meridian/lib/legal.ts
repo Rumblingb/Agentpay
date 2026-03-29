@@ -19,20 +19,20 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
     updatedAt: 'March 24, 2026',
     supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
-      'These terms govern your use of Bro during this early outdoor AI release. Bro helps you plan and secure journeys across the transport modes currently supported by the app, but a journey is only confirmed once Bro shows a real booking confirmation or reference.',
+      'These terms govern your use of Ace during this early outdoor AI release. Ace helps you plan and secure journeys across the transport modes currently supported by the app, but a journey is only confirmed once Ace shows a real booking confirmation or reference.',
     sections: [
       {
-        heading: 'What Bro Does',
+        heading: 'What Ace Does',
         body: [
-          'Bro helps you search, compare, and secure journeys in the markets and transport modes currently supported by the app.',
-          'Some journeys may be completed through partner services or manual fulfilment while Bro is in early release.',
+          'Ace helps you search, compare, and secure journeys in the markets and transport modes currently supported by the app.',
+          'Some journeys may be completed through partner services or manual fulfilment while Ace is in early release.',
         ],
       },
       {
         heading: 'Booking Confirmation',
         body: [
           'A payment confirmation is not the same as a booking confirmation.',
-          'Your journey is only confirmed when Bro shows a valid receipt, booking reference, or confirmation message that the ticket has actually been secured.',
+          'Your journey is only confirmed when Ace shows a valid receipt, booking reference, or confirmation message that the ticket has actually been secured.',
         ],
       },
       {
@@ -45,14 +45,14 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
       {
         heading: 'Early Access Limits',
         body: [
-          'Bro is being released to a limited testing cohort and may not support every route, operator, or edge case.',
-          'Bro may decline or defer requests that fall outside the current supported scope.',
+          'Ace is being released to a limited testing cohort and may not support every route, operator, or edge case.',
+          'Ace may decline or defer requests that fall outside the current supported scope.',
         ],
       },
       {
         heading: 'Support',
         body: [
-          'If something looks wrong, stop and contact the Bro team before travelling.',
+          'If something looks wrong, stop and contact the Ace team before travelling.',
         ],
       },
     ],
@@ -62,7 +62,7 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
     updatedAt: 'March 24, 2026',
     supportEmail: LEGAL_SUPPORT_EMAIL,
     intro:
-      'Bro is designed to keep your journey flow calm, safe, and minimal. This screen explains what stays on your device and what is shared only when needed to complete your trip.',
+      'Ace is designed to keep your journey flow calm, safe, and minimal. This screen explains what stays on your device and what is shared only when needed to complete your trip.',
     sections: [
       {
         heading: 'What Stays On Your Device',
@@ -72,9 +72,9 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
         ],
       },
       {
-        heading: 'What Bro Sends',
+        heading: 'What Ace Sends',
         body: [
-          'Bro sends only the information needed to transcribe voice requests, plan journeys, check live transport data, process payment steps, and secure the booking you confirm.',
+          'Ace sends only the information needed to transcribe voice requests, plan journeys, check live transport data, process payment steps, and secure the booking you confirm.',
           'Booking details may be shared with fulfilment services or operators when needed to secure a real ticket.',
         ],
       },
@@ -89,14 +89,14 @@ export const LEGAL_DOCS: Record<LegalDocKey, LegalDoc> = {
       {
         heading: 'Payments and Journey Data',
         body: [
-          'Bro may store booking references, timing, route details, and receipt metadata so your journey can reopen cleanly after you close the app.',
-          'Bro does not ask you to place model, payment, or infrastructure secrets in the mobile app.',
+          'Ace may store booking references, timing, route details, and receipt metadata so your journey can reopen cleanly after you close the app.',
+          'Ace does not ask you to place model, payment, or infrastructure secrets in the mobile app.',
         ],
       },
       {
         heading: 'Questions',
         body: [
-          'For questions about privacy during this early release, contact the Bro team before sharing travel-critical information.',
+          'For questions about privacy during this early release, contact the Ace team before sharing travel-critical information.',
         ],
       },
     ],

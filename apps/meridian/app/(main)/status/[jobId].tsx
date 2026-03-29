@@ -14,6 +14,8 @@ import {
   Pressable,
   Animated,
   Share,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -22,7 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
-import { getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
+import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
 import { saveActiveTrip } from '../../../lib/storage';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
@@ -39,11 +41,25 @@ function activeLegIndex(legs: Array<{ status?: string }>): number {
   return active >= 0 ? active : Math.max(0, legs.length - 1);
 }
 
+function recoveryPrompt(params: {
+  fromStation?: string | null;
+  toStation?: string | null;
+  bookingRef?: string | null;
+  reason: 'delay' | 'payment' | 'problem';
+}) {
+  const route = [params.fromStation, params.toStation].filter(Boolean).join(' to ');
+  if (params.reason === 'delay' && route) return `${route} next available`;
+  if (params.reason === 'payment' && route) return `Help me finish paying for ${route}`;
+  if (route) return `Help with my booking ${route}`;
+  if (params.bookingRef) return `Help with booking ${params.bookingRef}`;
+  return 'Help with my current booking';
+}
+
 export default function StatusScreen() {
   const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
     useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
   const totalLegs = paramTotalLegs ? Number(paramTotalLegs) : 1;
-  const { currentAgent, setPhase } = useStore();
+  const { currentAgent, setPhase, agentId } = useStore();
 
   const [statusPhase, setStatusPhase]   = useState<StatusPhase>('executing');
   const [elapsed, setElapsed]           = useState(0);
@@ -61,6 +77,11 @@ export default function StatusScreen() {
   const [payLoading, setPayLoading]           = useState(false);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
+  const [showIssueModal, setShowIssueModal]   = useState(false);
+  const [issueCategory, setIssueCategory]     = useState<'payment' | 'delay' | 'ticket' | 'other'>('payment');
+  const [issueText, setIssueText]             = useState('');
+  const [issueSending, setIssueSending]       = useState(false);
+  const [issueSent, setIssueSent]             = useState(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const POLL_TIMEOUT_S = 90;             // give up polling after 90s
@@ -177,7 +198,7 @@ export default function StatusScreen() {
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
-              ? `Securing your ticket. Bro reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
+              ? `Securing your ticket. Ace reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
               : 'Securing your ticket. Ticket details will arrive by email within 15 minutes.';
             await speak(doneMsg);
             // Animate success
@@ -290,6 +311,47 @@ export default function StatusScreen() {
   const isFullyDone  = isDone && (!needsPayment || paymentConfirmed);
   const cards = tripCards(tripContext);
   const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
+  const supportPrompt = recoveryPrompt({
+    fromStation,
+    toStation,
+    bookingRef,
+    reason: isDone && needsPayment && !paymentConfirmed ? 'payment' : isError ? 'problem' : 'delay',
+  });
+
+  const openIssueModal = (category: 'payment' | 'delay' | 'ticket' | 'other') => {
+    setIssueCategory(category);
+    setIssueSent(false);
+    setIssueText((current) => {
+      if (current.trim()) return current;
+      if (category === 'payment') return 'Payment page did not open or payment did not complete.';
+      if (category === 'delay') return 'Journey changed and I need help with the next step.';
+      if (category === 'ticket') return 'I have not received the ticket or booking confirmation yet.';
+      return '';
+    });
+    setShowIssueModal(true);
+  };
+
+  const submitIssue = async () => {
+    if (!agentId || issueSending) return;
+    setIssueSending(true);
+    try {
+      const route = [fromStation, toStation].filter(Boolean).join(' -> ');
+      const prefix = `[${issueCategory}]`;
+      const summary = [prefix, route, bookingRef ? `ref ${bookingRef}` : null].filter(Boolean).join(' ');
+      await reportIssue({
+        intentId: jobId,
+        bookingRef,
+        description: `${summary}\n${issueText.trim() || 'Customer requested help from live booking screen.'}`,
+        hirerId: agentId,
+      });
+      setIssueSent(true);
+      setIssueText('');
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? 'Could not send your issue right now.');
+    } finally {
+      setIssueSending(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -342,12 +404,12 @@ export default function StatusScreen() {
           {isFullyDone
             ? totalLegs > 1
               ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
-              : 'Bro has your journey moving. Ticket details arrive by email shortly.'
+              : 'Ace has your journey moving. Ticket details arrive by email shortly.'
             : isDone && needsPayment && !paymentConfirmed
             ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
-            : `${currentAgent?.name ?? 'Bro'} is lining everything up · ${elapsed}s`}
+            : `${currentAgent?.name ?? 'Ace'} is lining everything up · ${elapsed}s`}
         </Text>
         {totalLegs > 1 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
@@ -412,7 +474,7 @@ export default function StatusScreen() {
                 <Pressable
                   onPress={() => {
                     void Share.share({
-                      title: 'Join my trip on Bro',
+                      title: 'Join my trip on Ace',
                       message: `Track our journey live → https://bro.app/trip/${shareToken}`,
                       url: `https://bro.app/trip/${shareToken}`,
                     });
@@ -430,7 +492,7 @@ export default function StatusScreen() {
         {/* Booking reference pill */}
         {isDone && bookingRef && (
           <View style={styles.bookingRefWrap}>
-            <Text style={styles.bookingRefLabel}>Bro Reference</Text>
+            <Text style={styles.bookingRefLabel}>Ace Reference</Text>
             <Text style={styles.bookingRef}>{bookingRef}</Text>
             {(departureTime || platform || operator) && (
               <View style={styles.journeyMeta}>
@@ -476,7 +538,7 @@ export default function StatusScreen() {
                   const { shortUrl } = await createUpiPaymentLink({
                     jobId,
                     amountInr: Math.round(parseFloat(fiatAmount)),
-                    description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Bro booking',
+                    description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
                   });
                   await Linking.openURL(shortUrl);
                 } else {
@@ -484,7 +546,7 @@ export default function StatusScreen() {
                     jobId,
                     amountFiat:   parseFloat(fiatAmount),
                     currencyCode: paramCode ?? 'GBP',
-                    description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Bro booking',
+                    description:  [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
                   });
                   await Linking.openURL(url);
                 }
@@ -515,6 +577,25 @@ export default function StatusScreen() {
           <View style={styles.paidBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#4ade80" />
             <Text style={styles.paidBadgeText}>Payment confirmed</Text>
+          </View>
+        )}
+
+        {(isError || (isDone && needsPayment && !paymentConfirmed) || (!isDone && elapsed >= 20)) && (
+          <View style={styles.helpRow}>
+            <Pressable
+              onPress={() => router.replace({ pathname: '/(main)/converse', params: { prefill: supportPrompt } } as any)}
+              style={styles.helpPrimaryBtn}
+            >
+              <Ionicons name="sparkles-outline" size={16} color="#93c5fd" />
+              <Text style={styles.helpPrimaryText}>Ask Ace to fix this</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => openIssueModal(isDone && needsPayment && !paymentConfirmed ? 'payment' : isError ? 'ticket' : 'delay')}
+              style={styles.helpSecondaryBtn}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fcd34d" />
+              <Text style={styles.helpSecondaryText}>Need help now</Text>
+            </Pressable>
           </View>
         )}
 
@@ -558,7 +639,7 @@ export default function StatusScreen() {
                 onPress={() => {
                   const url = `https://api.agentpay.so/trip/view/${shareToken}`;
                   void Share.share({
-                    title: 'Join my trip on Bro',
+                    title: 'Join my trip on Ace',
                     message: `Track our journey live → ${url}`,
                     url,
                   });
@@ -589,6 +670,47 @@ export default function StatusScreen() {
         )}
 
       </View>
+
+      <Modal visible={showIssueModal} transparent animationType="fade" onRequestClose={() => setShowIssueModal(false)}>
+        <View style={styles.modalScrim}>
+          <View style={styles.issueModal}>
+            <Text style={styles.issueTitle}>Need help right now?</Text>
+            <Text style={styles.issueBody}>
+              Send the Ace team the exact issue from this live booking screen so they can pick it up with context.
+            </Text>
+            <View style={styles.issueChips}>
+              {(['payment', 'delay', 'ticket', 'other'] as const).map((category) => (
+                <Pressable
+                  key={category}
+                  onPress={() => setIssueCategory(category)}
+                  style={[styles.issueChip, issueCategory === category && styles.issueChipActive]}
+                >
+                  <Text style={[styles.issueChipText, issueCategory === category && styles.issueChipTextActive]}>
+                    {category === 'payment' ? 'Payment' : category === 'delay' ? 'Delay' : category === 'ticket' ? 'Ticket' : 'Other'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={issueText}
+              onChangeText={setIssueText}
+              placeholder="What is going wrong?"
+              placeholderTextColor="#64748b"
+              multiline
+              style={styles.issueInput}
+            />
+            {issueSent && <Text style={styles.issueSent}>Sent. Ace support now has this live trip context.</Text>}
+            <View style={styles.issueActions}>
+              <Pressable onPress={() => setShowIssueModal(false)} style={styles.issueCancelBtn}>
+                <Text style={styles.issueCancelText}>Close</Text>
+              </Pressable>
+              <Pressable onPress={() => { void submitIssue(); }} style={styles.issueSendBtn}>
+                <Text style={styles.issueSendText}>{issueSending ? 'Sending…' : 'Send issue'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -870,8 +992,140 @@ const styles = StyleSheet.create({
     borderColor: C.greenMid,
   },
   paidBadgeText: { fontSize: 13, fontWeight: '600', color: C.green },
+  helpRow: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 16,
+  },
+  helpPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#1d4ed8',
+    backgroundColor: '#0f172a',
+    paddingVertical: 14,
+  },
+  helpPrimaryText: {
+    fontSize: 14,
+    color: '#93c5fd',
+    fontWeight: '700',
+  },
+  helpSecondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#854d0e',
+    backgroundColor: '#1c1917',
+    paddingVertical: 14,
+  },
+  helpSecondaryText: {
+    fontSize: 14,
+    color: '#fcd34d',
+    fontWeight: '700',
+  },
   shareTripBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   shareTripText: { fontSize: 15, color: C.sky, fontWeight: '500' },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 23, 0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  issueModal: {
+    width: '100%',
+    borderRadius: 18,
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    padding: 18,
+  },
+  issueTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#f8fafc',
+    marginBottom: 8,
+  },
+  issueBody: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#94a3b8',
+    marginBottom: 14,
+  },
+  issueChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  issueChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: '#0f172a',
+  },
+  issueChipActive: {
+    borderColor: '#38bdf8',
+    backgroundColor: '#082f49',
+  },
+  issueChipText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  issueChipTextActive: {
+    color: '#bae6fd',
+  },
+  issueInput: {
+    minHeight: 108,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    backgroundColor: '#0f172a',
+    color: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
+    marginBottom: 10,
+  },
+  issueSent: {
+    fontSize: 12,
+    color: '#4ade80',
+    marginBottom: 10,
+  },
+  issueActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  issueCancelBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  issueCancelText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  issueSendBtn: {
+    borderRadius: 12,
+    backgroundColor: '#082f49',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  issueSendText: {
+    fontSize: 13,
+    color: '#bae6fd',
+    fontWeight: '700',
+  },
 });
 
 // ── Leg timeline styles ────────────────────────────────────────────────────────
