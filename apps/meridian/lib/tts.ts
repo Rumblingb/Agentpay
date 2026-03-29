@@ -1,7 +1,9 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 
-export const ELEVENLABS_BRO_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
+const DEFAULT_ACE_VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+export const ELEVENLABS_ACE_VOICE_ID =
+  process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID ?? DEFAULT_ACE_VOICE_ID;
 
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
@@ -50,7 +52,7 @@ export async function speakBro(text: string): Promise<void> {
 
   try {
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_BRO_VOICE_ID}/stream`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_ACE_VOICE_ID}/stream`,
       {
         method: 'POST',
         headers: {
@@ -61,6 +63,13 @@ export async function speakBro(text: string): Promise<void> {
         body: JSON.stringify({
           text,
           model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.55,
+            similarity_boost: 0.8,
+            style: 0.15,
+            speed: 0.9,
+            use_speaker_boost: true,
+          },
         }),
       },
     );

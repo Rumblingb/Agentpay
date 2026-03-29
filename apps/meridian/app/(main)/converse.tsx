@@ -271,8 +271,8 @@ function buildBookingReadiness(params: {
           tone: 'ready',
         }
       : {
-          label: 'Fast lane is active',
-          detail: 'This trip sits within your auto-approve limit, so Ace can move faster once you confirm.',
+          label: 'Ace can move quickly from here',
+          detail: 'This trip is ready to move as soon as you confirm.',
           tone: 'ready',
         },
   ];
@@ -782,8 +782,8 @@ export default function ConverseScreen() {
           nextMessage = 'Voice service is offline for the moment. You can type the trip below.';
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
           nextMessage = "Ace did not catch enough audio. Hold to speak again, or type it below.";
-        } else if (msg.includes('network error') || msg.includes('network request')) {
-          nextMessage = 'Ace cannot reach voice right now. Check your connection, or type the trip below.';
+        } else if (msg.includes('network error') || msg.includes('network request') || msg.includes('unreachable')) {
+          nextMessage = 'Ace cannot reach voice right now. You can type the trip below.';
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
           nextMessage = 'Voice service had trouble with that request. You can type the trip below.';
         }
@@ -821,8 +821,8 @@ export default function ConverseScreen() {
       let nextMessage = 'Something went wrong — hold to try again.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Hold to speak again, or type it below.';
-      } else if (msg.includes('no connection') || msg.includes('internet')) {
-        nextMessage = 'No connection. Check your internet, or type the trip below.';
+      } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
+        nextMessage = 'Ace cannot reach the network right now. You can type the trip below.';
       } else if (msg.includes('offline')) {
         nextMessage = 'Service is offline right now. You can type the trip below.';
       }
@@ -1487,7 +1487,7 @@ export default function ConverseScreen() {
           <View style={styles.holdPlaque}>
             <View style={styles.holdPlaqueDot} />
             <Text style={styles.holdPlaqueText}>
-              {phase === 'listening' ? 'Listening now' : 'Hold Ace to speak'}
+              {phase === 'listening' ? 'Listening' : 'Tell Ace where to go'}
             </Text>
           </View>
         )}

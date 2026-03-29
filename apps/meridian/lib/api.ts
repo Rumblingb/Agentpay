@@ -8,23 +8,35 @@ import type { NearbyPlace, ProactiveCard, RouteData, TripContext } from '../../.
 const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetchWithTimeout(`${BASE}${path}`, {
       ...init,
-      signal: init?.signal ?? AbortSignal.timeout(30_000),
       headers: {
         'Content-Type': 'application/json',
         ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
         ...(init?.headers ?? {}),
       },
-    });
+    }, 30_000);
   } catch (e: any) {
     if (e.name === 'AbortError' || e.name === 'TimeoutError') {
       throw new Error('Request timed out — hold to try again.');
     }
-    throw new Error('No connection — check your internet and try again.');
+    throw new Error('Ace cannot reach the network right now. Try again in a moment.');
   }
   const text = await res.text();
   let data: unknown;

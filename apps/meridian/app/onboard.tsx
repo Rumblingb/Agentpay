@@ -6,7 +6,7 @@
  *   2. Name     — "What should I call you?"
  *   3. Privacy  — consent to profile storage, biometric protection, location
  *   4. Profile  — travel details (voice-fill or form, biometric-gated save)
- *   5. Finish   — auto-confirm budget + agent registration
+ *   5. Finish   — final launch + agent registration
  *
  * On completion: auto-registers as AgentPay agent, saves credentials,
  * routes to converse.
@@ -70,19 +70,19 @@ const MARKET_COPY: Record<Nationality, {
   setupTagline: string;
 }> = {
   uk: {
-    intro: 'I am Ace. A spoken travel concierge for UK rail. Hold Ace and try me.',
+    intro: 'I am Ace. A spoken travel concierge for UK rail.',
     fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and carry the booking through for you.",
     demoPrompt: 'book a train to London tomorrow',
     setupTagline: 'This is not a normal booking app. The more you tell Ace up front, the more completely it can handle UK rail with the right railcard, route, and passenger details.',
   },
   india: {
-    intro: 'I am Ace. A spoken travel concierge for Indian rail. Hold Ace and try me.',
+    intro: 'I am Ace. A spoken travel concierge for Indian rail.',
     fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and carry the booking through with you.",
     demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
     setupTagline: 'This is a more hands-off way to travel. The more you set up now, the faster Ace can move later with IRCTC details, class preferences, and payment-ready journeys.',
   },
   other: {
-    intro: 'I am Ace. A spoken concierge for movement. Hold Ace and try me.',
+    intro: 'I am Ace. A spoken concierge for movement.',
     fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line the journey up for you.",
     demoPrompt: 'new york to boston tomorrow morning',
     setupTagline: 'Ace is building a new category of concierge travel. It works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
@@ -102,6 +102,7 @@ export default function OnboardScreen() {
   const [nameListening,  setNameListening]  = useState(false);
   const [nameThinking,   setNameThinking]   = useState(false);
   const [nameHeard,      setNameHeard]      = useState('');
+  const [nameHint,       setNameHint]       = useState<string | null>(null);
 
   // Step 3 — privacy consents
   const [locationConsent, setLocationConsent]   = useState(false);
@@ -136,7 +137,6 @@ export default function OnboardScreen() {
   const [showDocs, setShowDocs]             = useState(false);
 
   // Step 5 — finish
-  const [budget,  setBudget]  = useState('5');
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
@@ -376,7 +376,7 @@ export default function OnboardScreen() {
   };
 
   const handleFinish = async () => {
-    const budgetN = parseFloat(budget) || 5;
+    const budgetN = 5;
     const name = userName.trim() || 'Traveler';
 
     setLoading(true);
@@ -488,27 +488,43 @@ export default function OnboardScreen() {
                 <Text style={styles.stepSub}>
                   {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Hold the orb and say your name.'}
                 </Text>
+                {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
                 {/* Voice orb */}
                 <Pressable
                   onPressIn={async () => {
                     if (nameListening || nameThinking) return;
                     setNameListening(true);
+                    setNameHint('Listening…');
                     setNameHeard('');
-                    await startRecording().catch(() => { setNameListening(false); });
+                    await startRecording().catch(() => {
+                      setNameListening(false);
+                      setNameHint('Microphone access is needed. You can also type your name below.');
+                    });
                   }}
                   onPressOut={async () => {
                     if (!nameListening) return;
                     setNameListening(false);
                     setNameThinking(true);
+                    setNameHint('Listening…');
                     try {
                       const uri = await stopRecording();
                       if (uri) {
                         const t = await transcribeAudio(uri).catch(() => '');
                         const name = t.trim().replace(/^(my name is|i'm|i am|call me)\s+/i, '').replace(/[.,!?]+$/, '').trim();
-                        if (name) { setNameHeard(name); setUserName(name); }
+                        if (name) {
+                          setNameHeard(name);
+                          setUserName(name);
+                          setNameHint('Got it.');
+                        } else {
+                          setNameHint('Ace did not catch that. Try once more or type your name below.');
+                        }
+                      } else {
+                        setNameHint('Ace did not catch enough audio. Try once more or type your name below.');
                       }
-                    } catch {}
+                    } catch {
+                      setNameHint('Voice is unavailable right now. You can type your name below.');
+                    }
                     setNameThinking(false);
                   }}
                   style={nameStyles.orbWrap}
@@ -918,29 +934,11 @@ export default function OnboardScreen() {
             {step === 'finish' && (
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>
-                  Almost there{userName.trim() ? `, ${userName.trim()}` : ''}.
+                  Ready{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  This is the handoff between speed and control. Below this amount, Ace can move fast. Above it, you stay in the loop before any money goes out.
+                  Ace is set up for the first booking. You will still approve important moments, and Ace will handle the rest.
                 </Text>
-
-                <FieldLabel
-                  text="Auto-approve limit (USDC)"
-                  hint="A higher limit means fewer confirmation prompts. A lower limit means more explicit approval moments."
-                />
-                <View style={styles.chipRow}>
-                  {['2', '5', '10', '25'].map((v) => (
-                    <Pressable
-                      key={v}
-                      onPress={() => setBudget(v)}
-                      style={[styles.chip, budget === v && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, budget === v && styles.chipTextActive]}>
-                        ${v}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
 
                 {/* Time saved strip */}
                 <View style={finishStyles.savedStrip}>
@@ -986,7 +984,7 @@ export default function OnboardScreen() {
 
                 <Text style={styles.legalNote}>
                   Secure payments are built in.{'\n'}
-                  Ace works best when your profile is complete, your consent choices are clear, and your budget matches how hands-off you want it to be.
+                  Ace works best when your profile is complete and your consent choices are clear.
                 </Text>
               </View>
             )}
