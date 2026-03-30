@@ -366,6 +366,11 @@ export interface ConciergeResponse {
   usualRoute?: { origin: string; destination: string; count: number; typicalFareGbp?: number };
 }
 
+function isAsyncEligibleConciergePlan(plan: ConciergePlanItem[]): boolean {
+  return plan.length === 1
+    && (plan[0]?.toolName === 'book_train' || plan[0]?.toolName === 'book_train_india');
+}
+
 /** Phase 1: plan — Claude decides what to do, returns price. No hire yet. */
 export async function conciergeIntent(params: {
   transcript: string;
@@ -385,6 +390,20 @@ export async function conciergeConfirm(params: {
   travelProfile?: BroTravelProfile;
   plan: ConciergePlanItem[];
 }): Promise<ConciergeResponse> {
+  if (isAsyncEligibleConciergePlan(params.plan)) {
+    try {
+      return await apiFetch('/api/concierge/confirm', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+    } catch (e: any) {
+      const msg = String(e?.message ?? '');
+      if (!msg.includes('ASYNC_CONFIRM_UNAVAILABLE') && !msg.includes('API error 404')) {
+        throw e;
+      }
+    }
+  }
+
   return apiFetch('/api/concierge/intent', {
     method: 'POST',
     body: JSON.stringify({ ...params, confirmed: true }),

@@ -43,6 +43,7 @@ import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable'
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
 import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
+import { withBookingState } from '../lib/bookingState';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1814,6 +1815,227 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 // Called by Make.com (or admin) once the real ticket has been purchased.
 // Sends the confirmed ticket email, marks the job complete, updates the ops sheet.
 
+conciergeRouter.post('/confirm', async (c) => {
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+
+  let body: {
+    transcript: string;
+    hirerId: string;
+    travelProfile?: Record<string, unknown>;
+    plan?: PlanItem[];
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON' }, 400);
+  }
+
+  const { transcript, hirerId, travelProfile, plan } = body;
+  if (!transcript || !hirerId || !plan?.length) {
+    return c.json({ error: 'transcript, hirerId, and plan are required' }, 400);
+  }
+  if (!isAsyncConfirmEligible(plan)) {
+    return c.json({ error: 'ASYNC_CONFIRM_UNAVAILABLE' }, 409);
+  }
+
+  const item = plan[0];
+  const skill = SKILL_MAP[item.toolName];
+  if (!skill || !item.trainDetails) {
+    return c.json({ error: 'ASYNC_CONFIRM_UNAVAILABLE' }, 409);
+  }
+
+  const traceId = makeTrace();
+  const scopedProfile = travelProfile
+    ? scopeProfileFields(travelProfile, skill.requiredProfileFields)
+    : undefined;
+  const jobDescription = buildJobDescription(item.toolName, item.input, scopedProfile);
+
+  let hireResult: Awaited<ReturnType<typeof hireAgent>>;
+  try {
+    const firstAttemptAgentId = item.agentId;
+    try {
+      hireResult = await hireAgent(
+        c.env.API_BASE_URL,
+        hirerId,
+        item.agentId,
+        jobDescription,
+        item.estimatedPriceUsdc,
+      );
+    } catch (firstErr: any) {
+      const retrySql = createDb(c.env);
+      try {
+        const retryAgent = await findBestAgent(retrySql, SKILL_MAP[item.toolName]?.category ?? '', {
+          excludeAgent: firstAttemptAgentId,
+        });
+        if (!retryAgent) throw firstErr;
+        hireResult = await hireAgent(
+          c.env.API_BASE_URL,
+          hirerId,
+          retryAgent.agentId,
+          jobDescription,
+          item.estimatedPriceUsdc,
+        );
+        item.agentId = retryAgent.agentId;
+        item.agentName = retryAgent.name;
+      } finally {
+        await retrySql.end().catch(() => {});
+      }
+    }
+  } catch (error: any) {
+    broLog('phase2_async_confirm_failed', {
+      traceId,
+      toolName: item.toolName,
+      hirerId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: 'Could not hand the trip over right now. Please try again.' }, 502);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const isIndia = item.trainDetails.country === 'india';
+    const broRef = isIndia ? generateIndianPNR() : generateBookingRef();
+    const userEmail = travelProfile?.email as string | undefined;
+    const userName = travelProfile?.legalName as string | undefined;
+    const userPhone = travelProfile?.phone as string | undefined;
+    const userWhatsapp = travelProfile?.whatsappNumber as string | undefined;
+    const userIrctcUser = travelProfile?.irctcUsername as string | undefined;
+    const executingTripContext = toExecutingTripContext(item.tripContext, {
+      watchState: {
+        ...item.tripContext?.watchState,
+        bookingConfirmed: false,
+      },
+    });
+
+    const proof: BookingProof = {
+      bookingRef: broRef,
+      departureTime: item.trainDetails.departureTime,
+      departureDatetime: item.trainDetails.departureDatetime,
+      arrivalTime: item.trainDetails.arrivalTime,
+      platform: item.trainDetails.platform,
+      operator: item.trainDetails.operator,
+      fromStation: item.trainDetails.origin,
+      toStation: item.trainDetails.destination,
+      serviceUid: item.trainDetails.serviceUid,
+      fareGbp: item.trainDetails.estimatedFareGbp,
+      country: item.trainDetails.country,
+      fareInr: item.trainDetails.fareInr,
+      trainNumber: item.trainDetails.trainNumber,
+      trainName: item.trainDetails.trainName,
+      classCode: item.trainDetails.classCode,
+      bookedAt: new Date().toISOString(),
+      travelDate: item.trainDetails.travelDate,
+      isSimulated: true,
+      dataSource: item.trainDetails.dataSource,
+      finalLegSummary: item.trainDetails.finalLegSummary,
+      note: isIndia
+        ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
+        : item.trainDetails.country === 'eu'
+        ? 'EU rail schedule via Rail Europe / Trainline. Ops team will book and email confirmation.'
+        : 'Schedule data from National Rail via Darwin API. Provider booking not yet integrated.',
+    };
+
+    await sql`
+      UPDATE payment_intents
+      SET metadata = metadata || ${JSON.stringify(withBookingState('payment_pending', {
+        broRef,
+        trainDetails: item.trainDetails,
+        userEmail: userEmail ?? null,
+        userName: userName ?? null,
+        userPhone: userPhone ?? null,
+        pendingFulfilment: true,
+        bookingInProgress: false,
+        tripContext: executingTripContext,
+        journeyId: (item as any).journeyId ?? null,
+        legIndex: 0,
+        totalLegs: 1,
+        asyncExecution: true,
+        executionQueuedAt: new Date().toISOString(),
+      }))}::jsonb
+      WHERE id = ${hireResult.jobId}
+    `;
+
+    c.executionCtx.waitUntil(
+      Promise.all([
+        sendBookingRequestEmail(c.env.RESEND_API_KEY, {
+          to: userEmail,
+          name: userName,
+          broRef,
+          trainDetails: item.trainDetails,
+        }),
+        sendAdminAlert(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
+          broRef,
+          jobId: hireResult.jobId,
+          userEmail: userEmail ?? 'unknown',
+          userName: userName ?? 'unknown',
+          origin: item.trainDetails.origin,
+          destination: item.trainDetails.destination,
+          departureTime: item.trainDetails.departureTime,
+          estimatedFare: isIndia
+            ? `₹${item.trainDetails.fareInr}`
+            : item.trainDetails.country === 'eu'
+            ? `€${item.trainDetails.estimatedFareGbp}`
+            : `£${item.trainDetails.estimatedFareGbp}`,
+          country: item.trainDetails.country ?? 'uk',
+        }),
+        sendBookingWhatsApp(c.env, {
+          proof,
+          userEmail,
+          userName,
+          userPhone,
+          userWhatsapp,
+          irctcUsername: userIrctcUser,
+        }).catch((e) => broLog('whatsapp_failed', { traceId, error: (e as Error).message })),
+        c.env.MAKECOM_WEBHOOK_URL
+          ? fireOperationsWebhook(c.env.MAKECOM_WEBHOOK_URL, {
+              proof,
+              userEmail,
+              userName,
+              userPhone,
+              userWhatsapp,
+              jobId: hireResult.jobId,
+            }).catch((e) => broLog('webhook_failed', { traceId, error: (e as Error).message }))
+          : Promise.resolve(),
+      ]),
+    );
+
+    broLog('phase2_async_confirm_queued', {
+      traceId,
+      hirerId,
+      jobId: hireResult.jobId,
+      toolName: item.toolName,
+      country: item.trainDetails.country ?? 'uk',
+    });
+
+    return c.json({
+      narration: `Under way. Ref ${broRef}. I'll keep this moving and bring the details through here.`,
+      actions: [{
+        toolName: skill.toolName,
+        displayName: skill.displayName,
+        agentId: item.agentId,
+        agentName: item.agentName,
+        jobId: hireResult.jobId,
+        agreedPriceUsdc: hireResult.agreedPriceUsdc,
+        input: item.input,
+        status: 'hired',
+        trainDetails: item.trainDetails,
+        tripContext: executingTripContext,
+        journeyId: (item as any).journeyId ?? undefined,
+        legIndex: 0,
+      }],
+      journeyId: (item as any).journeyId ?? undefined,
+      tripContext: executingTripContext,
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
 conciergeRouter.post('/fulfill/:jobId', async (c) => {
   const adminSecret = c.env.ADMIN_SECRET_KEY;
   if (!adminSecret) {
@@ -1995,6 +2217,12 @@ async function findBestAgent(
   } catch {
     return null;
   }
+}
+
+function isAsyncConfirmEligible(plan: PlanItem[]): boolean {
+  if (plan.length !== 1) return false;
+  const [item] = plan;
+  return !!item.trainDetails && (item.toolName === 'book_train' || item.toolName === 'book_train_india');
 }
 
 async function hireAgent(
