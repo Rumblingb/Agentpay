@@ -23,57 +23,53 @@ if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 function iconSvg(size = 1024) {
   const center = size / 2;
   const bgRadius = size * 0.24;
-  const glowR = size * 0.34;
-  const sigilW = size * 0.34;
-  const sigilH = size * 0.39;
-  const sigilX = center - sigilW / 2;
-  const sigilY = center - sigilH / 2;
-  const coreR = size * 0.068;
+  const ringW = size * 0.56;
+  const ringH = size * 0.44;
+  const strokeW = size * 0.082;
+  const leftH = size * 0.30;
+  const rightH = size * 0.36;
+  const leftX = center - size * 0.116;
+  const rightX = center + size * 0.033;
+  const strokeY = center - size * 0.17;
+  const innerDropX = center - size * 0.03;
+  const innerDropY = center - size * 0.012;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
-      <stop offset="0%" stop-color="#102033"/>
-      <stop offset="45%" stop-color="#08111d"/>
-      <stop offset="100%" stop-color="#04070b"/>
+    <radialGradient id="bg" cx="50%" cy="38%" r="76%">
+      <stop offset="0%" stop-color="#5c6776"/>
+      <stop offset="38%" stop-color="#39414d"/>
+      <stop offset="100%" stop-color="#1f252e"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="38%" r="55%">
-      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.95"/>
-      <stop offset="35%" stop-color="#38bdf8" stop-opacity="0.48"/>
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
+    <radialGradient id="haloGlow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#e9f7ff" stop-opacity="0.95"/>
+      <stop offset="32%" stop-color="#cce6ff" stop-opacity="0.52"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="sigilBody" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0d1725"/>
-      <stop offset="100%" stop-color="#050912"/>
+    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cfe3ff"/>
     </linearGradient>
-    <linearGradient id="crest" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#d9f7ff"/>
-      <stop offset="100%" stop-color="#7dd3fc"/>
+    <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#415264"/>
+      <stop offset="100%" stop-color="#24303d"/>
     </linearGradient>
     <filter id="blurGlow">
-      <feGaussianBlur stdDeviation="${size * 0.035}" result="blur"/>
+      <feGaussianBlur stdDeviation="${size * 0.028}" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
-    <filter id="softShadow">
-      <feDropShadow dx="0" dy="${size * 0.01}" stdDeviation="${size * 0.018}" flood-color="#38bdf8" flood-opacity="0.24"/>
+    <filter id="markShadow">
+      <feDropShadow dx="0" dy="${size * 0.008}" stdDeviation="${size * 0.014}" flood-color="#f3fbff" flood-opacity="0.22"/>
     </filter>
   </defs>
   <rect width="${size}" height="${size}" fill="url(#bg)" rx="${bgRadius}"/>
-  <circle cx="${center}" cy="${center}" r="${glowR}" fill="url(#halo)" filter="url(#blurGlow)"/>
-  <circle cx="${center}" cy="${center}" r="${size * 0.22}" fill="#0a1320" opacity="0.78"/>
-  <g filter="url(#softShadow)">
-    <rect x="${sigilX}" y="${sigilY}" width="${sigilW}" height="${sigilH}" rx="${size * 0.08}" fill="url(#sigilBody)" stroke="rgba(125,211,252,0.34)" stroke-width="${size * 0.0036}"/>
-    <ellipse cx="${center}" cy="${sigilY + size * 0.055}" rx="${size * 0.06}" ry="${size * 0.012}" fill="#dff8ff" opacity="0.18"/>
-    <rect x="${center - size * 0.094}" y="${sigilY + size * 0.075}" width="${size * 0.012}" height="${size * 0.15}" rx="${size * 0.006}" fill="#65d8ff" opacity="0.34"/>
-    <rect x="${center + size * 0.082}" y="${sigilY + size * 0.075}" width="${size * 0.012}" height="${size * 0.15}" rx="${size * 0.006}" fill="#65d8ff" opacity="0.34"/>
-    <circle cx="${center}" cy="${center}" r="${coreR * 1.7}" fill="#67e8f9" opacity="0.10" stroke="#7dd3fc" stroke-opacity="0.28" stroke-width="${size * 0.0036}"/>
-    <circle cx="${center}" cy="${center}" r="${coreR}" fill="#08111d" stroke="#d8f6ff" stroke-opacity="0.72" stroke-width="${size * 0.0042}"/>
-    <path d="M ${center - size * 0.028} ${center + size * 0.038} L ${center} ${center - size * 0.048} L ${center + size * 0.028} ${center + size * 0.038}" fill="none" stroke="url(#crest)" stroke-width="${size * 0.012}" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="${center - size * 0.017}" y1="${center + size * 0.002}" x2="${center + size * 0.017}" y2="${center + size * 0.002}" stroke="url(#crest)" stroke-width="${size * 0.009}" stroke-linecap="round"/>
-    <path d="M ${center - size * 0.065} ${sigilY + sigilH - size * 0.07} L ${center - size * 0.014} ${sigilY + sigilH - size * 0.048} L ${center} ${sigilY + sigilH - size * 0.024} L ${center + size * 0.014} ${sigilY + sigilH - size * 0.048} L ${center + size * 0.065} ${sigilY + sigilH - size * 0.07}" fill="none" stroke="#7dd3fc" stroke-opacity="0.48" stroke-width="${size * 0.006}" stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="${center - size * 0.04}" y="${sigilY + sigilH + size * 0.02}" width="${size * 0.08}" height="${size * 0.018}" rx="${size * 0.009}" fill="#89dfff" opacity="0.20"/>
+  <ellipse cx="${center}" cy="${center}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.03)" stroke="rgba(221,240,255,0.86)" stroke-width="${size * 0.006}" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)">
+    <rect x="${leftX}" y="${strokeY}" width="${strokeW}" height="${leftH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(28 ${leftX + strokeW / 2} ${strokeY + leftH / 2})"/>
+    <rect x="${rightX}" y="${strokeY - size * 0.014}" width="${strokeW}" height="${rightH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(-26 ${rightX + strokeW / 2} ${strokeY + rightH / 2})"/>
+    <rect x="${innerDropX}" y="${innerDropY}" width="${size * 0.088}" height="${size * 0.145}" rx="${size * 0.044}" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${size * 0.003}" transform="rotate(16 ${innerDropX + size * 0.044} ${innerDropY + size * 0.0725})"/>
   </g>
 </svg>`;
 }
@@ -81,55 +77,53 @@ function iconSvg(size = 1024) {
 function splashSvg(w = 1242, h = 2688) {
   const cx = w / 2;
   const cy = h / 2;
-  const sigilW = w * 0.22;
-  const sigilH = w * 0.255;
-  const sigilX = cx - sigilW / 2;
-  const sigilY = cy - h * 0.1;
-  const coreR = w * 0.043;
+  const ringW = w * 0.32;
+  const ringH = w * 0.25;
+  const strokeW = w * 0.046;
+  const leftH = w * 0.17;
+  const rightH = w * 0.205;
+  const leftX = cx - w * 0.066;
+  const rightX = cx + w * 0.02;
+  const strokeY = cy - h * 0.102;
+  const innerDropX = cx - w * 0.024;
+  const innerDropY = cy - h * 0.025;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
-      <stop offset="0%" stop-color="#0c1828"/>
-      <stop offset="45%" stop-color="#07111f"/>
-      <stop offset="100%" stop-color="#05070b"/>
+    <radialGradient id="bg" cx="50%" cy="38%" r="78%">
+      <stop offset="0%" stop-color="#53606d"/>
+      <stop offset="40%" stop-color="#323945"/>
+      <stop offset="100%" stop-color="#1b2027"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="36%" r="58%">
-      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.92"/>
-      <stop offset="34%" stop-color="#38bdf8" stop-opacity="0.40"/>
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
+    <radialGradient id="haloGlow" cx="50%" cy="39%" r="58%">
+      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.95"/>
+      <stop offset="30%" stop-color="#d8ebff" stop-opacity="0.52"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="sigilBody" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0d1725"/>
-      <stop offset="100%" stop-color="#050912"/>
+    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cfe3ff"/>
     </linearGradient>
-    <linearGradient id="crest" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#d9f7ff"/>
-      <stop offset="100%" stop-color="#7dd3fc"/>
+    <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#415264"/>
+      <stop offset="100%" stop-color="#24303d"/>
     </linearGradient>
     <filter id="blurGlow">
-      <feGaussianBlur stdDeviation="${w * 0.032}" result="b"/>
+      <feGaussianBlur stdDeviation="${w * 0.022}" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softShadow">
-      <feDropShadow dx="0" dy="${w * 0.01}" stdDeviation="${w * 0.018}" flood-color="#38bdf8" flood-opacity="0.20"/>
+    <filter id="markShadow">
+      <feDropShadow dx="0" dy="${w * 0.007}" stdDeviation="${w * 0.012}" flood-color="#f2fbff" flood-opacity="0.24"/>
     </filter>
   </defs>
   <rect width="${w}" height="${h}" fill="url(#bg)"/>
-  <circle cx="${cx}" cy="${cy - h * 0.07}" r="${w * 0.29}" fill="url(#halo)" filter="url(#blurGlow)"/>
-  <circle cx="${cx}" cy="${cy - h * 0.07}" r="${w * 0.13}" fill="#0a1320" opacity="0.78"/>
-  <g filter="url(#softShadow)">
-    <rect x="${sigilX}" y="${sigilY}" width="${sigilW}" height="${sigilH}" rx="${w * 0.052}" fill="url(#sigilBody)" stroke="rgba(125,211,252,0.34)" stroke-width="${w * 0.003}"/>
-    <ellipse cx="${cx}" cy="${sigilY + w * 0.036}" rx="${w * 0.04}" ry="${w * 0.008}" fill="#dff8ff" opacity="0.18"/>
-    <rect x="${cx - w * 0.062}" y="${sigilY + w * 0.048}" width="${w * 0.008}" height="${w * 0.095}" rx="${w * 0.004}" fill="#65d8ff" opacity="0.34"/>
-    <rect x="${cx + w * 0.054}" y="${sigilY + w * 0.048}" width="${w * 0.008}" height="${w * 0.095}" rx="${w * 0.004}" fill="#65d8ff" opacity="0.34"/>
-    <circle cx="${cx}" cy="${sigilY + sigilH * 0.5}" r="${coreR * 1.75}" fill="#67e8f9" opacity="0.10" stroke="#7dd3fc" stroke-opacity="0.28" stroke-width="${w * 0.003}"/>
-    <circle cx="${cx}" cy="${sigilY + sigilH * 0.5}" r="${coreR}" fill="#08111d" stroke="#d8f6ff" stroke-opacity="0.72" stroke-width="${w * 0.0034}"/>
-    <path d="M ${cx - w * 0.019} ${sigilY + sigilH * 0.5 + w * 0.025} L ${cx} ${sigilY + sigilH * 0.5 - w * 0.031} L ${cx + w * 0.019} ${sigilY + sigilH * 0.5 + w * 0.025}" fill="none" stroke="url(#crest)" stroke-width="${w * 0.0085}" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="${cx - w * 0.0115}" y1="${sigilY + sigilH * 0.5 + w * 0.001}" x2="${cx + w * 0.0115}" y2="${sigilY + sigilH * 0.5 + w * 0.001}" stroke="url(#crest)" stroke-width="${w * 0.0064}" stroke-linecap="round"/>
-    <path d="M ${cx - w * 0.044} ${sigilY + sigilH - w * 0.046} L ${cx - w * 0.01} ${sigilY + sigilH - w * 0.032} L ${cx} ${sigilY + sigilH - w * 0.015} L ${cx + w * 0.01} ${sigilY + sigilH - w * 0.032} L ${cx + w * 0.044} ${sigilY + sigilH - w * 0.046}" fill="none" stroke="#7dd3fc" stroke-opacity="0.48" stroke-width="${w * 0.0043}" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="${cx}" cy="${cy - h * 0.07}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.03)" stroke="rgba(226,240,255,0.88)" stroke-width="${w * 0.0048}" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)">
+    <rect x="${leftX}" y="${strokeY}" width="${strokeW}" height="${leftH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(28 ${leftX + strokeW / 2} ${strokeY + leftH / 2})"/>
+    <rect x="${rightX}" y="${strokeY - w * 0.008}" width="${strokeW}" height="${rightH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(-26 ${rightX + strokeW / 2} ${strokeY + rightH / 2})"/>
+    <rect x="${innerDropX}" y="${innerDropY}" width="${w * 0.05}" height="${w * 0.082}" rx="${w * 0.025}" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${w * 0.0024}" transform="rotate(16 ${innerDropX + w * 0.025} ${innerDropY + w * 0.041})"/>
   </g>
   <text x="${cx}" y="${cy + h*0.126}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.105}" font-weight="700" fill="white" text-anchor="middle" letter-spacing="8">ACE</text>
-  <text x="${cx}" y="${cy + h*0.156}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.025}" fill="#95a4b7" text-anchor="middle" letter-spacing="2">Travel, handled with judgment.</text>
+  <text x="${cx}" y="${cy + h*0.156}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.025}" fill="#b7c2ce" text-anchor="middle" letter-spacing="2">Travel, handled.</text>
 </svg>`;
 }
 

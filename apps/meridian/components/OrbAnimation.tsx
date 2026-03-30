@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
 import { PHASE_SHADOW } from '../lib/theme';
+import { AceMark } from './AceMark';
 
 interface Props {
   phase: AppPhase;
@@ -157,12 +158,9 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const handlePressIn  = () => { if (!disabled && isInteractive && !onPress) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onPressIn?.(); } };
   const handlePressOut = () => { if (!disabled && isInteractive && !onPress) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);  onPressOut?.(); } };
 
-  // Icon — single solid color, no decoration
-  const iconName  = phase === 'done'  ? 'checkmark'      :
-                    phase === 'error' ? 'warning-outline' : 'mic';
-  const iconColor = phase === 'done'  ? '#4ade80'         :
-                    phase === 'error' ? '#f87171'          : accent;
-  const iconSize  = phase === 'done' || phase === 'error' ? 38 : 36;
+  const iconName  = phase === 'done' ? 'checkmark' : 'warning-outline';
+  const iconColor = phase === 'done' ? '#4ade80' : '#f87171';
+  const iconSize  = 38;
 
   return (
     <View style={styles.container}>
@@ -181,7 +179,16 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           disabled={disabled || !isInteractive}
         >
           <LinearGradient colors={colors} style={[styles.orb, { shadowColor }]}>
-            <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
+            {phase === 'done' || phase === 'error' ? (
+              <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
+            ) : (
+              <AceMark
+                size={60}
+                ringColor={`${accent}cc`}
+                glowColor={accent}
+                backgroundColor={colors[0]}
+              />
+            )}
           </LinearGradient>
         </Pressable>
       </Animated.View>

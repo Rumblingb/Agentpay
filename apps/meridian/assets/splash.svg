@@ -1,45 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1242" height="2688">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
-      <stop offset="0%" stop-color="#0c1828"/>
-      <stop offset="45%" stop-color="#07111f"/>
-      <stop offset="100%" stop-color="#05070b"/>
+    <radialGradient id="bg" cx="50%" cy="38%" r="78%">
+      <stop offset="0%" stop-color="#53606d"/>
+      <stop offset="40%" stop-color="#323945"/>
+      <stop offset="100%" stop-color="#1b2027"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="36%" r="58%">
-      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.92"/>
-      <stop offset="34%" stop-color="#38bdf8" stop-opacity="0.40"/>
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
+    <radialGradient id="haloGlow" cx="50%" cy="39%" r="58%">
+      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.95"/>
+      <stop offset="30%" stop-color="#d8ebff" stop-opacity="0.52"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="sigilBody" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0d1725"/>
-      <stop offset="100%" stop-color="#050912"/>
+    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cfe3ff"/>
     </linearGradient>
-    <linearGradient id="crest" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#d9f7ff"/>
-      <stop offset="100%" stop-color="#7dd3fc"/>
+    <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#415264"/>
+      <stop offset="100%" stop-color="#24303d"/>
     </linearGradient>
     <filter id="blurGlow">
-      <feGaussianBlur stdDeviation="39.744" result="b"/>
+      <feGaussianBlur stdDeviation="27.323999999999998" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softShadow">
-      <feDropShadow dx="0" dy="12.42" stdDeviation="22.355999999999998" flood-color="#38bdf8" flood-opacity="0.20"/>
+    <filter id="markShadow">
+      <feDropShadow dx="0" dy="8.694" stdDeviation="14.904" flood-color="#f2fbff" flood-opacity="0.24"/>
     </filter>
   </defs>
   <rect width="1242" height="2688" fill="url(#bg)"/>
-  <circle cx="621" cy="1155.84" r="360.17999999999995" fill="url(#halo)" filter="url(#blurGlow)"/>
-  <circle cx="621" cy="1155.84" r="161.46" fill="#0a1320" opacity="0.78"/>
-  <g filter="url(#softShadow)">
-    <rect x="484.38" y="1075.2" width="273.24" height="316.71" rx="64.584" fill="url(#sigilBody)" stroke="rgba(125,211,252,0.34)" stroke-width="3.726"/>
-    <ellipse cx="621" cy="1119.912" rx="49.68" ry="9.936" fill="#dff8ff" opacity="0.18"/>
-    <rect x="543.996" y="1134.816" width="9.936" height="117.99" rx="4.968" fill="#65d8ff" opacity="0.34"/>
-    <rect x="688.068" y="1134.816" width="9.936" height="117.99" rx="4.968" fill="#65d8ff" opacity="0.34"/>
-    <circle cx="621" cy="1233.555" r="93.4605" fill="#67e8f9" opacity="0.10" stroke="#7dd3fc" stroke-opacity="0.28" stroke-width="3.726"/>
-    <circle cx="621" cy="1233.555" r="53.406" fill="#08111d" stroke="#d8f6ff" stroke-opacity="0.72" stroke-width="4.222799999999999"/>
-    <path d="M 597.402 1264.605 L 621 1195.053 L 644.598 1264.605" fill="none" stroke="url(#crest)" stroke-width="10.557" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="606.717" y1="1234.797" x2="635.283" y2="1234.797" stroke="url(#crest)" stroke-width="7.9488" stroke-linecap="round"/>
-    <path d="M 566.352 1334.778 L 608.58 1352.1660000000002 L 621 1373.28 L 633.42 1352.1660000000002 L 675.648 1334.778" fill="none" stroke="#7dd3fc" stroke-opacity="0.48" stroke-width="5.3406" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="621" cy="1155.84" rx="198.72" ry="155.25" fill="rgba(255,255,255,0.03)" stroke="rgba(226,240,255,0.88)" stroke-width="5.9616" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)">
+    <rect x="539.028" y="1069.824" width="57.132" height="211.14000000000001" rx="28.566" fill="url(#markFill)" transform="rotate(28 567.594 1175.394)"/>
+    <rect x="645.84" y="1059.8880000000001" width="57.132" height="254.60999999999999" rx="28.566" fill="url(#markFill)" transform="rotate(-26 674.4060000000001 1197.1290000000001)"/>
+    <rect x="591.192" y="1276.8" width="62.1" height="101.84400000000001" rx="31.05" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="2.9808" transform="rotate(16 622.242 1327.722)"/>
   </g>
   <text x="621" y="1682.688" font-family="system-ui, -apple-system, sans-serif" font-size="130.41" font-weight="700" fill="white" text-anchor="middle" letter-spacing="8">ACE</text>
-  <text x="621" y="1763.328" font-family="system-ui, -apple-system, sans-serif" font-size="31.05" fill="#95a4b7" text-anchor="middle" letter-spacing="2">Travel, handled with judgment.</text>
+  <text x="621" y="1763.328" font-family="system-ui, -apple-system, sans-serif" font-size="31.05" fill="#b7c2ce" text-anchor="middle" letter-spacing="2">Travel, handled.</text>
 </svg>

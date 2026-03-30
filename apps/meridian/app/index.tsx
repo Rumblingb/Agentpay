@@ -12,6 +12,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip } from '../lib/storage';
 import { useStore } from '../lib/store';
+import { AceMark } from '../components/AceMark';
 
 export default function BootScreen() {
   const { hydrate } = useStore();
@@ -51,9 +52,8 @@ export default function BootScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Icon mark */}
       <View style={styles.iconMark}>
-        <Text style={styles.iconLetter}>A</Text>
+        <AceMark size={108} ringColor="rgba(222, 240, 255, 0.9)" glowColor="#a9dcff" backgroundColor="#0b1320" />
       </View>
 
       {/* Wordmark */}
@@ -72,23 +72,15 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   iconMark: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
-    backgroundColor: '#10b981',
+    width: 124,
+    height: 124,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 28,
-    shadowColor: '#10b981',
-    shadowOpacity: 0.5,
-    shadowRadius: 40,
+    marginBottom: 24,
+    shadowColor: '#8fd4ff',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
     shadowOffset: { width: 0, height: 0 },
-  },
-  iconLetter: {
-    color: '#080808',
-    fontSize: 52,
-    fontWeight: '800',
-    letterSpacing: -1,
   },
   wordmark: {
     color: '#f8fafc',
