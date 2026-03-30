@@ -45,6 +45,7 @@ import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
 import { trackClientEvent } from '../../lib/telemetry';
+import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -91,6 +92,13 @@ type BookingReadinessItem = {
   detail: string;
   tone: BookingReadinessTone;
 };
+
+type SharedTravelReadiness = {
+  requiresManualConfirm: boolean;
+  readinessItems: BookingReadinessItem[];
+};
+
+type BookingMode = 'solo' | 'shared';
 
 function firstSentence(text: string): string {
   const trimmed = text.trim();
@@ -219,6 +227,91 @@ function personalizedIdleSuggestions(params: {
   return picks.slice(0, 3);
 }
 
+function referencesSharedTravel(text: string): boolean {
+  return [
+    /\bbook for us\b/i,
+    /\bfor us\b/i,
+    /\bwe\b/i,
+    /\bus\b/i,
+    /\bour\b/i,
+    /\bmy partner and i\b/i,
+    /\bthe family\b/i,
+    /\bfor the family\b/i,
+    /\bwith the kids\b/i,
+    /\bwith my partner\b/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function buildSharedTravelUnitContext(unit: TravelUnit): Record<string, unknown> {
+  return {
+    id: unit.id,
+    name: unit.name,
+    type: unit.type,
+    notes: unit.notes,
+    primaryPayerMemberId: unit.primaryPayerMemberId,
+    members: unit.members.map((member) => ({
+      id: member.id,
+      name: member.name,
+      role: member.role,
+      state: member.state,
+    })),
+  };
+}
+
+function buildSharedUnitPrompt(unit: TravelUnit): string {
+  if (unit.type === 'couple') return `Book for us`;
+  if (unit.type === 'family') return `Book for the family`;
+  return `Book for the household`;
+}
+
+function buildSharedTravelReadiness(unit: TravelUnit | null): SharedTravelReadiness {
+  if (!unit) {
+    return { requiresManualConfirm: false, readinessItems: [] };
+  }
+
+  const payer = unit.members.find((member) => member.id === unit.primaryPayerMemberId) ?? null;
+  const pending = unit.members.filter((member) => member.state === 'pending').length;
+  const linked = unit.members.filter((member) => member.state === 'linked').length;
+  const requiresManualConfirm =
+    pending > 0
+    || (!!payer && payer.role !== 'self');
+
+  const readinessItems: BookingReadinessItem[] = [];
+
+  if (linked > 0) {
+    readinessItems.push({
+      label: 'Shared travellers recognised',
+      detail: `${linked} linked traveller${linked === 1 ? '' : 's'} are ready for shared planning.`,
+      tone: 'ready',
+    });
+  }
+
+  if (pending > 0) {
+    readinessItems.push({
+      label: 'A shared invite is still pending',
+      detail: `${pending} traveller${pending === 1 ? '' : 's'} still need to accept the shared link before Ace can treat this like a fully linked household booking.`,
+      tone: 'warning',
+    });
+  } else if (payer && payer.role !== 'self') {
+    readinessItems.push({
+      label: 'Usual payer is someone else',
+      detail: `${payer.name} is marked as the usual payer. Ace will still hold this on your device until shared approvals are live.`,
+      tone: 'warning',
+    });
+  } else {
+    readinessItems.push({
+      label: 'Shared booking can stay on this device',
+      detail: 'Ace can keep the final approval here while still planning for everyone together.',
+      tone: 'ready',
+    });
+  }
+
+  return {
+    requiresManualConfirm,
+    readinessItems,
+  };
+}
+
 function getCountdown(departureTime: string | null | undefined): string | null {
   if (!departureTime) return null;
   const d = new Date(departureTime);
@@ -282,8 +375,9 @@ function buildBookingReadiness(params: {
   plan: ConciergePlanItem[];
   fiatAmount: number;
   autoConfirmLimitUsdc: number;
+  sharedTravelUnit?: TravelUnit | null;
 }): BookingReadinessItem[] {
-  const { profile, plan, fiatAmount, autoConfirmLimitUsdc } = params;
+  const { profile, plan, fiatAmount, autoConfirmLimitUsdc, sharedTravelUnit } = params;
   const hasRailLeg = plan.some((item) => item.toolName === 'book_train' || item.toolName === 'book_train_india');
   const hasFlightLeg = plan.some((item) => !!item.flightDetails);
   const familyMembers = profile?.familyMembers ?? [];
@@ -291,6 +385,7 @@ function buildBookingReadiness(params: {
   const missingFlightDob = hasFlightLeg
     ? familyMembers.filter((member) => member.relationship !== 'infant' && !member.dateOfBirth).length
     : 0;
+  const sharedReadiness = buildSharedTravelReadiness(sharedTravelUnit ?? null);
 
   return [
     profile?.legalName?.trim() && profile?.email?.trim() && profile?.phone?.trim()
@@ -332,6 +427,7 @@ function buildBookingReadiness(params: {
             : 'Ace is using your saved preferences to keep this journey simple.',
           tone: hasRailLeg ? 'warning' : 'ready',
         },
+    ...sharedReadiness.readinessItems,
     fiatAmount > autoConfirmLimitUsdc
       ? {
           label: 'You stay in control of payment',
@@ -486,6 +582,8 @@ export default function ConverseScreen() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
+  const [preferredTravelUnit, setPreferredTravelUnit] = useState<TravelUnit | null>(null);
+  const [bookingMode, setBookingMode] = useState<BookingMode>('solo');
   const [textFallbackVisible, setTextFallbackVisible] = useState(false);
   const [textFallbackDraft, setTextFallbackDraft] = useState('');
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
@@ -515,6 +613,11 @@ export default function ConverseScreen() {
     (async () => {
       const trip = await loadActiveTrip();
       if (active) setActiveTrip(trip);
+      const sharedUnit = await loadPreferredTravelUnit().catch(() => null);
+      if (active) {
+        setPreferredTravelUnit(sharedUnit);
+        setBookingMode(sharedUnit ? 'shared' : 'solo');
+      }
     })();
     return () => {
       active = false;
@@ -620,6 +723,7 @@ export default function ConverseScreen() {
     // reaches memory before the user explicitly authorises the booking.
     let profile: TravelProfile | null = null;
     let travelProfile: Record<string, unknown> | undefined;
+    const usingSharedTravel = !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
     try {
       if (await hasProfile()) {
         profile = await loadProfileRaw();
@@ -642,10 +746,19 @@ export default function ConverseScreen() {
               nationality:  m.nationality,
             })),
           };
+          if (usingSharedTravel && preferredTravelUnit) {
+            travelProfile.sharedTravelUnit = buildSharedTravelUnitContext(preferredTravelUnit);
+          }
         }
       }
     } catch {
       // No profile stored — proceed without
+    }
+
+    if (!travelProfile && usingSharedTravel && preferredTravelUnit) {
+      travelProfile = {
+        sharedTravelUnit: buildSharedTravelUnitContext(preferredTravelUnit),
+      };
     }
 
     // Phase 1: get a plan from Claude — no hire fires yet
@@ -693,7 +806,9 @@ export default function ConverseScreen() {
         plan: response.plan,
         fiatAmount,
         autoConfirmLimitUsdc,
+        sharedTravelUnit: usingSharedTravel && preferredTravelUnit ? preferredTravelUnit : null,
       });
+      const sharedReadiness = buildSharedTravelReadiness(usingSharedTravel && preferredTravelUnit ? preferredTravelUnit : null);
       // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
         transcript: prepared.planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
@@ -703,7 +818,7 @@ export default function ConverseScreen() {
       };
 
       // Auto-confirm if total is within the spending limit (no fingerprint needed)
-      if (total > 0 && total <= autoConfirmLimitUsdc) {
+      if (total > 0 && total <= autoConfirmLimitUsdc && !sharedReadiness.requiresManualConfirm) {
         await executePhase2(pendingPlanRef.current);
         return;
       }
@@ -717,7 +832,7 @@ export default function ConverseScreen() {
     // No action needed yet (research, clarification, or error from Claude)
     pendingPlanRef.current = null;
     setPhase('idle');
-  }, [agentId, autoConfirmLimitUsdc, nearestStation, speakIfEnabled]);
+  }, [agentId, autoConfirmLimitUsdc, bookingMode, nearestStation, preferredTravelUnit, speakIfEnabled]);
 
   const runIntentWithUiFallback = useCallback(async (text: string) => {
     try {
@@ -1106,6 +1221,47 @@ export default function ConverseScreen() {
                   ? `You are in ${locationLabel ?? 'your area'}. Ace will choose the best departure point from nearby, line up the route, and secure it if you want.`
                   : `Say where you are going and Ace will line up the route, secure it, and stay with the trip.`}
               </Text>
+              {preferredTravelUnit && (
+                <View style={styles.modeCard}>
+                  <View style={styles.modeHeader}>
+                    <Text style={styles.modeEyebrow}>Who is travelling?</Text>
+                    <Text style={styles.modeHint}>
+                      If both phones are open, choose whether this request is just for you or for {preferredTravelUnit.name}.
+                    </Text>
+                  </View>
+                  <View style={styles.modeRow}>
+                    <Pressable
+                      onPress={() => setBookingMode('solo')}
+                      style={[styles.modeBtn, bookingMode === 'solo' && styles.modeBtnActive]}
+                    >
+                      <Ionicons
+                        name={bookingMode === 'solo' ? 'person' : 'person-outline'}
+                        size={15}
+                        color={bookingMode === 'solo' ? '#f8fafc' : '#94a3b8'}
+                      />
+                      <Text style={[styles.modeBtnText, bookingMode === 'solo' && styles.modeBtnTextActive]}>Just me</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setBookingMode('shared')}
+                      style={[styles.modeBtn, bookingMode === 'shared' && styles.modeBtnSharedActive]}
+                    >
+                      <Ionicons
+                        name={bookingMode === 'shared' ? 'people' : 'people-outline'}
+                        size={15}
+                        color={bookingMode === 'shared' ? '#faf5ff' : '#d8b4fe'}
+                      />
+                      <Text style={[styles.modeBtnText, bookingMode === 'shared' && styles.modeBtnTextShared]}>
+                        {preferredTravelUnit.name}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.modeFootnote}>
+                    {bookingMode === 'shared'
+                      ? 'Ace will plan this as a shared trip and keep approvals stricter.'
+                      : 'Ace will treat this as a solo booking unless you ask for the household.'}
+                  </Text>
+                </View>
+              )}
               <View style={styles.heroStatRow}>
                 <View style={styles.heroStat}>
                   <Text style={styles.heroStatValue}>Voice first</Text>
@@ -1207,6 +1363,34 @@ export default function ConverseScreen() {
                 )}
               </Pressable>
             )}
+            {preferredTravelUnit && (
+              <View style={styles.sharedUnitCard}>
+                <View style={styles.sharedUnitHeader}>
+                  <Ionicons name="people-circle-outline" size={16} color="#f0abfc" />
+                  <Text style={styles.sharedUnitLabel}>{preferredTravelUnit.name}</Text>
+                  <Text style={styles.sharedUnitMeta}>
+                    {preferredTravelUnit.type === 'couple' ? 'Couple' : preferredTravelUnit.type === 'family' ? 'Family' : 'Household'}
+                  </Text>
+                </View>
+                <Text style={styles.sharedUnitBody}>
+                  Ace can plan around this shared unit when you say `for us`, `for the family`, or ask it to get everyone moving together.
+                </Text>
+                <View style={styles.sharedUnitActions}>
+                  <Pressable
+                    onPress={() => { void runIntentWithUiFallback(buildSharedUnitPrompt(preferredTravelUnit)); }}
+                    style={styles.sharedUnitBtn}
+                  >
+                    <Text style={styles.sharedUnitBtnText}>{buildSharedUnitPrompt(preferredTravelUnit)}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { void runIntentWithUiFallback('Get us home'); }}
+                    style={[styles.sharedUnitBtn, styles.sharedUnitBtnSecondary]}
+                  >
+                    <Text style={[styles.sharedUnitBtnText, styles.sharedUnitBtnTextSecondary]}>Get us home</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
             <Pressable onPress={() => router.push('/(main)/trips')} style={styles.myTripsBtn}>
               <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
               <Text style={styles.myTripsBtnText}>Journeys</Text>
@@ -1275,9 +1459,19 @@ export default function ConverseScreen() {
           const plan    = pendingPlanRef.current?.plan ?? [];
           // Family members from Phase 1 profile (non-sensitive — names + relationships only)
           const tpFam   = (pendingPlanRef.current?.travelProfile?.familyMembers as Array<{ name: string; relationship: string; railcard?: string }> | undefined) ?? [];
-          const passengers = tpFam.length > 0
-            ? [{ name: 'You', relationship: 'adult' as const }, ...tpFam]
-            : null;
+          const sharedMembers = ((pendingPlanRef.current?.travelProfile?.sharedTravelUnit as {
+            members?: Array<{ name: string; role: 'self' | 'partner' | 'adult' | 'child' | 'infant' }>;
+          } | undefined)?.members ?? [])
+            .filter((member) => member.name?.trim())
+            .map((member) => ({
+              name: member.role === 'self' ? 'You' : member.name,
+              relationship: member.role === 'child' || member.role === 'infant' ? member.role : 'adult' as const,
+            }));
+          const passengers = sharedMembers.length > 0
+            ? sharedMembers
+            : tpFam.length > 0
+              ? [{ name: 'You', relationship: 'adult' as const }, ...tpFam]
+              : null;
           const adultCount = passengers?.filter((p) => p.relationship !== 'child' && p.relationship !== 'infant').length ?? 1;
           const childCount = passengers?.filter((p) => p.relationship === 'child').length ?? 0;
           const travellerCount = passengers?.length ?? 1;
@@ -1983,6 +2177,72 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     letterSpacing: 0.1,
   },
+  modeCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(125, 211, 252, 0.16)',
+    backgroundColor: 'rgba(7, 14, 24, 0.84)',
+    padding: 16,
+    marginBottom: 18,
+  },
+  modeHeader: {
+    marginBottom: 12,
+  },
+  modeEyebrow: {
+    color: '#dbeafe',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  modeHint: {
+    color: C.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  modeBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  modeBtnActive: {
+    backgroundColor: 'rgba(8, 47, 73, 0.92)',
+    borderColor: 'rgba(125, 211, 252, 0.34)',
+  },
+  modeBtnSharedActive: {
+    backgroundColor: 'rgba(48, 16, 82, 0.9)',
+    borderColor: 'rgba(216, 180, 254, 0.38)',
+  },
+  modeBtnText: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modeBtnTextActive: {
+    color: '#f8fafc',
+  },
+  modeBtnTextShared: {
+    color: '#faf5ff',
+  },
+  modeFootnote: {
+    color: C.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   heroStatRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -2639,6 +2899,66 @@ const styles = StyleSheet.create({
   usualRouteCount: { fontSize: 11, color: '#4ade80', opacity: 0.7, marginLeft: 'auto' as any },
   usualRouteRoute: { fontSize: 16, color: '#f8fafc', fontWeight: '700', marginBottom: 2 },
   usualRouteFare:  { fontSize: 12, color: '#6b7280' },
+  sharedUnitCard: {
+    backgroundColor: '#16091b',
+    borderWidth: 1,
+    borderColor: '#581c87',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+    width: '100%',
+  },
+  sharedUnitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  sharedUnitLabel: {
+    fontSize: 14,
+    color: '#f5d0fe',
+    fontWeight: '700',
+    flex: 1,
+  },
+  sharedUnitMeta: {
+    fontSize: 11,
+    color: '#d8b4fe',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontWeight: '700',
+  },
+  sharedUnitBody: {
+    fontSize: 12,
+    color: '#e9d5ff',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  sharedUnitActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  sharedUnitBtn: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#a855f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  sharedUnitBtnSecondary: {
+    backgroundColor: '#22132f',
+    borderWidth: 1,
+    borderColor: '#6b21a8',
+  },
+  sharedUnitBtnText: {
+    fontSize: 12,
+    color: '#faf5ff',
+    fontWeight: '700',
+  },
+  sharedUnitBtnTextSecondary: {
+    color: '#e9d5ff',
+  },
   hotelCard:       { backgroundColor: '#0a0d14', borderWidth: 1, borderColor: '#1e3a5f', borderRadius: 10, padding: 12, marginBottom: 10, gap: 6 },
   hotelName:       { fontSize: 14, fontWeight: '600', color: '#f8fafc', flex: 1 },
   hotelStars:      { fontSize: 11, color: '#f59e0b', letterSpacing: 1 },

@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useStore } from '../../lib/store';
 import { savePrefs, clearCredentials, clearHistory, clearActiveTrip, clearPrefs, clearTrips } from '../../lib/storage';
 import { hasProfile, deleteProfile, loadProfileRaw, shouldApplyFamilyRailcard, clearConsents, type FamilyMember } from '../../lib/profile';
+import { clearTravelUnits, loadTravelUnitSummary, type TravelUnitSummary } from '../../lib/travelUnits';
 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset, clearTurns } = useStore();
@@ -29,6 +30,13 @@ export default function SettingsScreen() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [familyRailcardReady, setFamilyRailcardReady] = useState(false);
+  const [travelUnits, setTravelUnits] = useState<TravelUnitSummary>({
+    totalUnits: 0,
+    totalMembers: 0,
+    linkedMembers: 0,
+    pendingMembers: 0,
+    preferredUnitName: null,
+  });
 
   const refreshProfileState = useCallback(() => {
     void hasProfile().then(setProfileSaved).catch(() => setProfileSaved(false));
@@ -42,6 +50,15 @@ export default function SettingsScreen() {
         setFamilyMembers([]);
         setFamilyRailcardReady(false);
       });
+    void loadTravelUnitSummary()
+      .then(setTravelUnits)
+      .catch(() => setTravelUnits({
+        totalUnits: 0,
+        totalMembers: 0,
+        linkedMembers: 0,
+        pendingMembers: 0,
+        preferredUnitName: null,
+      }));
   }, []);
 
   useEffect(() => {
@@ -93,6 +110,7 @@ export default function SettingsScreen() {
               clearPrefs(),
               clearConsents(),
               deleteProfile(),
+              clearTravelUnits(),
             ]);
             reset();
             router.replace('/onboard');
@@ -276,6 +294,50 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
+        <Section
+          label="COUPLE & HOUSEHOLD"
+          hint="Use shared travel units for the people who travel as a real `us`. This is the foundation for proper couple and family booking between two Ace customers."
+        >
+          <View style={styles.familySummary}>
+            <View style={styles.familySummaryRow}>
+              <Ionicons name="heart-outline" size={16} color="#f472b6" />
+              <Text style={styles.familySummaryTitle}>
+                {travelUnits.totalUnits > 0
+                  ? `${travelUnits.totalUnits} shared unit${travelUnits.totalUnits === 1 ? '' : 's'} ready`
+                  : 'No shared travel units yet'}
+              </Text>
+            </View>
+            <Text style={styles.familySummaryBody}>
+              {travelUnits.totalUnits > 0
+                ? `${travelUnits.totalMembers} shared travellers ready${travelUnits.preferredUnitName ? `. Usual unit: ${travelUnits.preferredUnitName}.` : '.'}`
+                : 'Use this when Ace should think in terms of `us`, not just one owner plus passengers.'}
+            </Text>
+            {(travelUnits.linkedMembers > 0 || travelUnits.pendingMembers > 0) && (
+              <View style={styles.sharedStatusRow}>
+                {travelUnits.linkedMembers > 0 && (
+                  <View style={styles.sharedBadge}>
+                    <Ionicons name="link-outline" size={13} color="#7dd3fc" />
+                    <Text style={styles.sharedBadgeText}>{travelUnits.linkedMembers} linked</Text>
+                  </View>
+                )}
+                {travelUnits.pendingMembers > 0 && (
+                  <View style={[styles.sharedBadge, styles.sharedBadgePending]}>
+                    <Ionicons name="time-outline" size={13} color="#fcd34d" />
+                    <Text style={[styles.sharedBadgeText, styles.sharedBadgePendingText]}>{travelUnits.pendingMembers} pending</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+          <Pressable
+            onPress={() => router.push('/(main)/travel-together')}
+            style={styles.profileBtn}
+          >
+            <Ionicons name="git-network-outline" size={15} color="#818cf8" />
+            <Text style={styles.profileBtnText}>{travelUnits.totalUnits > 0 ? 'Edit shared units' : 'Set up shared units'}</Text>
+          </Pressable>
+        </Section>
+
         {/* Data */}
         <Section label="DATA">
           <Pressable onPress={handleClearHistory} style={styles.dangerRow}>
@@ -455,6 +517,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#4ade80',
     lineHeight: 17,
+  },
+  sharedStatusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  sharedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#082f49',
+    borderWidth: 1,
+    borderColor: '#0c4a6e',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  sharedBadgePending: {
+    backgroundColor: '#3b2505',
+    borderColor: '#92400e',
+  },
+  sharedBadgeText: {
+    fontSize: 11,
+    color: '#7dd3fc',
+    fontWeight: '700',
+  },
+  sharedBadgePendingText: {
+    color: '#fcd34d',
   },
 
   dangerRow: {

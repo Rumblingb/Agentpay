@@ -75,8 +75,53 @@ export interface BroTravelProfile {
   currentLat?: number;
   currentLon?: number;
   familyMembers?: BroFamilyMember[];
+  sharedTravelUnit?: {
+    id: string;
+    name: string;
+    type: 'couple' | 'family' | 'household';
+    primaryPayerMemberId?: string | null;
+    notes?: string;
+    members: Array<{
+      id: string;
+      name: string;
+      role: 'self' | 'partner' | 'adult' | 'child' | 'infant';
+      state: 'self' | 'linked' | 'pending' | 'guest';
+    }>;
+  };
   // Phase 2 (full profile sent after biometric) may include additional fields
   [key: string]: unknown;
+}
+
+export interface SharedTravelInviteResult {
+  ok: boolean;
+  unitId: string;
+  inviteId: string;
+  inviteToken: string;
+  status: 'pending';
+  _note?: string;
+}
+
+export interface SharedTravelAcceptResult {
+  ok: boolean;
+  unitId: string;
+  unitName: string;
+  unitType: 'couple' | 'family' | 'household';
+  inviterAgentId: string;
+  inviterName?: string | null;
+  role: 'partner' | 'adult' | 'child' | 'infant';
+  linkedAgentId: string;
+  status: 'accepted';
+}
+
+export interface SharedTravelRemoteUnit {
+  unitId: string;
+  ownerAgentId: string;
+  unitName: string;
+  unitType: 'couple' | 'family' | 'household';
+  primaryPayerAgentId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CoordinationPlan {
@@ -475,4 +520,48 @@ export async function logClientTelemetry(params: {
     method: 'POST',
     body: JSON.stringify(params),
   }).catch(() => {});
+}
+
+export async function createSharedTravelInvite(params: {
+  agentId: string;
+  agentKey: string;
+  unitName: string;
+  unitType: 'couple' | 'family' | 'household';
+  inviteeContact: string;
+  inviteeName?: string;
+  role?: 'partner' | 'adult' | 'child' | 'infant';
+  notes?: string;
+  primaryPayerAgentId?: string | null;
+}): Promise<SharedTravelInviteResult> {
+  return apiFetch('/api/shared-travel/invite', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function acceptSharedTravelInvite(params: {
+  inviteToken: string;
+  agentId: string;
+  agentKey: string;
+  acceptedName?: string;
+}): Promise<SharedTravelAcceptResult> {
+  return apiFetch(`/api/shared-travel/accept/${encodeURIComponent(params.inviteToken)}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      agentId: params.agentId,
+      agentKey: params.agentKey,
+      acceptedName: params.acceptedName,
+    }),
+  });
+}
+
+export async function listSharedTravelUnits(params: {
+  agentId: string;
+  agentKey: string;
+}): Promise<{ units: SharedTravelRemoteUnit[] }> {
+  return apiFetch(`/api/shared-travel/units/${encodeURIComponent(params.agentId)}`, {
+    headers: {
+      'x-agent-key': params.agentKey,
+    },
+  });
 }

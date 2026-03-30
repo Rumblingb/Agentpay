@@ -48,6 +48,7 @@ import { scrapeRouter } from './routes/scrape';
 import { tripRoomsRouter } from './routes/tripRooms';
 import { broInsightsRouter } from './routes/broInsights';
 import { airwallexWebhooksRouter } from './routes/webhooksAirwallex';
+import { sharedTravelRouter } from './routes/sharedTravel';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -167,6 +168,9 @@ app.route('/api/scrape', scrapeRouter);
 // Trip rooms — shared live journey for group/family travel
 app.route('/api/trip-rooms', tripRoomsRouter);
 app.route('/trip', tripRoomsRouter);  // /trip/:token → joinable HTML web view
+
+// Shared travel units — couple/family linking foundation
+app.route('/api/shared-travel', sharedTravelRouter);
 
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
