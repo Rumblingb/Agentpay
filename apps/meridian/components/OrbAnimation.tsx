@@ -1,7 +1,7 @@
 /**
  * OrbAnimation - Ace's held speak object
  *
- * The control should feel closer to a small concierge mascot than a generic mic.
+ * The control should feel like an Ace sigil or held instrument, not a generic mic.
  * It stays calm at rest, wakes up while listening, and remains legible in every phase.
  */
 
@@ -247,7 +247,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
                 color={phase === 'done' ? '#4ade80' : '#f87171'}
               />
             ) : (
-              <AceMascot rotation={tiltDeg} color={accent} />
+              <AceSigil rotation={tiltDeg} color={accent} />
             )}
           </LinearGradient>
         </Pressable>
@@ -256,7 +256,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   );
 }
 
-function AceMascot({
+function AceSigil({
   rotation,
   color,
 }: {
@@ -264,127 +264,185 @@ function AceMascot({
   color: string;
 }) {
   return (
-    <Animated.View style={[mascotStyles.wrap, { transform: [{ rotate: rotation }] }]}>
-      <View style={[mascotStyles.hatBrim, { borderColor: `${color}55` }]} />
-      <View style={[mascotStyles.hatTop, { borderColor: `${color}55`, backgroundColor: `${color}14` }]} />
-      <View style={mascotStyles.head}>
-        <View style={mascotStyles.eyeRow}>
-          <View style={[mascotStyles.eye, { backgroundColor: color }]} />
-          <View style={[mascotStyles.eye, { backgroundColor: color }]} />
-        </View>
-        <View style={mascotStyles.mustacheRow}>
-          <View style={[mascotStyles.mustacheWing, mascotStyles.mustacheLeft, { borderColor: `${color}bb` }]} />
-          <View style={[mascotStyles.mustacheWing, mascotStyles.mustacheRight, { borderColor: `${color}bb` }]} />
-        </View>
-        <View style={[mascotStyles.cheekGlow, { backgroundColor: `${color}22` }]} />
+    <Animated.View style={[sigilStyles.wrap, { transform: [{ rotate: rotation }] }]}>
+      <View style={sigilStyles.crownWrap}>
+        <View style={[sigilStyles.crownSide, { borderColor: `${color}48` }]} />
+        <View style={[sigilStyles.crownGem, { backgroundColor: color, shadowColor: color }]} />
+        <View style={[sigilStyles.crownSide, { borderColor: `${color}48` }]} />
       </View>
-      <View style={mascotStyles.collar}>
-        <View style={[mascotStyles.collarWing, mascotStyles.collarLeft, { borderTopColor: `${color}70` }]} />
-        <View style={[mascotStyles.collarGem, { backgroundColor: color }]} />
-        <View style={[mascotStyles.collarWing, mascotStyles.collarRight, { borderTopColor: `${color}70` }]} />
+
+      <View style={[sigilStyles.body, { borderColor: `${color}3f`, backgroundColor: `${color}12` }]}>
+        <View style={sigilStyles.bodyBackdrop} />
+        <View style={sigilStyles.railRow}>
+          <View style={[sigilStyles.rail, { backgroundColor: `${color}30` }]} />
+          <View style={[sigilStyles.coreHalo, { backgroundColor: `${color}16`, borderColor: `${color}42` }]}>
+            <View style={sigilStyles.monogramWrap}>
+              <View style={[sigilStyles.monogramStroke, sigilStyles.monogramLeft, { backgroundColor: color }]} />
+              <View style={[sigilStyles.monogramStroke, sigilStyles.monogramRight, { backgroundColor: color }]} />
+              <View style={[sigilStyles.monogramCrossbar, { backgroundColor: color }]} />
+            </View>
+          </View>
+          <View style={[sigilStyles.rail, { backgroundColor: `${color}30` }]} />
+        </View>
+        <View style={sigilStyles.lowerRow}>
+          <View style={[sigilStyles.lowerWing, sigilStyles.lowerWingLeft, { borderTopColor: `${color}66` }]} />
+          <View style={[sigilStyles.keystone, { backgroundColor: color }]} />
+          <View style={[sigilStyles.lowerWing, sigilStyles.lowerWingRight, { borderTopColor: `${color}66` }]} />
+        </View>
+      </View>
+
+      <View style={sigilStyles.baseWrap}>
+        <View style={[sigilStyles.baseRail, { backgroundColor: `${color}40` }]} />
+        <View style={[sigilStyles.base, { borderColor: `${color}48`, backgroundColor: `${color}0f` }]}>
+          <View style={[sigilStyles.baseInset, { backgroundColor: `${color}18` }]} />
+        </View>
+        <View style={[sigilStyles.baseRail, { backgroundColor: `${color}40` }]} />
       </View>
     </Animated.View>
   );
 }
 
-const mascotStyles = StyleSheet.create({
+const sigilStyles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hatBrim: {
-    width: 52,
+  crownWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  crownSide: {
+    width: 18,
     height: 8,
-    borderRadius: 999,
     borderWidth: 1,
-    marginBottom: 4,
+    borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
-  hatTop: {
-    width: 28,
-    height: 20,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    borderWidth: 1,
-    marginBottom: -2,
+  crownGem: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
   },
-  head: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+  body: {
+    width: 76,
+    height: 84,
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 10,
+    paddingTop: 11,
+    paddingBottom: 9,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 18,
+    justifyContent: 'space-between',
     overflow: 'hidden',
   },
-  eyeRow: {
-    flexDirection: 'row',
-    gap: 14,
-    marginBottom: 11,
-  },
-  eye: {
-    width: 6,
-    height: 10,
-    borderRadius: 999,
-    opacity: 0.95,
-  },
-  mustacheRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  mustacheWing: {
-    width: 14,
-    height: 8,
-    borderTopWidth: 2,
-  },
-  mustacheLeft: {
-    borderTopLeftRadius: 999,
-    borderBottomRightRadius: 999,
-    transform: [{ rotate: '-10deg' }],
-  },
-  mustacheRight: {
-    borderTopRightRadius: 999,
-    borderBottomLeftRadius: 999,
-    transform: [{ rotate: '10deg' }],
-  },
-  cheekGlow: {
+  bodyBackdrop: {
     position: 'absolute',
-    bottom: 10,
-    width: 36,
-    height: 12,
+    top: -10,
+    width: 70,
+    height: 46,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  railRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  rail: {
+    width: 3,
+    height: 34,
     borderRadius: 999,
   },
-  collar: {
-    marginTop: 6,
+  coreHalo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramWrap: {
+    width: 22,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramStroke: {
+    position: 'absolute',
+    width: 3,
+    height: 18,
+    borderRadius: 999,
+  },
+  monogramLeft: {
+    transform: [{ rotate: '-22deg' }, { translateX: -5 }],
+  },
+  monogramRight: {
+    transform: [{ rotate: '22deg' }, { translateX: 5 }],
+  },
+  monogramCrossbar: {
+    position: 'absolute',
+    width: 12,
+    height: 2.5,
+    borderRadius: 999,
+    top: 10,
+  },
+  lowerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 4,
   },
-  collarWing: {
+  lowerWing: {
     width: 0,
     height: 0,
-    borderLeftWidth: 9,
-    borderRightWidth: 9,
-    borderTopWidth: 10,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 9,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },
-  collarLeft: {
-    transform: [{ rotate: '10deg' }],
+  lowerWingLeft: {
+    transform: [{ rotate: '14deg' }],
   },
-  collarRight: {
-    transform: [{ rotate: '-10deg' }],
+  lowerWingRight: {
+    transform: [{ rotate: '-14deg' }],
   },
-  collarGem: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  keystone: {
+    width: 7,
+    height: 7,
+    borderRadius: 2,
+  },
+  baseWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 7,
+  },
+  baseRail: {
+    width: 12,
+    height: 2,
+    borderRadius: 999,
+  },
+  base: {
+    width: 28,
+    height: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  baseInset: {
+    width: 15,
+    height: 3,
+    borderRadius: 999,
   },
 });
 
@@ -422,6 +480,8 @@ const styles = StyleSheet.create({
     width: ORB_SIZE,
     height: ORB_SIZE,
     borderRadius: ORB_SIZE / 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 0 },
