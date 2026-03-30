@@ -781,7 +781,7 @@ export default function ConverseScreen() {
         } else if (msg.includes('503') || msg.includes('not configured')) {
           nextMessage = 'Voice service is offline for the moment. You can type the trip below.';
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
-          nextMessage = "Ace did not catch enough audio. Hold to speak again, or type it below.";
+          nextMessage = "Ace did not catch enough audio. Press and hold Ace again, or type it below.";
         } else if (msg.includes('network error') || msg.includes('network request') || msg.includes('unreachable')) {
           nextMessage = 'Ace cannot reach voice right now. You can type the trip below.';
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
@@ -796,7 +796,7 @@ export default function ConverseScreen() {
       }
 
       if (!text.trim()) {
-        const message = "Ace did not catch that. Hold to speak again, or type the trip below.";
+        const message = "Ace did not catch that. Press and hold Ace again, or type the trip below.";
         openTextFallback(message);
         void trackClientEvent({
           event: 'stt_empty_transcript',
@@ -820,7 +820,7 @@ export default function ConverseScreen() {
       });
       let nextMessage = 'Something went wrong — hold to try again.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
-        nextMessage = 'Ace took too long on that request. Hold to speak again, or type it below.';
+        nextMessage = 'Ace took too long on that request. Press and hold Ace again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
         nextMessage = 'Ace cannot reach the network right now. You can type the trip below.';
       } else if (msg.includes('offline')) {
@@ -938,10 +938,10 @@ export default function ConverseScreen() {
               <Text style={styles.heroHeadline}>Travel, handled in one sentence.</Text>
               <Text style={styles.emptyHint}>
                 {lastRouteHint
-                  ? `${lastRouteHint} Hold the orb and Ace will take it from there.`
+                  ? `${lastRouteHint} Press and hold Ace and it will take it from there.`
                   : nearestStation
-                  ? `You are near ${nearestStation.name}. Hold the orb, say the destination, and Ace will line up the best next move.`
-                  : `Hold the orb, say where you are going, and Ace will handle the route, booking, and live follow-through.`}
+                  ? `You are near ${nearestStation.name}. Press and hold Ace, say the destination, and Ace will line up the best next move.`
+                  : `Press and hold Ace, say where you are going, and Ace will handle the route, booking, and live follow-through.`}
               </Text>
               <View style={styles.heroStatRow}>
                 <View style={styles.heroStat}>

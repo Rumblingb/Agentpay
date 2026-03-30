@@ -61,6 +61,19 @@ import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 type Step = 'welcome' | 'name' | 'privacy' | 'profile' | 'finish';
 
 const MARKET_COPY: Record<Nationality, {
@@ -260,11 +273,15 @@ export default function OnboardScreen() {
       }
 
       try {
-        const res = await fetch(`${BASE}/api/voice/extract-profile`, {
+        const res = await fetchWithTimeout(`${BASE}/api/voice/extract-profile`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ transcript }),
-        });
+        }, 15_000);
+        if (!res.ok) {
+          setVoiceFillHint('Ace could not finish that profile pass. Please type your details below.');
+          return;
+        }
         const data = await res.json() as { fields?: Record<string, string> };
         const f = data.fields ?? {};
 
@@ -282,8 +299,13 @@ export default function OnboardScreen() {
 
         const filled = Object.keys(f).length;
         setVoiceFillHint(filled > 0 ? `Got it — ${filled} field${filled > 1 ? 's' : ''} filled. Check and save.` : 'Could not extract details — please type them in.');
-      } catch {
-        setVoiceFillHint('Offline? Could not reach server — please type your details below.');
+      } catch (e: any) {
+        const msg = (e?.message ?? '').toLowerCase();
+        setVoiceFillHint(
+          msg.includes('abort') || msg.includes('timeout')
+            ? 'Ace took too long on that profile pass. Please type your details below.'
+            : 'Ace could not reach profile voice right now. Please type your details below.',
+        );
       }
     } catch (e: any) {
       // mic permission denied or recording failed
@@ -458,7 +480,7 @@ export default function OnboardScreen() {
                 {/* Dynamic label */}
                 <Text style={demoStyles.label}>
                   {demoPhase === 'intro'     ? '' :
-                   demoPhase === 'ready'     ? 'Hold to talk' :
+                   demoPhase === 'ready'     ? 'Press and hold Ace' :
                    demoPhase === 'listening' ? 'Listening…' :
                    demoPhase === 'thinking'  ? 'On it…' :
                    demoResponse}
@@ -486,11 +508,11 @@ export default function OnboardScreen() {
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>What should I call you?</Text>
                 <Text style={styles.stepSub}>
-                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Hold the orb and say your name.'}
+                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Press and hold Ace, then say your name.'}
                 </Text>
                 {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
-                {/* Voice orb */}
+                {/* Voice object */}
                 <Pressable
                   onPressIn={async () => {
                     if (nameListening || nameThinking) return;
@@ -529,15 +551,9 @@ export default function OnboardScreen() {
                   }}
                   style={nameStyles.orbWrap}
                 >
-                  <LinearGradient
-                    colors={nameListening ? ['#1e1b4b', '#312e81'] : ['#111', '#1a1a1a']}
-                    style={nameStyles.orb}
-                  >
-                    {nameThinking
-                      ? <ActivityIndicator color="#818cf8" />
-                      : <Ionicons name={nameListening ? 'mic' : 'mic-outline'} size={32} color={nameListening ? '#818cf8' : '#4b5563'} />
-                    }
-                  </LinearGradient>
+                  <OrbAnimation
+                    phase={nameThinking ? 'thinking' : nameListening ? 'listening' : nameHeard ? 'done' : 'idle'}
+                  />
                 </Pressable>
 
                 {/* Text fallback */}
@@ -1338,12 +1354,6 @@ const finishStyles = StyleSheet.create({
 
 const nameStyles = StyleSheet.create({
   orbWrap: { alignSelf: 'center', marginVertical: 24 },
-  orb: {
-    width: 100, height: 100, borderRadius: 50,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#6366f1', shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6, shadowRadius: 30, elevation: 16,
-  },
 });
 
 const profileStyles = StyleSheet.create({

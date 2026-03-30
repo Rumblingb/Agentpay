@@ -62,7 +62,7 @@ export async function executeIntent(params: {
 const STATUS_LINES = [
   "Still on it — checking availability.",
   "Confirming the schedule now.",
-  "Almost there — finalising the booking.",
+  "Finishing the booking now.",
   "Securing your seat.",
   "One moment — wrapping up.",
 ];
