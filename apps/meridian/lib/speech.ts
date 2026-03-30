@@ -34,6 +34,10 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 let recording: Audio.Recording | null = null;
 let startCancelled = false;
 
+async function resetRecordingMode(): Promise<void> {
+  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+}
+
 export async function startRecording(): Promise<void> {
   startCancelled = false;
 
@@ -73,7 +77,11 @@ export async function startRecording(): Promise<void> {
   });
 
   if (startCancelled) {
-    created.recording.stopAndUnloadAsync().catch(() => {});
+    try {
+      await created.recording.stopAndUnloadAsync();
+    } finally {
+      await resetRecordingMode().catch(() => {});
+    }
     return;
   }
 
@@ -85,9 +93,28 @@ export async function stopRecording(): Promise<string | null> {
   if (!recording) return null;
   const current = recording;
   recording = null;
-  await current.stopAndUnloadAsync();
-  const uri = current.getURI();
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+  let uri: string | null = null;
+  let cleanupError: Error | null = null;
+
+  try {
+    await current.stopAndUnloadAsync();
+    uri = current.getURI();
+  } catch (e: any) {
+    cleanupError = e instanceof Error ? e : new Error(e?.message ?? 'Recording cleanup failed.');
+  }
+
+  try {
+    await resetRecordingMode();
+  } catch (e: any) {
+    if (!cleanupError) {
+      cleanupError = e instanceof Error ? e : new Error(e?.message ?? 'Audio session reset failed.');
+    }
+  }
+
+  if (cleanupError) {
+    throw new Error(`Could not finish recording cleanly. ${cleanupError.message}`);
+  }
+
   return uri ?? null;
 }
 

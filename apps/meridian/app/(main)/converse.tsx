@@ -352,7 +352,7 @@ function buildAssuranceItems(params: {
   hasCards: boolean;
 }): string[] {
   const items: string[] = ['Live source checked'];
-  if (params.fiatAmount > 0) items.push('Protected payment handoff');
+  if (params.fiatAmount > 0) items.push('Payment stays protected');
   items.push('Monitored until confirmed');
   if (params.hasCards) items.push('Ace support has context');
   return items.slice(0, 3);
@@ -714,12 +714,23 @@ export default function ConverseScreen() {
     setPhase('idle');
   }, [agentId, autoConfirmLimitUsdc, nearestStation, speakIfEnabled]);
 
+  const runIntentWithUiFallback = useCallback(async (text: string) => {
+    try {
+      await handleIntent(text);
+    } catch (e: any) {
+      const msg = e?.message ?? 'Ace could not line that route up. Please try again.';
+      setError(msg);
+      setPhase('error');
+      await speakIfEnabled(`Sorry. ${msg}`);
+    }
+  }, [handleIntent, setError, setPhase, speakIfEnabled]);
+
   // Auto-fire a pre-filled transcript (e.g. from a disruption rebook notification tap)
   useEffect(() => {
     if (!prefill || prefillFiredRef.current || !agentId) return;
     prefillFiredRef.current = true;
-    handleIntent(prefill).catch(() => {});
-  }, [prefill, agentId, handleIntent]);
+    void runIntentWithUiFallback(prefill);
+  }, [prefill, agentId, runIntentWithUiFallback]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -919,7 +930,7 @@ export default function ConverseScreen() {
         } else if (msg.includes('503') || msg.includes('not configured')) {
           nextMessage = 'Voice service is offline for the moment. You can type the trip below.';
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
-          nextMessage = "Ace did not catch enough audio. Press and hold Ace again, or type it below.";
+          nextMessage = "Ace did not catch enough of that. Try again in your own words, or type it below.";
         } else if (msg.includes('network error') || msg.includes('network request') || msg.includes('unreachable')) {
           nextMessage = 'Ace cannot reach voice right now. You can type the trip below.';
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
@@ -934,7 +945,7 @@ export default function ConverseScreen() {
       }
 
       if (!text.trim()) {
-        const message = "Ace did not catch that. Press and hold Ace again, or type the trip below.";
+        const message = "Ace did not catch that clearly. Try again, spell it out, or type the trip below.";
         openTextFallback(message);
         void trackClientEvent({
           event: 'stt_empty_transcript',
@@ -958,7 +969,7 @@ export default function ConverseScreen() {
       });
       let nextMessage = 'Something went wrong — hold to try again.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
-        nextMessage = 'Ace took too long on that request. Press and hold Ace again, or type it below.';
+        nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
         nextMessage = 'Ace cannot reach the network right now. You can type the trip below.';
       } else if (msg.includes('offline')) {
@@ -1028,7 +1039,7 @@ export default function ConverseScreen() {
           <View style={styles.headerDot} />
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
-            <Text style={styles.headerSubtitle}>Voice concierge</Text>
+            <Text style={styles.headerSubtitle}>Travel, handled</Text>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -1067,7 +1078,7 @@ export default function ConverseScreen() {
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
               <View style={styles.heroTopline}>
-                <Text style={styles.emptyEyebrow}>Spoken travel concierge</Text>
+                <Text style={styles.emptyEyebrow}>Ask naturally</Text>
                 <View style={styles.heroToplineRule} />
               </View>
               <Text style={styles.emptyGreeting}>
@@ -1078,8 +1089,8 @@ export default function ConverseScreen() {
                 {lastRouteHint
                   ? `${lastRouteHint} Press and hold Ace and it will take it from there.`
                   : nearestStation
-                  ? `You are near ${nearestStation.name}. Press and hold Ace, say the destination, and Ace will line up the best next move.`
-                  : `Press and hold Ace, say where you are going, and Ace will handle the route, booking, and live follow-through.`}
+                  ? `You are near ${nearestStation.name}. Say the destination and Ace will suggest the best way to go from here.`
+                  : `Say where you are going and Ace will suggest the route, secure it, and stay with the trip.`}
               </Text>
               <View style={styles.heroStatRow}>
                 <View style={styles.heroStat}>
@@ -1088,8 +1099,8 @@ export default function ConverseScreen() {
                 </View>
                 <View style={styles.heroStatDivider} />
                 <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>~5 min</Text>
-                  <Text style={styles.heroStatLabel}>concierge booking</Text>
+                  <Text style={styles.heroStatValue}>Fast start</Text>
+                  <Text style={styles.heroStatLabel}>Ace takes it from here</Text>
                 </View>
                 <View style={styles.heroStatDivider} />
                 <View style={styles.heroStat}>
@@ -1168,7 +1179,7 @@ export default function ConverseScreen() {
               )}
             {usualRoute && (
               <Pressable
-                onPress={() => handleIntent(`${usualRoute.origin} to ${usualRoute.destination}`).catch(() => {})}
+                onPress={() => { void runIntentWithUiFallback(`${usualRoute.origin} to ${usualRoute.destination}`); }}
                 style={styles.usualRouteCard}
               >
                 <View style={styles.usualRouteRow}>
@@ -1184,7 +1195,7 @@ export default function ConverseScreen() {
             )}
             <Pressable onPress={() => router.push('/(main)/trips')} style={styles.myTripsBtn}>
               <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
-              <Text style={styles.myTripsBtnText}>My Trips</Text>
+              <Text style={styles.myTripsBtnText}>Journeys</Text>
               <Ionicons name="chevron-forward-outline" size={13} color="#334155" style={{ marginLeft: 'auto' }} />
             </Pressable>
             <View style={styles.suggestionsCard}>
@@ -1213,7 +1224,7 @@ export default function ConverseScreen() {
         {recentTurns.length > 0 && (
           <View style={styles.recentTurnsCard}>
             <View style={styles.recentTurnsHeader}>
-              <Text style={styles.recentTurnsEyebrow}>Recent exchange</Text>
+              <Text style={styles.recentTurnsEyebrow}>Just now</Text>
               {turns.length > recentTurns.length && (
                 <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
               )}
@@ -1499,9 +1510,9 @@ export default function ConverseScreen() {
                 </View>
               )}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={{ fontSize: 11, color: '#6b7280' }}>Service fee </Text>
+                <Text style={{ fontSize: 11, color: '#6b7280' }}>Booking fee </Text>
                 <View style={{ backgroundColor: '#052e16', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Included · Beta</Text>
+                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Included for now</Text>
                 </View>
               </View>
               <Text style={styles.confirmReason}>
@@ -1512,7 +1523,7 @@ export default function ConverseScreen() {
               <View style={styles.readinessCard}>
                 <View style={styles.readinessHeader}>
                   <Ionicons name="shield-checkmark-outline" size={14} color="#38bdf8" />
-                  <Text style={styles.readinessTitle}>Ready before Ace books</Text>
+                  <Text style={styles.readinessTitle}>Before Ace secures it</Text>
                 </View>
                 {(pendingPlanRef.current?.readiness ?? []).map((item) => (
                   <View key={`${item.label}-${item.detail}`} style={styles.readinessRow}>
@@ -1531,7 +1542,7 @@ export default function ConverseScreen() {
               <View style={styles.assuranceCard}>
                 <View style={styles.assuranceHeader}>
                   <Ionicons name="sparkles-outline" size={14} color="#d4c2a3" />
-                  <Text style={styles.assuranceTitle}>Ace assurance</Text>
+                  <Text style={styles.assuranceTitle}>What Ace has covered</Text>
                 </View>
                 {buildAssuranceItems({
                   plan,
@@ -1602,7 +1613,7 @@ export default function ConverseScreen() {
                   <Text style={styles.upiLabel}>India payments happen on the next screen</Text>
                   <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
                     <Ionicons name="qr-code-outline" size={16} color="#f97316" />
-                    <Text style={styles.upiBtnText}>Why</Text>
+                    <Text style={styles.upiBtnText}>How this works</Text>
                   </Pressable>
                   <Text style={styles.upiHint}>Ace creates the job first, then collects UPI against that job.</Text>
                 </View>

@@ -242,7 +242,7 @@ export default function ReceiptScreen() {
     ? 'Needs attention'
     : receipt
     ? 'Booking confirmed'
-    : 'Saved on this device';
+    : 'Journey details ready';
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -764,7 +764,7 @@ export default function ReceiptScreen() {
                 ? `${fromStation} → ${toStation}`
                 : receipt
                 ? 'Your trip, all together'
-                : 'Saved on this device'}
+                : 'Journey details ready'}
             </Text>
 
             {cards.length > 0 && (
@@ -823,7 +823,7 @@ export default function ReceiptScreen() {
               )}
               {error && (
                 <Text style={styles.localNotice}>
-                  Live receipt lookup is unavailable right now. Ace is showing the journey details saved on this device.
+                  Live receipt lookup is unavailable right now. Ace is still showing the journey details it already has for this trip.
                 </Text>
               )}
             </View>

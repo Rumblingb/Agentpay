@@ -77,14 +77,14 @@ function buildConciergeStages(params: {
   const stages: ConciergeStage[] = [
     {
       key: 'received',
-      label: 'Trip in hand',
-      detail: 'Ace has your route, traveller context, and booking brief.',
+      label: 'Trip received',
+      detail: 'Ace has the route, traveller context, and booking brief.',
       state: reachedIndex > 0 || bookingCurrent === 'received' ? (bookingCurrent === 'received' ? 'current' : 'done') : 'upcoming',
     },
     {
       key: 'checking',
-      label: 'Checking live availability',
-      detail: 'Ace is checking live availability, timing, and the best path to secure.',
+      label: 'Checking live options',
+      detail: 'Ace is checking live availability, timing, and the strongest way to secure the trip.',
       state: reachedIndex > 1 || bookingCurrent === 'checking' ? (bookingCurrent === 'checking' ? 'current' : 'done') : 'upcoming',
     },
     {
@@ -97,7 +97,7 @@ function buildConciergeStages(params: {
     },
     {
       key: 'payment',
-      label: needsPayment ? 'Ready for payment' : 'No payment step needed',
+      label: needsPayment ? 'Waiting for payment' : 'No payment step needed',
       detail: needsPayment
         ? 'Once payment clears, Ace can finish ticket issue and lock the journey in.'
         : 'This journey can move forward without a separate payment step.',
@@ -120,7 +120,7 @@ function buildConciergeStages(params: {
   if (params.isError) {
     return {
       headline: 'This journey needs intervention',
-      subline: 'Ace still has the trip in hand, but something changed before it was safe to lock in.',
+      subline: 'Ace still has the trip, but something changed before it was safe to lock in.',
       eta: 'This should normally complete within about 5 minutes. This one needs attention.',
       stages,
     };
@@ -146,10 +146,10 @@ function buildConciergeStages(params: {
 
   return {
     headline: 'Ace is handling the booking now',
-    subline: 'This is a managed concierge flow. Ace is working through the live booking steps for you.',
+    subline: 'Ace is working through the live booking steps for you now.',
     eta: params.elapsed < 300
-      ? 'Expected booking time: up to about 5 minutes.'
-      : 'This is running longer than the usual 5-minute booking window.',
+      ? 'Most bookings settle within about 5 minutes.'
+      : 'This is taking longer than usual, but Ace is still on it.',
     stages,
   };
 }

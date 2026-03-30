@@ -925,9 +925,9 @@ export default function OnboardScreen() {
                     ) : (
                       <>
                         <Ionicons name="finger-print" size={20} color="#4ade80" />
-                          <Text style={[styles.btnText, { color: '#4ade80' }]}>
-                          Save securely with {biometricLabel}
-                          </Text>
+                        <Text style={[styles.btnText, { color: '#4ade80' }]}>
+                          Save with {biometricLabel}
+                        </Text>
                       </>
                     )}
                   </LinearGradient>
@@ -953,7 +953,7 @@ export default function OnboardScreen() {
                   Ready{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  Ace is set up for the first booking. You will still approve important moments, and Ace will handle the rest.
+                  Ace is ready for the first booking. You will still approve important moments, and Ace will handle the rest.
                 </Text>
 
                 {/* Time saved strip */}
@@ -964,8 +964,8 @@ export default function OnboardScreen() {
                   </View>
                   <View style={finishStyles.savedDivider} />
                   <View style={finishStyles.savedItem}>
-                    <Text style={finishStyles.savedNum}>0</Text>
-                    <Text style={finishStyles.savedLabel}>hold music. ever.</Text>
+                    <Text style={finishStyles.savedNum}>Less chasing</Text>
+                    <Text style={finishStyles.savedLabel}>Ace keeps the trip moving</Text>
                   </View>
                   <View style={finishStyles.savedDivider} />
                   <View style={finishStyles.savedItem}>
@@ -992,7 +992,7 @@ export default function OnboardScreen() {
                     ) : (
                       <>
                         <Ionicons name="mic" size={20} color="#fff" />
-                        <Text style={styles.btnText}>Launch Ace</Text>
+                        <Text style={styles.btnText}>Start with Ace</Text>
                       </>
                     )}
                   </LinearGradient>

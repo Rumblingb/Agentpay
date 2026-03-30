@@ -86,7 +86,10 @@ voiceRouter.post('/transcribe', async (c) => {
     whisperForm.append('file', audioBlob, 'audio.m4a');
     whisperForm.append('model', 'whisper-1');
     whisperForm.append('language', 'en');
-    whisperForm.append('prompt', 'Transcribe spoken English accurately, including British, Indian, and accented English. Return plain English text only.');
+    whisperForm.append(
+      'prompt',
+      'Transcribe spoken English accurately, including British, Indian, and other regional accents. Be forgiving with station names, city names, and travel brands. If the speaker spells out a place or name letter by letter, join it correctly. Prefer the most likely English travel wording and return plain English text only.',
+    );
 
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method:  'POST',
