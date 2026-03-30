@@ -1206,14 +1206,9 @@ export default function ConverseScreen() {
         {turns.length === 0 && isIdle && (
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
-              <View style={styles.heroTopline}>
-                <Text style={styles.emptyEyebrow}>Ask naturally</Text>
-                <View style={styles.heroToplineRule} />
-              </View>
               <Text style={styles.emptyGreeting}>
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
               </Text>
-              <Text style={styles.heroHeadline}>Ask once. Ace handles the rest.</Text>
               <Text style={styles.emptyHint}>
                 {lastRouteHint
                   ? `${lastRouteHint} Touch Ace, say it naturally, and it will take it from there.`
@@ -2156,19 +2151,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   emptyGreeting: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#93c5fd',
-    marginBottom: 6,
-    letterSpacing: 0.2,
-  },
-  heroHeadline: {
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 38,
+    fontWeight: '700',
     color: C.textPrimary,
     marginBottom: 12,
-    letterSpacing: -1.3,
-    lineHeight: 40,
+    letterSpacing: -1.0,
+    lineHeight: 44,
   },
   emptyHint: {
     fontSize: 15,

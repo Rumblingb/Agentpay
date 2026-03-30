@@ -1,24 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#1e1b4b"/>
-      <stop offset="100%" stop-color="#080808"/>
+    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#102033"/>
+      <stop offset="45%" stop-color="#08111d"/>
+      <stop offset="100%" stop-color="#04070b"/>
     </radialGradient>
-    <radialGradient id="orb" cx="50%" cy="40%" r="60%">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#4338ca"/>
+    <radialGradient id="halo" cx="50%" cy="38%" r="55%">
+      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.95"/>
+      <stop offset="35%" stop-color="#38bdf8" stop-opacity="0.48"/>
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
     </radialGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="40.96" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <linearGradient id="sigilBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1725"/>
+      <stop offset="100%" stop-color="#050912"/>
+    </linearGradient>
+    <linearGradient id="crest" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d9f7ff"/>
+      <stop offset="100%" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <filter id="blurGlow">
+      <feGaussianBlur stdDeviation="35.84" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softShadow">
+      <feDropShadow dx="0" dy="10.24" stdDeviation="18.432" flood-color="#38bdf8" flood-opacity="0.24"/>
     </filter>
   </defs>
-  <rect width="1024" height="1024" fill="url(#bg)" rx="225.28"/>
-  <circle cx="512" cy="512" r="505.85600000000005" fill="#6366f1" opacity="0.08"/>
-  <circle cx="512" cy="512" r="389.12" fill="url(#orb)" filter="url(#glow)"/>
-  <!-- mic icon simplified -->
-  <rect x="450.56" y="358.4" width="122.88" height="204.8" rx="61.44" fill="white" opacity="0.95"/>
-  <path d="M 389.12 573.44 Q 512 696.3199999999999 634.88 573.44" stroke="white" stroke-width="25.6" fill="none" stroke-linecap="round" opacity="0.95"/>
-  <line x1="512" y1="696.3199999999999" x2="512" y2="757.76" stroke="white" stroke-width="25.6" stroke-linecap="round" opacity="0.95"/>
-  <line x1="440.32" y1="757.76" x2="583.6800000000001" y2="757.76" stroke="white" stroke-width="25.6" stroke-linecap="round" opacity="0.95"/>
+  <rect width="1024" height="1024" fill="url(#bg)" rx="245.76"/>
+  <circle cx="512" cy="512" r="348.16" fill="url(#halo)" filter="url(#blurGlow)"/>
+  <circle cx="512" cy="512" r="225.28" fill="#0a1320" opacity="0.78"/>
+  <g filter="url(#softShadow)">
+    <rect x="337.91999999999996" y="312.32" width="348.16" height="399.36" rx="81.92" fill="url(#sigilBody)" stroke="rgba(125,211,252,0.34)" stroke-width="3.6864"/>
+    <ellipse cx="512" cy="368.64" rx="61.44" ry="12.288" fill="#dff8ff" opacity="0.18"/>
+    <rect x="415.744" y="389.12" width="12.288" height="153.6" rx="6.144" fill="#65d8ff" opacity="0.34"/>
+    <rect x="595.968" y="389.12" width="12.288" height="153.6" rx="6.144" fill="#65d8ff" opacity="0.34"/>
+    <circle cx="512" cy="512" r="118.37440000000001" fill="#67e8f9" opacity="0.10" stroke="#7dd3fc" stroke-opacity="0.28" stroke-width="3.6864"/>
+    <circle cx="512" cy="512" r="69.632" fill="#08111d" stroke="#d8f6ff" stroke-opacity="0.72" stroke-width="4.3008"/>
+    <path d="M 483.328 550.912 L 512 462.848 L 540.672 550.912" fill="none" stroke="url(#crest)" stroke-width="12.288" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="494.592" y1="514.048" x2="529.408" y2="514.048" stroke="url(#crest)" stroke-width="9.216" stroke-linecap="round"/>
+    <path d="M 445.44 640 L 497.664 662.528 L 512 687.104 L 526.336 662.528 L 578.56 640" fill="none" stroke="#7dd3fc" stroke-opacity="0.48" stroke-width="6.144" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="471.04" y="732.1600000000001" width="81.92" height="18.432" rx="9.216" fill="#89dfff" opacity="0.20"/>
+  </g>
 </svg>
