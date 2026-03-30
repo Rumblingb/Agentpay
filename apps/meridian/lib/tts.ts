@@ -1,7 +1,7 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 
-const DEFAULT_ACE_VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+const DEFAULT_ACE_VOICE_ID = 'jpzKOF4VdptUa52jEdw5';
 export const ELEVENLABS_ACE_VOICE_ID =
   process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID ?? DEFAULT_ACE_VOICE_ID;
 
@@ -64,10 +64,10 @@ export async function speakBro(text: string): Promise<void> {
           text,
           model_id: 'eleven_multilingual_v2',
           voice_settings: {
-            stability: 0.55,
-            similarity_boost: 0.8,
-            style: 0.15,
-            speed: 0.9,
+            stability: 0.42,
+            similarity_boost: 0.78,
+            style: 0.08,
+            speed: 0.88,
             use_speaker_boost: true,
           },
         }),

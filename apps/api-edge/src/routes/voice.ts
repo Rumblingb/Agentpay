@@ -13,6 +13,20 @@ import type { Env, Variables } from '../types';
 
 export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function containsArabicScript(text: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
+}
+
+function shouldFallbackToEnglishWhisper(text: string): boolean {
+  const transcript = text.trim();
+  if (!transcript) return false;
+  if (containsArabicScript(transcript)) return true;
+  const latinMatches = transcript.match(/[A-Za-z]/g) ?? [];
+  const lettersOnly = transcript.match(/\p{L}/gu) ?? [];
+  if (lettersOnly.length >= 6 && latinMatches.length <= 1) return true;
+  return false;
+}
+
 // ── POST /api/voice/transcribe ────────────────────────────────────────────
 // Accepts: multipart/form-data with field "audio" (m4a/webm/wav file)
 // Returns: { transcript: string }
@@ -54,7 +68,9 @@ voiceRouter.post('/transcribe', async (c) => {
         audio: [...audioBytes],
       });
       const transcript = (result?.text ?? '').trim();
-      if (transcript) return c.json({ transcript });
+      if (transcript && !shouldFallbackToEnglishWhisper(transcript)) {
+        return c.json({ transcript });
+      }
       // Empty transcript — fall through to OpenAI
     } catch (e: any) {
       console.warn('[voice/transcribe] CF AI failed, trying OpenAI:', e.message);
@@ -70,6 +86,7 @@ voiceRouter.post('/transcribe', async (c) => {
     whisperForm.append('file', audioBlob, 'audio.m4a');
     whisperForm.append('model', 'whisper-1');
     whisperForm.append('language', 'en');
+    whisperForm.append('prompt', 'Transcribe spoken English accurately, including British, Indian, and accented English. Return plain English text only.');
 
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method:  'POST',

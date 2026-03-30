@@ -120,6 +120,74 @@ function shouldAutoSpeak(params: {
   return true;
 }
 
+function narrationStillNeedsAnswer(narration: string): boolean {
+  const text = narration.trim().toLowerCase();
+  if (!text) return false;
+  if (text.includes('?')) return true;
+  return [
+    'which one',
+    'which option',
+    'what date',
+    'what day',
+    'give me the date',
+    'tell me the date',
+    'which day',
+    'what time',
+    'tell me the time',
+    'give me the time',
+    'morning, afternoon or evening',
+    'today or tomorrow',
+    'want me to',
+  ].some((phrase) => text.includes(phrase));
+}
+
+function hasExplicitOrigin(text: string): boolean {
+  return [
+    /\bfrom\b/i,
+    /\bdepart(?:ing)? from\b/i,
+    /\bleaving from\b/i,
+    /\bstarting from\b/i,
+    /\bnear me\b/i,
+    /\bnear\b/i,
+    /\bmy location\b/i,
+    /\bcurrent location\b/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function looksLikeDestinationLedTrip(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || hasExplicitOrigin(normalized)) return false;
+  return [
+    /\btickets?\s+(to|for)\b/,
+    /\b(train|bus|coach|rail)\s+(to|for)\b/,
+    /\b(get me|take me|go(?:ing)?|travel(?:ling)?|route|trip)\s+to\b/,
+    /\bto\s+[a-z]/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function prepareIntentRequest(params: {
+  text: string;
+  nearestStation: StationGeo | null;
+}): { displayText: string; planningTranscript: string; assumptionNote: string | null } {
+  const displayText = params.text.trim();
+  if (!displayText || !params.nearestStation || !looksLikeDestinationLedTrip(displayText)) {
+    return {
+      displayText,
+      planningTranscript: displayText,
+      assumptionNote: null,
+    };
+  }
+
+  const stationName = params.nearestStation.name;
+  return {
+    displayText,
+    planningTranscript: `${displayText}
+
+Ace context: the customer is currently nearest to ${stationName}. If they have not given an origin, treat ${stationName} as the likely departure point, recommend the strongest route from there first, explain why in one concise line, and offer to secure it or guide them there first when useful.`,
+    assumptionNote: `Using ${stationName} as the likely departure point from your current location. Ace can guide you there first if you want.`,
+  };
+}
+
 function personalizedIdleSuggestions(params: {
   market: MarketNationality;
   nearestStation?: string | null;
@@ -290,6 +358,68 @@ function buildAssuranceItems(params: {
   return items.slice(0, 3);
 }
 
+function buildRecommendationBrief(params: {
+  plan: ConciergePlanItem[];
+  sourceLabel: string | null;
+  familyRailcardReady: boolean;
+}): { title: string; why: string; cues: string[] } | null {
+  const { plan, sourceLabel, familyRailcardReady } = params;
+  if (!plan.length) return null;
+
+  if (plan.length > 1) {
+    const first = plan[0]?.input as Record<string, string> | undefined;
+    const last = plan[plan.length - 1]?.input as Record<string, string> | undefined;
+    const from = first?.origin ?? first?.from ?? 'Origin';
+    const to = last?.destination ?? last?.to ?? 'Destination';
+    return {
+      title: `${from} to ${to}`,
+      why: 'Recommended because this is the cleanest end-to-end way to complete the whole journey in one handoff.',
+      cues: ['Through-planned', 'Single confirmation', 'Monitored end to end'],
+    };
+  }
+
+  const item = plan[0];
+  const input = item.input as Record<string, string>;
+  const from = input.origin ?? input.from ?? '';
+  const to = input.destination ?? input.to ?? '';
+  const route = from && to ? `${from} to ${to}` : item.displayName;
+
+  if (item.flightDetails) {
+    return {
+      title: route,
+      why: item.flightDetails.stops === 0
+        ? 'Recommended because it is the cleanest direct option with workable timing.'
+        : 'Recommended because it balances timing and fare better than more awkward connections.',
+      cues: [
+        item.flightDetails.stops === 0 ? 'Direct' : `${item.flightDetails.stops} stop${item.flightDetails.stops === 1 ? '' : 's'}`,
+        item.flightDetails.cabinClass.replace(/_/g, ' '),
+        'Live fare',
+      ],
+    };
+  }
+
+  const trainDetails = (item as ConciergePlanItem & {
+    trainDetails?: { operator?: string; departureTime?: string };
+  }).trainDetails;
+  const why = familyRailcardReady
+    ? 'Recommended because it keeps the trip simple and carries your family rail savings through the booking.'
+    : item.toolName === 'book_bus'
+    ? 'Recommended because it is the clearest coach option for this route right now.'
+    : 'Recommended because it is the clearest live route for this journey right now.';
+
+  const cues = [
+    trainDetails?.operator ?? item.displayName,
+    sourceLabel ?? 'Live checked',
+    familyRailcardReady ? 'Railcard ready' : 'Best current fit',
+  ].filter(Boolean);
+
+  return {
+    title: route,
+    why,
+    cues: cues.slice(0, 3),
+  };
+}
+
 function shouldOfferTextFallback(message: string): boolean {
   const copy = message.toLowerCase();
   return (
@@ -336,6 +466,7 @@ export default function ConverseScreen() {
     fiatAmount: number;
     fiatSymbol: string;
     fiatCode: string;
+    assumptionNote?: string | null;
   } | null>(null);
 
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
@@ -465,11 +596,14 @@ export default function ConverseScreen() {
   const handleIntent = useCallback(async (text: string) => {
     if (!agentId) throw new Error('Ace is not ready yet. Please restart the app.');
 
+    const prepared = prepareIntentRequest({ text, nearestStation });
+    const displayText = prepared.displayText;
+
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
-    setTranscript(text);
-    const userTurn = { role: 'user' as const, text, ts: Date.now() };
+    setTranscript(displayText);
+    const userTurn = { role: 'user' as const, text: displayText, ts: Date.now() };
     addTurn(userTurn);
     await appendHistory(userTurn);
 
@@ -511,7 +645,7 @@ export default function ConverseScreen() {
 
     // Phase 1: get a plan from Claude — no hire fires yet
     const response = await planIntent({
-      transcript:   text,
+      transcript:   prepared.planningTranscript,
       hirerId:      agentId,
       travelProfile,
     });
@@ -541,8 +675,10 @@ export default function ConverseScreen() {
       setUsualRoute(response.usualRoute);
     }
 
-    // If plan needs biometric confirmation, store it
-    if (response.needsBiometric && response.plan && response.plan.length > 0) {
+    const waitingForFollowUp = narrationStillNeedsAnswer(response.narration);
+
+    // If plan needs biometric confirmation, store it only when Ace is no longer asking a follow-up.
+    if (response.needsBiometric && response.plan && response.plan.length > 0 && !waitingForFollowUp) {
       const total      = response.estimatedPriceUsdc ?? 0;
       const fiatAmount = response.fiatAmount          ?? total;
       const fiatSymbol = response.currencySymbol      ?? currencySymbol;
@@ -555,9 +691,10 @@ export default function ConverseScreen() {
       });
       // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
-        transcript: text, plan: response.plan, travelProfile, fullProfile: undefined,
+        transcript: prepared.planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
         readiness,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
+        assumptionNote: prepared.assumptionNote,
       };
 
       // Auto-confirm if total is within the spending limit (no fingerprint needed)
@@ -572,9 +709,10 @@ export default function ConverseScreen() {
       return;
     }
 
-    // No action needed (research, clarification, or error from Claude)
+    // No action needed yet (research, clarification, or error from Claude)
+    pendingPlanRef.current = null;
     setPhase('idle');
-  }, [agentId, autoConfirmLimitUsdc, speakIfEnabled]);
+  }, [agentId, autoConfirmLimitUsdc, nearestStation, speakIfEnabled]);
 
   // Auto-fire a pre-filled transcript (e.g. from a disruption rebook notification tap)
   useEffect(() => {
@@ -922,7 +1060,7 @@ export default function ConverseScreen() {
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, isConfirming && styles.scrollContentConfirming]}
         showsVerticalScrollIndicator={false}
       >
         {turns.length === 0 && isIdle && (
@@ -1177,6 +1315,11 @@ export default function ConverseScreen() {
             }
             return null;
           })();
+          const recommendation = buildRecommendationBrief({
+            plan,
+            sourceLabel,
+            familyRailcardReady,
+          });
           // Hotel details — single hotel booking
           const hotelDetails = plan.length === 1 ? plan[0]?.hotelDetails : undefined;
           const hotel = hotelDetails?.bestOption;
@@ -1214,6 +1357,29 @@ export default function ConverseScreen() {
               </View>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
+              )}
+              {pendingPlanRef.current?.assumptionNote && (
+                <View style={styles.assumptionCard}>
+                  <Ionicons name="locate-outline" size={14} color="#93c5fd" />
+                  <Text style={styles.assumptionText}>{pendingPlanRef.current.assumptionNote}</Text>
+                </View>
+              )}
+              {recommendation && (
+                <View style={styles.recommendationCard}>
+                  <View style={styles.recommendationHeader}>
+                    <Ionicons name="sparkles" size={14} color="#f4ead6" />
+                    <Text style={styles.recommendationEyebrow}>Recommended for you</Text>
+                  </View>
+                  <Text style={styles.recommendationTitle}>{recommendation.title}</Text>
+                  <Text style={styles.recommendationWhy}>{recommendation.why}</Text>
+                  <View style={styles.recommendationCueRow}>
+                    {recommendation.cues.map((cue) => (
+                      <View key={cue} style={styles.recommendationCue}>
+                        <Text style={styles.recommendationCueText}>{cue}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
               )}
 
               {travellerCount > 1 && (
@@ -1455,10 +1621,11 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <View style={{ height: 260 }} />
+        <View style={{ height: isConfirming ? 48 : 260 }} />
       </ScrollView>
 
       {/* Orb + label */}
+      {!isConfirming && (
       <View style={styles.orbArea}>
         {nearestStation && (homeStation || workStation) && (isIdle || isError) && (
           <View style={styles.shortcutRow}>
@@ -1545,6 +1712,7 @@ export default function ConverseScreen() {
           </Pressable>
         )}
       </View>
+      )}
 
     </SafeAreaView>
   );
@@ -1723,6 +1891,7 @@ const styles = StyleSheet.create({
 
   scroll:        { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 260 },
+  scrollContentConfirming: { paddingBottom: 48 },
 
   emptyState:    { paddingTop: 22, paddingBottom: 20 },
   heroCard: {
@@ -2050,6 +2219,23 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
+  assumptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.18)',
+    backgroundColor: 'rgba(8, 18, 32, 0.72)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  assumptionText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#cbd5e1',
+    lineHeight: 18,
+  },
   confirmPrice: {
     fontSize: 38,
     fontWeight: '800',
@@ -2063,6 +2249,55 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     lineHeight: 20,
     marginTop: -6,
+  },
+  recommendationCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 234, 214, 0.16)',
+    backgroundColor: 'rgba(24, 20, 15, 0.72)',
+    padding: 14,
+    gap: 10,
+  },
+  recommendationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  recommendationEyebrow: {
+    fontSize: 11,
+    color: '#f4ead6',
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  recommendationTitle: {
+    fontSize: 18,
+    color: '#f8fafc',
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  recommendationWhy: {
+    fontSize: 12,
+    color: '#d6d3d1',
+    lineHeight: 18,
+  },
+  recommendationCueRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  recommendationCue: {
+    borderRadius: 999,
+    backgroundColor: 'rgba(8, 18, 32, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.18)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  recommendationCueText: {
+    fontSize: 11,
+    color: '#bae6fd',
+    fontWeight: '600',
   },
   readinessCard: {
     borderRadius: 14,

@@ -10,7 +10,7 @@
 import { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
-import { loadCredentials, loadPrefs, loadHistory } from '../lib/storage';
+import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip } from '../lib/storage';
 import { useStore } from '../lib/store';
 
 export default function BootScreen() {
@@ -19,10 +19,11 @@ export default function BootScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const [creds, prefs, history] = await Promise.all([
+        const [creds, prefs, history, activeTrip] = await Promise.all([
           loadCredentials(),
           loadPrefs(),
           loadHistory(),
+          loadActiveTrip(),
         ]);
 
         if (!creds || !prefs.onboarded) {
@@ -36,7 +37,7 @@ export default function BootScreen() {
           userName:             prefs.userName,
           autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc,
           onboarded:            prefs.onboarded,
-          turns:                history,
+          turns:                activeTrip ? history : [],
           homeStation:          prefs.homeStation,
           workStation:          prefs.workStation,
         });

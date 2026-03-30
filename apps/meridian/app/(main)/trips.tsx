@@ -15,7 +15,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { loadTrips as loadTripsFromStorage, type TripEntry } from '../../lib/storage';
@@ -79,6 +79,7 @@ function tripMetaLine(trip: TripEntry) {
 }
 
 export default function TripsScreen() {
+  const insets = useSafeAreaInsets();
   const [trips, setTrips] = useState<TripEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,7 +120,7 @@ export default function TripsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12, paddingBottom: 12 }]}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color="#4b5563" />
         </Pressable>

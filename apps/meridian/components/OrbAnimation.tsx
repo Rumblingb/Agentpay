@@ -54,6 +54,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const ring2Opacity = useRef(new Animated.Value(0)).current;
   const orbScale = useRef(new Animated.Value(1)).current;
   const mascotTilt = useRef(new Animated.Value(0)).current;
+  const mascotLift = useRef(new Animated.Value(0)).current;
 
   const colors = PHASE_COLORS[phase];
   const accent = ACCENT_COLOR[phase];
@@ -68,9 +69,11 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     ring2Opacity.stopAnimation();
     orbScale.stopAnimation();
     mascotTilt.stopAnimation();
+    mascotLift.stopAnimation();
 
     if (phase !== 'done' && phase !== 'error') {
       mascotTilt.setValue(0);
+      mascotLift.setValue(0);
     }
 
     if (phase === 'idle') {
@@ -91,6 +94,12 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         Animated.sequence([
           Animated.timing(mascotTilt, { toValue: -6, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           Animated.timing(mascotTilt, { toValue: 6, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(mascotLift, { toValue: -2, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mascotLift, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }
@@ -125,8 +134,8 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
 
       Animated.loop(
         Animated.sequence([
-          Animated.timing(mascotTilt, { toValue: -4, duration: 110, easing: Easing.linear, useNativeDriver: true }),
-          Animated.timing(mascotTilt, { toValue: 4, duration: 110, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(mascotLift, { toValue: -4, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mascotLift, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }
@@ -141,8 +150,14 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
 
       Animated.loop(
         Animated.sequence([
-          Animated.timing(mascotTilt, { toValue: -8, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mascotTilt, { toValue: 8, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mascotTilt, { toValue: -4, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mascotTilt, { toValue: 4, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(mascotLift, { toValue: -2, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mascotLift, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }
@@ -154,6 +169,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           Animated.timing(mascotTilt, { toValue: 3, duration: 260, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
+      Animated.timing(mascotLift, { toValue: -1, duration: 260, useNativeDriver: true }).start();
     }
 
     if (phase === 'done') {
@@ -162,10 +178,12 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         Animated.spring(orbScale, { toValue: 1, useNativeDriver: true, speed: 10 }),
       ]).start();
       Animated.spring(mascotTilt, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 10 }).start();
+      Animated.spring(mascotLift, { toValue: -3, useNativeDriver: true, speed: 18, bounciness: 8 }).start();
     }
 
     if (phase === 'error') {
       Animated.spring(mascotTilt, { toValue: -10, useNativeDriver: true, speed: 8, bounciness: 4 }).start();
+      Animated.timing(mascotLift, { toValue: 0, duration: 220, useNativeDriver: true }).start();
     }
 
     if (phase !== 'listening' && phase !== 'done') {
@@ -176,7 +194,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
       ring2Scale.setValue(1);
       ring2Opacity.setValue(0);
     }
-  }, [phase, glowOpacity, glowScale, mascotTilt, orbScale, ring1Opacity, ring1Scale, ring2Opacity, ring2Scale]);
+  }, [phase, glowOpacity, glowScale, mascotLift, mascotTilt, orbScale, ring1Opacity, ring1Scale, ring2Opacity, ring2Scale]);
 
   const tiltDeg = mascotTilt.interpolate({
     inputRange: [-12, 12],
@@ -214,7 +232,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
       <Animated.View style={[styles.ring, { transform: [{ scale: ring1Scale }], opacity: ring1Opacity }]} />
       <Animated.View style={[styles.ring, { transform: [{ scale: ring2Scale }], opacity: ring2Opacity }]} />
 
-      <Animated.View style={{ transform: [{ scale: orbScale }] }}>
+      <Animated.View style={{ transform: [{ scale: orbScale }, { translateY: mascotLift }] }}>
         <Pressable
           onPress={onPress ? handlePress : undefined}
           onPressIn={!onPress ? handlePressIn : undefined}
