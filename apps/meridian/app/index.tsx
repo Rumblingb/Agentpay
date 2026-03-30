@@ -8,7 +8,8 @@
  */
 
 import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip } from '../lib/storage';
 import { useStore } from '../lib/store';
@@ -51,7 +52,12 @@ export default function BootScreen() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator color="#6366f1" size="large" />
+      <LinearGradient colors={['rgba(16,185,129,0.18)', 'rgba(0,0,0,0)']} style={styles.glow} />
+      <View style={styles.mark}>
+        <Text style={styles.wordmark}>ACE</Text>
+        <Text style={styles.tagline}>Travel, handled</Text>
+      </View>
+      <ActivityIndicator color="#6ee7b7" size="small" />
     </View>
   );
 }
@@ -62,5 +68,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#080808',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  glow: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+  },
+  mark: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  wordmark: {
+    color: '#f8fafc',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 3,
+  },
+  tagline: {
+    marginTop: 8,
+    color: '#94a3b8',
+    fontSize: 11,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
   },
 });

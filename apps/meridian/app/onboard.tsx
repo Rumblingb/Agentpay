@@ -480,7 +480,7 @@ export default function OnboardScreen() {
                 {/* Dynamic label */}
                 <Text style={demoStyles.label}>
                   {demoPhase === 'intro'     ? '' :
-                   demoPhase === 'ready'     ? 'Press and hold Ace' :
+                   demoPhase === 'ready'     ? 'Touch Ace and speak naturally' :
                    demoPhase === 'listening' ? 'Listening…' :
                    demoPhase === 'thinking'  ? 'On it…' :
                    demoResponse}
@@ -508,24 +508,54 @@ export default function OnboardScreen() {
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>What should I call you?</Text>
                 <Text style={styles.stepSub}>
-                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Press and hold Ace, then say your name.'}
+                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Touch Ace, then say your name.'}
                 </Text>
                 {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
                 {/* Voice object */}
                 <Pressable
-                  onPressIn={async () => {
-                    if (nameListening || nameThinking) return;
-                    setNameListening(true);
-                    setNameHint('Listening…');
-                    setNameHeard('');
-                    await startRecording().catch(() => {
-                      setNameListening(false);
-                      setNameHint('Microphone access is needed. You can also type your name below.');
-                    });
-                  }}
-                  onPressOut={async () => {
-                    if (!nameListening) return;
+                  onPress={async () => {
+                    if (nameThinking) return;
+                    if (!nameListening) {
+                      setNameListening(true);
+                      setNameHint('Listening…');
+                      setNameHeard('');
+                      await startRecording({
+                        autoStopOnSilence: true,
+                        silenceMs: 2200,
+                        maxDurationMs: 8000,
+                        onSilence: () => {
+                          void stopRecording().then(async (uri) => {
+                            setNameListening(false);
+                            setNameThinking(true);
+                            setNameHint('Listening…');
+                            try {
+                              if (uri) {
+                                const t = await transcribeAudio(uri).catch(() => '');
+                                const name = t.trim().replace(/^(my name is|i'm|i am|call me)\s+/i, '').replace(/[.,!?]+$/, '').trim();
+                                if (name) {
+                                  setNameHeard(name);
+                                  setUserName(name);
+                                  setNameHint('Got it.');
+                                } else {
+                                  setNameHint('Ace did not catch that. Try once more or type your name below.');
+                                }
+                              } else {
+                                setNameHint('Ace did not catch enough audio. Try once more or type your name below.');
+                              }
+                            } catch {
+                              setNameHint('Voice is unavailable right now. You can type your name below.');
+                            }
+                            setNameThinking(false);
+                          });
+                        },
+                      }).catch(() => {
+                        setNameListening(false);
+                        setNameHint('Microphone access is needed. You can also type your name below.');
+                      });
+                      return;
+                    }
+
                     setNameListening(false);
                     setNameThinking(true);
                     setNameHint('Listening…');

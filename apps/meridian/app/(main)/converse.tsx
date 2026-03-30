@@ -39,7 +39,7 @@ import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storag
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
-import { getNearestStation } from '../../lib/location';
+import { getLocationContext } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
@@ -401,10 +401,15 @@ function buildRecommendationBrief(params: {
   const trainDetails = (item as ConciergePlanItem & {
     trainDetails?: { operator?: string; departureTime?: string };
   }).trainDetails;
+  const isEstimated = sourceLabel === 'Estimated fare';
   const why = familyRailcardReady
-    ? 'Recommended because it keeps the trip simple and carries your family rail savings through the booking.'
+    ? isEstimated
+      ? 'Recommended because it is the clearest route to line up for your group, and Ace will verify the final family fare before securing it.'
+      : 'Recommended because it keeps the trip simple and lets Ace check the strongest family fare before it secures the booking.'
     : item.toolName === 'book_bus'
     ? 'Recommended because it is the clearest coach option for this route right now.'
+    : isEstimated
+    ? 'Recommended because it is the clearest route to line up now, and Ace will verify the live fare before it secures it.'
     : 'Recommended because it is the clearest live route for this journey right now.';
 
   const cues = [
@@ -477,6 +482,7 @@ export default function ConverseScreen() {
   const [activeTrip, setActiveTrip] = useState<ActiveTrip | null>(null);
   const [, setCountdownTick] = useState(0);
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
@@ -519,8 +525,11 @@ export default function ConverseScreen() {
   // Detect nearest station on mount (fire-and-forget, best-effort)
   useEffect(() => {
     let active = true;
-    getNearestStation().then((s) => {
-      if (active) setNearestStation(s);
+    getLocationContext().then((context) => {
+      if (active) {
+        setNearestStation(context.nearestStation);
+        setLocationLabel(context.placeLabel);
+      }
     }).catch(() => {});
     return () => { active = false; };
   }, []);
@@ -603,10 +612,6 @@ export default function ConverseScreen() {
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setTranscript(displayText);
-    const userTurn = { role: 'user' as const, text: displayText, ts: Date.now() };
-    addTurn(userTurn);
-    await appendHistory(userTurn);
-
     setPhase('thinking');
 
     // Load travel profile for Phase 1 — preferences only, no identity data.
@@ -861,51 +866,17 @@ export default function ConverseScreen() {
   // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
   // recordingReadyRef guards the race where user releases before startRecording() completes.
 
-  const pressStartRef    = useRef<number>(0);
-  const recordingReadyRef = useRef<boolean>(false);
+  const recordingActiveRef = useRef(false);
+  const finishingRecordingRef = useRef(false);
 
-  const handlePressIn = useCallback(async () => {
-    if (phase !== 'idle' && phase !== 'error') return;
-    cancelSpeech();
-    if (phase === 'error') reset();
-    setTextFallbackVisible(false);
-    pressStartRef.current    = Date.now();
-    recordingReadyRef.current = false;
-    setPhase('listening');
-    try {
-      await startRecording();
-      recordingReadyRef.current = true;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
-      const message = 'Microphone access denied. You can enable it in Settings, or type the trip instead.';
-      setError(message);
-      setTextFallbackVisible(true);
-      void trackClientEvent({
-        event: 'voice_permission_denied',
-        screen: 'converse',
-        severity: 'warning',
-        message,
-      });
-    }
-  }, [phase, reset, setError]);
-
-  const handlePressOut = useCallback(async () => {
-    if (phase !== 'listening') return;
-
-    const heldMs = Date.now() - pressStartRef.current;
-
-    // Too short OR recording not ready — cancel cleanly
-    if (heldMs < 600 || !recordingReadyRef.current) {
-      await stopRecording(); // safe to call even if null
-      setPhase('idle');
-      return;
-    }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const finishVoiceCapture = useCallback(async () => {
+    if (finishingRecordingRef.current) return;
+    finishingRecordingRef.current = true;
     setPhase('thinking');
 
     try {
       const uri = await stopRecording();
+      recordingActiveRef.current = false;
       if (!uri) { setPhase('idle'); return; }
 
       let text = '';
@@ -930,7 +901,7 @@ export default function ConverseScreen() {
         } else if (msg.includes('503') || msg.includes('not configured')) {
           nextMessage = 'Voice service is offline for the moment. You can type the trip below.';
         } else if (msg.includes('empty') || msg.includes('missing') || msg.includes('hold')) {
-          nextMessage = "Ace did not catch enough of that. Try again in your own words, or type it below.";
+          nextMessage = 'Ace did not catch enough of that. Try again in your own words, or type it below.';
         } else if (msg.includes('network error') || msg.includes('network request') || msg.includes('unreachable')) {
           nextMessage = 'Ace cannot reach voice right now. You can type the trip below.';
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
@@ -945,7 +916,7 @@ export default function ConverseScreen() {
       }
 
       if (!text.trim()) {
-        const message = "Ace did not catch that clearly. Try again, spell it out, or type the trip below.";
+        const message = 'Ace did not catch that clearly. Try again, spell it out, or type the trip below.';
         openTextFallback(message);
         void trackClientEvent({
           event: 'stt_empty_transcript',
@@ -958,6 +929,7 @@ export default function ConverseScreen() {
 
       await handleIntent(text);
     } catch (e: any) {
+      recordingActiveRef.current = false;
       const msg = (e.message ?? '').toLowerCase();
       const rawMessage = e.message ?? 'Voice capture failed.';
       void trackClientEvent({
@@ -967,7 +939,7 @@ export default function ConverseScreen() {
         message: rawMessage,
         metadata: { phase: 'capture' },
       });
-      let nextMessage = 'Something went wrong — hold to try again.';
+      let nextMessage = 'Something went wrong — tap to try again.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -980,8 +952,50 @@ export default function ConverseScreen() {
       } else {
         setError(nextMessage);
       }
+    } finally {
+      finishingRecordingRef.current = false;
     }
-  }, [phase, handleIntent, openTextFallback, setError]);
+  }, [handleIntent, openTextFallback, setError]);
+
+  const beginVoiceCapture = useCallback(async () => {
+    if (phase !== 'idle' && phase !== 'error') return;
+    cancelSpeech();
+    if (phase === 'error') reset();
+    setTextFallbackVisible(false);
+    setError(null);
+    setPhase('listening');
+    try {
+      await startRecording({
+        autoStopOnSilence: true,
+        silenceMs: 2200,
+        maxDurationMs: 12000,
+        onSilence: () => {
+          void finishVoiceCapture();
+        },
+      });
+      recordingActiveRef.current = true;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      recordingActiveRef.current = false;
+      const message = 'Microphone access denied. You can enable it in Settings, or type the trip instead.';
+      setError(message);
+      setTextFallbackVisible(true);
+      void trackClientEvent({
+        event: 'voice_permission_denied',
+        screen: 'converse',
+        severity: 'warning',
+        message,
+      });
+    }
+  }, [finishVoiceCapture, phase, reset, setError]);
+
+  const handleOrbTap = useCallback(async () => {
+    if (phase === 'listening') {
+      await finishVoiceCapture();
+      return;
+    }
+    await beginVoiceCapture();
+  }, [beginVoiceCapture, finishVoiceCapture, phase]);
 
   const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
     if (!nearestStation) return;
@@ -1028,7 +1042,7 @@ export default function ConverseScreen() {
   const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
     ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
     : null;
-  const recentTurns = turns.slice(-4);
+  const recentTurns = turns.filter((turn) => turn.role === 'meridian').slice(-4);
   return (
     <SafeAreaView style={styles.safe}>
       <Atmosphere />
@@ -1043,9 +1057,9 @@ export default function ConverseScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
-          {nearestStation && (
+          {locationLabel && (
             <View style={styles.nearBadge}>
-              <Text style={styles.nearBadgeText}>{`📍 ${nearestStation.name}`}</Text>
+              <Text style={styles.nearBadgeText}>{locationLabel}</Text>
             </View>
           )}
           <Pressable onPress={() => { void handleVoiceToggle(); }} hitSlop={12} style={styles.headerIconBtn}>
@@ -1084,13 +1098,13 @@ export default function ConverseScreen() {
               <Text style={styles.emptyGreeting}>
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
               </Text>
-              <Text style={styles.heroHeadline}>Travel, handled in one sentence.</Text>
+              <Text style={styles.heroHeadline}>Ask once. Ace handles the rest.</Text>
               <Text style={styles.emptyHint}>
                 {lastRouteHint
-                  ? `${lastRouteHint} Press and hold Ace and it will take it from there.`
+                  ? `${lastRouteHint} Touch Ace, say it naturally, and it will take it from there.`
                   : nearestStation
-                  ? `You are near ${nearestStation.name}. Say the destination and Ace will suggest the best way to go from here.`
-                  : `Say where you are going and Ace will suggest the route, secure it, and stay with the trip.`}
+                  ? `You are in ${locationLabel ?? 'your area'}. Ace will choose the best departure point from nearby, line up the route, and secure it if you want.`
+                  : `Say where you are going and Ace will line up the route, secure it, and stay with the trip.`}
               </Text>
               <View style={styles.heroStatRow}>
                 <View style={styles.heroStat}>
@@ -1200,8 +1214,8 @@ export default function ConverseScreen() {
             </Pressable>
             <View style={styles.suggestionsCard}>
               <View style={styles.suggestionsHeader}>
-                <Text style={styles.suggestionsEyebrow}>Good first asks</Text>
-                <Text style={styles.suggestionsHint}>Keep it natural. Ace hears the destination, infers the route, and suggests the strongest next step.</Text>
+                <Text style={styles.suggestionsEyebrow}>Try one of these</Text>
+                <Text style={styles.suggestionsHint}>Speak naturally. Ace will infer the route, recommend the strongest option, and only ask when something truly matters.</Text>
               </View>
               <View style={styles.suggestions}>
                 {idleSuggestions.map((suggestion) => (
@@ -1214,6 +1228,7 @@ export default function ConverseScreen() {
                       : 'train-outline'
                     }
                     text={suggestion}
+                    onPress={() => { void runIntentWithUiFallback(suggestion); }}
                   />
                 ))}
               </View>
@@ -1224,8 +1239,8 @@ export default function ConverseScreen() {
         {recentTurns.length > 0 && (
           <View style={styles.recentTurnsCard}>
             <View style={styles.recentTurnsHeader}>
-              <Text style={styles.recentTurnsEyebrow}>Just now</Text>
-              {turns.length > recentTurns.length && (
+              <Text style={styles.recentTurnsEyebrow}>Ace is thinking</Text>
+              {recentTurns.length > 1 && (
                 <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
               )}
             </View>
@@ -1407,7 +1422,7 @@ export default function ConverseScreen() {
                   {familyRailcardReady && (
                     <View style={styles.groupReadyBadge}>
                       <Ionicons name="ticket-outline" size={13} color="#4ade80" />
-                      <Text style={styles.groupReadyText}>Family & Friends Railcard should apply on eligible UK rail legs.</Text>
+                      <Text style={styles.groupReadyText}>Ace will check Family & Friends Railcard eligibility before it secures any UK rail leg.</Text>
                     </View>
                   )}
                   {flightFamilyGaps > 0 && (
@@ -1448,7 +1463,7 @@ export default function ConverseScreen() {
               )}
 
               {priceLabel && !isMultiLeg && !hotel && (
-                <Text style={styles.confirmPrice}>{priceLabel}</Text>
+                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
               )}
               {hotel && (
                 <View style={styles.hotelCard}>
@@ -1476,13 +1491,6 @@ export default function ConverseScreen() {
               {passengers && passengers.length > 1 && (
                 <View style={styles.passengerList}>
                   {passengers.map((p, i) => {
-                    // Estimate per-person share (simplified — equal adult split, child = half)
-                    const isChild = p.relationship === 'child' || p.relationship === 'infant';
-                    const adultCount  = passengers.filter(x => x.relationship !== 'child' && x.relationship !== 'infant').length;
-                    const childCount  = passengers.filter(x => x.relationship === 'child' || x.relationship === 'infant').length;
-                    const totalUnits  = adultCount + childCount * 0.5;
-                    const perUnit     = fiat / totalUnits;
-                    const personFare  = isChild ? perUnit * 0.5 : perUnit;
                     return (
                       <View key={i} style={styles.passengerRow}>
                         <View style={styles.passengerPill}>
@@ -1491,12 +1499,14 @@ export default function ConverseScreen() {
                           </Text>
                         </View>
                         <Text style={styles.passengerFare}>
-                          {sym}{formatMoneyAmount(personFare, code)}
-                          {isChild ? ' (child)' : ''}
+                          {p.relationship === 'infant' ? 'Infant' : p.relationship === 'child' ? 'Child' : 'Adult'}
                         </Text>
                       </View>
                     );
                   })}
+                  <Text style={styles.passengerHint}>
+                    Final passenger-specific fares and discounts are checked during booking, not split here.
+                  </Text>
                 </View>
               )}
               {flightExpiryMins !== null && flightExpiryMins <= 15 && (
@@ -1665,7 +1675,7 @@ export default function ConverseScreen() {
           <View style={styles.holdPlaque}>
             <View style={styles.holdPlaqueDot} />
             <Text style={styles.holdPlaqueText}>
-              {phase === 'listening' ? 'Listening' : 'Tell Ace where to go'}
+              {phase === 'listening' ? 'Listening — pause when you are done' : 'Touch Ace and speak naturally'}
             </Text>
           </View>
         )}
@@ -1712,8 +1722,7 @@ export default function ConverseScreen() {
 
         <OrbAnimation
           phase={phase}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
+          onPress={handleOrbTap}
           disabled={isBusy || isConfirming}
         />
 
@@ -1731,14 +1740,25 @@ export default function ConverseScreen() {
 
 // ── Suggestion chip ───────────────────────────────────────────────────────────
 
-function Suggestion({ icon, text }: { icon: string; text: string }) {
+function suggestionSupportLine(text: string): string {
+  if (text.toLowerCase().includes('cheapest')) return 'Ace will compare a stronger option against the cheapest.';
+  if (text.toLowerCase().includes('next train')) return 'Ace will line up the next live departures and recommend one.';
+  if (text.toLowerCase().includes('route')) return 'Ace will choose the best route and explain why.';
+  return 'Ace will line up the route, price, and strongest next step.';
+}
+
+function Suggestion({ icon, text, onPress }: { icon: string; text: string; onPress: () => void }) {
   return (
-    <View style={suggStyles.chip}>
+    <Pressable style={suggStyles.chip} onPress={onPress}>
       <View style={suggStyles.iconWrap}>
         <Ionicons name={icon as any} size={13} color={C.em} />
       </View>
-      <Text style={suggStyles.text}>{text}</Text>
-    </View>
+      <View style={suggStyles.copy}>
+        <Text style={suggStyles.text}>{text}</Text>
+        <Text style={suggStyles.subtext}>{suggestionSupportLine(text)}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
+    </Pressable>
   );
 }
 
@@ -1777,9 +1797,9 @@ const suggStyles = StyleSheet.create({
     borderColor: C.border,
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: 12,
     marginBottom: 8,
-    alignSelf: 'flex-start',
+    width: '100%',
   },
   iconWrap: {
     width: 22,
@@ -1789,7 +1809,11 @@ const suggStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  text: { fontSize: 13, color: C.textSecondary, letterSpacing: 0.1 },
+  copy: {
+    flex: 1,
+  },
+  text: { fontSize: 13, color: C.textPrimary, letterSpacing: 0.1, fontWeight: '600' },
+  subtext: { fontSize: 11, color: C.textMuted, lineHeight: 16, marginTop: 3 },
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -2585,6 +2609,7 @@ const styles = StyleSheet.create({
   passengerPill: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#1e293b' },
   passengerPillText: { fontSize: 12, color: '#f8fafc' },
   passengerFare: { fontSize: 12, color: '#94a3b8' },
+  passengerHint: { marginTop: 6, fontSize: 11, lineHeight: 16, color: C.textMuted },
 
   // Multi-leg journey timeline
   legTimeline:    { marginBottom: 12, borderWidth: 1, borderColor: '#1e293b', borderRadius: 10, padding: 12 },

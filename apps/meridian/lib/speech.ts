@@ -33,13 +33,36 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 
 let recording: Audio.Recording | null = null;
 let startCancelled = false;
+let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+let maxTimer: ReturnType<typeof setTimeout> | null = null;
+let silenceCallbackFired = false;
+
+type StartRecordingOptions = {
+  autoStopOnSilence?: boolean;
+  onSilence?: () => void;
+  silenceMs?: number;
+  maxDurationMs?: number;
+};
+
+function clearRecordingTimers() {
+  if (silenceTimer) {
+    clearTimeout(silenceTimer);
+    silenceTimer = null;
+  }
+  if (maxTimer) {
+    clearTimeout(maxTimer);
+    maxTimer = null;
+  }
+  silenceCallbackFired = false;
+}
 
 async function resetRecordingMode(): Promise<void> {
   await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
 }
 
-export async function startRecording(): Promise<void> {
+export async function startRecording(options?: StartRecordingOptions): Promise<void> {
   startCancelled = false;
+  clearRecordingTimers();
 
   const { granted } = await Audio.requestPermissionsAsync();
   if (!granted) throw new Error('Microphone permission denied.');
@@ -73,7 +96,7 @@ export async function startRecording(): Promise<void> {
       linearPCMIsFloat: false,
     },
     web: { mimeType: 'audio/webm', bitsPerSecond: 32000 },
-    isMeteringEnabled: false,
+    isMeteringEnabled: !!options?.autoStopOnSilence,
   });
 
   if (startCancelled) {
@@ -86,10 +109,44 @@ export async function startRecording(): Promise<void> {
   }
 
   recording = created.recording;
+
+  if (options?.autoStopOnSilence) {
+    const silenceMs = options.silenceMs ?? 1700;
+    const maxDurationMs = options.maxDurationMs ?? 12000;
+    let heardSpeech = false;
+    created.recording.setProgressUpdateInterval(250);
+    created.recording.setOnRecordingStatusUpdate((status) => {
+      if (!status.isRecording || silenceCallbackFired) return;
+      const metering = typeof status.metering === 'number' ? status.metering : null;
+      if (metering != null && metering > -38) {
+        heardSpeech = true;
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+          silenceTimer = null;
+        }
+        return;
+      }
+
+      if (heardSpeech && !silenceTimer) {
+        silenceTimer = setTimeout(() => {
+          if (silenceCallbackFired) return;
+          silenceCallbackFired = true;
+          options.onSilence?.();
+        }, silenceMs);
+      }
+    });
+
+    maxTimer = setTimeout(() => {
+      if (silenceCallbackFired) return;
+      silenceCallbackFired = true;
+      options.onSilence?.();
+    }, maxDurationMs);
+  }
 }
 
 export async function stopRecording(): Promise<string | null> {
   startCancelled = true;
+  clearRecordingTimers();
   if (!recording) return null;
   const current = recording;
   recording = null;
