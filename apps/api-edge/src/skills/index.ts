@@ -782,6 +782,45 @@ Returns top 3–5 restaurants with name, cuisine, rating, price level, and addre
 For reservations: ops team follows up by email if needed.`,
 };
 
+// ── Weather ──────────────────────────────────────────────────────────────────
+
+const weatherSkill: SkillDefinition = {
+  toolName: 'get_weather',
+  category: 'weather',
+  displayName: 'WeatherAgent',
+  description: 'Get current conditions or a forecast for any location. Use for weather questions mid-booking ("will it rain in Edinburgh tomorrow?"), packing advice, or travel-day conditions. Free, no API key required.',
+  requiredProfileFields: [],
+  inputSchema: {
+    type: 'object',
+    required: ['location'],
+    properties: {
+      location: { type: 'string', description: 'City, station, or destination name (e.g. "Edinburgh", "Manchester Piccadilly", "Mumbai")' },
+      date:     { type: 'string', description: 'Date for forecast — ISO (YYYY-MM-DD) or "today" / "tomorrow". Omit for current conditions.' },
+      time:     { type: 'string', description: 'Time of day for hourly forecast — e.g. "18:00", "morning", "evening"' },
+    },
+  },
+  skillDoc: `# WeatherAgent
+
+Answers weather questions using Open-Meteo (free, no key required).
+
+## When to use
+- User asks about weather at a destination mid-booking
+- User asks if they need an umbrella / what to wear
+- User wants travel-day conditions
+
+## What you return
+A single natural sentence Ace can speak:
+- Current: "Clear skies, 14°C in Edinburgh right now."
+- Forecast: "Rain expected in Manchester around 6pm tomorrow, 11°C."
+- Packing: "It'll be 28°C and sunny in Lisbon all weekend."
+
+## Important
+- This is an info-only skill — no payment, no biometric.
+- Keep the response short enough to speak aloud (under 20 words).
+- Always include temperature and one condition word (sunny, cloudy, rainy, windy).
+`,
+};
+
 // ── Registry export ──────────────────────────────────────────────────────────
 
 // Taxi not yet active — waiting on API integration.
@@ -796,6 +835,7 @@ export const SKILLS: SkillDefinition[] = [
   flightSkill,          // Flights — Duffel 350+ airlines
   metroSkill,           // Bengaluru + Pune metro
   hotelSkill,           // Hotels — manual fulfillment via ops team
+  weatherSkill,         // Weather forecasts via Open-Meteo (free, no key)
   discoverEventsSkill,  // Ticketmaster event discovery
   discoverNearbySkill,  // Google Places nearby discovery
   navigateSkill,        // Google Routes walking/transit navigation

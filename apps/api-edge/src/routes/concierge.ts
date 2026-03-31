@@ -578,6 +578,7 @@ ROUTING RULES:
 - Use discover_nearby when the user asks about what's near them: "quiet café near me", "find a pharmacy", "ATM near here", "coffee nearby", anything with proximity. Pass GPS coords from travelProfile.currentLat/currentLon when available for precise results.
 - Use navigate for "navigate me to...", "how do I walk to...", "directions to...", "how far is...". Confirm first: "Walking to [place], 12 min. Ready?" then give steps. Darwin stays source of truth for UK rail. TfL stays for London transit. Google Routes only for non-London final legs and explicit walking navigation.
 - Use book_restaurant to find dining options near a location or after an event booking: "Table near the venue at 19:00 for 2?" Returns best options with ratings and addresses. Ops team handles reservations.
+- Use get_weather for any weather question: "will it rain in Leeds?", "what's the weather in Mumbai tomorrow?", "do I need a coat?", "what's it like in Edinburgh on Friday?". Returns a single speakable sentence. No payment, no booking.
 - If GPS unavailable and location ambiguous, ask once: "Where are you now?"
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
@@ -931,6 +932,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
                   walletPassUrl,
+                  serviceFee:        isIndia ? SERVICE_FEE_INR : SERVICE_FEE_GBP,
+                  serviceFeeCurrency: isIndia ? 'INR' : 'GBP',
                   tripContext:       executingTripContext,
                   journeyId:         (item as any).journeyId ?? null,
                   legIndex:          plan.indexOf(item),
@@ -950,6 +953,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   name:         userName,
                   broRef,
                   trainDetails: item.trainDetails,
+                  walletPassUrl,
                 }),
                 sendAdminAlert(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
                   broRef,
@@ -1687,6 +1691,65 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           found:     restaurantResults.length,
         });
 
+      } else if (toolCall.name === 'get_weather') {
+        // ── Open-Meteo weather (free, no API key) ─────────────────────────
+        const locationStr = (input.location as string | undefined) ?? '';
+        const weatherDate = (input.date as string | undefined) ?? new Date().toISOString().slice(0, 10);
+        const weatherTime = (input.time as string | undefined) ?? null;
+        try {
+          // Geocode the location using Nominatim (free, no key)
+          const coords = await geocodeCityNominatim(locationStr).catch(() => null);
+          if (!coords) {
+            toolResultContent = `I couldn't find weather data for "${locationStr}".`;
+          } else {
+            const isToday = weatherDate === new Date().toISOString().slice(0, 10);
+            const forecastUrl = isToday
+              ? `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,weathercode,windspeed_10m&wind_speed_unit=mph&temperature_unit=celsius&timezone=auto`
+              : `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&hourly=temperature_2m,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&temperature_unit=celsius&timezone=auto&start_date=${weatherDate}&end_date=${weatherDate}`;
+            const weatherRes = await fetch(forecastUrl).catch(() => null);
+            const weatherData = weatherRes?.ok ? await weatherRes.json() as any : null;
+
+            const WMO_LABELS: Record<number, string> = {
+              0: 'clear', 1: 'mainly clear', 2: 'partly cloudy', 3: 'overcast',
+              45: 'foggy', 48: 'foggy', 51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle',
+              61: 'light rain', 63: 'rain', 65: 'heavy rain', 71: 'light snow', 73: 'snow', 75: 'heavy snow',
+              80: 'showers', 81: 'showers', 82: 'heavy showers', 95: 'thunderstorm', 99: 'thunderstorm',
+            };
+
+            if (isToday && weatherData?.current) {
+              const temp = Math.round(weatherData.current.temperature_2m);
+              const code = weatherData.current.weathercode as number;
+              const cond = WMO_LABELS[code] ?? 'mixed conditions';
+              toolResultContent = `${locationStr}: ${cond}, ${temp}°C right now.`;
+            } else if (!isToday && weatherData?.daily) {
+              const maxTemp = Math.round(weatherData.daily.temperature_2m_max?.[0] ?? 0);
+              const minTemp = Math.round(weatherData.daily.temperature_2m_min?.[0] ?? 0);
+              const code = weatherData.daily.weathercode?.[0] as number;
+              const cond = WMO_LABELS[code] ?? 'mixed conditions';
+              // If a specific time requested, try hourly
+              if (weatherTime && weatherData.hourly) {
+                const hourStr = weatherTime.includes(':') ? weatherTime.slice(0, 2) : weatherTime;
+                const hourIdx = weatherData.hourly.time?.findIndex((t: string) => t.includes(`T${hourStr.padStart(2, '0')}`));
+                if (hourIdx >= 0) {
+                  const hourTemp = Math.round(weatherData.hourly.temperature_2m?.[hourIdx] ?? maxTemp);
+                  const hourCode = weatherData.hourly.weathercode?.[hourIdx] as number;
+                  const hourCond = WMO_LABELS[hourCode] ?? cond;
+                  toolResultContent = `${locationStr} at ${weatherTime}: ${hourCond}, ${hourTemp}°C.`;
+                } else {
+                  toolResultContent = `${locationStr} on ${weatherDate}: ${cond}, ${minTemp}–${maxTemp}°C.`;
+                }
+              } else {
+                toolResultContent = `${locationStr} on ${weatherDate}: ${cond}, ${minTemp}–${maxTemp}°C.`;
+              }
+            } else {
+              toolResultContent = `Weather data unavailable for "${locationStr}" right now.`;
+            }
+          }
+        } catch {
+          toolResultContent = `Couldn't fetch weather for "${locationStr}" right now.`;
+        }
+        broLog('weather_result', { traceId, location: locationStr, date: weatherDate });
+
       } else {
         // Non-train skills: tell Claude the agent is available
         const agentName = agent?.name ?? skill.displayName;
@@ -1798,7 +1861,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   }
 
   // Info-only tools return content with no payment or biometric required
-  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant']);
+  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant', 'get_weather']);
   const isInfoOnly = planItems.every(p => INFO_ONLY_TOOLS.has(p.toolName));
 
   broLog('plan_built', {
@@ -1839,6 +1902,14 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   const totalUsdc = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
   const totalFiat = planItems.reduce((s, p) => s + planItemFiatAmount(p, currency.code), 0);
+  // Service fee total for receipt display — INR items use INR fee, everything else uses GBP fee converted
+  const totalServiceFee = Math.round(
+    planItems.reduce((s, p) =>
+      s + (p.trainDetails?.country === 'india'
+        ? SERVICE_FEE_INR
+        : convertFromGbp(SERVICE_FEE_GBP, currency.code)),
+    0) * 100,
+  ) / 100;
 
   // Assign a shared journeyId when multiple legs are booked together
   const journeyId = planItems.length > 1
@@ -1869,6 +1940,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     actions:        [],
     estimatedPriceUsdc: totalUsdc,
     fiatAmount:    Math.round(totalFiat * 100) / 100,
+    serviceFee:    totalServiceFee,
     currencySymbol: currency.symbol,
     currencyCode:   currency.code,
     journeyId,
@@ -2006,6 +2078,14 @@ conciergeRouter.post('/confirm', async (c) => {
         : 'Schedule data from National Rail via Darwin API. Provider booking not yet integrated.',
     };
 
+    const walletPassUrl2 = c.env.API_BASE_URL && c.env.AGENTPAY_SIGNING_SECRET
+      ? await createSignedWalletPassUrl({
+          apiBaseUrl: c.env.API_BASE_URL,
+          intentId:   hireResult.jobId,
+          secret:     c.env.AGENTPAY_SIGNING_SECRET,
+        }).catch(() => null)
+      : null;
+
     await sql`
       UPDATE payment_intents
       SET metadata = metadata || ${JSON.stringify(withBookingState('payment_pending', {
@@ -2016,6 +2096,9 @@ conciergeRouter.post('/confirm', async (c) => {
         userPhone: userPhone ?? null,
         pendingFulfilment: true,
         bookingInProgress: false,
+        walletPassUrl: walletPassUrl2 ?? null,
+        serviceFee: isIndia ? SERVICE_FEE_INR : SERVICE_FEE_GBP,
+        serviceFeeCurrency: isIndia ? 'INR' : 'GBP',
         tripContext: executingTripContext,
         journeyId: (item as any).journeyId ?? null,
         legIndex: 0,
@@ -2033,6 +2116,7 @@ conciergeRouter.post('/confirm', async (c) => {
           name: userName,
           broRef,
           trainDetails: item.trainDetails,
+          walletPassUrl: walletPassUrl2,
         }),
         sendAdminAlert(c.env.RESEND_API_KEY, c.env.ADMIN_EMAIL, {
           broRef,
@@ -2416,15 +2500,16 @@ function buildJobDescription(
 async function sendBookingRequestEmail(
   resendKey: string | undefined,
   params: {
-    to:           string | undefined;
-    name:         string | undefined;
-    broRef:       string;
-    trainDetails: TrainDetails;
+    to:             string | undefined;
+    name:           string | undefined;
+    broRef:         string;
+    trainDetails:   TrainDetails;
+    walletPassUrl?: string | null;
   },
 ): Promise<void> {
   if (!resendKey) return;
 
-  const { to, name, broRef, trainDetails } = params;
+  const { to, name, broRef, trainDetails, walletPassUrl } = params;
   const greeting    = name ? `Hi ${name.split(' ')[0]},` : 'Hi,';
   const isIndia     = trainDetails.country === 'india';
   const fareDisplay = isIndia
@@ -2432,25 +2517,32 @@ async function sendBookingRequestEmail(
     : `£${trainDetails.estimatedFareGbp} (estimated)`;
   const arrivalLine = trainDetails.arrivalTime ? ` → arrives ${trainDetails.arrivalTime}` : '';
 
+  const walletBlock = walletPassUrl ? `
+      <div style="margin:20px 0;text-align:center">
+        <a href="${walletPassUrl}" style="display:inline-block;background:#000;color:#fff;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none;letter-spacing:0.02em">
+          Add to Apple Wallet
+        </a>
+        <p style="font-size:11px;color:#999;margin-top:8px">Opens your pass directly on iPhone. Link valid for 30 days.</p>
+      </div>
+  ` : '';
+
   const html = `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-      <h2 style="color:#2563eb">Request Received</h2>
-      <p>${greeting}</p>
-      <p>We're securing your ticket now. Your real ticket reference will arrive in a separate email within 15 minutes.</p>
+      <h2 style="color:#111;font-size:18px;font-weight:700">Request received</h2>
+      <p style="color:#444">${greeting}</p>
+      <p style="color:#444">Securing your ticket now. Reference and full details follow within 15 minutes.</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0">
-        <tr><td style="padding:8px 0;color:#666;width:140px">BRO Ref</td>
-            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;color:#2563eb">${broRef}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Route</td>
-            <td style="padding:8px 0">${trainDetails.origin} → ${trainDetails.destination}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Requested train</td>
-            <td style="padding:8px 0">${trainDetails.departureTime}${arrivalLine} · ${trainDetails.operator}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">Est. fare</td>
-            <td style="padding:8px 0">${fareDisplay}</td></tr>
+        <tr><td style="padding:8px 0;color:#888;width:140px;font-size:13px">Reference</td>
+            <td style="padding:8px 0;font-weight:700;font-family:monospace;letter-spacing:2px;font-size:15px">${broRef}</td></tr>
+        <tr><td style="padding:8px 0;color:#888;font-size:13px">Route</td>
+            <td style="padding:8px 0;font-size:13px">${trainDetails.origin} → ${trainDetails.destination}</td></tr>
+        <tr><td style="padding:8px 0;color:#888;font-size:13px">Train</td>
+            <td style="padding:8px 0;font-size:13px">${trainDetails.departureTime}${arrivalLine} · ${trainDetails.operator}</td></tr>
+        <tr><td style="padding:8px 0;color:#888;font-size:13px">Fare</td>
+            <td style="padding:8px 0;font-size:13px">${fareDisplay}</td></tr>
       </table>
-      <p style="background:#eff6ff;border-left:3px solid #2563eb;padding:12px;font-size:13px;color:#1e40af">
-        Keep your BRO reference <strong>${broRef}</strong>. Your actual ticket reference will follow once secured.
-      </p>
-      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
+      ${walletBlock}
+      <p style="color:#999;font-size:12px;margin-top:24px">Ace · AgentPay</p>
     </div>
   `;
 
@@ -2459,11 +2551,11 @@ async function sendBookingRequestEmail(
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:    'Bro <bookings@agentpay.gg>',
+        from:    'Ace <bookings@agentpay.gg>',
         to:      [to],
         subject: isIndia
-          ? `Your request is in — BRO ref ${broRef}`
-          : `Your request is in — ${broRef}`,
+          ? `Booking confirmed — ${broRef}`
+          : `Booking confirmed — ${broRef}`,
         html,
       }),
     });
@@ -2846,18 +2938,28 @@ async function sendBookingWhatsApp(
   await sendWhatsApp(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM, userWaNumber, userMsg).catch(() => {});
 }
 
+// ── Service fee constants ────────────────────────────────────────────────────
+// Flat per-booking service fee added to every payable booking.
+// Info-only tools (metro, navigate, discover, restaurant) are exempt.
+const SERVICE_FEE_GBP = 1.50;  // UK rail, EU rail, flights, hotels
+const SERVICE_FEE_INR = 49;    // India rail
+
 /** Convert a plan item's estimated cost into the user's local currency amount */
 function planItemFiatAmount(item: PlanItem, currencyCode: string): number {
-  // India train: fare already in INR
+  // India train: fare already in INR + INR service fee
   if (item.trainDetails?.country === 'india' && item.trainDetails.fareInr) {
-    return item.trainDetails.fareInr;
+    return item.trainDetails.fareInr + SERVICE_FEE_INR;
   }
-  // UK/EU train: fare already in GBP — convert to local
+  // UK/EU train: fare already in GBP — convert to local + GBP service fee converted
   if (item.trainDetails?.estimatedFareGbp) {
-    return convertFromGbp(item.trainDetails.estimatedFareGbp, currencyCode);
+    return convertFromGbp(item.trainDetails.estimatedFareGbp + SERVICE_FEE_GBP, currencyCode);
   }
-  // Other services: price in USD (≈ USDC) — convert to local
-  return convertFromUsd(item.estimatedPriceUsdc, currencyCode);
+  // Flights: price in USD → convert to local + GBP service fee converted
+  if (item.flightDetails) {
+    return convertFromUsd(item.estimatedPriceUsdc, currencyCode) + convertFromGbp(SERVICE_FEE_GBP, currencyCode);
+  }
+  // Other services (hotels, buses): price in USD — convert to local + GBP service fee
+  return convertFromUsd(item.estimatedPriceUsdc, currencyCode) + convertFromGbp(SERVICE_FEE_GBP, currencyCode);
 }
 
 /** Approximate GBP → local fiat (static rates, display only — not financial) */
