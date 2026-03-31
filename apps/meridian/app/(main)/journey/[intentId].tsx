@@ -3,7 +3,7 @@ import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getIntentStatus, reportIssue } from '../../../lib/api';
+import { createCheckoutSession, createUpiPaymentLink, getIntentStatus, reportIssue } from '../../../lib/api';
 import { AceMark } from '../../../components/AceMark';
 import {
   journeyDisplayRoute,
@@ -75,6 +75,9 @@ export default function JourneyScreen() {
   const [issueText, setIssueText] = useState('');
   const [issueSending, setIssueSending] = useState(false);
   const [issueSent, setIssueSent] = useState(false);
+  const [payLoading, setPayLoading] = useState(false);
+  const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
+  const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const { agentId } = useStore();
 
   const logJourneyEvent = useCallback((params: {
@@ -90,6 +93,91 @@ export default function JourneyScreen() {
       message: params.message,
       metadata: params.metadata,
     });
+  }, []);
+
+  const syncLiveStatus = useCallback(async (currentSession: JourneySession) => {
+    const lookupId = statusLookupId(currentSession);
+    if (!lookupId) return currentSession;
+
+    const data = await getIntentStatus(lookupId);
+    const proof = data.metadata?.completionProof ?? {};
+    const serverTrip = parseTripContext(data.metadata?.tripContext) ?? currentSession.tripContext ?? null;
+    const paymentConfirmed = paymentConfirmedFromMetadata(data.metadata);
+    const nextTripContext = serverTrip
+      ? syncTripBookingState(serverTrip, {
+          phase:
+            data.status === 'completed' || data.status === 'confirmed' || data.status === 'verified'
+              ? 'booked'
+              : data.status === 'failed' || data.status === 'expired' || data.status === 'rejected'
+              ? 'attention'
+              : serverTrip.phase,
+          bookingConfirmed: ['completed', 'confirmed', 'verified'].includes(data.status),
+          paymentConfirmed,
+          paymentRequired: !!(currentSession.fiatAmount && currentSession.fiatAmount > 0),
+          bookingRef: proof.bookingRef ?? currentSession.bookingRef ?? undefined,
+          origin: proof.fromStation ?? currentSession.fromStation ?? undefined,
+          destination: proof.toStation ?? currentSession.toStation ?? undefined,
+          departureTime:
+            proof.departureDatetime
+            ?? proof.departureTime
+            ?? currentSession.departureDatetime
+            ?? currentSession.departureTime
+            ?? undefined,
+          arrivalTime: proof.arrivalTime ?? currentSession.arrivalTime ?? undefined,
+          operator: proof.operator ?? currentSession.operator ?? undefined,
+          finalLegSummary: proof.finalLegSummary ?? currentSession.finalLegSummary ?? undefined,
+          failed: ['failed', 'expired', 'rejected'].includes(data.status),
+        })
+      : null;
+
+    const nextSession: JourneySession = {
+      ...currentSession,
+      intentId: data.intentId ?? currentSession.intentId,
+      intentStatus: data.status ?? currentSession.intentStatus ?? null,
+      title: nextTripContext?.title ?? currentSession.title,
+      state:
+        ['failed', 'expired', 'rejected'].includes(data.status) ? 'attention'
+        : nextTripContext?.phase === 'in_transit' ? 'in_transit'
+        : nextTripContext?.phase === 'arriving' || nextTripContext?.phase === 'arrived' ? 'arriving'
+        : nextTripContext?.watchState?.bookingState === 'payment_pending' ? 'payment_pending'
+        : ['completed', 'confirmed', 'verified'].includes(data.status) ? 'ticketed'
+        : currentSession.state,
+      bookingState: nextTripContext?.watchState?.bookingState ?? currentSession.bookingState,
+      fromStation: proof.fromStation ?? currentSession.fromStation ?? null,
+      toStation: proof.toStation ?? currentSession.toStation ?? null,
+      departureTime: proof.departureTime ?? currentSession.departureTime ?? null,
+      departureDatetime: proof.departureDatetime ?? currentSession.departureDatetime ?? null,
+      arrivalTime: proof.arrivalTime ?? currentSession.arrivalTime ?? null,
+      platform: proof.platform ?? currentSession.platform ?? null,
+      operator: proof.operator ?? currentSession.operator ?? null,
+      bookingRef: proof.bookingRef ?? currentSession.bookingRef ?? null,
+      finalLegSummary: proof.finalLegSummary ?? currentSession.finalLegSummary ?? null,
+      tripContext: nextTripContext ?? currentSession.tripContext,
+      shareToken: data.metadata?.shareToken ?? currentSession.shareToken ?? null,
+      walletPassUrl:
+        data.metadata?.walletPassUrl
+        ?? data.metadata?.appleWalletUrl
+        ?? data.metadata?.passUrl
+        ?? currentSession.walletPassUrl
+        ?? null,
+      quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? currentSession.quoteExpiresAt ?? null,
+      paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? currentSession.paymentConfirmedAt ?? null,
+      openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? currentSession.openclawDispatchedAt ?? null,
+      pendingFulfilment:
+        typeof data.metadata?.pendingFulfilment === 'boolean'
+          ? data.metadata.pendingFulfilment
+          : currentSession.pendingFulfilment ?? null,
+      fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : currentSession.fulfilmentFailed ?? null,
+      rerouteOfferTitle: data.metadata?.rerouteOfferTitle ?? currentSession.rerouteOfferTitle ?? null,
+      rerouteOfferBody: data.metadata?.rerouteOfferBody ?? currentSession.rerouteOfferBody ?? null,
+      rerouteOfferTranscript: data.metadata?.rerouteOfferTranscript ?? currentSession.rerouteOfferTranscript ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveJourneySession(nextSession);
+    setSession(nextSession);
+    setError(null);
+    return nextSession;
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -115,12 +203,13 @@ export default function JourneyScreen() {
 
   useEffect(() => {
     if (!session || !journeyIsLive(session)) return;
-    const lookupId = statusLookupId(session);
-    if (!lookupId) return;
 
     const interval = setInterval(() => {
       void (async () => {
         try {
+          await syncLiveStatus(session);
+          return;
+          /*
           const data = await getIntentStatus(lookupId);
           const proof = data.metadata?.completionProof ?? {};
           const serverTrip = parseTripContext(data.metadata?.tripContext) ?? session.tripContext ?? null;
@@ -200,6 +289,7 @@ export default function JourneyScreen() {
 
           await saveJourneySession(nextSession);
           setSession(nextSession);
+          */
         } catch {
           // Keep the last durable session and stay calm.
         }
@@ -207,7 +297,7 @@ export default function JourneyScreen() {
     }, 8000);
 
     return () => clearInterval(interval);
-  }, [session]);
+  }, [session, syncLiveStatus]);
 
   useEffect(() => {
     if (!intentId || !session) return;
@@ -271,6 +361,11 @@ export default function JourneyScreen() {
     : journeyStatusLabel(session);
   const showLiveCountdown = ['ticketed', 'in_transit', 'arriving'].includes(session.state)
     && !!(departureCountdown || session.platform || session.toStation);
+  const isAwaitingPayment = recovery?.bucket === 'awaiting_payment';
+  const priceValue =
+    session.fiatAmount != null && session.currencySymbol
+      ? `${session.currencySymbol}${session.fiatAmount.toFixed(2)}`
+      : null;
 
   const openReceipt = useCallback(() => {
     if (!session) return;
@@ -335,6 +430,93 @@ export default function JourneyScreen() {
       });
     }
   }, [logJourneyEvent, session]);
+
+  const openPaymentFlow = useCallback(async () => {
+    if (!session || payLoading) return;
+    const jobId = session.jobId ?? session.intentId;
+    const amount = session.fiatAmount;
+    if (!jobId || !amount) return;
+
+    setPayLoading(true);
+    setPaymentRecoveryNote('Complete payment, then return here. Ace will keep carrying the held route.');
+    logJourneyEvent({
+      event: 'payment_recovery_opened',
+      metadata: {
+        intentId: session.intentId,
+        currencyCode: session.currencyCode ?? 'GBP',
+        source: 'journey',
+      },
+    });
+
+    try {
+      if ((session.currencyCode ?? 'GBP').toUpperCase() === 'INR') {
+        const { shortUrl } = await createUpiPaymentLink({
+          jobId,
+          journeyId: session.journeyId ?? undefined,
+          amountInr: Math.round(amount),
+          description: [session.fromStation, session.toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+        });
+        await Linking.openURL(shortUrl);
+      } else {
+        const { url } = await createCheckoutSession({
+          jobId,
+          journeyId: session.journeyId ?? undefined,
+          amountFiat: amount,
+          currencyCode: session.currencyCode ?? 'GBP',
+          description: [session.fromStation, session.toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+        });
+        await Linking.openURL(url);
+      }
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not reopen payment right now.';
+      setPaymentRecoveryNote(message);
+      setError(message);
+      logJourneyEvent({
+        event: 'payment_recovery_failed',
+        severity: 'warning',
+        message,
+        metadata: { intentId: session.intentId, source: 'journey' },
+      });
+    } finally {
+      setPayLoading(false);
+    }
+  }, [logJourneyEvent, payLoading, session]);
+
+  const checkPaymentNow = useCallback(async () => {
+    if (!session || paymentCheckLoading) return;
+    setPaymentCheckLoading(true);
+    setPaymentRecoveryNote('Checking payment now...');
+    logJourneyEvent({
+      event: 'payment_recovery_checked',
+      metadata: { intentId: session.intentId, source: 'journey' },
+    });
+
+    try {
+      const nextSession = await syncLiveStatus(session);
+      const nextRecovery = journeyRecovery(nextSession);
+      if (
+        nextRecovery.bucket === 'issued'
+        || nextRecovery.bucket === 'ready_for_dispatch'
+        || nextRecovery.bookingState === 'payment_confirmed'
+      ) {
+        setPaymentRecoveryNote('Payment cleared. Ace is finishing the ticket now.');
+      } else if (nextRecovery.bucket === 'awaiting_payment') {
+        setPaymentRecoveryNote(
+          nextRecovery.holdValue
+            ? `Payment has not cleared yet. The route is still held until ${nextRecovery.holdValue}.`
+            : 'Payment has not cleared yet. If you already paid, give it a moment and check again.',
+        );
+      } else {
+        setPaymentRecoveryNote('Ace refreshed the journey state. The held route is still intact here.');
+      }
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not confirm payment yet. Please try again in a moment.';
+      setPaymentRecoveryNote(message);
+      setError(message);
+    } finally {
+      setPaymentCheckLoading(false);
+    }
+  }, [logJourneyEvent, paymentCheckLoading, session, syncLiveStatus]);
 
   const openMap = useCallback(async () => {
     if (!session?.toStation) return;
@@ -487,7 +669,7 @@ export default function JourneyScreen() {
             <Ionicons name="chevron-back" size={22} color={C.textMuted} />
           </Pressable>
           <View style={styles.headerActions}>
-            <Pressable onPress={() => { void refreshSession(); }} hitSlop={12}>
+            <Pressable onPress={() => { void (session ? syncLiveStatus(session) : refreshSession()); }} hitSlop={12}>
               <Ionicons name="refresh-outline" size={18} color="#7f95aa" />
             </Pressable>
             <View style={[styles.statePill, { backgroundColor: tone?.bg, borderColor: tone?.border }]}>
@@ -533,7 +715,37 @@ export default function JourneyScreen() {
         </View>
 
         <View style={styles.section}>
-          {showLiveCountdown ? (
+          {isAwaitingPayment ? (
+            <>
+              <Text style={styles.sectionEyebrow}>Payment hold</Text>
+              <View style={styles.paymentCard}>
+                <Text style={styles.paymentTitle}>{recovery?.headline ?? 'Payment is the only open step'}</Text>
+                <Text style={styles.paymentBody}>{paymentRecoveryNote ?? recovery?.etaLine ?? 'Ace is keeping the route warm while payment clears.'}</Text>
+                <View style={styles.paymentMetaRow}>
+                  {priceValue && (
+                    <View style={styles.paymentMetaPill}>
+                      <Text style={styles.paymentMetaLabel}>{recovery?.priceLabel ?? 'Held fare'}</Text>
+                      <Text style={styles.paymentMetaValue}>{priceValue}</Text>
+                    </View>
+                  )}
+                  {recovery?.holdLabel && recovery.holdValue && (
+                    <View style={styles.paymentMetaPill}>
+                      <Text style={styles.paymentMetaLabel}>{recovery.holdLabel}</Text>
+                      <Text style={styles.paymentMetaValue}>{recovery.holdValue}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.paymentActions}>
+                  <Pressable onPress={() => { void openPaymentFlow(); }} style={styles.paymentPrimaryBtn}>
+                    <Text style={styles.paymentPrimaryText}>{payLoading ? 'Opening payment...' : 'Complete payment'}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { void checkPaymentNow(); }} style={styles.paymentSecondaryBtn}>
+                    <Text style={styles.paymentSecondaryText}>{paymentCheckLoading ? 'Checking...' : 'Check payment'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </>
+          ) : showLiveCountdown ? (
             <>
               <Text style={styles.sectionEyebrow}>Live journey</Text>
               <View style={styles.liveStrip}>
@@ -660,7 +872,11 @@ export default function JourneyScreen() {
                 <Pressable onPress={() => openIssueModal()} style={styles.supportPrimaryBtn}>
                   <Text style={styles.supportPrimaryText}>{session.supportState === 'requested' ? 'Update support' : 'Get help'}</Text>
                 </Pressable>
-                {recovery?.bucket !== 'awaiting_payment' && (
+                {recovery?.bucket === 'awaiting_payment' ? (
+                  <Pressable onPress={() => { void checkPaymentNow(); }} style={styles.supportSecondaryBtn}>
+                    <Text style={styles.supportSecondaryText}>{paymentCheckLoading ? 'Checking...' : 'Check payment'}</Text>
+                  </Pressable>
+                ) : (
                   <Pressable onPress={openStatus} style={styles.supportSecondaryBtn}>
                     <Text style={styles.supportSecondaryText}>Open live handling</Text>
                   </Pressable>
@@ -671,7 +887,11 @@ export default function JourneyScreen() {
         )}
 
         <View style={styles.actions}>
-          {session.state === 'securing' || session.state === 'payment_pending' || session.state === 'attention' ? (
+          {isAwaitingPayment ? (
+            <Pressable onPress={() => { void openPaymentFlow(); }} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>{payLoading ? 'Opening payment...' : 'Complete payment'}</Text>
+            </Pressable>
+          ) : session.state === 'securing' || session.state === 'attention' ? (
             <Pressable onPress={openStatus} style={styles.primaryBtn}>
               <Text style={styles.primaryBtnText}>Open live handling</Text>
             </Pressable>
@@ -682,6 +902,13 @@ export default function JourneyScreen() {
           )}
 
           <View style={styles.secondaryGrid}>
+            {isAwaitingPayment && (
+              <Pressable onPress={() => { void checkPaymentNow(); }} style={styles.secondaryBtn}>
+                <Ionicons name="refresh-outline" size={16} color="#cbe8ff" />
+                <Text style={styles.secondaryBtnText}>{paymentCheckLoading ? 'Checking...' : 'Check payment'}</Text>
+              </Pressable>
+            )}
+
             {session.walletPassUrl && (
               <Pressable onPress={() => { void openWallet(); }} style={styles.secondaryBtn}>
                 <Ionicons name="wallet-outline" size={16} color="#cbe8ff" />
@@ -867,6 +1094,47 @@ const styles = StyleSheet.create({
   },
   liveStripTitle: { fontSize: 19, lineHeight: 24, fontWeight: '700', color: '#edf6ff' },
   liveStripBody: { fontSize: 13, lineHeight: 18, color: '#8fb0cb' },
+  paymentCard: {
+    backgroundColor: 'rgba(8, 18, 34, 0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.28)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  paymentTitle: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: '#edf6ff' },
+  paymentBody: { fontSize: 13, lineHeight: 19, color: '#9fb7cf' },
+  paymentMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  paymentMetaPill: {
+    minWidth: 132,
+    backgroundColor: 'rgba(11, 18, 32, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(51, 65, 85, 0.7)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 5,
+  },
+  paymentMetaLabel: { fontSize: 10, color: '#7f95aa', textTransform: 'uppercase', letterSpacing: 0.9, fontWeight: '700' },
+  paymentMetaValue: { fontSize: 14, color: '#dcecff', fontWeight: '700' },
+  paymentActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  paymentPrimaryBtn: {
+    borderRadius: 12,
+    backgroundColor: '#1d4ed8',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  paymentPrimaryText: { fontSize: 13, fontWeight: '700', color: '#eff6ff' },
+  paymentSecondaryBtn: {
+    borderRadius: 12,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#315b86',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  paymentSecondaryText: { fontSize: 13, fontWeight: '600', color: '#cbe8ff' },
   cardsWrap: { gap: 10 },
   insightCard: {
     flexDirection: 'row',
