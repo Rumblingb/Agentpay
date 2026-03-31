@@ -31,6 +31,7 @@ import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
 import { inferJourneyWalletUrl, journeySteps } from '../../../lib/journeySession';
+import { journeyRecovery } from '../../../lib/journeyRecovery';
 import { C } from '../../../lib/theme';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -87,6 +88,12 @@ export default function StatusScreen() {
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
   const [resolvedIntentId, setResolvedIntentId] = useState<string>(intentId ?? jobId);
+  const [intentStatusValue, setIntentStatusValue] = useState<string | null>(null);
+  const [quoteExpiresAt, setQuoteExpiresAt] = useState<string | null>(null);
+  const [paymentConfirmedAt, setPaymentConfirmedAt] = useState<string | null>(null);
+  const [dispatchStartedAt, setDispatchStartedAt] = useState<string | null>(null);
+  const [pendingFulfilment, setPendingFulfilment] = useState<boolean | null>(null);
+  const [fulfilmentFailed, setFulfilmentFailed] = useState(false);
   const [showIssueModal, setShowIssueModal]   = useState(false);
   const [issueCategory, setIssueCategory]     = useState<'payment' | 'delay' | 'ticket' | 'other'>('payment');
   const [issueText, setIssueText]             = useState('');
@@ -139,6 +146,7 @@ export default function StatusScreen() {
       journeyId: paramJourneyId ?? null,
       title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
       state: 'securing',
+      intentStatus: intentStatusValue,
       bookingState: tripContext?.watchState?.bookingState ?? 'securing',
       fromStation: fromStation ?? tripContext?.origin ?? null,
       toStation: toStation ?? tripContext?.destination ?? null,
@@ -155,9 +163,14 @@ export default function StatusScreen() {
       tripContext,
       shareToken,
       walletPassUrl: inferJourneyWalletUrl(tripContext),
+      quoteExpiresAt,
+      paymentConfirmedAt,
+      openclawDispatchedAt: dispatchStartedAt,
+      pendingFulfilment,
+      fulfilmentFailed,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId]);
+  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -169,6 +182,22 @@ export default function StatusScreen() {
           setResolvedIntentId(data.intentId);
         }
         const s = data.status;
+        setIntentStatusValue(s);
+        if (typeof data.metadata?.quoteExpiresAt === 'string' || typeof data.metadata?.expiresAt === 'string') {
+          setQuoteExpiresAt(data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? null);
+        }
+        if (typeof data.metadata?.paymentConfirmedAt === 'string') {
+          setPaymentConfirmedAt(data.metadata.paymentConfirmedAt);
+        }
+        if (typeof data.metadata?.openclawDispatchedAt === 'string') {
+          setDispatchStartedAt(data.metadata.openclawDispatchedAt);
+        }
+        if (typeof data.metadata?.pendingFulfilment === 'boolean') {
+          setPendingFulfilment(data.metadata.pendingFulfilment);
+        }
+        if (data.metadata?.fulfilmentFailed === true) {
+          setFulfilmentFailed(true);
+        }
         const serverTrip = parseTripContext(data.metadata?.tripContext);
         if (serverTrip) {
           setTripContext(serverTrip);
@@ -251,6 +280,7 @@ export default function StatusScreen() {
               journeyId: paramJourneyId ?? null,
               title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' -> ') || 'Journey'),
               state: paymentWasConfirmed || !paymentRequired ? 'ticketed' : 'payment_pending',
+              intentStatus: s,
               bookingState: nextTripContext?.watchState?.bookingState ?? 'issued',
               fromStation: proof.fromStation ?? null,
               toStation: proof.toStation ?? null,
@@ -267,6 +297,14 @@ export default function StatusScreen() {
               tripContext: nextTripContext,
               shareToken: resolvedShareToken,
               walletPassUrl: inferJourneyWalletUrl(nextTripContext),
+              quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? quoteExpiresAt,
+              paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? paymentConfirmedAt,
+              openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? dispatchStartedAt,
+              pendingFulfilment:
+                typeof data.metadata?.pendingFulfilment === 'boolean'
+                  ? data.metadata.pendingFulfilment
+                  : pendingFulfilment,
+              fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -321,6 +359,7 @@ export default function StatusScreen() {
             journeyId: paramJourneyId ?? null,
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
             state: 'attention',
+            intentStatus: s,
             bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
@@ -336,6 +375,14 @@ export default function StatusScreen() {
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
             shareToken,
+            quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? quoteExpiresAt,
+            paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? paymentConfirmedAt,
+            openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? dispatchStartedAt,
+            pendingFulfilment:
+              typeof data.metadata?.pendingFulfilment === 'boolean'
+                ? data.metadata.pendingFulfilment
+                : pendingFulfilment,
+            fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
@@ -377,6 +424,7 @@ export default function StatusScreen() {
             journeyId: paramJourneyId ?? null,
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
             state: 'attention',
+            intentStatus: intentStatusValue ?? 'pending',
             bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
             fromStation: fromStation ?? null,
             toStation: toStation ?? null,
@@ -392,6 +440,11 @@ export default function StatusScreen() {
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
             shareToken,
+            quoteExpiresAt,
+            paymentConfirmedAt,
+            openclawDispatchedAt: dispatchStartedAt,
+            pendingFulfilment,
+            fulfilmentFailed,
             updatedAt: new Date().toISOString(),
           });
           await speak('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
@@ -467,6 +520,7 @@ export default function StatusScreen() {
         journeyId: paramJourneyId ?? null,
         title: nextTripContext.title,
         state: isError ? 'attention' : 'ticketed',
+        intentStatus: intentStatusValue ?? (isError ? 'failed' : 'completed'),
         bookingState: nextTripContext.watchState?.bookingState ?? (isError ? 'failed' : 'issued'),
         fromStation: fromStation ?? nextTripContext.origin ?? null,
         toStation: toStation ?? nextTripContext.destination ?? null,
@@ -483,17 +537,40 @@ export default function StatusScreen() {
         tripContext: nextTripContext,
         shareToken,
         walletPassUrl: inferJourneyWalletUrl(nextTripContext),
+        quoteExpiresAt,
+        paymentConfirmedAt,
+        openclawDispatchedAt: dispatchStartedAt,
+        pendingFulfilment,
+        fulfilmentFailed,
         updatedAt: new Date().toISOString(),
       });
     }
-  }, [paymentConfirmed, currentIntentId, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired, paramJourneyId]);
+  }, [paymentConfirmed, currentIntentId, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
     if (statusPhase !== 'executing' || !currentAgent) return;
     if (elapsed === 0 || elapsed % 20 !== 0) return;
-    speak(statusNarration(currentAgent, elapsed));
-  }, [elapsed, statusPhase, currentAgent]);
+    const paymentAmount = fiatAmount ? parseFloat(fiatAmount) : 0;
+    const voiceJourneyState =
+      tripContext?.watchState?.bookingState === 'payment_pending' ? 'payment_pending'
+      : tripContext?.phase === 'in_transit' ? 'in_transit'
+      : tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived' ? 'arriving'
+      : 'securing';
+    const voiceLine = journeyRecovery({
+      state: voiceJourneyState,
+      bookingState: tripContext?.watchState?.bookingState ?? null,
+      tripContext,
+      intentStatus: intentStatusValue,
+      quoteExpiresAt,
+      paymentConfirmedAt,
+      openclawDispatchedAt: dispatchStartedAt,
+      pendingFulfilment,
+      fulfilmentFailed,
+      fiatAmount: paymentAmount || null,
+    }).voiceLine;
+    speak(statusNarration(currentAgent, elapsed, voiceLine));
+  }, [elapsed, statusPhase, currentAgent, fiatAmount, paymentConfirmed, tripContext, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -513,6 +590,18 @@ export default function StatusScreen() {
     : tripContext?.phase === 'in_transit' ? 'in_transit'
     : tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived' ? 'arriving'
     : 'securing';
+  const recoveryState = journeyRecovery({
+    state: journeyState,
+    bookingState: tripContext?.watchState?.bookingState ?? null,
+    tripContext,
+    intentStatus: intentStatusValue,
+    quoteExpiresAt,
+    paymentConfirmedAt,
+    openclawDispatchedAt: dispatchStartedAt,
+    pendingFulfilment,
+    fulfilmentFailed,
+    fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+  });
   const conciergeSteps = journeySteps({
     intentId: currentIntentId,
     jobId,
@@ -522,28 +611,14 @@ export default function StatusScreen() {
     tripContext,
     updatedAt: new Date().toISOString(),
   } as any);
-  const conciergeHeadline =
-    isError ? 'This journey needs intervention'
-    : isFullyDone ? 'Your journey is locked in'
-    : isDone && needsPayment && !paymentConfirmed ? 'Everything is lined up for payment'
-    : 'Ace is handling the booking now';
-  const conciergeSubline =
-    isError ? 'Ace still has the trip, but something changed before it was safe to lock in.'
-    : isFullyDone ? 'Booking, payment, and ticketing are aligned.'
-    : isDone && needsPayment && !paymentConfirmed ? 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.'
-    : 'Ace is working through the live booking steps for you now.';
-  const conciergeEta =
-    isError ? 'Ace kept the journey state intact so you can recover without losing the context.'
-    : isFullyDone ? 'Done. Your live trip state is now locked in.'
-    : isDone && needsPayment && !paymentConfirmed ? 'The route is being held while payment finishes the last step.'
-    : elapsed < 300
-    ? 'Most bookings settle inside a few minutes. Ace keeps ownership while this runs.'
-    : 'This is taking longer than usual, but Ace is still carrying the booking in the background.';
+  const conciergeHeadline = recoveryState.headline;
+  const conciergeSubline = recoveryState.trustLine;
+  const conciergeEta = recoveryState.etaLine;
   const supportPrompt = recoveryPrompt({
     fromStation,
     toStation,
     bookingRef,
-    reason: isDone && needsPayment && !paymentConfirmed ? 'payment' : isError ? 'problem' : 'delay',
+    reason: recoveryState.bucket === 'awaiting_payment' ? 'payment' : recoveryState.shouldEscalate || isError ? 'problem' : 'delay',
   });
 
   const openIssueModal = (category: 'payment' | 'delay' | 'ticket' | 'other') => {
@@ -626,6 +701,22 @@ export default function StatusScreen() {
     setPaymentCheckLoading(true);
     try {
       const data = await getIntentStatus(jobId);
+      setIntentStatusValue(data.status);
+      if (typeof data.metadata?.paymentConfirmedAt === 'string') {
+        setPaymentConfirmedAt(data.metadata.paymentConfirmedAt);
+      }
+      if (typeof data.metadata?.openclawDispatchedAt === 'string') {
+        setDispatchStartedAt(data.metadata.openclawDispatchedAt);
+      }
+      if (typeof data.metadata?.quoteExpiresAt === 'string' || typeof data.metadata?.expiresAt === 'string') {
+        setQuoteExpiresAt(data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? null);
+      }
+      if (typeof data.metadata?.pendingFulfilment === 'boolean') {
+        setPendingFulfilment(data.metadata.pendingFulfilment);
+      }
+      if (data.metadata?.fulfilmentFailed === true) {
+        setFulfilmentFailed(true);
+      }
       const serverTrip = parseTripContext(data.metadata?.tripContext);
       if (serverTrip) {
         setTripContext(serverTrip);
@@ -778,9 +869,9 @@ export default function StatusScreen() {
               ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
               : 'Ace has your journey moving. Ticket details arrive by email shortly.'
             : isDone && needsPayment && !paymentConfirmed
-            ? 'Your request is in. Tap below to pay and secure your ticket.'
+            ? recoveryState.trustLine
             : isError
-            ? (errorMsg ?? 'Something went wrong.')
+            ? (errorMsg ?? recoveryState.trustLine)
             : `${currentAgent?.name ?? 'Ace'} is lining everything up | ${elapsed}s`}
         </Text>
         <View style={styles.conciergeCard}>
@@ -980,14 +1071,12 @@ export default function StatusScreen() {
           <View style={styles.paymentRecoveryCard}>
             <View style={styles.paymentRecoveryHeader}>
               <Ionicons name="refresh-outline" size={15} color="#93c5fd" />
-              <Text style={styles.paymentRecoveryTitle}>After payment</Text>
+              <Text style={styles.paymentRecoveryTitle}>{recoveryState.headline}</Text>
             </View>
             <Text style={styles.paymentRecoveryBody}>
-              Return here after payment and Ace will keep moving the booking forward.
+              {recoveryState.trustLine}
             </Text>
-            {paymentRecoveryNote ? (
-              <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
-            ) : null}
+            <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote ?? recoveryState.etaLine}</Text>
             <View style={styles.paymentRecoveryActions}>
               <Pressable
                 onPress={() => { void checkPaymentNow(); }}

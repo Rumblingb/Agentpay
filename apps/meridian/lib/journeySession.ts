@@ -1,5 +1,6 @@
 import type { ProactiveCard, TripContext } from '../../../packages/bro-trip/index';
 import type { JourneySession } from './storage';
+import { journeyRecovery } from './journeyRecovery';
 
 export function journeyDisplayRoute(session: Pick<JourneySession, 'fromStation' | 'toStation' | 'title'>): string {
   const route = [session.fromStation, session.toStation].filter(Boolean).join(' -> ');
@@ -7,61 +8,15 @@ export function journeyDisplayRoute(session: Pick<JourneySession, 'fromStation' 
 }
 
 export function journeyStatusLabel(session: JourneySession): string {
-  switch (session.state) {
-    case 'planning':
-      return 'Planning';
-    case 'securing':
-      return 'Booking';
-    case 'payment_pending':
-      return 'Payment needed';
-    case 'ticketed':
-      return 'Confirmed';
-    case 'in_transit':
-      return 'In transit';
-    case 'arriving':
-      return 'Arriving';
-    case 'attention':
-      return 'Needs attention';
-    default:
-      return 'Journey';
-  }
+  return journeyRecovery(session).statusLabel;
 }
 
 export function journeyTrustLine(session: JourneySession): string {
-  switch (session.state) {
-    case 'planning':
-      return 'Ace is shaping the strongest way through before anything moves.';
-    case 'securing':
-      return 'Ace is still carrying the booking in the background. You can close the app and come back.';
-    case 'payment_pending':
-      return 'The route is held. Once payment clears, Ace can finish issuing the ticket cleanly.';
-    case 'ticketed':
-      return 'Your booking is locked in and the live journey state is now the source of truth.';
-    case 'in_transit':
-      return 'Ace is watching the live trip and will surface anything that materially changes.';
-    case 'arriving':
-      return 'Ace is handling the last stretch so arrival feels calm, not busy.';
-    case 'attention':
-      return 'Something changed, but Ace still has the context and can guide the next clean step.';
-    default:
-      return 'Ace is keeping this journey together for you.';
-  }
+  return journeyRecovery(session).trustLine;
 }
 
 export function journeyEtaLine(session: JourneySession): string {
-  if (session.state === 'payment_pending') {
-    return 'The route is ready. Payment is the only step left before ticket issue.';
-  }
-  if (session.state === 'securing') {
-    return 'Most bookings settle within a few minutes. If this one runs long, Ace keeps ownership.';
-  }
-  if (session.state === 'attention') {
-    return 'Ace will hold the trip context here until you decide the next move.';
-  }
-  if (session.state === 'ticketed') {
-    return 'Receipt, wallet pass, and live journey updates stay connected from here.';
-  }
-  return journeyTrustLine(session);
+  return journeyRecovery(session).etaLine;
 }
 
 export function journeyIsLive(session: JourneySession): boolean {
@@ -108,31 +63,18 @@ export type JourneyInsight = {
 
 export function journeyInsights(session: JourneySession): JourneyInsight[] {
   const insights: JourneyInsight[] = [];
+  const recovery = journeyRecovery(session);
   const watch = session.tripContext?.watchState;
-  const bookingState = session.bookingState ?? watch?.bookingState;
-
-  if (bookingState === 'payment_pending') {
-    insights.push({
-      key: 'payment',
-      title: 'Payment is the only open step',
-      body: 'Ace has the trip lined up already. Once payment clears, ticket issue can finish cleanly.',
-      tone: 'info',
-    });
-  } else if (session.state === 'securing') {
-    insights.push({
-      key: 'securing',
-      title: 'Ace is carrying the live booking flow',
-      body: 'Availability, timing, and fulfilment are still moving in the background.',
-      tone: 'neutral',
-    });
-  } else if (session.state === 'ticketed') {
-    insights.push({
-      key: 'ticketed',
-      title: 'The booking is locked in',
-      body: 'Reference, wallet, and travel-day reminders now all hang off the same journey record.',
-      tone: 'success',
-    });
-  }
+  insights.push({
+    key: 'recovery',
+    title: recovery.insightTitle,
+    body: recovery.insightBody,
+    tone:
+      recovery.bucket === 'issued' ? 'success'
+      : recovery.bucket === 'awaiting_payment' || recovery.bucket === 'ready_for_dispatch' ? 'info'
+      : recovery.shouldEscalate ? 'warning'
+      : 'neutral',
+  });
 
   if (watch?.platformInfo) {
     insights.push({
@@ -197,11 +139,11 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
         : 'You do not need to re-explain the route. Ace support has the live journey context already.',
       tone: 'info',
     });
-  } else if (session.state === 'attention' || session.state === 'payment_pending') {
+  } else if (session.state === 'attention' || session.state === 'payment_pending' || recovery.shouldEscalate) {
     insights.push({
       key: 'support-ready',
       title: 'Help can pick up from here',
-      body: 'If this needs a human, Ace support can take over with the trip context already attached.',
+      body: recovery.supportBody,
       tone: 'neutral',
     });
   }

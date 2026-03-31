@@ -74,9 +74,10 @@ const STATUS_LINES = [
 export function statusNarration(
   agent: { name?: string } | null,
   elapsedSeconds: number,
+  preferredLine?: string | null,
 ): string {
   const idx   = Math.floor(elapsedSeconds / 20) % STATUS_LINES.length;
-  const line  = STATUS_LINES[idx];
+  const line  = preferredLine?.trim() || STATUS_LINES[idx];
   const name  = agent?.name;
   return name ? `${name}: ${line}` : line;
 }

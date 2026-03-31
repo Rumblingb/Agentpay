@@ -75,6 +75,7 @@ export interface JourneySession {
   journeyId?: string | null;
   title: string;
   state: 'planning' | 'securing' | 'payment_pending' | 'ticketed' | 'in_transit' | 'arriving' | 'attention';
+  intentStatus?: string | null;
   bookingState?: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never;
   fromStation?: string | null;
   toStation?: string | null;
@@ -92,6 +93,11 @@ export interface JourneySession {
   shareToken?: string | null;
   walletPassUrl?: string | null;
   walletLastOpenedAt?: string | null;
+  quoteExpiresAt?: string | null;
+  paymentConfirmedAt?: string | null;
+  openclawDispatchedAt?: string | null;
+  pendingFulfilment?: boolean | null;
+  fulfilmentFailed?: boolean | null;
   rerouteOfferTitle?: string | null;
   rerouteOfferBody?: string | null;
   rerouteOfferTranscript?: string | null;
@@ -240,6 +246,7 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     journeyId: trip.journeyId ?? null,
     title: trip.title,
     state: deriveJourneyState({ bookingState, tripContext: trip.tripContext, legacyStatus: trip.status }),
+    intentStatus: null,
     bookingState,
     fromStation: trip.fromStation ?? null,
     toStation: trip.toStation ?? null,
@@ -256,6 +263,11 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     shareToken: trip.shareToken ?? null,
     walletPassUrl: trip.walletPassUrl ?? null,
     walletLastOpenedAt: null,
+    quoteExpiresAt: null,
+    paymentConfirmedAt: null,
+    openclawDispatchedAt: null,
+    pendingFulfilment: null,
+    fulfilmentFailed: null,
     rerouteOfferTitle: null,
     rerouteOfferBody: null,
     rerouteOfferTranscript: null,

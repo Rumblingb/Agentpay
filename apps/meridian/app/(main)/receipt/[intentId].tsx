@@ -30,11 +30,12 @@ import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
-import { loadActiveTrip, patchJourneySession, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory } from '../../../lib/storage';
+import { loadActiveTrip, loadJourneySession, patchJourneySession, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory, type JourneySession } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 import { trackClientEvent } from '../../../lib/telemetry';
+import { journeyRecovery } from '../../../lib/journeyRecovery';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -217,6 +218,7 @@ export default function ReceiptScreen() {
   const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
+  const [journeySession, setJourneySession] = useState<JourneySession | null>(null);
   const rerouteReminderScheduledRef = useRef(false);
   const walletTelemetryTrackedRef = useRef(false);
   const rerouteTelemetryTrackedRef = useRef(false);
@@ -253,17 +255,52 @@ export default function ReceiptScreen() {
   const paymentRequired = !!((fiatAmountNum ?? receipt?.amount ?? 0) > 0);
   const bookingState = tripContext?.watchState?.bookingState;
   const rolledBackJourney = isRollbackState(bookingState, tripLegs.length || 1);
-  const receiptStatusLabel = receipt?.verifiedAt
-    ? 'Payment cleared'
-    : rolledBackJourney
-    ? 'Journey safely unwound'
-    : bookingState === 'payment_pending'
-    ? 'Awaiting payment'
-    : bookingState === 'failed'
-    ? 'Needs attention'
-    : receipt
-    ? 'Booking confirmed'
-    : 'Journey details ready';
+  const liveJourneySession: JourneySession = {
+    ...(journeySession ?? {}),
+    intentId,
+    jobId: journeySession?.jobId ?? null,
+    journeyId: journeySession?.journeyId ?? null,
+    title: tripContext?.title ?? journeySession?.title ?? (fromStation && toStation ? `${fromStation} -> ${toStation}` : 'Journey'),
+    state:
+      rolledBackJourney || bookingState === 'failed' || bookingState === 'refunded' ? 'attention'
+      : receipt?.verifiedAt ? 'ticketed'
+      : bookingState === 'payment_pending' ? 'payment_pending'
+      : 'ticketed',
+    intentStatus: journeySession?.intentStatus ?? receipt?.status ?? null,
+    bookingState: tripContext?.watchState?.bookingState ?? journeySession?.bookingState,
+    fromStation: fromStation ?? journeySession?.fromStation ?? null,
+    toStation: toStation ?? journeySession?.toStation ?? null,
+    departureTime: departureTime ?? journeySession?.departureTime ?? null,
+    departureDatetime: departureDatetime ?? journeySession?.departureDatetime ?? null,
+    arrivalTime: arrivalTime ?? journeySession?.arrivalTime ?? null,
+    platform: platform ?? journeySession?.platform ?? null,
+    operator: operator ?? journeySession?.operator ?? null,
+    bookingRef: bookingRef ?? journeySession?.bookingRef ?? null,
+    finalLegSummary: preservedFinalLegSummary ?? journeySession?.finalLegSummary ?? null,
+    fiatAmount: fiatAmountNum ?? journeySession?.fiatAmount ?? null,
+    currencySymbol: fiatSymbol ?? journeySession?.currencySymbol ?? null,
+    currencyCode: fiatCode ?? journeySession?.currencyCode ?? null,
+    tripContext: tripContext ?? journeySession?.tripContext ?? null,
+    shareToken: shareToken ?? journeySession?.shareToken ?? null,
+    walletPassUrl: walletPassUrl ?? journeySession?.walletPassUrl ?? null,
+    walletLastOpenedAt: journeySession?.walletLastOpenedAt ?? null,
+    quoteExpiresAt: journeySession?.quoteExpiresAt ?? null,
+    paymentConfirmedAt: receipt?.verifiedAt ?? journeySession?.paymentConfirmedAt ?? null,
+    openclawDispatchedAt: journeySession?.openclawDispatchedAt ?? null,
+    pendingFulfilment: journeySession?.pendingFulfilment ?? null,
+    fulfilmentFailed: journeySession?.fulfilmentFailed ?? null,
+    rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
+    rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
+    rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+    supportState: journeySession?.supportState ?? 'none',
+    supportRequestedAt: journeySession?.supportRequestedAt ?? null,
+    supportSummary: journeySession?.supportSummary ?? null,
+    lastEventKey: journeySession?.lastEventKey ?? null,
+    lastEventAt: journeySession?.lastEventAt ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  const recoveryState = journeyRecovery(liveJourneySession);
+  const receiptStatusLabel = recoveryState.statusLabel;
 
   useEffect(() => {
     if (!walletPassUrl || walletTelemetryTrackedRef.current) return;
@@ -288,6 +325,9 @@ export default function ReceiptScreen() {
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!intentId) return;
+    void loadJourneySession(intentId).then((session) => {
+      if (session) setJourneySession(session);
+    });
     getReceipt(intentId)
       .then((r) => {
         setReceipt(r);
@@ -477,12 +517,14 @@ export default function ReceiptScreen() {
       walletPassUrl,
       updatedAt: new Date().toISOString(),
     });
-    void saveJourneySession({
+    const nextSession: JourneySession = {
+      ...(journeySession ?? {}),
       intentId,
-      jobId: null,
-      journeyId: null,
+      jobId: journeySession?.jobId ?? null,
+      journeyId: journeySession?.journeyId ?? null,
       title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} -> ${toStation}` : 'Journey'),
       state: receipt?.verifiedAt ? 'ticketed' : bookingState === 'payment_pending' ? 'payment_pending' : 'ticketed',
+      intentStatus: journeySession?.intentStatus ?? receipt.status ?? null,
       bookingState: nextTripContext?.watchState?.bookingState ?? bookingState,
       fromStation: fromStation ?? null,
       toStation: toStation ?? null,
@@ -499,9 +541,25 @@ export default function ReceiptScreen() {
       tripContext: nextTripContext,
       shareToken,
       walletPassUrl,
+      walletLastOpenedAt: journeySession?.walletLastOpenedAt ?? null,
+      quoteExpiresAt: journeySession?.quoteExpiresAt ?? null,
+      paymentConfirmedAt: receipt.verifiedAt ?? journeySession?.paymentConfirmedAt ?? null,
+      openclawDispatchedAt: journeySession?.openclawDispatchedAt ?? null,
+      pendingFulfilment: journeySession?.pendingFulfilment ?? null,
+      fulfilmentFailed: journeySession?.fulfilmentFailed ?? null,
+      rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
+      rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
+      rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+      supportState: journeySession?.supportState ?? 'none',
+      supportRequestedAt: journeySession?.supportRequestedAt ?? null,
+      supportSummary: journeySession?.supportSummary ?? null,
+      lastEventKey: journeySession?.lastEventKey ?? null,
+      lastEventAt: journeySession?.lastEventAt ?? null,
       updatedAt: new Date().toISOString(),
-    });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired, walletPassUrl, bookingState]);
+    };
+    setJourneySession(nextSession);
+    void saveJourneySession(nextSession);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired, walletPassUrl, bookingState, journeySession?.intentId]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -674,6 +732,7 @@ export default function ReceiptScreen() {
     try {
       await Linking.openURL(walletPassUrl);
       const openedAt = new Date().toISOString();
+      setJourneySession((current) => current ? { ...current, walletPassUrl, walletLastOpenedAt: openedAt, updatedAt: openedAt } : current);
       await patchJourneySession(intentId, {
         walletPassUrl,
         walletLastOpenedAt: openedAt,
@@ -778,10 +837,37 @@ export default function ReceiptScreen() {
     setPaymentCheckLoading(true);
     try {
       const status = await getIntentStatus(intentId);
+      const nextQuoteExpiresAt = status.metadata?.quoteExpiresAt ?? status.metadata?.expiresAt ?? null;
+      const nextPaymentConfirmedAt = status.metadata?.paymentConfirmedAt ?? null;
+      const nextDispatchStartedAt = status.metadata?.openclawDispatchedAt ?? null;
+      const nextPendingFulfilment =
+        typeof status.metadata?.pendingFulfilment === 'boolean' ? status.metadata.pendingFulfilment : null;
+      const nextFulfilmentFailed = status.metadata?.fulfilmentFailed === true;
       const serverTrip = parseTripContext(status.metadata?.tripContext);
       if (serverTrip) {
         setTripContext(serverTrip);
       }
+      setJourneySession((current) => current ? {
+        ...current,
+        intentStatus: status.status ?? current.intentStatus ?? null,
+        quoteExpiresAt: nextQuoteExpiresAt ?? current.quoteExpiresAt ?? null,
+        paymentConfirmedAt: nextPaymentConfirmedAt ?? current.paymentConfirmedAt ?? null,
+        openclawDispatchedAt: nextDispatchStartedAt ?? current.openclawDispatchedAt ?? null,
+        pendingFulfilment: nextPendingFulfilment ?? current.pendingFulfilment ?? null,
+        fulfilmentFailed: nextFulfilmentFailed ? true : current.fulfilmentFailed ?? null,
+        tripContext: serverTrip ?? current.tripContext ?? null,
+        updatedAt: new Date().toISOString(),
+      } : current);
+      await patchJourneySession(intentId, {
+        intentStatus: status.status ?? null,
+        quoteExpiresAt: nextQuoteExpiresAt,
+        paymentConfirmedAt: nextPaymentConfirmedAt,
+        openclawDispatchedAt: nextDispatchStartedAt,
+        pendingFulfilment: nextPendingFulfilment,
+        ...(nextFulfilmentFailed ? { fulfilmentFailed: true } : {}),
+        ...(serverTrip ? { tripContext: serverTrip } : {}),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       if (paymentConfirmedFromMetadata(status.metadata)) {
         const refreshedReceipt = await getReceipt(intentId);
         setReceipt(refreshedReceipt);
@@ -1043,14 +1129,12 @@ export default function ReceiptScreen() {
                 <View style={styles.paymentRecoveryCard}>
                   <View style={styles.paymentRecoveryHeader}>
                     <Ionicons name="card-outline" size={15} color="#93c5fd" />
-                    <Text style={styles.paymentRecoveryTitle}>Payment still needs to clear</Text>
+                    <Text style={styles.paymentRecoveryTitle}>{recoveryState.headline}</Text>
                   </View>
                   <Text style={styles.paymentRecoveryBody}>
-                    Ace is holding the journey here. Once payment clears, everything updates automatically.
+                    {recoveryState.trustLine}
                   </Text>
-                  {paymentRecoveryNote ? (
-                    <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
-                  ) : null}
+                  <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote ?? recoveryState.etaLine}</Text>
                   <View style={styles.paymentRecoveryActions}>
                     <Pressable onPress={() => { void openPendingPayment(); }} style={styles.paymentRecoveryPrimary}>
                       <Text style={styles.paymentRecoveryPrimaryText}>
@@ -1257,7 +1341,9 @@ export default function ReceiptScreen() {
             {walletPassUrl && (
               <Pressable onPress={() => { void handleAddToWallet(); }} style={styles.shareBtn}>
                 <Ionicons name="wallet-outline" size={18} color="#cbe8ff" />
-                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>Add pass to Wallet</Text>
+                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>
+                  {journeySession?.walletLastOpenedAt ? 'Open Wallet' : 'Add pass to Wallet'}
+                </Text>
               </Pressable>
             )}
 

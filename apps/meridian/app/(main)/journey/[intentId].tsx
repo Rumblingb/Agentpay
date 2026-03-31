@@ -16,6 +16,7 @@ import {
   journeySteps,
   journeyTrustLine,
 } from '../../../lib/journeySession';
+import { journeyRecovery } from '../../../lib/journeyRecovery';
 import { loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
 import { trackClientEvent } from '../../../lib/telemetry';
@@ -154,6 +155,7 @@ export default function JourneyScreen() {
           const nextSession: JourneySession = {
             ...session,
             intentId: data.intentId ?? session.intentId,
+            intentStatus: data.status ?? session.intentStatus ?? null,
             title: nextTripContext?.title ?? session.title,
             state:
               ['failed', 'expired', 'rejected'].includes(data.status) ? 'attention'
@@ -180,6 +182,14 @@ export default function JourneyScreen() {
               ?? data.metadata?.passUrl
               ?? session.walletPassUrl
               ?? null,
+            quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? session.quoteExpiresAt ?? null,
+            paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? session.paymentConfirmedAt ?? null,
+            openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? session.openclawDispatchedAt ?? null,
+            pendingFulfilment:
+              typeof data.metadata?.pendingFulfilment === 'boolean'
+                ? data.metadata.pendingFulfilment
+                : session.pendingFulfilment ?? null,
+            fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : session.fulfilmentFailed ?? null,
             // Reroute offer — written by platformWatch cron when disruption is detected.
             // Survives app restarts because it lives on the session record.
             rerouteOfferTitle:      data.metadata?.rerouteOfferTitle      ?? session.rerouteOfferTitle      ?? null,
@@ -246,6 +256,7 @@ export default function JourneyScreen() {
   }, [logJourneyEvent, rerouteTrackedFor, session]);
 
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
+  const recovery = useMemo(() => (session ? journeyRecovery(session) : null), [session]);
   const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
   const steps = useMemo(() => (session ? journeySteps(session) : []), [session]);
   const legs = useMemo(() => timelineLegs(session?.tripContext), [session?.tripContext]);
@@ -486,13 +497,13 @@ export default function JourneyScreen() {
         </View>
 
         <Text style={styles.routeTitle}>{routeLabel}</Text>
-        <Text style={styles.routeBody}>{journeyTrustLine(session)}</Text>
+        <Text style={styles.routeBody}>{recovery?.trustLine ?? journeyTrustLine(session)}</Text>
 
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
             <View style={styles.heroEyebrowWrap}>
               <Text style={styles.heroEyebrow}>{liveHeadline}</Text>
-              <Text style={styles.heroTitle}>{session.finalLegSummary || journeyEtaLine(session)}</Text>
+              <Text style={styles.heroTitle}>{session.finalLegSummary || recovery?.etaLine || journeyEtaLine(session)}</Text>
             </View>
             <View style={styles.heroMarkWrap}>
               <AceMark size={54} ringColor="#dcecff" glowColor="#cbe8ff" backgroundColor="transparent" iconColor="#f5fbff" />
@@ -506,11 +517,18 @@ export default function JourneyScreen() {
             <SummaryPill label="Operator" value={session.operator ?? 'Live lookup'} />
             {session.fiatAmount != null && session.currencySymbol && (
               <SummaryPill
-                label={session.state === 'payment_pending' ? 'Held fare' : 'Price'}
+                label={recovery?.priceLabel ?? (session.state === 'payment_pending' ? 'Held fare' : 'Price')}
                 value={`${session.currencySymbol}${session.fiatAmount.toFixed(2)}`}
               />
             )}
-            <SummaryPill label="Reference" value={session.bookingRef ?? 'Not issued'} mono />
+            {recovery?.holdLabel && recovery.holdValue && (
+              <SummaryPill label={recovery.holdLabel} value={recovery.holdValue} />
+            )}
+            <SummaryPill
+              label="Reference"
+              value={session.bookingRef ?? (recovery?.bucket === 'awaiting_payment' ? 'After payment' : 'Not issued')}
+              mono
+            />
           </View>
         </View>
 
@@ -624,7 +642,7 @@ export default function JourneyScreen() {
           </View>
         )}
 
-        {(session.supportState === 'requested' || session.state === 'attention' || session.state === 'payment_pending') && (
+        {(session.supportState === 'requested' || session.state === 'attention' || session.state === 'payment_pending' || recovery?.shouldEscalate) && (
           <View style={styles.section}>
             <Text style={styles.sectionEyebrow}>Support</Text>
             <View style={styles.supportCard}>
@@ -636,15 +654,13 @@ export default function JourneyScreen() {
                   ? (session.supportSummary
                     ? `Latest note sent: ${session.supportSummary}`
                     : 'Ace support already has the route, booking, and live journey context attached.')
-                  : session.state === 'payment_pending'
-                  ? 'If payment or issue timing feels off, Ace support can pick this up without you re-explaining the route.'
-                  : 'Ace can hand this straight to support with the live trip context, booking state, and latest changes attached.'}
+                  : recovery?.supportBody ?? 'Ace can hand this straight to support with the live trip context, booking state, and latest changes attached.'}
               </Text>
               <View style={styles.supportActions}>
                 <Pressable onPress={() => openIssueModal()} style={styles.supportPrimaryBtn}>
                   <Text style={styles.supportPrimaryText}>{session.supportState === 'requested' ? 'Update support' : 'Get help'}</Text>
                 </Pressable>
-                {session.state !== 'payment_pending' && (
+                {recovery?.bucket !== 'awaiting_payment' && (
                   <Pressable onPress={openStatus} style={styles.supportSecondaryBtn}>
                     <Text style={styles.supportSecondaryText}>Open live handling</Text>
                   </Pressable>
