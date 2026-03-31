@@ -443,7 +443,7 @@ export default function ReceiptScreen() {
       intentId,
       jobId: null,
       journeyId: null,
-      title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} â†’ ${toStation}` : 'Journey'),
+      title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} -> ${toStation}` : 'Journey'),
       state: receipt?.verifiedAt ? 'ticketed' : bookingState === 'payment_pending' ? 'payment_pending' : 'ticketed',
       bookingState: nextTripContext?.watchState?.bookingState ?? bookingState,
       fromStation: fromStation ?? null,
