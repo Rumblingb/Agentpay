@@ -1613,17 +1613,18 @@ export default function ConverseScreen() {
             : hotel
             ? `${hotel.name}${hotel.area ? `, ${hotel.area}` : ''}`
             : finalLegSummary;
+          const routeQualityLabel = sourceLabel
+            ?? (isMultiLeg
+              ? `${Math.max(plan.length - 1, 1)} change${plan.length - 1 === 1 ? '' : 's'}`
+              : 'Direct route');
           const confirmMeta = [itinerarySummary, sourceLabel, companionSummary].filter(Boolean).join(' | ');
           const decisionLine = isIndia
             ? 'Ace has the route. You just need to say yes before UPI opens.'
             : 'Ace has the route. You just need to say yes.';
-          const paymentSummary = isIndia
-            ? 'UPI opens right after you approve.'
-            : 'Face ID is the final approval before money moves.';
           // Hotel details — single hotel booking
           return (
             <View style={styles.confirmCard}>
-              <Text style={styles.confirmEyebrow}>Ready when you are</Text>
+              <Text style={styles.confirmEyebrow}>{routeQualityLabel}</Text>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
@@ -1653,10 +1654,9 @@ export default function ConverseScreen() {
                   <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
                 </View>
               )}
-              <Text style={styles.confirmSecurityLine}>{paymentSummary}</Text>
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
-                  colors={['#13263b', '#274665']}
+                  colors={['#1e4d8c', '#2563eb']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.confirmBtnGrad}
                 >
@@ -2300,7 +2300,7 @@ const styles = StyleSheet.create({
     color: '#d9e7f5',
     textAlign: 'center',
     lineHeight: 22,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   confirmFootnote: {
     fontSize: 12,
@@ -2308,13 +2308,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 14,
-  },
-  confirmSecurityLine: {
-    fontSize: 12,
-    color: '#9eb8d2',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 16,
   },
   confirmRetryCard: {
     flexDirection: 'row',
