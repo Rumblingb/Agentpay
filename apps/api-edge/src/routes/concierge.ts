@@ -768,6 +768,21 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               `.catch(() => null);
             } else {
               broLog('flight_booking_failed', { traceId, jobId: hireResult.jobId, offerId: fd.offerId });
+              // Mark the job failed so the user is not left paid-but-not-booked.
+              await sql`
+                UPDATE payment_intents
+                SET metadata = metadata || ${JSON.stringify({
+                  bookingFailed:       true,
+                  bookingFailedReason: 'Duffel order creation failed',
+                  pendingFulfilment:   false,
+                })}::jsonb
+                WHERE id = ${hireResult.jobId}
+              `.catch(() => null);
+              toolResults.push({
+                type:        'tool_result',
+                tool_use_id: item.toolUseId,
+                content:     'Flight booking failed — Duffel rejected the order. Please ask the user to try again or contact support.',
+              });
             }
           }
 

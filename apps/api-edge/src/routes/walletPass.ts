@@ -207,6 +207,63 @@ function pemToDer(pem: string): Uint8Array {
   return b64ToBytes(b64);
 }
 
+// ── Minimal DER TLV parser ───────────────────────────────────────────────────
+// Used to extract issuer DN and serialNumber from the pass certificate so that
+// the CMS IssuerAndSerialNumber in SignerInfo exactly matches the certificate.
+
+function parseTlv(data: Uint8Array, offset: number): { tag: number; valueStart: number; valueEnd: number; nextOffset: number } {
+  const tag = data[offset]!;
+  let pos = offset + 1;
+  let len = data[pos]!;
+  pos++;
+  if (len & 0x80) {
+    const numBytes = len & 0x7f;
+    len = 0;
+    for (let i = 0; i < numBytes; i++) { len = (len << 8) | data[pos]!; pos++; }
+  }
+  return { tag, valueStart: pos, valueEnd: pos + len, nextOffset: pos + len };
+}
+
+/**
+ * Extract the raw DER bytes of issuer (Name SEQUENCE) and serialNumber (INTEGER)
+ * from an X.509 certificate DER buffer.
+ *
+ * TBSCertificate layout:
+ *   SEQUENCE {
+ *     [0] version OPTIONAL
+ *     INTEGER serialNumber
+ *     SEQUENCE signatureAlgorithm
+ *     SEQUENCE issuer
+ *     ...
+ *   }
+ */
+function extractIssuerAndSerial(certDer: Uint8Array): { issuerDer: Uint8Array; serialDer: Uint8Array } {
+  // Outer Certificate SEQUENCE
+  const cert = parseTlv(certDer, 0);
+  // TBSCertificate SEQUENCE
+  const tbs = parseTlv(certDer, cert.valueStart);
+  let off = tbs.valueStart;
+
+  // Optional version [0] EXPLICIT
+  if (certDer[off] === 0xa0) {
+    off = parseTlv(certDer, off).nextOffset;
+  }
+
+  // serialNumber INTEGER — keep raw TLV bytes (tag + length + value)
+  const serialTlv = parseTlv(certDer, off);
+  const serialDer = certDer.slice(off, serialTlv.nextOffset);
+  off = serialTlv.nextOffset;
+
+  // signatureAlgorithm SEQUENCE — skip
+  off = parseTlv(certDer, off).nextOffset;
+
+  // issuer Name SEQUENCE — keep raw TLV bytes
+  const issuerTlv = parseTlv(certDer, off);
+  const issuerDer = certDer.slice(off, issuerTlv.nextOffset);
+
+  return { issuerDer, serialDer };
+}
+
 async function signManifest(
   manifestBytes: Uint8Array,
   certPem: string,
@@ -242,20 +299,15 @@ async function signManifest(
     toSign,
   ));
 
-  // Parse cert serial + issuer from DER (minimal — just find serial and issuer)
+  // Extract issuer DN and serialNumber from cert DER so SignerInfo matches exactly.
   const certDer  = pemToDer(certPem);
   const wwdrDer  = pemToDer(wwdrPem);
+  const { issuerDer, serialDer } = extractIssuerAndSerial(certDer);
 
   // Build SignerInfo
   const signerInfo = derSeq(concatBytes([
     derInt([0x01]),                                                    // version
-    derSeq(concatBytes([                                               // issuerAndSerialNumber
-      // issuer: extract from cert — use the whole cert DER as a placeholder
-      // In production, parse TBSCertificate issuer + serialNumber properly.
-      // For compatibility with Apple Wallet, these must exactly match the cert.
-      certDer.slice(0, 4),                                            // minimal placeholder
-      derInt([0x01]),                                                  // serial placeholder
-    ])),
+    derSeq(concatBytes([issuerDer, serialDer])),                       // issuerAndSerialNumber
     derSeq(concatBytes([derOid(OID_SHA1)])),                           // digestAlgorithm
     derContextTag(0, authAttrs.slice(2)),                              // authenticatedAttrs [0]
     derSeq(concatBytes([derOid(OID_SHA1_WITH_RSA), new Uint8Array([0x05, 0x00])])), // signatureAlgorithm
@@ -366,6 +418,12 @@ walletPassRouter.get('/:intentId', async (c) => {
   const { intentId } = c.req.param();
   if (!intentId) return c.json({ error: 'intentId required' }, 400);
 
+  // Auth gate — require the same x-bro-key used by the mobile app
+  const broKey = c.req.header('x-bro-key') ?? c.req.header('X-Bro-Key');
+  if (!broKey || broKey !== c.env.BRO_CLIENT_KEY) {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+
   // Check cert secrets are present — if not, fail fast with a clear message
   const teamId    = c.env.APPLE_PASS_TEAM_ID;
   const passTypeId = c.env.APPLE_PASS_TYPE_ID;
@@ -392,6 +450,14 @@ walletPassRouter.get('/:intentId', async (c) => {
     if (!rows[0]) return c.json({ error: 'not found' }, 404);
 
     const meta  = rows[0].metadata as any;
+
+    // Only issue a pass for completed bookings — pendingFulfilment must be false
+    // (set by concierge after Duffel/ops confirmation) or completionProof present.
+    const isComplete = meta.pendingFulfilment === false || !!meta.completionProof;
+    if (!isComplete) {
+      return c.json({ error: 'booking not yet issued' }, 409);
+    }
+
     const proof = meta.completionProof ?? {};
 
     const origin        = proof.fromStation  ?? meta.fromStation   ?? 'Origin';
