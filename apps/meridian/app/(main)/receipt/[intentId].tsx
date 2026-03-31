@@ -30,8 +30,8 @@ import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
-import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
-import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
+import { loadActiveTrip, saveActiveTrip, upsertTrip, recordRouteMemory } from '../../../lib/storage';
+import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -381,6 +381,25 @@ export default function ReceiptScreen() {
       savedAt:       new Date().toISOString(),
     };
     void upsertTrip(entry);
+    void recordRouteMemory({
+      origin: fromStation ?? null,
+      destination: toStation ?? destination ?? null,
+      departureTime: departureTime ?? null,
+      travelDate: departureDatetime ?? departureTime ?? null,
+      typicalFareGbp: typeof receipt.amount === 'number' && receipt.currency === 'GBP' ? receipt.amount : null,
+    }).then((memory) => {
+      if (!memory) return;
+      const weekday = memory.weekdays[memory.weekdays.length - 1];
+      if (weekday == null) return;
+      void scheduleProactiveRouteReminder({
+        routeKey: memory.routeKey,
+        route: `${memory.origin} to ${memory.destination}`,
+        count: memory.count,
+        typicalFareGbp: memory.typicalFareGbp ?? null,
+        weekday,
+        minutesOfDay: memory.minutesOfDay ?? null,
+      });
+    });
     void saveActiveTrip({
       intentId,
       status: 'ticketed',
@@ -415,6 +434,13 @@ export default function ReceiptScreen() {
         arrivalISO: arrivalTime ?? tripContext?.arrivalTime ?? null,
         destination: toStation ?? destination ?? tripContext?.destination ?? null,
         finalLegSummary: preservedFinalLegSummary ?? tripContext?.finalLegSummary ?? null,
+        shareToken,
+      });
+      await scheduleTravelDayNudge({
+        intentId,
+        departureISO: depStr,
+        route,
+        platform: platform ?? null,
         shareToken,
       });
       // Register for platform change push notifications

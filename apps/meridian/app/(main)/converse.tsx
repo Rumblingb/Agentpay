@@ -27,7 +27,6 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../../lib/theme';
 
@@ -36,7 +35,7 @@ import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech } from '../../lib/tts';
-import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storage';
+import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadRouteMemories, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
@@ -573,6 +572,7 @@ export default function ConverseScreen() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
+  const [routeMemory, setRouteMemory] = useState<RouteMemory | null>(null);
   const [preferredTravelUnit, setPreferredTravelUnit] = useState<TravelUnit | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode>('solo');
   const [familyMemberCount, setFamilyMemberCount] = useState(0);
@@ -611,10 +611,12 @@ export default function ConverseScreen() {
       const trip = await loadActiveTrip();
       if (active) setActiveTrip(trip);
       const sharedUnit = await loadPreferredTravelUnit().catch(() => null);
+      const memories = await loadRouteMemories().catch(() => []);
       if (active) {
         setPreferredTravelUnit(sharedUnit);
         setBookingMode(sharedUnit ? 'shared' : 'solo');
         setTravelModePromptDismissed(false);
+        setRouteMemory(deriveProactiveRouteMemory(memories));
       }
     })();
     return () => {
@@ -1177,6 +1179,14 @@ export default function ConverseScreen() {
     : 'I’ll line up the best way there.';
   const primarySuggestion = idleSuggestions[0] ?? null;
   const showIdleGuidance = guidanceSessions > 0 && guidanceSessions <= 3;
+  const memorySuggestion = routeMemory
+    ? `${routeMemory.origin} to ${routeMemory.destination}`
+    : null;
+  const memoryBody = routeMemory
+    ? routeMemory.count >= 3
+      ? `Ace has seen this route ${routeMemory.count} times and can line it up before you ask.`
+      : `Ace remembers this route and can line it up quickly when you need it.`
+    : null;
   const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;
   const shouldNudgeTravelSetup =
     !preferredTravelUnit
@@ -1404,6 +1414,22 @@ export default function ConverseScreen() {
                 )}
               </Pressable>
             )}
+            {!usualRoute && routeMemory && memorySuggestion && (
+              <Pressable
+                onPress={() => { void runIntentWithUiFallback(memorySuggestion); }}
+                style={styles.usualRouteCard}
+              >
+                <View style={styles.usualRouteRow}>
+                  <Ionicons name="sparkles-outline" size={14} color="#cbe8ff" />
+                  <Text style={styles.usualRouteLabel}>Ace remembered</Text>
+                  <Text style={styles.usualRouteCount}>{routeMemory.count}×</Text>
+                </View>
+                <Text style={styles.usualRouteRoute}>{routeMemory.origin} → {routeMemory.destination}</Text>
+                {memoryBody && (
+                  <Text style={styles.usualRouteFare}>{memoryBody}</Text>
+                )}
+              </Pressable>
+            )}
             {preferredTravelUnit && (
               <View style={styles.sharedUnitCard}>
                 <View style={styles.sharedUnitHeader}>
@@ -1617,55 +1643,45 @@ export default function ConverseScreen() {
             : 'Face ID is the final check before Ace secures it.';
           // Hotel details — single hotel booking
           return (
-            <BlurView intensity={34} tint="dark" style={styles.confirmCard}>
-              <View style={styles.confirmEyebrowRow}>
-                <Text style={styles.confirmEyebrow}>Ready to secure</Text>
+            <View style={styles.confirmCard}>
+              <Text style={styles.confirmEyebrow}>Ready to secure</Text>
+              {tripDesc && (
+                <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
+              )}
+              {itinerarySummary && (
+                <Text style={styles.confirmLead}>{itinerarySummary}</Text>
+              )}
+              {priceLabel && (
+                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
+              )}
+              <Text style={styles.confirmReason}>
+                {recommendation?.why ?? readinessSummary}
+              </Text>
+              <View style={styles.confirmVaultRow}>
                 {sourceLabel && (
                   <View style={styles.sourceBadge}>
                     <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
                   </View>
                 )}
-              </View>
-              {tripDesc && (
-                <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
-              )}
-              {priceLabel && (
-                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
-              )}
-              {recommendation && (
-                <Text style={styles.confirmLead}>{recommendation.why}</Text>
-              )}
-              <Text style={styles.confirmReason}>{readinessSummary}</Text>
-              <View style={styles.confirmMetaStack}>
-                {pendingPlanRef.current?.assumptionNote && (
-                  <View style={styles.confirmMetaRow}>
-                    <Ionicons name="locate-outline" size={14} color="#a9dcff" />
-                    <Text style={styles.confirmMetaText}>{pendingPlanRef.current.assumptionNote}</Text>
-                  </View>
-                )}
                 {companionSummary && (
-                  <View style={styles.confirmMetaRow}>
-                    <Ionicons name="people-outline" size={14} color="#a9dcff" />
-                    <Text style={styles.confirmMetaText}>{companionSummary}</Text>
-                  </View>
-                )}
-                {itinerarySummary && (
-                  <View style={styles.confirmMetaRow}>
-                    <Ionicons name={hotel ? 'bed-outline' : isMultiLeg ? 'git-network-outline' : 'train-outline'} size={14} color="#a9dcff" />
-                    <Text style={styles.confirmMetaText}>{itinerarySummary}</Text>
-                  </View>
-                )}
-                {flightExpiryMins !== null && flightExpiryMins <= 15 && (
-                  <View style={styles.confirmMetaRow}>
-                    <Ionicons name="time-outline" size={14} color="#e5c995" />
-                    <Text style={styles.confirmMetaText}>
-                      {flightExpiryMins <= 0
-                        ? 'This fare has just expired. Search again before you approve.'
-                        : `This fare holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'}.`}
-                    </Text>
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceBadgeText}>{companionSummary}</Text>
                   </View>
                 )}
               </View>
+              {pendingPlanRef.current?.assumptionNote && (
+                <Text style={styles.confirmFootnote}>{pendingPlanRef.current.assumptionNote}</Text>
+              )}
+              {flightExpiryMins !== null && flightExpiryMins <= 15 && (
+                <View style={styles.confirmRetryCard}>
+                  <Ionicons name="time-outline" size={14} color="#e5c995" />
+                  <Text style={styles.confirmRetryText}>
+                    {flightExpiryMins <= 0
+                      ? 'This fare has just expired. Search again before you approve.'
+                      : `This fare holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'}.`}
+                  </Text>
+                </View>
+              )}
               {confirmRetryNote && (
                 <View style={styles.confirmRetryCard}>
                   <Ionicons name="refresh-outline" size={14} color="#e5c995" />
@@ -1675,18 +1691,18 @@ export default function ConverseScreen() {
               <Text style={styles.confirmFootnote}>{paymentSummary}</Text>
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
-                  colors={['#0f1825', '#24384d']}
+                  colors={['#0d1623', '#1d3045']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.confirmBtnGrad}
                 >
                   <Ionicons name="finger-print-outline" size={20} color="#edf6ff" />
-                  <Text style={styles.confirmText}>Let Ace secure this</Text>
+                  <Text style={styles.confirmText}>Approve with Face ID</Text>
                 </LinearGradient>
               </Pressable>
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
-                <Text style={styles.confirmCancelText}>Cancel</Text>
+                <Text style={styles.confirmCancelText}>Not now</Text>
               </Pressable>
-            </BlurView>
+            </View>
           );
         })()}
 
@@ -2253,26 +2269,20 @@ const styles = StyleSheet.create({
   },
 
   confirmCard: {
-    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(122, 167, 214, 0.26)',
-    borderRadius: 26,
-    padding: 24,
+    borderColor: 'rgba(156, 204, 240, 0.28)',
+    borderRadius: 30,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 18,
     marginBottom: 12,
     alignSelf: 'stretch',
-    gap: 14,
-    backgroundColor: 'rgba(5, 10, 18, 0.78)',
+    backgroundColor: 'rgba(4, 10, 18, 0.94)',
     shadowColor: '#9cccf0',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 34,
-    elevation: 12,
-  },
-  confirmEyebrowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    elevation: 14,
   },
   confirmEyebrow: {
     fontSize: 11,
@@ -2280,17 +2290,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
+    textAlign: 'center',
+    marginBottom: 10,
   },
   confirmTrip: {
-    fontSize: 14,
-    color: '#dbeafe',
-    textAlign: 'left',
-    lineHeight: 21,
-    letterSpacing: 0.1,
+    fontSize: 18,
+    color: '#eef6ff',
+    textAlign: 'center',
+    lineHeight: 25,
+    letterSpacing: -0.2,
+    fontWeight: '700',
   },
   sourceBadge: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(8, 18, 32, 0.8)',
+    backgroundColor: 'rgba(8, 18, 32, 0.86)',
     borderWidth: 1,
     borderColor: 'rgba(56, 189, 248, 0.22)',
     borderRadius: 20,
@@ -2322,57 +2335,51 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   confirmPrice: {
-    fontSize: 38,
+    fontSize: 46,
     fontWeight: '800',
     color: C.textPrimary,
     textAlign: 'center',
     letterSpacing: -1.5,
+    marginTop: 16,
+    marginBottom: 8,
   },
   confirmReason: {
-    fontSize: 13,
-    color: '#9fb0c2',
+    fontSize: 14,
+    color: '#c7d4e1',
     textAlign: 'center',
-    lineHeight: 20,
-    marginTop: -4,
+    lineHeight: 21,
+    marginTop: 8,
+    marginBottom: 14,
   },
   confirmLead: {
-    fontSize: 16,
-    color: '#edf6ff',
+    fontSize: 13,
+    color: '#88a1b9',
     textAlign: 'center',
-    lineHeight: 24,
-    letterSpacing: -0.2,
-  },
-  confirmMetaStack: {
-    gap: 10,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(122, 167, 214, 0.16)',
-    backgroundColor: 'rgba(9, 16, 26, 0.74)',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  confirmMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  confirmMetaText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#cfdae6',
     lineHeight: 18,
+    letterSpacing: 0.1,
+    marginTop: 10,
+  },
+  confirmVaultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
   },
   confirmFootnote: {
     fontSize: 12,
     color: '#7f91a4',
     textAlign: 'center',
     lineHeight: 18,
+    marginBottom: 14,
   },
   confirmRetryCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 2,
+    marginBottom: 12,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(252, 211, 77, 0.28)',
@@ -2389,13 +2396,14 @@ const styles = StyleSheet.create({
   confirmBtn: {
     borderRadius: 14,
     overflow: 'hidden',
+    marginTop: 4,
   },
   confirmBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    paddingVertical: 16,
+    paddingVertical: 17,
   },
   confirmText: { fontSize: 15, color: '#edf6ff', fontWeight: '700', letterSpacing: 0.2 },
   confirmCancel: { alignItems: 'center', paddingVertical: 8 },

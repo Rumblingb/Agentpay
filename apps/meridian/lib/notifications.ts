@@ -37,6 +37,10 @@ function notifId(intentId: string, tag: string): string {
   return `bro_${intentId}_${tag}`;
 }
 
+function routeNotifId(routeKey: string, tag: string): string {
+  return `bro_route_${routeKey}_${tag}`;
+}
+
 function parseMoment(s: string): Date | null {
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -79,6 +83,11 @@ function formatWhen(d: Date): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function scheduleAt(date: Date): { type: Notifications.SchedulableTriggerInputTypes.DATE; date: Date } | null {
+  if (date.getTime() <= Date.now()) return null;
+  return { type: Notifications.SchedulableTriggerInputTypes.DATE, date };
 }
 
 export async function scheduleJourneyNotifications(
@@ -159,6 +168,84 @@ export async function scheduleJourneyNotifications(
       });
     }
   }
+}
+
+export async function scheduleTravelDayNudge(params: {
+  intentId: string;
+  departureISO: string;
+  route: string;
+  platform?: string | null;
+  shareToken?: string | null;
+}): Promise<void> {
+  const departure = parseDeparture(params.departureISO);
+  if (!departure) return;
+  const nudgeTime = new Date(departure);
+  nudgeTime.setHours(7, 0, 0, 0);
+  const trigger = scheduleAt(nudgeTime);
+  if (!trigger) return;
+
+  const platformSuffix = params.platform ? ` Platform ${params.platform}.` : '';
+  await Notifications.scheduleNotificationAsync({
+    identifier: notifId(params.intentId, 'travel-day'),
+    content: {
+      title: 'Good morning. Ace has your journey.',
+      body: `${params.route}.${platformSuffix} Need anything before you go?`,
+      data: {
+        intentId: params.intentId,
+        screen: 'receipt',
+        action: 'travel_day',
+        shareToken: params.shareToken ?? undefined,
+      },
+    },
+    trigger,
+  });
+}
+
+export async function scheduleProactiveRouteReminder(params: {
+  routeKey: string;
+  route: string;
+  count: number;
+  typicalFareGbp?: number | null;
+  weekday: number;
+  minutesOfDay?: number | null;
+}): Promise<void> {
+  if (params.count < 3) return;
+
+  const now = new Date();
+  const target = new Date(now);
+  const delta = (params.weekday - now.getDay() + 7) % 7 || 7;
+  target.setDate(now.getDate() + delta);
+  if (params.minutesOfDay != null) {
+    target.setHours(Math.floor(params.minutesOfDay / 60), params.minutesOfDay % 60, 0, 0);
+  } else {
+    target.setHours(8, 0, 0, 0);
+  }
+
+  const nudge = new Date(target);
+  nudge.setDate(target.getDate() - 1);
+  nudge.setHours(21, 0, 0, 0);
+  const trigger = scheduleAt(nudge);
+  if (!trigger) return;
+
+  const fare = typeof params.typicalFareGbp === 'number'
+    ? ` around £${params.typicalFareGbp.toFixed(2)}`
+    : '';
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: routeNotifId(params.routeKey, 'proactive'),
+    content: {
+      title: 'Ace already checked your usual route',
+      body: `${params.route}${fare}. Want Ace to line it up for you?`,
+      data: {
+        routeKey: params.routeKey,
+        screen: 'converse',
+        action: 'proactive_route',
+        route: params.route,
+        transcript: params.route,
+      },
+    },
+    trigger,
+  });
 }
 
 export async function scheduleHotelNotifications(
@@ -261,6 +348,7 @@ export async function cancelJourneyNotifications(intentId: string): Promise<void
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '30min')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '10min')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'arrival')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'travel-day')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-24h')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-2h')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-checkout')),

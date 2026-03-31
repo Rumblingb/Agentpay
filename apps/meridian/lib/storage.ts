@@ -19,6 +19,7 @@ const KEYS = {
   history:          'meridian.history',
   activeTrip:       'meridian.activeTrip',
   trips:            'meridian.trips',
+  routeMemories:    'meridian.routeMemories',
   legacyTrips:      'bro.trips',
 } as const;
 
@@ -81,6 +82,19 @@ export interface TripEntry {
   tripContext?: TripContext | null;
   shareToken?: string | null;
   savedAt: string;
+}
+
+export interface RouteMemory {
+  routeKey: string;
+  origin: string;
+  destination: string;
+  count: number;
+  lastBookedAt: string;
+  lastDepartureTime?: string | null;
+  lastTravelDate?: string | null;
+  typicalFareGbp?: number | null;
+  weekdays: number[];
+  minutesOfDay?: number | null;
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
@@ -243,4 +257,98 @@ export async function clearTrips(): Promise<void> {
     AsyncStorage.removeItem(KEYS.trips),
     AsyncStorage.removeItem(KEYS.legacyTrips),
   ]);
+}
+
+const MAX_ROUTE_MEMORIES = 5;
+
+function routeKey(origin: string, destination: string): string {
+  return `${origin.trim().toLowerCase()}__${destination.trim().toLowerCase()}`;
+}
+
+function parseDateSafe(value?: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function extractMinutesOfDay(value?: string | null): number | null {
+  if (!value) return null;
+  const hhmm = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (hhmm) return Number(hhmm[1]) * 60 + Number(hhmm[2]);
+  const parsed = parseDateSafe(value);
+  if (!parsed) return null;
+  return parsed.getHours() * 60 + parsed.getMinutes();
+}
+
+export async function loadRouteMemories(): Promise<RouteMemory[]> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.routeMemories);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as RouteMemory[];
+    return parsed
+      .filter((item) => item.origin && item.destination && item.routeKey)
+      .sort((a, b) => Date.parse(b.lastBookedAt) - Date.parse(a.lastBookedAt));
+  } catch {
+    return [];
+  }
+}
+
+async function saveRouteMemories(memories: RouteMemory[]): Promise<void> {
+  await AsyncStorage.setItem(KEYS.routeMemories, JSON.stringify(memories.slice(0, MAX_ROUTE_MEMORIES)));
+}
+
+export async function recordRouteMemory(params: {
+  origin?: string | null;
+  destination?: string | null;
+  departureTime?: string | null;
+  travelDate?: string | null;
+  typicalFareGbp?: number | null;
+}): Promise<RouteMemory | null> {
+  const origin = params.origin?.trim();
+  const destination = params.destination?.trim();
+  if (!origin || !destination) return null;
+
+  const memories = await loadRouteMemories();
+  const key = routeKey(origin, destination);
+  const existing = memories.find((item) => item.routeKey === key);
+  const travelMoment = parseDateSafe(params.travelDate ?? params.departureTime ?? null);
+  const weekday = travelMoment ? travelMoment.getDay() : null;
+  const minutesOfDay = extractMinutesOfDay(params.departureTime ?? params.travelDate ?? null);
+
+  const next: RouteMemory = {
+    routeKey: key,
+    origin,
+    destination,
+    count: (existing?.count ?? 0) + 1,
+    lastBookedAt: new Date().toISOString(),
+    lastDepartureTime: params.departureTime ?? existing?.lastDepartureTime ?? null,
+    lastTravelDate: params.travelDate ?? existing?.lastTravelDate ?? null,
+    typicalFareGbp: params.typicalFareGbp ?? existing?.typicalFareGbp ?? null,
+    weekdays: Array.from(new Set([...(existing?.weekdays ?? []), ...(weekday == null ? [] : [weekday])])).slice(-3),
+    minutesOfDay: minutesOfDay ?? existing?.minutesOfDay ?? null,
+  };
+
+  const merged = [next, ...memories.filter((item) => item.routeKey !== key)]
+    .sort((a, b) => Date.parse(b.lastBookedAt) - Date.parse(a.lastBookedAt));
+  await saveRouteMemories(merged);
+  return next;
+}
+
+export function deriveProactiveRouteMemory(memories: RouteMemory[], now = new Date()): RouteMemory | null {
+  const upcomingHour = now.getHours();
+  const isEveningWindow = upcomingHour >= 18 && upcomingHour <= 23;
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const tomorrowWeekday = tomorrow.getDay();
+
+  const ranked = [...memories].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return Date.parse(b.lastBookedAt) - Date.parse(a.lastBookedAt);
+  });
+
+  return ranked.find((memory) => {
+    if (memory.count < 2) return false;
+    if (!isEveningWindow) return memory.count >= 3;
+    return memory.weekdays.includes(tomorrowWeekday) || memory.count >= 3;
+  }) ?? null;
 }

@@ -18,6 +18,12 @@ export default function RootLayout() {
       if (data?.screen === 'converse' && data?.action === 'rebook' && data?.transcript) {
         // Cancellation rebook — open Ace with pre-filled transcript
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });
+      } else if (data?.action === 'proactive_route' && data?.route) {
+        router.push({ pathname: '/(main)/converse', params: { prefill: String(data.route) } });
+      } else if (data?.action === 'travel_day' && data?.intentId) {
+        const params: Record<string, string> = { intentId: String(data.intentId) };
+        if (data?.shareToken) params.shareToken = String(data.shareToken);
+        router.push({ pathname: '/(main)/receipt/[intentId]', params });
       } else if (data?.intentId && data?.screen === 'receipt') {
         const params: Record<string, string> = { intentId: data.intentId };
         if (data?.action === 'cancelled') params.cancelled = 'true';
