@@ -29,7 +29,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C, PHASE_LABEL_COLOR } from '../../lib/theme';
+import { C } from '../../lib/theme';
 
 import { AceMark } from '../../components/AceMark';
 import { OrbAnimation } from '../../components/OrbAnimation';
@@ -44,7 +44,7 @@ import { getLocationContext } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
-import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
+import type { TripContext } from '../../lib/trip';
 import { trackClientEvent } from '../../lib/telemetry';
 import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
 
@@ -71,20 +71,10 @@ const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
   ],
 };
 
-// ── Phase labels ──────────────────────────────────────────────────────────────
-
-const PHASE_LABEL: Record<string, string> = {
-  idle:       'Where to?',
-  listening:  'Listening…',
-  thinking:   'On it…',
-  confirming: 'Confirm to book',
-  done:       'Booked',
-  error:      'Try again',
-};
-
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
+const ACE_GUIDANCE_SESSIONS_KEY = 'ace.guidanceSessions';
 
 type BookingReadinessTone = 'ready' | 'warning';
 
@@ -588,6 +578,7 @@ export default function ConverseScreen() {
   const [textFallbackVisible, setTextFallbackVisible] = useState(false);
   const [textFallbackDraft, setTextFallbackDraft] = useState('');
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
+  const [guidanceSessions, setGuidanceSessions] = useState(0);
 
   useEffect(() => {
     if (turns.length === 0) return;
@@ -652,6 +643,24 @@ export default function ConverseScreen() {
         if (!active || stored == null) return;
         setVoiceEnabled(stored !== 'false');
       } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ACE_GUIDANCE_SESSIONS_KEY);
+        const current = Number(raw ?? '0');
+        const next = Number.isFinite(current) ? current + 1 : 1;
+        if (active) setGuidanceSessions(next);
+        await AsyncStorage.setItem(ACE_GUIDANCE_SESSIONS_KEY, String(next));
+      } catch {
+        if (active) setGuidanceSessions(1);
+      }
     })();
     return () => {
       active = false;
@@ -971,13 +980,10 @@ export default function ConverseScreen() {
     setConfirmRetryNote(null);
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
-  }, [speakIfEnabled]);
+  }, []);
 
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
-  const handleUpiPay = useCallback(async () => {
-    await speakIfEnabled('Payment happens after Ace creates the booking request.');
-  }, [speakIfEnabled]);
 
   // ── Hold-to-talk (press = start recording, release = send) ──────────────
   // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
@@ -1123,18 +1129,8 @@ export default function ConverseScreen() {
     await handleIntent(text);
   }, [handleIntent, nearestStation]);
 
-  const handleVoiceToggle = useCallback(async () => {
-    const next = !voiceEnabled;
-    setVoiceEnabled(next);
-    if (!next) cancelSpeech();
-    try {
-      await AsyncStorage.setItem(VOICE_ENABLED_KEY, String(next));
-    } catch {}
-  }, [voiceEnabled]);
-
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const phaseLabel = PHASE_LABEL[phase] ?? '';
   const isIdle     = phase === 'idle';
   const isError    = phase === 'error';
   const isBusy     = phase === 'thinking' || phase === 'done';
@@ -1170,6 +1166,8 @@ export default function ConverseScreen() {
   const heroResponse = bookingMode === 'shared'
     ? `Planning for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
     : 'Planning the strongest route for you.';
+  const primarySuggestion = idleSuggestions[0] ?? null;
+  const showIdleGuidance = guidanceSessions > 0 && guidanceSessions <= 3;
 
   // Last route suggestion — "Same route as last time?"
   const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
@@ -1197,19 +1195,6 @@ export default function ConverseScreen() {
               <Text style={styles.nearBadgeText}>{locationLabel}</Text>
             </View>
           )}
-          <Pressable onPress={() => { void handleVoiceToggle(); }} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons
-              name={voiceEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
-              size={19}
-              color={voiceEnabled ? C.emBright : C.textMuted}
-            />
-          </Pressable>
-          <Pressable onPress={() => router.push('/(main)/map')} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons name="map-outline" size={19} color={C.textMuted} />
-          </Pressable>
-          <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons name="time-outline" size={19} color={C.textMuted} />
-          </Pressable>
           <Pressable onPress={() => router.push('/settings')} hitSlop={12} style={styles.headerIconBtn}>
             <Ionicons name="settings-outline" size={19} color={C.textMuted} />
           </Pressable>
@@ -1228,13 +1213,6 @@ export default function ConverseScreen() {
             <View style={styles.heroCard}>
               <Text style={styles.emptyGreeting}>
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
-              </Text>
-              <Text style={styles.emptyHint}>
-                {lastRouteHint
-                  ? `${lastRouteHint} Touch Ace, say it naturally, and it will take it from there.`
-                  : nearestStation
-                  ? `You are in ${locationLabel ?? 'your area'}. Ace will choose the best departure point from nearby, line up the route, and secure it if you want.`
-                  : `Say where you are going and Ace will line up the route, secure it, and stay with the trip.`}
               </Text>
               <View style={styles.heroStage}>
                 <AceMark size={94} />
@@ -1357,7 +1335,7 @@ export default function ConverseScreen() {
                 style={styles.usualRouteCard}
               >
                 <View style={styles.usualRouteRow}>
-                  <Ionicons name="repeat-outline" size={14} color="#4ade80" />
+                  <Ionicons name="repeat-outline" size={14} color="#cbe8ff" />
                   <Text style={styles.usualRouteLabel}>Your usual</Text>
                   <Text style={styles.usualRouteCount}>{usualRoute.count}×</Text>
                 </View>
@@ -1370,7 +1348,7 @@ export default function ConverseScreen() {
             {preferredTravelUnit && (
               <View style={styles.sharedUnitCard}>
                 <View style={styles.sharedUnitHeader}>
-                  <Ionicons name="people-circle-outline" size={16} color="#f0abfc" />
+                  <Ionicons name="people-circle-outline" size={16} color="#cbe8ff" />
                   <Text style={styles.sharedUnitLabel}>{preferredTravelUnit.name}</Text>
                   <Text style={styles.sharedUnitMeta}>
                     {preferredTravelUnit.type === 'couple' ? 'Couple' : preferredTravelUnit.type === 'family' ? 'Family' : 'Household'}
@@ -1400,27 +1378,25 @@ export default function ConverseScreen() {
               <Text style={styles.myTripsBtnText}>Journeys</Text>
               <Ionicons name="chevron-forward-outline" size={13} color="#334155" style={{ marginLeft: 'auto' }} />
             </Pressable>
-            <View style={styles.suggestionsCard}>
-              <View style={styles.suggestionsHeader}>
-                <Text style={styles.suggestionsEyebrow}>Try one of these</Text>
-                <Text style={styles.suggestionsHint}>Speak naturally. Ace will infer the route, recommend the strongest option, and only ask when something truly matters.</Text>
-              </View>
-              <View style={styles.suggestions}>
-                {idleSuggestions.map((suggestion) => (
+            {primarySuggestion && (
+              <View style={styles.suggestionsCard}>
+                <View style={styles.suggestionsHeader}>
+                  <Text style={styles.suggestionsEyebrow}>Try this</Text>
+                </View>
+                <View style={styles.suggestions}>
                   <Suggestion
-                    key={suggestion}
                     icon={
-                      suggestion.toLowerCase().includes('bus') ? 'bus-outline'
-                      : suggestion.toLowerCase().includes('metro') ? 'subway-outline'
-                      : suggestion.toLowerCase().includes('flight') ? 'airplane-outline'
+                      primarySuggestion.toLowerCase().includes('bus') ? 'bus-outline'
+                      : primarySuggestion.toLowerCase().includes('metro') ? 'subway-outline'
+                      : primarySuggestion.toLowerCase().includes('flight') ? 'airplane-outline'
                       : 'train-outline'
                     }
-                    text={suggestion}
-                    onPress={() => { void runIntentWithUiFallback(suggestion); }}
+                    text={primarySuggestion}
+                    onPress={() => { void runIntentWithUiFallback(primarySuggestion); }}
                   />
-                ))}
+                </View>
               </View>
-            </View>
+            )}
           </View>
         )}
 
@@ -1481,9 +1457,6 @@ export default function ConverseScreen() {
           const travellerCount = passengers?.length ?? 1;
           const familyRailcardReady = adultCount >= 2 && childCount >= 1 && childCount <= 4
             && plan.some((item) => item.toolName === 'book_train' || item.toolName === 'book_train_india');
-          const flightFamilyGaps = tpFam.filter((member) =>
-            plan.some((item) => !!item.flightDetails) && member.relationship !== 'infant' && !member.name,
-          ).length;
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
           const tripDest   = planInput.destination ?? planInput.to ?? '';
@@ -1499,10 +1472,6 @@ export default function ConverseScreen() {
             : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
             ? `${tripOrigin} → ${tripDest}`
           */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
-          const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
-          const nearbyPlaces = tripContext?.nearbyPlaces ?? plan[0]?.nearbyPlaces ?? null;
-          const cards = tripCards(tripContext).filter((card) => card.kind !== 'destination_suggestion');
-
           // Flight offer expiry: find the soonest expiry across all flight legs
           const flightExpiresAt = plan
             .map(p => p.flightDetails?.offerExpiresAt)
@@ -1544,36 +1513,30 @@ export default function ConverseScreen() {
             sourceLabel,
             familyRailcardReady,
           });
-          // Hotel details — single hotel booking
-          const hotelDetails = plan.length === 1 ? plan[0]?.hotelDetails : undefined;
-          const hotel = hotelDetails?.bestOption;
-
-          // Multi-leg journey helper
+          const readinessItems = pendingPlanRef.current?.readiness ?? [];
+          const readinessWarningCount = readinessItems.filter((item) => item.tone === 'warning').length;
+          const readinessSummary = readinessWarningCount > 0
+            ? `${readinessWarningCount} last check${readinessWarningCount === 1 ? '' : 's'} may still need attention after you approve.`
+            : 'Ace has already checked the route, fare, and booking readiness for this trip.';
+          const companionSummary = travellerCount > 1
+            ? `${travellerCount} travellers${childCount > 0 ? `, including ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}`
+            : null;
+          const hotel = plan.length === 1 ? plan[0]?.hotelDetails?.bestOption : undefined;
           const isMultiLeg = plan.length > 1;
-          const legIcon = (toolName: string) =>
-            toolName === 'search_flights' ? '✈️'
-            : toolName === 'book_bus'     ? '🚌'
-            : toolName === 'plan_metro'   ? '🚇'
-            : '🚆';
-          const legLabel = (item: typeof plan[0]) => {
-            const inp = item.input as Record<string, string>;
-            const from = inp.origin ?? inp.from ?? '';
-            const to   = inp.destination ?? inp.to ?? '';
-            if (item.flightDetails) {
-              const dep = item.flightDetails.departureAt?.slice(11, 16) ?? '';
-              return `${item.flightDetails.carrier} ${item.flightDetails.flightNumber} · ${dep}  ${from}→${to}`;
-            }
-            const td = (item as any).trainDetails as { departureTime?: string; operator?: string } | undefined;
-            const time = td?.departureTime ?? '';
-            const op   = td?.operator ?? item.displayName;
-            return `${op}${time ? ` · ${time}` : ''}  ${from}→${to}`;
-          };
-
+          const itinerarySummary = isMultiLeg
+            ? `${plan.length} legs, secured as one continuous journey.`
+            : hotel
+            ? `${hotel.name}${hotel.area ? `, ${hotel.area}` : ''}`
+            : finalLegSummary;
+          const paymentSummary = isIndia
+            ? 'UPI happens on the next step after you approve.'
+            : 'Face ID is the final check before Ace secures it.';
+          // Hotel details — single hotel booking
           return (
-            <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
+            <BlurView intensity={34} tint="dark" style={styles.confirmCard}>
               <View style={styles.confirmEyebrowRow}>
-                <Text style={styles.confirmEyebrow}>Ace briefing</Text>
-                {sourceLabel && !isMultiLeg && (
+                <Text style={styles.confirmEyebrow}>Ready to secure</Text>
+                {sourceLabel && (
                   <View style={styles.sourceBadge}>
                     <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
                   </View>
@@ -1582,250 +1545,60 @@ export default function ConverseScreen() {
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
-              {pendingPlanRef.current?.assumptionNote && (
-                <View style={styles.assumptionCard}>
-                  <Ionicons name="locate-outline" size={14} color="#93c5fd" />
-                  <Text style={styles.assumptionText}>{pendingPlanRef.current.assumptionNote}</Text>
-                </View>
-              )}
-              {recommendation && (
-                <View style={styles.recommendationCard}>
-                  <View style={styles.recommendationHeader}>
-                    <Ionicons name="sparkles" size={14} color="#f4ead6" />
-                    <Text style={styles.recommendationEyebrow}>Recommended for you</Text>
-                  </View>
-                  <Text style={styles.recommendationTitle}>{recommendation.title}</Text>
-                  <Text style={styles.recommendationWhy}>{recommendation.why}</Text>
-                  <View style={styles.recommendationCueRow}>
-                    {recommendation.cues.map((cue) => (
-                      <View key={cue} style={styles.recommendationCue}>
-                        <Text style={styles.recommendationCueText}>{cue}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {travellerCount > 1 && (
-                <View style={styles.groupSummaryCard}>
-                  <View style={styles.groupSummaryRow}>
-                    <Ionicons name="people-outline" size={14} color="#38bdf8" />
-                    <Text style={styles.groupSummaryTitle}>
-                      {travellerCount} travellers · {adultCount} adult{adultCount === 1 ? '' : 's'}{childCount > 0 ? ` · ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}
-                    </Text>
-                  </View>
-                  <Text style={styles.groupSummaryBody}>
-                    {passengers?.map((p) => p.name).join(', ')}
-                  </Text>
-                  {familyRailcardReady && (
-                    <View style={styles.groupReadyBadge}>
-                      <Ionicons name="ticket-outline" size={13} color="#4ade80" />
-                      <Text style={styles.groupReadyText}>Ace will check Family & Friends Railcard eligibility before it secures any UK rail leg.</Text>
-                    </View>
-                  )}
-                  {flightFamilyGaps > 0 && (
-                    <View style={styles.groupWarnBadge}>
-                      <Ionicons name="airplane-outline" size={13} color="#f59e0b" />
-                      <Text style={styles.groupWarnText}>Some passenger details may still be needed before flight ticketing.</Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* Multi-leg journey timeline */}
-              {isMultiLeg && (
-                <View style={styles.legTimeline}>
-                  {plan.map((item, idx) => {
-                    const itemFiat = code === 'GBP' || !confirmFxRate
-                      ? item.estimatedPriceUsdc
-                      : item.estimatedPriceUsdc * confirmFxRate;
-                    const legFiatStr = itemFiat > 0 ? `${sym}${formatMoneyAmount(itemFiat, code)}` : '';
-                    return (
-                      <View key={idx} style={styles.legRow}>
-                        <View style={styles.legConnector}>
-                          <Text style={styles.legIconText}>{legIcon(item.toolName)}</Text>
-                          {idx < plan.length - 1 && <View style={styles.legLine} />}
-                        </View>
-                        <View style={styles.legBody}>
-                          <Text style={styles.legLabelText} numberOfLines={1}>{legLabel(item)}</Text>
-                          {legFiatStr ? <Text style={styles.legFareText}>{legFiatStr}</Text> : null}
-                        </View>
-                      </View>
-                    );
-                  })}
-                  <View style={styles.legTotalRow}>
-                    <Text style={styles.legTotalLabel}>Total</Text>
-                    <Text style={styles.legTotalAmount}>{priceLabel ?? ''}</Text>
-                  </View>
-                </View>
-              )}
-
-              {priceLabel && !isMultiLeg && !hotel && (
+              {priceLabel && (
                 <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
               )}
-              {hotel && (
-                <View style={styles.hotelCard}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 16 }}>🏨</Text>
-                    <Text style={styles.hotelName} numberOfLines={1}>{hotel.name}</Text>
-                    <Text style={styles.hotelStars}>{'★'.repeat(Math.min(hotel.stars, 5))}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <View>
-                      <Text style={styles.hotelDateLabel}>Check-in</Text>
-                      <Text style={styles.hotelDate}>{hotelDetails!.checkIn}</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.hotelDateLabel}>Check-out</Text>
-                      <Text style={styles.hotelDate}>{hotelDetails!.checkOut}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.hotelRate}>
-                    {hotel.currency} {hotel.ratePerNight}/night · Total {hotel.currency} {hotel.totalCost}
-                  </Text>
-                  {hotel.area && <Text style={styles.hotelArea}>{hotel.area}</Text>}
-                </View>
+              {recommendation && (
+                <Text style={styles.confirmLead}>{recommendation.why}</Text>
               )}
-              {passengers && passengers.length > 1 && (
-                <View style={styles.passengerList}>
-                  {passengers.map((p, i) => {
-                    return (
-                      <View key={i} style={styles.passengerRow}>
-                        <View style={styles.passengerPill}>
-                          <Text style={styles.passengerPillText}>
-                            {p.relationship === 'infant' ? '👶' : p.relationship === 'child' ? '🧒' : '🧑'} {p.name}
-                          </Text>
-                        </View>
-                        <Text style={styles.passengerFare}>
-                          {p.relationship === 'infant' ? 'Infant' : p.relationship === 'child' ? 'Child' : 'Adult'}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                  <Text style={styles.passengerHint}>
-                    Final passenger-specific fares and discounts are checked during booking, not split here.
-                  </Text>
-                </View>
-              )}
-              {flightExpiryMins !== null && flightExpiryMins <= 15 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#431407', borderRadius: 8, padding: 8, marginBottom: 8 }}>
-                  <Ionicons name="time-outline" size={13} color="#fb923c" />
-                  <Text style={{ fontSize: 12, color: '#fb923c', flex: 1 }}>
-                    {flightExpiryMins <= 0
-                      ? 'Price expired. Search again.'
-                      : `Price holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'} — confirm now.`}
-                  </Text>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={{ fontSize: 11, color: '#6b7280' }}>Booking fee </Text>
-                <View style={{ backgroundColor: '#052e16', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Included for now</Text>
-                </View>
-              </View>
-              <Text style={styles.confirmReason}>
-                {isIndia
-                  ? 'Best balance of speed, certainty, and payment flow for this trip.'
-                  : 'Best balance of timing, fare, and journey simplicity.'}
-              </Text>
-              <View style={styles.readinessCard}>
-                <View style={styles.readinessHeader}>
-                  <Ionicons name="shield-checkmark-outline" size={14} color="#38bdf8" />
-                  <Text style={styles.readinessTitle}>Before Ace secures it</Text>
-                </View>
-                {(pendingPlanRef.current?.readiness ?? []).map((item) => (
-                  <View key={`${item.label}-${item.detail}`} style={styles.readinessRow}>
-                    <Ionicons
-                      name={item.tone === 'ready' ? 'checkmark-circle' : 'alert-circle-outline'}
-                      size={15}
-                      color={item.tone === 'ready' ? '#4ade80' : '#f59e0b'}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.readinessLabel}>{item.label}</Text>
-                      <Text style={styles.readinessDetail}>{item.detail}</Text>
-                    </View>
+              <Text style={styles.confirmReason}>{readinessSummary}</Text>
+              <View style={styles.confirmMetaStack}>
+                {pendingPlanRef.current?.assumptionNote && (
+                  <View style={styles.confirmMetaRow}>
+                    <Ionicons name="locate-outline" size={14} color="#a9dcff" />
+                    <Text style={styles.confirmMetaText}>{pendingPlanRef.current.assumptionNote}</Text>
                   </View>
-                ))}
-              </View>
-              <View style={styles.assuranceCard}>
-                <View style={styles.assuranceHeader}>
-                  <Ionicons name="sparkles-outline" size={14} color="#d4c2a3" />
-                  <Text style={styles.assuranceTitle}>What Ace has covered</Text>
-                </View>
-                {buildAssuranceItems({
-                  plan,
-                  fiatAmount: fiat,
-                  hasCards: cards.length > 0,
-                }).map((item) => (
-                  <View key={item} style={styles.assuranceRow}>
-                    <View style={styles.assuranceDot} />
-                    <Text style={styles.assuranceText}>{item}</Text>
+                )}
+                {companionSummary && (
+                  <View style={styles.confirmMetaRow}>
+                    <Ionicons name="people-outline" size={14} color="#a9dcff" />
+                    <Text style={styles.confirmMetaText}>{companionSummary}</Text>
                   </View>
-                ))}
+                )}
+                {itinerarySummary && (
+                  <View style={styles.confirmMetaRow}>
+                    <Ionicons name={hotel ? 'bed-outline' : isMultiLeg ? 'git-network-outline' : 'train-outline'} size={14} color="#a9dcff" />
+                    <Text style={styles.confirmMetaText}>{itinerarySummary}</Text>
+                  </View>
+                )}
+                {flightExpiryMins !== null && flightExpiryMins <= 15 && (
+                  <View style={styles.confirmMetaRow}>
+                    <Ionicons name="time-outline" size={14} color="#e5c995" />
+                    <Text style={styles.confirmMetaText}>
+                      {flightExpiryMins <= 0
+                        ? 'This fare has just expired. Search again before you approve.'
+                        : `This fare holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'}.`}
+                    </Text>
+                  </View>
+                )}
               </View>
               {confirmRetryNote && (
                 <View style={styles.confirmRetryCard}>
-                  <Ionicons name="refresh-outline" size={14} color="#fcd34d" />
+                  <Ionicons name="refresh-outline" size={14} color="#e5c995" />
                   <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
                 </View>
               )}
-              {cards.length > 0 && (
-                <View style={styles.proactiveCardList}>
-                  {cards.slice(0, 2).map((card) => (
-                    <ProactiveCardRow key={card.id} card={card} />
-                  ))}
-                </View>
-              )}
-              {finalLegSummary && (
-                <View style={styles.finalLegRow}>
-                  <Ionicons name="subway-outline" size={13} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.finalLegText}>{finalLegSummary}</Text>
-                </View>
-              )}
-              {routeData && (
-                <Pressable
-                  style={styles.viewMapBtn}
-                  onPress={() => router.push({
-                    pathname: '/(main)/map',
-                    params: { routeData: JSON.stringify(routeData) },
-                  })}
-                >
-                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.viewMapText}>View on Map</Text>
-                </Pressable>
-              )}
-              {!routeData && nearbyPlaces && nearbyPlaces.length > 0 && (
-                <Pressable
-                  style={styles.viewMapBtn}
-                  onPress={() => router.push({
-                    pathname: '/(main)/map',
-                    params: { places: JSON.stringify(nearbyPlaces) },
-                  })}
-                >
-                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.viewMapText}>Explore on Map</Text>
-                </Pressable>
-              )}
+              <Text style={styles.confirmFootnote}>{paymentSummary}</Text>
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
-                  colors={[C.emDim, C.emMid]}
+                  colors={['#0f1825', '#24384d']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.confirmBtnGrad}
                 >
-                  <Ionicons name="finger-print-outline" size={20} color={C.emBright} />
+                  <Ionicons name="finger-print-outline" size={20} color="#edf6ff" />
                   <Text style={styles.confirmText}>Let Ace secure this</Text>
                 </LinearGradient>
               </Pressable>
-              {isIndia && (
-                <View style={styles.upiSection}>
-                  <Text style={styles.upiLabel}>India payments happen on the next screen</Text>
-                  <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
-                    <Ionicons name="qr-code-outline" size={16} color="#f97316" />
-                    <Text style={styles.upiBtnText}>How this works</Text>
-                  </Pressable>
-                  <Text style={styles.upiHint}>Ace creates the job first, then collects UPI against that job.</Text>
-                </View>
-              )}
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
                 <Text style={styles.confirmCancelText}>Cancel</Text>
               </Pressable>
@@ -1869,7 +1642,7 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        {(isIdle || isError || phase === 'listening') && (
+        {(phase === 'listening' || ((isIdle || isError) && showIdleGuidance)) && (
           <View style={styles.holdPlaque}>
             <View style={styles.holdPlaqueDot} />
             <Text style={styles.holdPlaqueText}>
@@ -1881,7 +1654,7 @@ export default function ConverseScreen() {
         {textFallbackVisible && (
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
-              <Ionicons name="create-outline" size={14} color="#d4c2a3" />
+              <Ionicons name="create-outline" size={14} color="#cbe8ff" />
               <Text style={styles.textFallbackTitle}>Type the trip instead</Text>
             </View>
             <Text style={styles.textFallbackBody}>
@@ -1914,10 +1687,6 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <Text style={[styles.phaseLabel, { color: PHASE_LABEL_COLOR[phase] ?? C.textMuted }]}>
-          {phaseLabel}
-        </Text>
-
         <OrbAnimation
           phase={phase}
           onPress={handleOrbTap}
@@ -1938,22 +1707,14 @@ export default function ConverseScreen() {
 
 // ── Suggestion chip ───────────────────────────────────────────────────────────
 
-function suggestionSupportLine(text: string): string {
-  if (text.toLowerCase().includes('cheapest')) return 'Ace will compare a stronger option against the cheapest.';
-  if (text.toLowerCase().includes('next train')) return 'Ace will line up the next live departures and recommend one.';
-  if (text.toLowerCase().includes('route')) return 'Ace will choose the best route and explain why.';
-  return 'Ace will line up the route, price, and strongest next step.';
-}
-
 function Suggestion({ icon, text, onPress }: { icon: string; text: string; onPress: () => void }) {
   return (
     <Pressable style={suggStyles.chip} onPress={onPress}>
       <View style={suggStyles.iconWrap}>
-        <Ionicons name={icon as any} size={13} color={C.em} />
+        <Ionicons name={icon as any} size={13} color="#dcecff" />
       </View>
       <View style={suggStyles.copy}>
         <Text style={suggStyles.text}>{text}</Text>
-        <Text style={suggStyles.subtext}>{suggestionSupportLine(text)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
     </Pressable>
@@ -1964,7 +1725,7 @@ function Atmosphere() {
   return (
     <View pointerEvents="none" style={styles.atmosphere}>
       <LinearGradient
-        colors={['rgba(16, 185, 129, 0.18)', 'rgba(16, 185, 129, 0)']}
+        colors={['rgba(164, 212, 255, 0.16)', 'rgba(164, 212, 255, 0)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.atmosphereGlowLeft}
@@ -2003,7 +1764,7 @@ const suggStyles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 6,
-    backgroundColor: C.emDim,
+    backgroundColor: 'rgba(24, 38, 55, 0.92)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2011,23 +1772,9 @@ const suggStyles = StyleSheet.create({
     flex: 1,
   },
   text: { fontSize: 13, color: C.textPrimary, letterSpacing: 0.1, fontWeight: '600' },
-  subtext: { fontSize: 11, color: C.textMuted, lineHeight: 16, marginTop: 3 },
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-
-function ProactiveCardRow({ card }: { card: ProactiveCard }) {
-  const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : C.sky;
-  return (
-    <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
-      <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.proactiveTitle}>{card.title}</Text>
-        <Text style={styles.proactiveBody}>{card.body}</Text>
-      </View>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
@@ -2137,24 +1884,6 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
   },
-  heroTopline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  heroToplineRule: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.16)',
-  },
-  emptyEyebrow: {
-    fontSize: 11,
-    color: '#cbd5e1',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
   emptyGreeting: {
     fontSize: 38,
     fontWeight: '700',
@@ -2162,13 +1891,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     letterSpacing: -1.0,
     lineHeight: 44,
-  },
-  emptyHint: {
-    fontSize: 15,
-    color: C.textSecondary,
-    marginBottom: 22,
-    lineHeight: 24,
-    letterSpacing: 0.1,
   },
   heroStage: {
     borderRadius: 24,
@@ -2333,11 +2055,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 6,
   },
-  suggestionsHint: {
-    fontSize: 13,
-    color: C.textSecondary,
-    lineHeight: 19,
-  },
   suggestions: {},
   shortcutRow: {
     flexDirection: 'row',
@@ -2401,18 +2118,18 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: C.emDim,
+    backgroundColor: 'rgba(18, 31, 46, 0.96)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
     borderWidth: 1,
-    borderColor: C.emGlow,
+    borderColor: 'rgba(169, 220, 255, 0.28)',
   },
   avatarDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: C.emBright,
+    backgroundColor: '#dcecff',
   },
   bubbleText: {
     fontSize: 15,
@@ -2432,7 +2149,7 @@ const styles = StyleSheet.create({
     color: C.textSecondary,
     borderBottomLeftRadius: 3,
     borderLeftWidth: 2,
-    borderLeftColor: C.em,
+    borderLeftColor: '#8dbfe7',
   },
   recentTurnsCard: {
     marginBottom: 14,
@@ -2463,16 +2180,17 @@ const styles = StyleSheet.create({
   confirmCard: {
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.3)',
+    borderColor: 'rgba(122, 167, 214, 0.26)',
     borderRadius: 26,
     padding: 24,
     marginBottom: 12,
     alignSelf: 'stretch',
     gap: 14,
-    shadowColor: C.em,
+    backgroundColor: 'rgba(5, 10, 18, 0.78)',
+    shadowColor: '#9cccf0',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 40,
+    shadowOpacity: 0.12,
+    shadowRadius: 34,
     elevation: 12,
   },
   confirmEyebrowRow: {
@@ -2537,130 +2255,43 @@ const styles = StyleSheet.create({
   },
   confirmReason: {
     fontSize: 13,
-    color: C.textMuted,
-    textAlign: 'left',
+    color: '#9fb0c2',
+    textAlign: 'center',
     lineHeight: 20,
-    marginTop: -6,
+    marginTop: -4,
   },
-  recommendationCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 234, 214, 0.16)',
-    backgroundColor: 'rgba(24, 20, 15, 0.72)',
-    padding: 14,
+  confirmLead: {
+    fontSize: 16,
+    color: '#edf6ff',
+    textAlign: 'center',
+    lineHeight: 24,
+    letterSpacing: -0.2,
+  },
+  confirmMetaStack: {
     gap: 10,
-  },
-  recommendationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  recommendationEyebrow: {
-    fontSize: 11,
-    color: '#f4ead6',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  recommendationTitle: {
-    fontSize: 18,
-    color: '#f8fafc',
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  recommendationWhy: {
-    fontSize: 12,
-    color: '#d6d3d1',
-    lineHeight: 18,
-  },
-  recommendationCueRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recommendationCue: {
-    borderRadius: 999,
-    backgroundColor: 'rgba(8, 18, 32, 0.82)',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    backgroundColor: 'rgba(9, 16, 26, 0.74)',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
-  recommendationCueText: {
-    fontSize: 11,
-    color: '#bae6fd',
-    fontWeight: '600',
-  },
-  readinessCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
-    backgroundColor: 'rgba(8, 47, 73, 0.28)',
-    padding: 12,
-    gap: 10,
-  },
-  readinessHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  readinessTitle: {
-    fontSize: 12,
-    color: '#bae6fd',
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  readinessRow: {
+  confirmMetaRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: 10,
   },
-  readinessLabel: {
+  confirmMetaText: {
+    flex: 1,
     fontSize: 12,
-    color: '#e2e8f0',
-    fontWeight: '600',
-    marginBottom: 2,
+    color: '#cfdae6',
+    lineHeight: 18,
   },
-  readinessDetail: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: '#94a3b8',
-  },
-  assuranceCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 194, 163, 0.18)',
-    backgroundColor: 'rgba(19, 15, 10, 0.55)',
-    padding: 12,
-    gap: 8,
-  },
-  assuranceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  assuranceTitle: {
+  confirmFootnote: {
     fontSize: 12,
-    color: '#f4ead6',
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  assuranceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  assuranceDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#d4c2a3',
-  },
-  assuranceText: {
-    fontSize: 11,
-    color: '#d6d3d1',
-    lineHeight: 16,
+    color: '#7f91a4',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   confirmRetryCard: {
     flexDirection: 'row',
@@ -2680,54 +2311,6 @@ const styles = StyleSheet.create({
     color: '#fef3c7',
     lineHeight: 18,
   },
-  proactiveCardList: {
-    gap: 8,
-  },
-  proactiveCard: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-start',
-    backgroundColor: '#0b1220',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  proactiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 5,
-  },
-  proactiveTitle: {
-    fontSize: 12,
-    color: C.textPrimary,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  proactiveBody: {
-    fontSize: 12,
-    color: C.textMuted,
-    lineHeight: 17,
-  },
-  finalLegRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    backgroundColor: C.skyDim,
-    borderWidth: 1,
-    borderColor: '#1a3a50',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  finalLegText: {
-    flex: 1,
-    fontSize: 12,
-    color: C.sky,
-    lineHeight: 18,
-    letterSpacing: 0.1,
-  },
   confirmBtn: {
     borderRadius: 14,
     overflow: 'hidden',
@@ -2739,15 +2322,9 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 16,
   },
-  confirmText: { fontSize: 15, color: C.emBright, fontWeight: '700', letterSpacing: 0.2 },
+  confirmText: { fontSize: 15, color: '#edf6ff', fontWeight: '700', letterSpacing: 0.2 },
   confirmCancel: { alignItems: 'center', paddingVertical: 8 },
   confirmCancelText: { fontSize: 13, color: C.textDim },
-
-  upiSection:  { marginTop: 4, alignItems: 'center', gap: 8 },
-  upiLabel:    { fontSize: 12, color: C.textMuted, letterSpacing: 0.5 },
-  upiBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1c1008', borderWidth: 1, borderColor: C.amberMid, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  upiBtnText:  { fontSize: 14, fontWeight: '600', color: '#f97316' },
-  upiHint:     { fontSize: 11, color: C.textDim },
 
   errorCard: {
     flexDirection: 'row',
@@ -2843,43 +2420,8 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontWeight: '600',
   },
-  phaseLabel: {
-    fontSize: 11,
-    marginBottom: 14,
-    letterSpacing: 2,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    // color injected inline per-phase
-  },
   clearBtn: { marginTop: 18 },
   clearBtnText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
-  viewMapBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-    alignSelf: 'flex-start',
-  },
-  viewMapText: { fontSize: 13, color: C.sky, fontWeight: '500' },
-  passengerList: { marginBottom: 10, borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 10 },
-  passengerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  passengerPill: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#1e293b' },
-  passengerPillText: { fontSize: 12, color: '#f8fafc' },
-  passengerFare: { fontSize: 12, color: '#94a3b8' },
-  passengerHint: { marginTop: 6, fontSize: 11, lineHeight: 16, color: C.textMuted },
-
-  // Multi-leg journey timeline
-  legTimeline:    { marginBottom: 12, borderWidth: 1, borderColor: '#1e293b', borderRadius: 10, padding: 12 },
-  legRow:         { flexDirection: 'row', marginBottom: 4 },
-  legConnector:   { width: 28, alignItems: 'center' },
-  legIconText:    { fontSize: 16, lineHeight: 22 },
-  legLine:        { width: 1, flex: 1, backgroundColor: '#1e293b', marginTop: 2, marginBottom: -4, minHeight: 10 },
-  legBody:        { flex: 1, paddingLeft: 8, paddingBottom: 10 },
-  legLabelText:   { fontSize: 12, color: '#f8fafc', lineHeight: 18 },
-  legFareText:    { fontSize: 12, color: '#94a3b8', marginTop: 1 },
-  legTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 8, marginTop: 4 },
-  legTotalLabel:  { fontSize: 12, color: '#6b7280', fontWeight: '600' },
-  legTotalAmount: { fontSize: 13, color: '#f8fafc', fontWeight: '700' },
 
   usualRouteCard: {
     backgroundColor: 'rgba(8, 14, 22, 0.84)',
@@ -2951,21 +2493,6 @@ const styles = StyleSheet.create({
   sharedUnitBtnTextSecondary: {
     color: '#d9e7f4',
   },
-  hotelCard:       { backgroundColor: '#0a0d14', borderWidth: 1, borderColor: '#1e3a5f', borderRadius: 10, padding: 12, marginBottom: 10, gap: 6 },
-  hotelName:       { fontSize: 14, fontWeight: '600', color: '#f8fafc', flex: 1 },
-  hotelStars:      { fontSize: 11, color: '#f59e0b', letterSpacing: 1 },
-  hotelDateLabel:  { fontSize: 10, color: '#64748b', marginBottom: 2 },
-  hotelDate:       { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
-  hotelRate:       { fontSize: 12, color: '#4ade80', marginTop: 4 },
-  hotelArea:       { fontSize: 11, color: '#64748b' },
-  groupSummaryCard:{ backgroundColor: '#081826', borderWidth: 1, borderColor: '#0c4a6e', borderRadius: 12, padding: 12, gap: 8 },
-  groupSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  groupSummaryTitle:{ fontSize: 12, color: '#38bdf8', fontWeight: '700' },
-  groupSummaryBody:{ fontSize: 12, color: '#cbd5e1', lineHeight: 18 },
-  groupReadyBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#052e16', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#166534' },
-  groupReadyText:  { flex: 1, fontSize: 12, color: '#4ade80', lineHeight: 17 },
-  groupWarnBadge:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#451a03', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#b45309' },
-  groupWarnText:   { flex: 1, fontSize: 12, color: '#fdba74', lineHeight: 17 },
   myTripsBtn:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   myTripsBtnText:  { fontSize: 13, color: '#64748b' },
 });
