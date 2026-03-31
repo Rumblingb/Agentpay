@@ -70,7 +70,6 @@ export default function JourneyScreen() {
   const [error, setError] = useState<string | null>(null);
   const [walletTrackedFor, setWalletTrackedFor] = useState<string | null>(null);
   const [rerouteTrackedFor, setRerouteTrackedFor] = useState<string | null>(null);
-  const [acknowledgedSignalIds, setAcknowledgedSignalIds] = useState<string[]>([]);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [issueCategory, setIssueCategory] = useState<'payment' | 'delay' | 'ticket' | 'other'>('delay');
   const [issueText, setIssueText] = useState('');
@@ -328,9 +327,6 @@ export default function JourneyScreen() {
     });
   }, [intentId, logJourneyEvent, rerouteBody, rerouteTitle, rerouteTranscript, session]);
 
-  useEffect(() => {
-    setAcknowledgedSignalIds([]);
-  }, [session?.intentId]);
 
   useEffect(() => {
     if (!session?.walletPassUrl || walletTrackedFor === session.intentId) return;
@@ -352,8 +348,11 @@ export default function JourneyScreen() {
 
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
   const visibleCards = useMemo(
-    () => cards.filter((card) => !acknowledgedSignalIds.includes(card.id)),
-    [acknowledgedSignalIds, cards],
+    () => cards.filter((card) => {
+      const acked = session?.acknowledgedSignals?.[card.kind];
+      return acked !== card.body;
+    }),
+    [cards, session?.acknowledgedSignals],
   );
   const recovery = useMemo(() => (session ? journeyRecovery(session) : null), [session]);
   const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
@@ -575,17 +574,20 @@ export default function JourneyScreen() {
       return;
     }
     if (['platform_changed', 'gate_changed'].includes(card.kind)) {
-      setAcknowledgedSignalIds((current) => (
-        current.includes(card.id) ? current : [...current, card.id]
-      ));
       if (session) {
+        const updated: JourneySession = {
+          ...session,
+          acknowledgedSignals: {
+            ...session.acknowledgedSignals,
+            [card.kind]: card.body,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        setSession(updated);
+        void patchJourneySession(session.intentId, { acknowledgedSignals: updated.acknowledgedSignals });
         logJourneyEvent({
           event: 'journey_signal_acknowledged',
-          metadata: {
-            intentId: session.intentId,
-            source: 'journey_card',
-            cardKind: card.kind,
-          },
+          metadata: { intentId: session.intentId, source: 'journey_card', cardKind: card.kind },
         });
       }
       return;

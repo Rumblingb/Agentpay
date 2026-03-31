@@ -106,6 +106,12 @@ export interface JourneySession {
   supportSummary?: string | null;
   lastEventKey?: string | null;
   lastEventAt?: string | null;
+  /**
+   * Keyed by signal type (e.g. 'platform_changed', 'gate_changed').
+   * Value is the signal payload that was acknowledged (e.g. the platform string).
+   * If the live signal value changes, the card reappears automatically.
+   */
+  acknowledgedSignals?: Record<string, string> | null;
   updatedAt: string;
 }
 
@@ -274,6 +280,7 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     supportState: 'none',
     supportRequestedAt: null,
     supportSummary: null,
+    acknowledgedSignals: null,
     updatedAt: trip.updatedAt,
   };
 }
