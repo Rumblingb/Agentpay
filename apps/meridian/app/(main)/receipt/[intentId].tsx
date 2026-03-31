@@ -742,7 +742,7 @@ export default function ReceiptScreen() {
         event: 'wallet_opened',
         metadata: { intentId, source: 'receipt' },
       });
-      setWalletNote('Ace opened Apple Wallet with your pass.');
+      setWalletNote('Pass opened in Wallet.');
     } catch (error: any) {
       logReceiptEvent({
         event: 'wallet_open_failed',
@@ -750,7 +750,7 @@ export default function ReceiptScreen() {
         message: error?.message ?? 'Wallet failed to open from Receipt.',
         metadata: { intentId, source: 'receipt' },
       });
-      setWalletNote('Ace could not open Wallet right now. Keep the ticket code handy.');
+      setWalletNote('Could not open Wallet. Use the ticket code below.');
     }
   };
 
@@ -1353,7 +1353,7 @@ export default function ReceiptScreen() {
 
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
               <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
-              <Text style={styles.issueBtnText}>Something not right?</Text>
+              <Text style={styles.issueBtnText}>Report an issue</Text>
             </Pressable>
 
             <Pressable onPress={handleDone} style={styles.doneBtn}>
@@ -1423,9 +1423,9 @@ export default function ReceiptScreen() {
       >
         <View style={issueStyles.container}>
           <View style={issueStyles.handle} />
-          <Text style={issueStyles.title}>Report an issue</Text>
+          <Text style={issueStyles.title}>Something wrong?</Text>
           <Text style={issueStyles.subtitle}>
-            Describe the problem and Ace will look into it.
+            Tell us what happened. We already have your trip details.
           </Text>
           {issueSent ? (
             <View style={issueStyles.sentBox}>

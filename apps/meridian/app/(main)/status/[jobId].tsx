@@ -1206,9 +1206,9 @@ export default function StatusScreen() {
       <Modal visible={showIssueModal} transparent animationType="fade" onRequestClose={() => setShowIssueModal(false)}>
         <View style={styles.modalScrim}>
           <View style={styles.issueModal}>
-            <Text style={styles.issueTitle}>Need help with this journey?</Text>
+            <Text style={styles.issueTitle}>What went wrong?</Text>
             <Text style={styles.issueBody}>
-              Ace support gets the live trip context from this screen automatically, so you do not have to explain everything again.
+              Support gets the full trip context. No need to re-explain.
             </Text>
             <View style={styles.issueChips}>
               {(['payment', 'delay', 'ticket', 'other'] as const).map((category) => (

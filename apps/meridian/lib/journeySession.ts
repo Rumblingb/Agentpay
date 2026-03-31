@@ -36,9 +36,10 @@ export function journeyProactiveActionLabel(card: ProactiveCard): string | null 
   switch (card.kind) {
     case 'delay_risk':
     case 'connection_risk':
+      return 'Find alternatives';
     case 'platform_changed':
     case 'gate_changed':
-      return 'Ask Ace to reroute';
+      return 'Got it';
     case 'destination_suggestion':
       return 'Open map';
     case 'leave_now':
@@ -98,14 +99,14 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
     insights.push({
       key: 'connection',
       title: 'Connection looks tight',
-      body: 'Ace can line up the next clean option before this turns into a scramble.',
+      body: 'Say "reroute me" and Ace will find the next clean option.',
       tone: 'warning',
     });
   } else if (watch?.delayRisk) {
     insights.push({
       key: 'delay',
-      title: 'Timing needs watching',
-      body: 'Ace sees disruption risk on this leg and is ready to reroute if it becomes material.',
+      title: 'Running late',
+      body: 'Ace is watching this leg. Say "what are my options" if timing shifts.',
       tone: 'warning',
     });
   }
@@ -122,10 +123,10 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
   if (session.walletPassUrl) {
     insights.push({
       key: 'wallet',
-      title: session.walletLastOpenedAt ? 'Wallet pass is on hand' : 'Wallet pass is ready',
+      title: session.walletLastOpenedAt ? 'Pass in Wallet' : 'Add to Wallet',
       body: session.walletLastOpenedAt
-        ? 'Ace can reopen the pass whenever you need it at the gate.'
-        : 'You can move this ticket into Apple Wallet so Ace becomes invisible at the gate.',
+        ? 'Your pass is ready on your lock screen.'
+        : 'One tap. No app needed at the gate.',
       tone: 'success',
     });
   }
@@ -133,16 +134,16 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
   if (session.supportState === 'requested') {
     insights.push({
       key: 'support-requested',
-      title: 'Support already has this trip',
+      title: 'Support is on it',
       body: session.supportSummary
-        ? `Ace passed the latest issue through: ${session.supportSummary}`
-        : 'You do not need to re-explain the route. Ace support has the live journey context already.',
+        ? `Last update: ${session.supportSummary}`
+        : 'They have the full trip context. No need to re-explain.',
       tone: 'info',
     });
   } else if (session.state === 'attention' || session.state === 'payment_pending' || recovery.shouldEscalate) {
     insights.push({
       key: 'support-ready',
-      title: 'Help can pick up from here',
+      title: 'Need help?',
       body: recovery.supportBody,
       tone: 'neutral',
     });
@@ -183,38 +184,38 @@ export function journeySteps(session: JourneySession): JourneyStep[] {
     {
       key: 'planning',
       label: 'Route shaped',
-      detail: 'Ace has the journey context and the route it is working from.',
+      detail: 'Timing, fare, and connections are confirmed.',
       state: stateFor('planning'),
     },
     {
       key: 'securing',
-      label: 'Booking carried',
-      detail: 'Ace is moving through the live fulfilment steps on your behalf.',
+      label: 'Booking',
+      detail: 'Ace is working through fulfilment now.',
       state: stateFor('securing'),
     },
     {
       key: 'payment',
-      label: 'Payment cleared',
-      detail: 'Only shown when the route needs a payment step before issue.',
+      label: 'Payment',
+      detail: 'Fare secured. One tap to confirm.',
       state: stateFor('payment'),
     },
     {
       key: 'issued',
-      label: 'Ticket issued',
-      detail: 'Reference, wallet pass, and trip details are ready.',
+      label: 'Confirmed',
+      detail: 'Reference and pass are ready.',
       state: stateFor('issued'),
     },
     {
       key: 'watching',
-      label: 'Journey watched live',
-      detail: 'Ace keeps monitoring the trip for timing, platform, and reroute changes.',
+      label: 'Live',
+      detail: 'Platform, timing, and reroute help stay attached.',
       state: stateFor('watching'),
     },
     ...(session.state === 'attention'
       ? [{
           key: 'attention',
-          label: 'Human attention needed',
-          detail: 'Ace kept the journey context intact so you can fix this without starting over.',
+          label: 'Needs you',
+          detail: 'Ace kept everything intact. No need to start over.',
           state: stateFor('attention'),
         } satisfies JourneyStep]
       : []),
