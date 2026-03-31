@@ -23,10 +23,12 @@ export default function RootLayout() {
       } else if (data?.action === 'proactive_reroute' && (data?.transcript || data?.route)) {
         router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
       } else if (data?.action === 'travel_day' && data?.intentId) {
-        const params: Record<string, string> = { intentId: String(data.intentId) };
-        if (data?.shareToken) params.shareToken = String(data.shareToken);
-        router.push({ pathname: '/(main)/receipt/[intentId]', params });
+        router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: String(data.intentId) } });
       } else if (data?.intentId && data?.screen === 'receipt') {
+        if (['delay', 'platform_changed', 'gate_changed', 'arrival'].includes(String(data?.action ?? ''))) {
+          router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: String(data.intentId) } });
+          return;
+        }
         const params: Record<string, string> = { intentId: data.intentId };
         if (data?.action === 'cancelled') params.cancelled = 'true';
         if (data?.action === 'arrival') params.arrived = 'true';

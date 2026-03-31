@@ -30,7 +30,7 @@ import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
-import { loadActiveTrip, saveActiveTrip, upsertTrip, recordRouteMemory } from '../../../lib/storage';
+import { loadActiveTrip, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
@@ -418,6 +418,7 @@ export default function ReceiptScreen() {
     });
     void saveActiveTrip({
       intentId,
+      journeyId: null,
       status: 'ticketed',
       title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
       fromStation: fromStation ?? null,
@@ -433,9 +434,34 @@ export default function ReceiptScreen() {
       currencyCode: fiatCode,
       tripContext: nextTripContext,
       shareToken,
+      walletPassUrl,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired]);
+    void saveJourneySession({
+      intentId,
+      jobId: null,
+      journeyId: null,
+      title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} â†’ ${toStation}` : 'Journey'),
+      state: receipt?.verifiedAt ? 'ticketed' : bookingState === 'payment_pending' ? 'payment_pending' : 'ticketed',
+      bookingState: nextTripContext?.watchState?.bookingState ?? bookingState,
+      fromStation: fromStation ?? null,
+      toStation: toStation ?? null,
+      departureTime: departureTime ?? null,
+      departureDatetime: departureDatetime ?? departureTime ?? null,
+      arrivalTime: arrivalTime ?? nextTripContext?.arrivalTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? null,
+      bookingRef: bookingRef ?? null,
+      finalLegSummary: preservedFinalLegSummary ?? null,
+      fiatAmount: fiatAmountNum,
+      currencySymbol: fiatSymbol,
+      currencyCode: fiatCode,
+      tripContext: nextTripContext,
+      shareToken,
+      walletPassUrl,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired, walletPassUrl, bookingState]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)

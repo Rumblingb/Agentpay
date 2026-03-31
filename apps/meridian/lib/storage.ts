@@ -18,6 +18,8 @@ const KEYS = {
   prefs:            'meridian.prefs',
   history:          'meridian.history',
   activeTrip:       'meridian.activeTrip',
+  currentJourney:   'meridian.currentJourney',
+  journeySessions:  'meridian.journeySessions',
   trips:            'meridian.trips',
   routeMemories:    'meridian.routeMemories',
   legacyTrips:      'bro.trips',
@@ -47,6 +49,7 @@ export interface HistoryTurn {
 export interface ActiveTrip {
   intentId: string;
   jobId?: string | null;
+  journeyId?: string | null;
   status: 'securing' | 'ticketed' | 'attention';
   title: string;
   fromStation?: string | null;
@@ -61,7 +64,36 @@ export interface ActiveTrip {
   currencyCode?: string | null;
   tripContext?: TripContext | null;
   shareToken?: string | null;
+  walletPassUrl?: string | null;
   arrivalTime?: string | null;
+  updatedAt: string;
+}
+
+export interface JourneySession {
+  intentId: string;
+  jobId?: string | null;
+  journeyId?: string | null;
+  title: string;
+  state: 'planning' | 'securing' | 'payment_pending' | 'ticketed' | 'in_transit' | 'arriving' | 'attention';
+  bookingState?: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never;
+  fromStation?: string | null;
+  toStation?: string | null;
+  departureTime?: string | null;
+  departureDatetime?: string | null;
+  arrivalTime?: string | null;
+  platform?: string | null;
+  operator?: string | null;
+  bookingRef?: string | null;
+  finalLegSummary?: string | null;
+  fiatAmount?: number | null;
+  currencySymbol?: string | null;
+  currencyCode?: string | null;
+  tripContext?: TripContext | null;
+  shareToken?: string | null;
+  walletPassUrl?: string | null;
+  supportState?: 'none' | 'available' | 'requested';
+  lastEventKey?: string | null;
+  lastEventAt?: string | null;
   updatedAt: string;
 }
 
@@ -165,6 +197,86 @@ export async function clearPrefs(): Promise<void> {
 
 const MAX_HISTORY = 50;
 const ACTIVE_TRIP_STALE_MS = 15 * 60 * 1000;
+const MAX_JOURNEY_SESSIONS = 30;
+
+function deriveJourneyState(params: {
+  bookingState?: JourneySession['bookingState'];
+  tripContext?: TripContext | null;
+  legacyStatus?: ActiveTrip['status'];
+}): JourneySession['state'] {
+  if (params.tripContext?.phase === 'arrived') return 'arriving';
+  if (params.tripContext?.phase === 'in_transit') return 'in_transit';
+  if (params.tripContext?.phase === 'attention' || params.legacyStatus === 'attention') return 'attention';
+  switch (params.bookingState) {
+    case 'payment_pending':
+      return 'payment_pending';
+    case 'issued':
+      return 'ticketed';
+    case 'failed':
+    case 'refunded':
+      return 'attention';
+    case 'payment_confirmed':
+    case 'securing':
+      return 'securing';
+    case 'planned':
+    case 'priced':
+      return 'planning';
+    default:
+      return params.legacyStatus === 'ticketed' ? 'ticketed' : 'securing';
+  }
+}
+
+function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
+  const bookingState = trip.tripContext?.watchState?.bookingState;
+  return {
+    intentId: trip.intentId,
+    jobId: trip.jobId ?? null,
+    journeyId: trip.journeyId ?? null,
+    title: trip.title,
+    state: deriveJourneyState({ bookingState, tripContext: trip.tripContext, legacyStatus: trip.status }),
+    bookingState,
+    fromStation: trip.fromStation ?? null,
+    toStation: trip.toStation ?? null,
+    departureTime: trip.departureTime ?? null,
+    arrivalTime: trip.arrivalTime ?? null,
+    platform: trip.platform ?? null,
+    operator: trip.operator ?? null,
+    bookingRef: trip.bookingRef ?? null,
+    finalLegSummary: trip.finalLegSummary ?? null,
+    fiatAmount: trip.fiatAmount ?? null,
+    currencySymbol: trip.currencySymbol ?? null,
+    currencyCode: trip.currencyCode ?? null,
+    tripContext: trip.tripContext ?? null,
+    shareToken: trip.shareToken ?? null,
+    walletPassUrl: trip.walletPassUrl ?? null,
+    updatedAt: trip.updatedAt,
+  };
+}
+
+function activeTripFromJourneySession(session: JourneySession): ActiveTrip {
+  return {
+    intentId: session.intentId,
+    jobId: session.jobId ?? null,
+    journeyId: session.journeyId ?? null,
+    status: session.state === 'attention' ? 'attention' : session.state === 'ticketed' || session.state === 'in_transit' || session.state === 'arriving' ? 'ticketed' : 'securing',
+    title: session.title,
+    fromStation: session.fromStation ?? null,
+    toStation: session.toStation ?? null,
+    departureTime: session.departureTime ?? null,
+    arrivalTime: session.arrivalTime ?? null,
+    platform: session.platform ?? null,
+    operator: session.operator ?? null,
+    bookingRef: session.bookingRef ?? null,
+    finalLegSummary: session.finalLegSummary ?? null,
+    fiatAmount: session.fiatAmount ?? null,
+    currencySymbol: session.currencySymbol ?? null,
+    currencyCode: session.currencyCode ?? null,
+    tripContext: session.tripContext ?? null,
+    shareToken: session.shareToken ?? null,
+    walletPassUrl: session.walletPassUrl ?? null,
+    updatedAt: session.updatedAt,
+  };
+}
 
 function normalizeActiveTrip(trip: ActiveTrip | null): ActiveTrip | null {
   if (!trip?.intentId || !trip?.title || !trip?.updatedAt) return null;
@@ -179,6 +291,20 @@ function normalizeActiveTrip(trip: ActiveTrip | null): ActiveTrip | null {
   }
 
   return trip;
+}
+
+function normalizeJourneySession(session: JourneySession | null): JourneySession | null {
+  if (!session?.intentId || !session?.title || !session?.updatedAt) return null;
+  const updatedAtMs = Date.parse(session.updatedAt);
+  if (Number.isNaN(updatedAtMs)) return null;
+  if ((session.state === 'securing' || session.state === 'planning' || session.state === 'payment_pending') && Date.now() - updatedAtMs > ACTIVE_TRIP_STALE_MS) {
+    return {
+      ...session,
+      state: 'attention',
+      bookingState: session.bookingState === 'issued' ? 'issued' : 'failed',
+    };
+  }
+  return session;
 }
 
 export async function loadHistory(): Promise<HistoryTurn[]> {
@@ -203,6 +329,8 @@ export async function clearHistory(): Promise<void> {
 
 export async function loadActiveTrip(): Promise<ActiveTrip | null> {
   try {
+    const currentJourney = await loadCurrentJourneySession();
+    if (currentJourney) return activeTripFromJourneySession(currentJourney);
     const raw = await AsyncStorage.getItem(KEYS.activeTrip);
     const parsed = raw ? (JSON.parse(raw) as ActiveTrip) : null;
     const normalized = normalizeActiveTrip(parsed);
@@ -220,6 +348,7 @@ export async function loadActiveTrip(): Promise<ActiveTrip | null> {
 }
 
 export async function saveActiveTrip(trip: ActiveTrip): Promise<void> {
+  await saveJourneySession(journeySessionFromActiveTrip(trip));
   const normalized = normalizeActiveTrip(trip);
   if (!normalized) {
     await AsyncStorage.removeItem(KEYS.activeTrip);
@@ -229,7 +358,84 @@ export async function saveActiveTrip(trip: ActiveTrip): Promise<void> {
 }
 
 export async function clearActiveTrip(): Promise<void> {
-  await AsyncStorage.removeItem(KEYS.activeTrip);
+  await Promise.all([
+    AsyncStorage.removeItem(KEYS.activeTrip),
+    AsyncStorage.removeItem(KEYS.currentJourney),
+  ]);
+}
+
+export async function loadJourneySessions(): Promise<JourneySession[]> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.journeySessions);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as JourneySession[];
+    return parsed
+      .map((item) => normalizeJourneySession(item))
+      .filter(Boolean) as JourneySession[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveJourneySessions(sessions: JourneySession[]): Promise<void> {
+  await AsyncStorage.setItem(KEYS.journeySessions, JSON.stringify(sessions.slice(0, MAX_JOURNEY_SESSIONS)));
+}
+
+export async function loadJourneySession(intentId: string): Promise<JourneySession | null> {
+  const sessions = await loadJourneySessions();
+  return sessions.find((session) => session.intentId === intentId) ?? null;
+}
+
+export async function loadCurrentJourneySession(): Promise<JourneySession | null> {
+  try {
+    const currentIntentId = await AsyncStorage.getItem(KEYS.currentJourney);
+    if (!currentIntentId) return null;
+    const session = await loadJourneySession(currentIntentId);
+    if (session) return session;
+    await AsyncStorage.removeItem(KEYS.currentJourney);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveJourneySession(session: JourneySession): Promise<void> {
+  const normalized = normalizeJourneySession(session);
+  if (!normalized) return;
+  const sessions = await loadJourneySessions();
+  const next = [normalized, ...sessions.filter((item) => item.intentId !== normalized.intentId)]
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  await Promise.all([
+    saveJourneySessions(next),
+    AsyncStorage.setItem(KEYS.currentJourney, normalized.intentId),
+  ]);
+}
+
+export async function patchJourneySession(intentId: string, patch: Partial<JourneySession>): Promise<JourneySession | null> {
+  const existing = await loadJourneySession(intentId);
+  if (!existing) return null;
+  const merged: JourneySession = {
+    ...existing,
+    ...patch,
+    intentId,
+    updatedAt: patch.updatedAt ?? new Date().toISOString(),
+  };
+  await saveJourneySession(merged);
+  return merged;
+}
+
+export async function clearJourneySession(intentId: string): Promise<void> {
+  const sessions = await loadJourneySessions();
+  const next = sessions.filter((item) => item.intentId !== intentId);
+  const currentIntentId = await AsyncStorage.getItem(KEYS.currentJourney);
+  await saveJourneySessions(next);
+  if (currentIntentId === intentId) {
+    if (next[0]) {
+      await AsyncStorage.setItem(KEYS.currentJourney, next[0].intentId);
+    } else {
+      await AsyncStorage.removeItem(KEYS.currentJourney);
+    }
+  }
 }
 
 export async function loadTrips(): Promise<TripEntry[]> {

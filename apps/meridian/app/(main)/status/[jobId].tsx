@@ -25,11 +25,12 @@ import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
 import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
-import { saveActiveTrip } from '../../../lib/storage';
+import { saveActiveTrip, saveJourneySession } from '../../../lib/storage';
 import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
+import { inferJourneyWalletUrl } from '../../../lib/journeySession';
 import { C } from '../../../lib/theme';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -174,8 +175,8 @@ function isRollbackState(bookingState: TripContext['watchState'] extends infer T
 }
 
 export default function StatusScreen() {
-  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
-    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
+  const { jobId, intentId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
+    useLocalSearchParams<{ jobId: string; intentId?: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
   const totalLegs = paramTotalLegs ? Number(paramTotalLegs) : 1;
   const paymentRequired = !!(fiatAmount && parseFloat(fiatAmount) > 0);
   const { currentAgent, setPhase, agentId } = useStore();
@@ -198,12 +199,14 @@ export default function StatusScreen() {
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
+  const [resolvedIntentId, setResolvedIntentId] = useState<string>(intentId ?? jobId);
   const [showIssueModal, setShowIssueModal]   = useState(false);
   const [issueCategory, setIssueCategory]     = useState<'payment' | 'delay' | 'ticket' | 'other'>('payment');
   const [issueText, setIssueText]             = useState('');
   const [issueSending, setIssueSending]       = useState(false);
   const [issueSent, setIssueSent]             = useState(false);
   const rerouteReminderScheduledRef           = useRef(false);
+  const currentIntentId = resolvedIntentId || intentId || jobId;
 
   const checkRef    = useRef(false);     // prevent double-narration
   const elapsedRef  = useRef(0);
@@ -225,8 +228,9 @@ export default function StatusScreen() {
   useEffect(() => {
     if (!jobId) return;
     void saveActiveTrip({
-      intentId: jobId,
+      intentId: currentIntentId,
       jobId,
+      journeyId: paramJourneyId ?? null,
       status: 'securing',
       title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
       fromStation: fromStation ?? tripContext?.origin ?? null,
@@ -242,7 +246,31 @@ export default function StatusScreen() {
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
+    void saveJourneySession({
+      intentId: currentIntentId,
+      jobId,
+      journeyId: paramJourneyId ?? null,
+      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' â†’ ') || 'Journey'),
+      state: 'securing',
+      bookingState: tripContext?.watchState?.bookingState ?? 'securing',
+      fromStation: fromStation ?? tripContext?.origin ?? null,
+      toStation: toStation ?? tripContext?.destination ?? null,
+      departureTime: departureTime ?? tripContext?.departureTime ?? null,
+      departureDatetime: tripContext?.departureTime ?? null,
+      arrivalTime: tripContext?.arrivalTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? tripContext?.operator ?? null,
+      bookingRef: tripContext?.bookingRef ?? null,
+      finalLegSummary: finalLegSummary ?? tripContext?.finalLegSummary ?? null,
+      fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+      currencySymbol: paramSymbol ?? null,
+      currencyCode: paramCode ?? null,
+      tripContext,
+      shareToken,
+      walletPassUrl: inferJourneyWalletUrl(tripContext),
+      updatedAt: new Date().toISOString(),
+    });
+  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
@@ -250,6 +278,9 @@ export default function StatusScreen() {
     const t = setInterval(async () => {
       try {
         const data = await getIntentStatus(jobId);
+        if (data.intentId && data.intentId !== resolvedIntentId) {
+          setResolvedIntentId(data.intentId);
+        }
         const s = data.status;
         const serverTrip = parseTripContext(data.metadata?.tripContext);
         if (serverTrip) {
@@ -308,8 +339,9 @@ export default function StatusScreen() {
             setStatusPhase('done');
             setPhase('done');
             void saveActiveTrip({
-              intentId: jobId,
+              intentId: data.intentId ?? currentIntentId,
               jobId,
+              journeyId: paramJourneyId ?? null,
               status: 'ticketed',
               title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey'),
               fromStation: proof.fromStation ?? null,
@@ -324,6 +356,30 @@ export default function StatusScreen() {
               currencyCode: paramCode ?? null,
               tripContext: nextTripContext,
               shareToken: resolvedShareToken,
+              updatedAt: new Date().toISOString(),
+            });
+            void saveJourneySession({
+              intentId: data.intentId ?? currentIntentId,
+              jobId,
+              journeyId: paramJourneyId ?? null,
+              title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' â†’ ') || 'Journey'),
+              state: paymentWasConfirmed || !paymentRequired ? 'ticketed' : 'payment_pending',
+              bookingState: nextTripContext?.watchState?.bookingState ?? 'issued',
+              fromStation: proof.fromStation ?? null,
+              toStation: proof.toStation ?? null,
+              departureTime: proof.departureTime ?? null,
+              departureDatetime: proof.departureDatetime ?? proof.departureTime ?? null,
+              arrivalTime: proof.arrivalTime ?? null,
+              platform: proof.platform ?? null,
+              operator: proof.operator ?? null,
+              bookingRef: ref,
+              finalLegSummary: proof.finalLegSummary ?? null,
+              fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+              currencySymbol: paramSymbol ?? null,
+              currencyCode: paramCode ?? null,
+              tripContext: nextTripContext,
+              shareToken: resolvedShareToken,
+              walletPassUrl: inferJourneyWalletUrl(nextTripContext),
               updatedAt: new Date().toISOString(),
             });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -354,8 +410,9 @@ export default function StatusScreen() {
           });
           setTripContext(attentionTrip);
           void saveActiveTrip({
-            intentId: jobId,
+            intentId: data.intentId ?? currentIntentId,
             jobId,
+            journeyId: paramJourneyId ?? null,
             status: 'attention',
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
@@ -363,6 +420,29 @@ export default function StatusScreen() {
             departureTime: departureTime ?? null,
             platform: platform ?? null,
             operator: operator ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
+            shareToken,
+            updatedAt: new Date().toISOString(),
+          });
+          void saveJourneySession({
+            intentId: data.intentId ?? currentIntentId,
+            jobId,
+            journeyId: paramJourneyId ?? null,
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' â†’ ') || 'Journey'),
+            state: 'attention',
+            bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            departureDatetime: departureDatetime ?? departureTime ?? null,
+            arrivalTime: null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            bookingRef: bookingRef ?? null,
             finalLegSummary: finalLegSummary ?? null,
             fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
             currencySymbol: paramSymbol ?? null,
@@ -386,8 +466,9 @@ export default function StatusScreen() {
           });
           setTripContext(attentionTrip);
           void saveActiveTrip({
-            intentId: jobId,
+            intentId: currentIntentId,
             jobId,
+            journeyId: paramJourneyId ?? null,
             status: 'attention',
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
@@ -395,6 +476,29 @@ export default function StatusScreen() {
             departureTime: departureTime ?? null,
             platform: platform ?? null,
             operator: operator ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
+            shareToken,
+            updatedAt: new Date().toISOString(),
+          });
+          void saveJourneySession({
+            intentId: currentIntentId,
+            jobId,
+            journeyId: paramJourneyId ?? null,
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' â†’ ') || 'Journey'),
+            state: 'attention',
+            bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            departureDatetime: departureDatetime ?? departureTime ?? null,
+            arrivalTime: null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            bookingRef: bookingRef ?? null,
             finalLegSummary: finalLegSummary ?? null,
             fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
             currencySymbol: paramSymbol ?? null,
@@ -411,7 +515,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext, paymentRequired]);
+  }, [statusPhase, jobId, currentIntentId, resolvedIntentId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, departureDatetime, platform, operator, finalLegSummary, bookingRef, tripContext, paymentRequired, shareToken, paramJourneyId]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -451,8 +555,9 @@ export default function StatusScreen() {
     if (nextTripContext) {
       setTripContext(nextTripContext);
       void saveActiveTrip({
-        intentId: jobId,
+        intentId: currentIntentId,
         jobId,
+        journeyId: paramJourneyId ?? null,
         status: isError ? 'attention' : 'ticketed',
         title: nextTripContext.title,
         fromStation: fromStation ?? nextTripContext.origin ?? null,
@@ -469,8 +574,32 @@ export default function StatusScreen() {
         shareToken,
         updatedAt: new Date().toISOString(),
       });
+      void saveJourneySession({
+        intentId: currentIntentId,
+        jobId,
+        journeyId: paramJourneyId ?? null,
+        title: nextTripContext.title,
+        state: isError ? 'attention' : 'ticketed',
+        bookingState: nextTripContext.watchState?.bookingState ?? (isError ? 'failed' : 'issued'),
+        fromStation: fromStation ?? nextTripContext.origin ?? null,
+        toStation: toStation ?? nextTripContext.destination ?? null,
+        departureTime: departureTime ?? nextTripContext.departureTime ?? null,
+        departureDatetime: departureDatetime ?? nextTripContext.departureTime ?? null,
+        arrivalTime: nextTripContext.arrivalTime ?? null,
+        platform: platform ?? null,
+        operator: operator ?? nextTripContext.operator ?? null,
+        bookingRef: bookingRef ?? nextTripContext.bookingRef ?? null,
+        finalLegSummary: finalLegSummary ?? nextTripContext.finalLegSummary ?? null,
+        fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+        currencySymbol: paramSymbol ?? null,
+        currencyCode: paramCode ?? null,
+        tripContext: nextTripContext,
+        shareToken,
+        walletPassUrl: inferJourneyWalletUrl(nextTripContext),
+        updatedAt: new Date().toISOString(),
+      });
     }
-  }, [paymentConfirmed, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired]);
+  }, [paymentConfirmed, currentIntentId, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired, paramJourneyId]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
@@ -526,7 +655,7 @@ export default function StatusScreen() {
       const prefix = `[${issueCategory}]`;
       const summary = [prefix, route, bookingRef ? `ref ${bookingRef}` : null].filter(Boolean).join(' ');
       await reportIssue({
-        intentId: jobId,
+        intentId: currentIntentId,
         bookingRef,
         description: `${summary}\n${issueText.trim() || 'Customer requested help from live booking screen.'}`,
         hirerId: agentId,
@@ -616,7 +745,7 @@ export default function StatusScreen() {
       const granted = await requestNotificationPermission();
       if (!granted) return;
       await scheduleProactiveRerouteReminder({
-        intentId: jobId,
+        intentId: currentIntentId,
         route,
         reason: tripContext?.watchState?.connectionRisk
           ? 'The connection is getting tight.'
@@ -987,7 +1116,13 @@ export default function StatusScreen() {
               if (paramCode)   qs.set('currencyCode',   paramCode);
               if (tripContext) qs.set('tripContext', JSON.stringify(tripContext));
               if (shareToken) qs.set('shareToken', shareToken);
-              router.push(`/receipt/${jobId}?${qs.toString()}`);
+              router.push({
+                pathname: '/(main)/receipt/[intentId]',
+                params: {
+                  intentId: currentIntentId,
+                  ...Object.fromEntries(qs.entries()),
+                },
+              });
             }}
               style={styles.receiptBtn}
             >

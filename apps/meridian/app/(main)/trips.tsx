@@ -107,7 +107,11 @@ export default function TripsScreen() {
 
   useFocusEffect(useCallback(() => { loadTrips(); }, []));
 
-  const openReceipt = (trip: TripEntry) => {
+  const openTrip = (trip: TripEntry) => {
+    if (hasLiveJourneyState(trip)) {
+      router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: trip.intentId } });
+      return;
+    }
     const params: Record<string, string> = { intentId: trip.intentId };
     if (trip.bookingRef) params.bookingRef = trip.bookingRef;
     if (trip.fromStation) params.fromStation = trip.fromStation;
@@ -159,7 +163,7 @@ export default function TripsScreen() {
               tintColor="#6366f1"
             />
           )}
-          renderItem={({ item }) => <TripCard trip={item} onPress={() => openReceipt(item)} />}
+          renderItem={({ item }) => <TripCard trip={item} onPress={() => openTrip(item)} />}
         />
       )}
     </SafeAreaView>

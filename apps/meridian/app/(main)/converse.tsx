@@ -35,7 +35,7 @@ import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech } from '../../lib/tts';
-import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadRouteMemories, type ActiveTrip, type RouteMemory } from '../../lib/storage';
+import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
@@ -924,22 +924,38 @@ export default function ConverseScreen() {
         const fiat   = pending.fiatAmount;
         const sym    = pending.fiatSymbol;
         const code   = pending.fiatCode;
-        const qs = new URLSearchParams({
-          fiatAmount: String(fiat),
+        const routeTitle =
+          (firstAction.tripContext?.title
+          ?? [
+            (firstAction.input as Record<string, string> | undefined)?.origin ?? null,
+            (firstAction.input as Record<string, string> | undefined)?.destination ?? null,
+          ].filter(Boolean).join(' -> '))
+          || firstAction.displayName;
+        const liveIntentId = firstAction.jobId;
+        await saveJourneySession({
+          intentId: liveIntentId,
+          jobId: firstAction.jobId,
+          journeyId: firstAction.journeyId ?? null,
+          title: routeTitle,
+          state: 'securing',
+          bookingState: firstAction.tripContext?.watchState?.bookingState ?? 'securing',
+          fromStation: (firstAction.input as Record<string, string> | undefined)?.origin ?? firstAction.tripContext?.origin ?? null,
+          toStation: (firstAction.input as Record<string, string> | undefined)?.destination ?? firstAction.tripContext?.destination ?? null,
+          departureTime: firstAction.tripContext?.departureTime ?? null,
+          departureDatetime: firstAction.tripContext?.departureTime ?? null,
+          arrivalTime: firstAction.tripContext?.arrivalTime ?? null,
+          platform: null,
+          operator: firstAction.tripContext?.operator ?? null,
+          bookingRef: firstAction.tripContext?.bookingRef ?? null,
+          finalLegSummary: firstAction.tripContext?.finalLegSummary ?? null,
+          fiatAmount: fiat,
           currencySymbol: sym,
           currencyCode: code,
+          tripContext: firstAction.tripContext ?? null,
+          shareToken: (firstAction as any).shareToken ?? null,
+          updatedAt: new Date().toISOString(),
         });
-        if (firstAction.tripContext) {
-          qs.set('tripContext', JSON.stringify(firstAction.tripContext));
-        }
-        if ((firstAction as any).shareToken) {
-          qs.set('shareToken', (firstAction as any).shareToken);
-        }
-        if (firstAction.journeyId) {
-          qs.set('journeyId', firstAction.journeyId);
-          qs.set('totalLegs', String(response.actions.length));
-        }
-        router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
+        router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveIntentId } });
       } else {
         setError(response.narration);
         setPhase('error');
@@ -1331,38 +1347,9 @@ export default function ConverseScreen() {
               {activeTrip && (
                 <Pressable
                 onPress={() => {
-                  if ((activeTrip.status === 'securing' || activeTrip.status === 'attention') && activeTrip.jobId) {
-                    const params: Record<string, string> = { jobId: activeTrip.jobId };
-                    if (activeTrip.fiatAmount != null) params.fiatAmount = String(activeTrip.fiatAmount);
-                    if (activeTrip.currencySymbol) params.currencySymbol = activeTrip.currencySymbol;
-                    if (activeTrip.currencyCode) params.currencyCode = activeTrip.currencyCode;
-                    if (activeTrip.fromStation) params.fromStation = activeTrip.fromStation;
-                    if (activeTrip.toStation) params.toStation = activeTrip.toStation;
-                    if (activeTrip.departureTime) params.departureTime = activeTrip.departureTime;
-                    if (activeTrip.platform) params.platform = activeTrip.platform;
-                    if (activeTrip.operator) params.operator = activeTrip.operator;
-                    if (activeTrip.finalLegSummary) params.finalLegSummary = activeTrip.finalLegSummary;
-                    if (activeTrip.shareToken) params.shareToken = activeTrip.shareToken;
-                    if (activeTrip.tripContext) params.tripContext = JSON.stringify(activeTrip.tripContext);
-                    router.push({ pathname: '/(main)/status/[jobId]', params });
-                    return;
-                  }
-
                   router.push({
-                    pathname: '/(main)/receipt/[intentId]',
-                    params: {
-                      intentId: activeTrip.intentId,
-                      bookingRef: activeTrip.bookingRef ?? undefined,
-                      fromStation: activeTrip.fromStation ?? undefined,
-                      toStation: activeTrip.toStation ?? undefined,
-                      departureTime: activeTrip.departureTime ?? undefined,
-                      platform: activeTrip.platform ?? undefined,
-                      operator: activeTrip.operator ?? undefined,
-                      finalLegSummary: activeTrip.finalLegSummary ?? undefined,
-                      fiatAmount: activeTrip.fiatAmount != null ? String(activeTrip.fiatAmount) : undefined,
-                      currencySymbol: activeTrip.currencySymbol ?? undefined,
-                      currencyCode: activeTrip.currencyCode ?? undefined,
-                    },
+                    pathname: '/(main)/journey/[intentId]',
+                    params: { intentId: activeTrip.intentId },
                   });
                 }}
                   style={styles.activeTripCard}
