@@ -68,6 +68,16 @@ export interface MobileTelemetrySummary {
     ttsFailed: number;
     ttsFallbackSystem: number;
   };
+  performance: {
+    captureMsAvg: number | null;
+    sttMsAvg: number | null;
+    planLatencyMsAvg: number | null;
+    planLatencyMsP95: number | null;
+    executeLatencyMsAvg: number | null;
+    executeLatencyMsP95: number | null;
+    ttsLatencyMsAvg: number | null;
+    serverVoiceRate: number | null;
+  };
   topEvents: Array<{ event: string; count: number }>;
   screenCounts: Array<{ screen: string; count: number }>;
   recentAlerts: MobileTelemetryAlert[];
@@ -104,6 +114,22 @@ function toRate(numerator: number, denominator: number): number | null {
 
 function count(eventCounts: Map<string, number>, event: string): number {
   return eventCounts.get(event) ?? 0;
+}
+
+function average(values: number[]): number | null {
+  if (!values.length) {
+    return null;
+  }
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+}
+
+function p95(values: number[]): number | null {
+  if (!values.length) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
+  return sorted[index] ?? null;
 }
 
 export function shouldAlertOnMobileTelemetry(
@@ -216,6 +242,18 @@ export async function summarizeMobileTelemetry(sql: Sql, windowHours = 24): Prom
     LIMIT 120
   `;
 
+  const performanceRows = await sql<{
+    event: string;
+    metadata: unknown;
+  }[]>`
+    SELECT event, metadata
+    FROM bro_mobile_telemetry
+    WHERE created_at > NOW() - (${safeWindowHours} * INTERVAL '1 hour')
+      AND event IN ('voice_transcribed', 'plan_received', 'execute_succeeded', 'tts_played')
+    ORDER BY created_at DESC
+    LIMIT 1000
+  `;
+
   const eventCounts = new Map<string, number>(
     eventRows.map((row) => [row.event, Number(row.count) || 0]),
   );
@@ -250,6 +288,36 @@ export async function summarizeMobileTelemetry(sql: Sql, windowHours = 24): Prom
   const ttsPlayed = count(eventCounts, 'tts_played');
   const ttsFailed = count(eventCounts, 'tts_failed');
   const ttsFallbackSystem = count(eventCounts, 'tts_fallback_system');
+
+  const captureLatencies: number[] = [];
+  const sttLatencies: number[] = [];
+  const planLatencies: number[] = [];
+  const executeLatencies: number[] = [];
+  const ttsLatencies: number[] = [];
+  let serverVoiceCount = 0;
+  let totalVoicePlaybackCount = 0;
+
+  for (const row of performanceRows) {
+    const metadata = parseJsonb<Record<string, unknown>>(row.metadata, {});
+    const latencyMs = Number(metadata.latencyMs);
+    const sttMs = Number(metadata.sttMs);
+    const captureMs = Number(metadata.captureMs);
+
+    if (row.event === 'voice_transcribed') {
+      if (Number.isFinite(captureMs) && captureMs >= 0) captureLatencies.push(captureMs);
+      if (Number.isFinite(sttMs) && sttMs >= 0) sttLatencies.push(sttMs);
+    } else if (row.event === 'plan_received') {
+      if (Number.isFinite(latencyMs) && latencyMs >= 0) planLatencies.push(latencyMs);
+    } else if (row.event === 'execute_succeeded') {
+      if (Number.isFinite(latencyMs) && latencyMs >= 0) executeLatencies.push(latencyMs);
+    } else if (row.event === 'tts_played') {
+      if (Number.isFinite(latencyMs) && latencyMs >= 0) ttsLatencies.push(latencyMs);
+      totalVoicePlaybackCount += 1;
+      if (metadata.provider === 'server') {
+        serverVoiceCount += 1;
+      }
+    }
+  }
 
   const recentAlerts = recentRows
     .filter((row) => shouldAlertOnMobileTelemetry(row.event, row.severity) || row.severity === 'warning')
@@ -310,6 +378,16 @@ export async function summarizeMobileTelemetry(sql: Sql, windowHours = 24): Prom
       ttsPlayed,
       ttsFailed,
       ttsFallbackSystem,
+    },
+    performance: {
+      captureMsAvg: average(captureLatencies),
+      sttMsAvg: average(sttLatencies),
+      planLatencyMsAvg: average(planLatencies),
+      planLatencyMsP95: p95(planLatencies),
+      executeLatencyMsAvg: average(executeLatencies),
+      executeLatencyMsP95: p95(executeLatencies),
+      ttsLatencyMsAvg: average(ttsLatencies),
+      serverVoiceRate: toRate(serverVoiceCount, totalVoicePlaybackCount),
     },
     topEvents: eventRows.slice(0, 12).map((row) => ({
       event: row.event,

@@ -190,6 +190,26 @@ broInsightsRouter.get('/', async (c) => {
         <div class="metric-value">${mobileSummary.recovery.walletOpened}</div>
         <div class="metric-sub">${formatRate(mobileSummary.recovery.walletOpenRate)} open rate from ${mobileSummary.recovery.walletAvailable} available</div>
       </div>
+      <div class="metric-card">
+        <div class="metric-label">Plan latency</div>
+        <div class="metric-value">${mobileSummary.performance.planLatencyMsAvg != null ? `${Math.round(mobileSummary.performance.planLatencyMsAvg)}ms` : '--'}</div>
+        <div class="metric-sub">P95 ${mobileSummary.performance.planLatencyMsP95 != null ? `${Math.round(mobileSummary.performance.planLatencyMsP95)}ms` : '--'}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Voice latency</div>
+        <div class="metric-value">${mobileSummary.performance.sttMsAvg != null ? `${Math.round(mobileSummary.performance.sttMsAvg)}ms` : '--'}</div>
+        <div class="metric-sub">Capture ${mobileSummary.performance.captureMsAvg != null ? `${Math.round(mobileSummary.performance.captureMsAvg)}ms` : '--'}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Execution latency</div>
+        <div class="metric-value">${mobileSummary.performance.executeLatencyMsAvg != null ? `${Math.round(mobileSummary.performance.executeLatencyMsAvg)}ms` : '--'}</div>
+        <div class="metric-sub">P95 ${mobileSummary.performance.executeLatencyMsP95 != null ? `${Math.round(mobileSummary.performance.executeLatencyMsP95)}ms` : '--'}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Server voice share</div>
+        <div class="metric-value">${formatRate(mobileSummary.performance.serverVoiceRate)}</div>
+        <div class="metric-sub">TTS avg ${mobileSummary.performance.ttsLatencyMsAvg != null ? `${Math.round(mobileSummary.performance.ttsLatencyMsAvg)}ms` : '--'}</div>
+      </div>
     </div>
   ` : `
     <div class="card" style="margin-bottom:24px">
