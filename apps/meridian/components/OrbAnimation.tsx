@@ -25,7 +25,6 @@ const PHASE_COLORS: Record<AppPhase, [string, string]> = {
   idle: ['#151b23', '#2f3945'],
   listening: ['#19212a', '#34414d'],
   thinking: ['#0f1722', '#243548'],
-  choosing: ['#151b23', '#2f3945'],
   confirming: ['#1f1a15', '#4d4030'],
   hiring: ['#0f1722', '#243548'],
   executing: ['#151b23', '#2f3945'],
@@ -37,7 +36,6 @@ const ACCENT_COLOR: Record<AppPhase, string> = {
   idle: '#dcecff',
   listening: '#e3f2ff',
   thinking: '#a7d5ff',
-  choosing: '#dcecff',
   confirming: '#e8d6b2',
   hiring: '#a7d5ff',
   executing: '#dcecff',
@@ -53,7 +51,6 @@ const ORB_SHADOW: Record<AppPhase, string> = {
   idle: '#b9d8f2',
   listening: '#c7e7ff',
   thinking: '#8bc8ff',
-  choosing: '#b9d8f2',
   confirming: '#e2c89c',
   hiring: '#8bc8ff',
   executing: '#b9d8f2',
@@ -188,7 +185,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
       ring1Scale.setValue(1);   ring1Opacity.setValue(0);
       ring2Scale.setValue(1);   ring2Opacity.setValue(0);
     }
-    if (phase === 'choosing' || phase === 'confirming' || phase === 'error') {
+    if (phase === 'confirming' || phase === 'error') {
       Animated.timing(markHeading, { toValue: 0, duration: 250, useNativeDriver: true }).start();
     }
   }, [glowOpacity, glowScale, markHeading, orbLift, orbScale, phase, ring1Opacity, ring1Scale, ring2Opacity, ring2Scale]);

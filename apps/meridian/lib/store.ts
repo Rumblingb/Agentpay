@@ -1,59 +1,52 @@
 /**
- * Zustand store — global app state
+ * Zustand store - global app state
  *
  * Credentials + prefs are persisted via lib/storage.ts (SecureStore / AsyncStorage).
  * The store is the in-memory runtime view; storage is the durable layer.
  */
 
 import { create } from 'zustand';
-import type { Agent, CoordinationPlan, HireResult, WalletInfo } from './api';
-import type { ConciergeNeedsConfirm, TieredOptions } from './concierge';
+import type { Agent, HireResult, WalletInfo } from './api';
 import type { HistoryTurn } from './storage';
 
 export type AppPhase =
-  | 'idle'          // waiting for voice input
-  | 'listening'     // recording
-  | 'thinking'      // STT done, concierge running
-  | 'choosing'      // tiered options presented — waiting for budget/middle/premium voice
-  | 'confirming'    // single agent above auto-confirm limit — waiting for voice yes/no
-  | 'hiring'        // hire in flight
-  | 'executing'     // job in progress, polling status
-  | 'done'          // job complete
+  | 'idle'
+  | 'listening'
+  | 'thinking'
+  | 'confirming'
+  | 'hiring'
+  | 'executing'
+  | 'done'
   | 'error';
 
 interface MeridianState {
-  // ── Auth (loaded from SecureStore at boot) ───────────────────────────────
+  // Auth
   agentId: string | null;
   agentKey: string | null;
 
-  // ── User prefs (loaded from AsyncStorage at boot) ────────────────────────
+  // User prefs
   userName: string;
   autoConfirmLimitUsdc: number;
   onboarded: boolean;
-  /** Local currency detected from server (cfCountry). Default GBP. */
   currencySymbol: string;
   currencyCode: string;
-  /** Saved home/work stations for quick-book shortcuts */
   homeStation: string | null;
   workStation: string | null;
 
-  // ── Current session ───────────────────────────────────────────────────────
+  // Current session
   phase: AppPhase;
   transcript: string;
-  coordinationId: string | null;
-  pendingChoice: TieredOptions | null;          // set when 3 tiered options presented
-  pendingConfirm: ConciergeNeedsConfirm | null; // set when single agent needs confirm
   currentAgent: Agent | null;
   currentJob: (HireResult & { jobId: string }) | null;
   error: string | null;
 
-  // ── Conversation history (persisted to AsyncStorage) ──────────────────────
+  // Conversation history
   turns: HistoryTurn[];
 
-  // ── Wallet ────────────────────────────────────────────────────────────────
+  // Wallet
   wallet: WalletInfo | null;
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  // Actions
   hydrate: (params: {
     agentId: string;
     agentKey: string;
@@ -66,12 +59,16 @@ interface MeridianState {
   }) => void;
 
   setCredentials: (agentId: string, agentKey: string) => void;
-  setPrefs: (prefs: { userName?: string; autoConfirmLimitUsdc?: number; onboarded?: boolean; homeStation?: string | null; workStation?: string | null }) => void;
+  setPrefs: (prefs: {
+    userName?: string;
+    autoConfirmLimitUsdc?: number;
+    onboarded?: boolean;
+    homeStation?: string | null;
+    workStation?: string | null;
+  }) => void;
   setCurrency: (symbol: string, code: string) => void;
   setPhase: (phase: AppPhase) => void;
   setTranscript: (text: string) => void;
-  setPendingChoice: (choice: TieredOptions | null) => void;
-  setPendingConfirm: (confirm: ConciergeNeedsConfirm | null) => void;
   setCurrentAgent: (agent: Agent | null) => void;
   setCurrentJob: (job: (HireResult & { jobId: string }) | null) => void;
   setWallet: (wallet: WalletInfo) => void;
@@ -84,9 +81,6 @@ interface MeridianState {
 const SESSION_INITIAL = {
   phase: 'idle' as AppPhase,
   transcript: '',
-  coordinationId: null,
-  pendingChoice: null,
-  pendingConfirm: null,
   currentAgent: null,
   currentJob: null,
   error: null,
@@ -102,7 +96,7 @@ export const useStore = create<MeridianState>((set) => ({
   userName: 'there',
   autoConfirmLimitUsdc: 5,
   onboarded: false,
-  currencySymbol: '£',
+  currencySymbol: '\u00A3',
   currencyCode: 'GBP',
   homeStation: null,
   workStation: null,
@@ -115,28 +109,33 @@ export const useStore = create<MeridianState>((set) => ({
   wallet: null,
 
   hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns, homeStation, workStation }) =>
-    set({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns, homeStation: homeStation ?? null, workStation: workStation ?? null }),
+    set({
+      agentId,
+      agentKey,
+      userName,
+      autoConfirmLimitUsdc,
+      onboarded,
+      turns,
+      homeStation: homeStation ?? null,
+      workStation: workStation ?? null,
+    }),
 
   setCurrency: (currencySymbol, currencyCode) => set({ currencySymbol, currencyCode }),
 
-  setCredentials: (agentId, agentKey) =>
-    set({ agentId, agentKey }),
+  setCredentials: (agentId, agentKey) => set({ agentId, agentKey }),
 
-  setPrefs: (prefs) => set((s) => ({
-    userName: prefs.userName ?? s.userName,
-    autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc ?? s.autoConfirmLimitUsdc,
-    onboarded: prefs.onboarded ?? s.onboarded,
-    homeStation: 'homeStation' in prefs ? (prefs.homeStation ?? null) : s.homeStation,
-    workStation: 'workStation' in prefs ? (prefs.workStation ?? null) : s.workStation,
-  })),
+  setPrefs: (prefs) =>
+    set((s) => ({
+      userName: prefs.userName ?? s.userName,
+      autoConfirmLimitUsdc: prefs.autoConfirmLimitUsdc ?? s.autoConfirmLimitUsdc,
+      onboarded: prefs.onboarded ?? s.onboarded,
+      homeStation: 'homeStation' in prefs ? (prefs.homeStation ?? null) : s.homeStation,
+      workStation: 'workStation' in prefs ? (prefs.workStation ?? null) : s.workStation,
+    })),
 
   setPhase: (phase) => set({ phase }),
 
   setTranscript: (transcript) => set({ transcript }),
-
-  setPendingChoice: (pendingChoice) => set({ pendingChoice }),
-
-  setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
 
   setCurrentAgent: (currentAgent) => set({ currentAgent }),
 
