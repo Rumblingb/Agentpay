@@ -1286,11 +1286,9 @@ export default function ConverseScreen() {
               <Text style={styles.emptyGreeting}>
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
               </Text>
-              <View style={styles.heroStage}>
-                <AceMark size={94} />
-                <Text style={styles.heroExample}>{heroExample}</Text>
-                <Text style={styles.heroResponse}>{heroResponse}</Text>
-              </View>
+              <AceMark size={94} />
+              <Text style={styles.heroExample}>{heroExample}</Text>
+              <Text style={styles.heroResponse}>{heroResponse}</Text>
               {preferredTravelUnit && (
                 <View style={styles.modeCard}>
                   <View style={styles.modeHeader}>
@@ -1992,14 +1990,8 @@ const styles = StyleSheet.create({
     letterSpacing: -1.0,
     lineHeight: 44,
   },
-  heroStage: {
-    paddingHorizontal: 4,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginBottom: 18,
-  },
   heroExample: {
-    marginTop: 18,
+    marginTop: 22,
     fontSize: 26,
     lineHeight: 34,
     letterSpacing: -0.7,
