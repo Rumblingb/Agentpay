@@ -30,7 +30,7 @@ import { requestNotificationPermission, scheduleProactiveRerouteReminder } from 
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
-import { inferJourneyWalletUrl } from '../../../lib/journeySession';
+import { inferJourneyWalletUrl, journeySteps } from '../../../lib/journeySession';
 import { C } from '../../../lib/theme';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -38,123 +38,10 @@ const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
-type ConciergeStageState = 'done' | 'current' | 'upcoming';
-
-type ConciergeStage = {
-  key: string;
-  label: string;
-  detail: string;
-  state: ConciergeStageState;
-};
-
 function activeLegIndex(legs: Array<{ status?: string }>): number {
   const active = legs.findIndex((leg) => !['completed', 'confirmed', 'verified', 'booked'].includes(String(leg.status ?? '')));
   return active >= 0 ? active : Math.max(0, legs.length - 1);
 }
-
-function buildConciergeStages(params: {
-  statusPhase: StatusPhase;
-  elapsed: number;
-  needsPayment: boolean | string | undefined;
-  paymentConfirmed: boolean;
-  isFullyDone: boolean;
-  isError: boolean;
-}): { headline: string; subline: string; eta: string; stages: ConciergeStage[] } {
-  const needsPayment = !!params.needsPayment;
-  const bookingCurrent =
-    params.isError ? 'attention'
-    : params.isFullyDone ? 'issued'
-    : needsPayment && !params.paymentConfirmed && params.statusPhase === 'done' ? 'payment'
-    : params.elapsed < 45 ? 'received'
-    : params.elapsed < 120 ? 'checking'
-    : params.elapsed < 240 ? 'securing'
-    : 'finalising';
-
-  const stageOrder = ['received', 'checking', 'securing', 'payment', 'issued'] as const;
-  const reachedIndex = (() => {
-    const idx = stageOrder.indexOf(bookingCurrent as any);
-    return idx >= 0 ? idx : 0;
-  })();
-
-  const stages: ConciergeStage[] = [
-    {
-      key: 'received',
-      label: 'Trip received',
-      detail: 'Ace has the route, traveller context, and booking brief.',
-      state: reachedIndex > 0 || bookingCurrent === 'received' ? (bookingCurrent === 'received' ? 'current' : 'done') : 'upcoming',
-    },
-    {
-      key: 'checking',
-      label: 'Checking live options',
-      detail: 'Ace is checking live availability, timing, and the strongest way to secure the trip.',
-      state: reachedIndex > 1 || bookingCurrent === 'checking' ? (bookingCurrent === 'checking' ? 'current' : 'done') : 'upcoming',
-    },
-    {
-      key: 'securing',
-      label: 'Securing the booking',
-      detail: 'Ace is carrying the booking through the live fulfilment flow now.',
-      state: reachedIndex > 2 || bookingCurrent === 'securing' || bookingCurrent === 'finalising'
-        ? (bookingCurrent === 'securing' || bookingCurrent === 'finalising' ? 'current' : 'done')
-        : 'upcoming',
-    },
-    {
-      key: 'payment',
-      label: needsPayment ? 'Waiting for payment' : 'No payment step needed',
-      detail: needsPayment
-        ? 'Once payment clears, Ace can finish ticket issue and lock the journey in.'
-        : 'This journey can move forward without a separate payment step.',
-      state: !needsPayment
-        ? (params.isFullyDone ? 'done' : 'upcoming')
-        : params.paymentConfirmed || params.isFullyDone
-        ? 'done'
-        : bookingCurrent === 'payment'
-        ? 'current'
-        : 'upcoming',
-    },
-    {
-      key: 'issued',
-      label: 'Ticket issued',
-      detail: 'Your booking reference, timing, and next steps are ready.',
-      state: params.isFullyDone ? 'done' : 'upcoming',
-    },
-  ];
-
-  if (params.isError) {
-    return {
-      headline: 'This journey needs intervention',
-      subline: 'Ace still has the trip, but something changed before it was safe to lock in.',
-      eta: 'Ace kept the journey state intact so you can recover without losing the context.',
-      stages,
-    };
-  }
-
-  if (params.isFullyDone) {
-    return {
-      headline: 'Your journey is locked in',
-      subline: 'Booking, payment, and ticketing are aligned.',
-      eta: 'Done. Your live trip state is now locked in.',
-      stages,
-    };
-  }
-
-  if (bookingCurrent === 'payment') {
-    return {
-      headline: 'Everything is lined up for payment',
-      subline: 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.',
-      eta: 'The route is being held while payment finishes the last step.',
-      stages,
-    };
-  }
-
-    return {
-      headline: 'Ace is handling the booking now',
-      subline: 'Ace is working through the live booking steps for you now.',
-    eta: params.elapsed < 300
-      ? 'Most bookings settle inside a few minutes. Ace keeps ownership while this runs.'
-      : 'This is taking longer than usual, but Ace is still carrying the booking in the background.',
-      stages,
-    };
-  }
 
 function recoveryPrompt(params: {
   fromStation?: string | null;
@@ -250,7 +137,7 @@ export default function StatusScreen() {
       intentId: currentIntentId,
       jobId,
       journeyId: paramJourneyId ?? null,
-      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' â†’ ') || 'Journey'),
+      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
       state: 'securing',
       bookingState: tripContext?.watchState?.bookingState ?? 'securing',
       fromStation: fromStation ?? tripContext?.origin ?? null,
@@ -619,14 +506,39 @@ export default function StatusScreen() {
   const rolledBackJourney = isRollbackState(bookingState, totalLegs);
   const cards = tripCards(tripContext);
   const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
-  const conciergeFlow = buildConciergeStages({
-    statusPhase,
-    elapsed,
-    needsPayment,
-    paymentConfirmed,
-    isFullyDone,
-    isError,
-  });
+  const journeyState =
+    isError ? 'attention'
+    : isFullyDone ? 'ticketed'
+    : isDone && needsPayment && !paymentConfirmed ? 'payment_pending'
+    : tripContext?.phase === 'in_transit' ? 'in_transit'
+    : tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived' ? 'arriving'
+    : 'securing';
+  const conciergeSteps = journeySteps({
+    intentId: currentIntentId,
+    jobId,
+    title: tripContext?.title ?? ([fromStation, toStation].filter(Boolean).join(' -> ') || 'Journey'),
+    state: journeyState,
+    bookingState: tripContext?.watchState?.bookingState ?? null,
+    tripContext,
+    updatedAt: new Date().toISOString(),
+  } as any);
+  const conciergeHeadline =
+    isError ? 'This journey needs intervention'
+    : isFullyDone ? 'Your journey is locked in'
+    : isDone && needsPayment && !paymentConfirmed ? 'Everything is lined up for payment'
+    : 'Ace is handling the booking now';
+  const conciergeSubline =
+    isError ? 'Ace still has the trip, but something changed before it was safe to lock in.'
+    : isFullyDone ? 'Booking, payment, and ticketing are aligned.'
+    : isDone && needsPayment && !paymentConfirmed ? 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.'
+    : 'Ace is working through the live booking steps for you now.';
+  const conciergeEta =
+    isError ? 'Ace kept the journey state intact so you can recover without losing the context.'
+    : isFullyDone ? 'Done. Your live trip state is now locked in.'
+    : isDone && needsPayment && !paymentConfirmed ? 'The route is being held while payment finishes the last step.'
+    : elapsed < 300
+    ? 'Most bookings settle inside a few minutes. Ace keeps ownership while this runs.'
+    : 'This is taking longer than usual, but Ace is still carrying the booking in the background.';
   const supportPrompt = recoveryPrompt({
     fromStation,
     toStation,
@@ -841,21 +753,21 @@ export default function StatusScreen() {
             ? 'Your request is in. Tap below to pay and secure your ticket.'
             : isError
             ? (errorMsg ?? 'Something went wrong.')
-            : `${currentAgent?.name ?? 'Ace'} is lining everything up · ${elapsed}s`}
+            : `${currentAgent?.name ?? 'Ace'} is lining everything up | ${elapsed}s`}
         </Text>
         <View style={styles.conciergeCard}>
           <View style={styles.conciergeHeader}>
             <Ionicons name="sparkles-outline" size={14} color="#93c5fd" />
             <Text style={styles.conciergeEyebrow}>What Ace is doing</Text>
           </View>
-          <Text style={styles.conciergeHeadline}>{conciergeFlow.headline}</Text>
-          <Text style={styles.conciergeBody}>{conciergeFlow.subline}</Text>
+          <Text style={styles.conciergeHeadline}>{conciergeHeadline}</Text>
+          <Text style={styles.conciergeBody}>{conciergeSubline}</Text>
           <View style={styles.conciergeEtaPill}>
             <Ionicons name="time-outline" size={13} color="#cbd5e1" />
-            <Text style={styles.conciergeEtaText}>{conciergeFlow.eta}</Text>
+            <Text style={styles.conciergeEtaText}>{conciergeEta}</Text>
           </View>
           <View style={styles.conciergeSteps}>
-            {conciergeFlow.stages.map((stage, index) => (
+            {conciergeSteps.map((stage, index) => (
               <View key={stage.key} style={styles.conciergeStepRow}>
                 <View style={styles.conciergeRail}>
                   <View
@@ -865,7 +777,7 @@ export default function StatusScreen() {
                       stage.state === 'current' && styles.conciergeDotCurrent,
                     ]}
                   />
-                  {index < conciergeFlow.stages.length - 1 && (
+                  {index < conciergeSteps.length - 1 && (
                     <View
                       style={[
                         styles.conciergeLine,
@@ -894,8 +806,8 @@ export default function StatusScreen() {
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
             <Text style={{ fontSize: 12, color: '#818cf8' }}>
               {rolledBackJourney
-                ? `${totalLegs}-leg journey · safely cancelled before confirmation`
-                : `${totalLegs}-leg journey · Leg ${Math.min(currentLegIndex + 1, totalLegs)} of ${totalLegs}`}
+                ? `${totalLegs}-leg journey | safely cancelled before confirmation`
+                : `${totalLegs}-leg journey | Leg ${Math.min(currentLegIndex + 1, totalLegs)} of ${totalLegs}`}
             </Text>
           </View>
         )}

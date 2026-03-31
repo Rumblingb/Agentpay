@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getIntentStatus } from '../../../lib/api';
+import { AceMark } from '../../../components/AceMark';
 import {
   journeyDisplayRoute,
   journeyEtaLine,
@@ -171,6 +172,13 @@ export default function JourneyScreen() {
   const routeLabel = session ? journeyDisplayRoute(session) : '';
   const repeatPrompt = session ? journeyPrimaryIntentPrompt(session) : null;
   const departureCountdown = relativeDepartureLabel(session?.departureDatetime ?? session?.departureTime ?? null);
+  const liveHeadline = departureCountdown
+    ? departureCountdown === 'Now'
+      ? 'Departs now'
+      : `Departs ${departureCountdown.toLowerCase()}`
+    : journeyStatusLabel(session);
+  const showLiveCountdown = ['ticketed', 'in_transit', 'arriving'].includes(session.state)
+    && !!(departureCountdown || session.platform || session.toStation);
 
   const openReceipt = useCallback(() => {
     if (!session) return;
@@ -271,14 +279,14 @@ export default function JourneyScreen() {
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="chevron-back" size={22} color={C.textMuted} />
           </Pressable>
-          <Text style={styles.headerTitle}>Journey</Text>
-          <Pressable onPress={() => { void refreshSession(); }} hitSlop={12}>
-            <Ionicons name="refresh-outline" size={18} color="#7f95aa" />
-          </Pressable>
-        </View>
-
-        <View style={[styles.statePill, { backgroundColor: tone?.bg, borderColor: tone?.border }]}>
-          <Text style={[styles.statePillText, { color: tone?.text }]}>{journeyStatusLabel(session)}</Text>
+          <View style={styles.headerActions}>
+            <Pressable onPress={() => { void refreshSession(); }} hitSlop={12}>
+              <Ionicons name="refresh-outline" size={18} color="#7f95aa" />
+            </Pressable>
+            <View style={[styles.statePill, { backgroundColor: tone?.bg, borderColor: tone?.border }]}>
+              <Text style={[styles.statePillText, { color: tone?.text }]}>{journeyStatusLabel(session)}</Text>
+            </View>
+          </View>
         </View>
 
         <Text style={styles.routeTitle}>{routeLabel}</Text>
@@ -287,11 +295,11 @@ export default function JourneyScreen() {
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
             <View style={styles.heroEyebrowWrap}>
-              <Text style={styles.heroEyebrow}>Ace live session</Text>
+              <Text style={styles.heroEyebrow}>{liveHeadline}</Text>
               <Text style={styles.heroTitle}>{session.finalLegSummary || journeyEtaLine(session)}</Text>
             </View>
-            <View style={styles.heroOrb}>
-              <Ionicons name="navigate-outline" size={24} color="#dcecff" />
+            <View style={styles.heroMarkWrap}>
+              <AceMark size={54} ringColor="#dcecff" glowColor="#cbe8ff" backgroundColor="transparent" iconColor="#f5fbff" />
             </View>
           </View>
 
@@ -311,24 +319,44 @@ export default function JourneyScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionEyebrow}>What Ace is doing</Text>
-          <View style={styles.stepsCard}>
-            {steps.map((step) => (
-              <View key={step.key} style={styles.stepRow}>
-                <View
-                  style={[
-                    styles.stepDot,
-                    step.state === 'done' && styles.stepDotDone,
-                    step.state === 'current' && styles.stepDotCurrent,
-                  ]}
-                />
-                <View style={styles.stepCopy}>
-                  <Text style={[styles.stepTitle, step.state === 'upcoming' && styles.stepTitleMuted]}>{step.label}</Text>
-                  <Text style={styles.stepBody}>{step.detail}</Text>
-                </View>
+          {showLiveCountdown ? (
+            <>
+              <Text style={styles.sectionEyebrow}>Live journey</Text>
+              <View style={styles.liveStrip}>
+                <Text style={styles.liveStripTitle}>
+                  {[
+                    departureCountdown ? (departureCountdown === 'Now' ? 'Departs now' : `Departs ${departureCountdown.toLowerCase()}`) : null,
+                    session.platform ? `Platform ${session.platform}` : null,
+                    session.toStation ?? null,
+                  ].filter(Boolean).join(' | ')}
+                </Text>
+                <Text style={styles.liveStripBody}>
+                  {session.operator ?? 'Live operator'}{session.departureTime ? ` | ${session.departureTime}` : ''}{session.bookingRef ? ` | Ref ${session.bookingRef}` : ''}
+                </Text>
               </View>
-            ))}
-          </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.sectionEyebrow}>What Ace is doing</Text>
+              <View style={styles.stepsCard}>
+                {steps.map((step) => (
+                  <View key={step.key} style={styles.stepRow}>
+                    <View
+                      style={[
+                        styles.stepDot,
+                        step.state === 'done' && styles.stepDotDone,
+                        step.state === 'current' && styles.stepDotCurrent,
+                      ]}
+                    />
+                    <View style={styles.stepCopy}>
+                      <Text style={[styles.stepTitle, step.state === 'upcoming' && styles.stepTitleMuted]}>{step.label}</Text>
+                      <Text style={styles.stepBody}>{step.detail}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
         </View>
 
         {insights.length > 0 && (
@@ -382,7 +410,7 @@ export default function JourneyScreen() {
                     ]}
                   />
                   <View style={styles.timelineCopy}>
-                    <Text style={styles.timelineTitle}>{`Leg ${index + 1} · ${leg.label ?? leg.operator ?? leg.mode}`}</Text>
+                    <Text style={styles.timelineTitle}>{`Leg ${index + 1} | ${leg.label ?? leg.operator ?? leg.mode}`}</Text>
                     <Text style={styles.timelineBody}>
                       {[leg.origin, leg.destination].filter(Boolean).join(' -> ') || 'Journey leg'}
                     </Text>
@@ -390,7 +418,7 @@ export default function JourneyScreen() {
                       <Text style={styles.timelineMeta}>
                         {[leg.departureTime ? `Dep ${leg.departureTime}` : null, leg.arrivalTime ? `Arr ${leg.arrivalTime}` : null]
                           .filter(Boolean)
-                          .join(' · ')}
+                          .join(' | ')}
                       </Text>
                     )}
                   </View>
@@ -476,15 +504,13 @@ function InsightCard({ insight }: { insight: ReturnType<typeof journeyInsights>[
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#080808' },
   container: { padding: 24, paddingBottom: 80 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#f8fafc' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   statePill: {
-    alignSelf: 'flex-start',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderWidth: 1,
-    marginBottom: 18,
   },
   statePillText: { fontSize: 12, fontWeight: '700' },
   routeTitle: { fontSize: 30, lineHeight: 36, letterSpacing: -0.8, color: '#f8fafc', fontWeight: '700', marginBottom: 10 },
@@ -501,15 +527,11 @@ const styles = StyleSheet.create({
   heroEyebrowWrap: { flex: 1, gap: 6 },
   heroEyebrow: { fontSize: 11, color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.1 },
   heroTitle: { fontSize: 18, lineHeight: 25, color: '#eef6ff', fontWeight: '700' },
-  heroOrb: {
+  heroMarkWrap: {
     width: 54,
     height: 54,
-    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(113, 140, 170, 0.28)',
   },
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   summaryPill: {
@@ -551,6 +573,17 @@ const styles = StyleSheet.create({
   stepTitle: { fontSize: 13, color: '#e2e8f0', fontWeight: '700', marginBottom: 2 },
   stepTitleMuted: { color: '#94a3b8' },
   stepBody: { fontSize: 12, lineHeight: 18, color: '#94a3b8' },
+  liveStrip: {
+    backgroundColor: 'rgba(8, 18, 34, 0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.18)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 6,
+  },
+  liveStripTitle: { fontSize: 19, lineHeight: 24, fontWeight: '700', color: '#edf6ff' },
+  liveStripBody: { fontSize: 13, lineHeight: 18, color: '#8fb0cb' },
   cardsWrap: { gap: 10 },
   insightCard: {
     flexDirection: 'row',
@@ -618,8 +651,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryBtnText: { fontSize: 15, fontWeight: '700', color: '#eff6ff' },
-  secondaryGrid: { gap: 10 },
+  secondaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' },
   secondaryBtn: {
+    width: '48%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
