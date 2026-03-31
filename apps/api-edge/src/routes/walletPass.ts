@@ -22,6 +22,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { createDb } from '../lib/db';
+import { verifyWalletPassSignature } from '../lib/walletPass';
 
 export const walletPassRouter = new Hono<{ Bindings: Env }>();
 
@@ -418,9 +419,16 @@ walletPassRouter.get('/:intentId', async (c) => {
   const { intentId } = c.req.param();
   if (!intentId) return c.json({ error: 'intentId required' }, 400);
 
-  // Auth gate — require the same x-bro-key used by the mobile app
+  // Access gate:
+  // - allow internal/mobile callers with x-bro-key
+  // - allow direct wallet opens via signed URL query params
   const broKey = c.req.header('x-bro-key') ?? c.req.header('X-Bro-Key');
-  if (!broKey || broKey !== c.env.BRO_CLIENT_KEY) {
+  const expRaw = c.req.query('exp');
+  const sig = c.req.query('sig');
+  const exp = expRaw ? Number(expRaw) : NaN;
+  const headerAuthorized = !!(broKey && c.env.BRO_CLIENT_KEY && broKey === c.env.BRO_CLIENT_KEY);
+  const signedAuthorized = !!(sig && expRaw && await verifyWalletPassSignature(intentId, exp, sig, c.env.AGENTPAY_SIGNING_SECRET));
+  if (!headerAuthorized && !signedAuthorized) {
     return c.json({ error: 'UNAUTHORIZED' }, 401);
   }
 

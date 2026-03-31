@@ -44,6 +44,7 @@ import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPa
 import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import { withBookingState } from '../lib/bookingState';
+import { createSignedWalletPassUrl } from '../lib/walletPass';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -672,6 +673,11 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           // ── Duffel flight booking ─────────────────────────────────────────
           if (item.flightDetails && c.env.DUFFEL_API_KEY) {
             const fd = item.flightDetails;
+            const walletPassUrl = await createSignedWalletPassUrl({
+              apiBaseUrl: c.env.API_BASE_URL,
+              intentId: hireResult.jobId,
+              secret: c.env.AGENTPAY_SIGNING_SECRET,
+            });
 
             // Duffel offers expire ~20 minutes after Phase 1 search.
             // If expired, surface a clear error so the user can re-search.
@@ -754,7 +760,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   },
                   bookingReference:  order.bookingReference,
                   pendingFulfilment: false,
-                  walletPassUrl:     `${c.env.API_BASE_URL}/api/wallet/pass/${hireResult.jobId}`,
+                  walletPassUrl,
                   tripContext: toCompletedTripContext(executingTripContext, {
                     bookingRef: order.bookingReference,
                     origin: order.origin,
@@ -823,6 +829,11 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           if (item.trainDetails) {
             const isIndia      = item.trainDetails.country === 'india';
             const broRef       = isIndia ? generateIndianPNR() : generateBookingRef();
+            const walletPassUrl = await createSignedWalletPassUrl({
+              apiBaseUrl: c.env.API_BASE_URL,
+              intentId: hireResult.jobId,
+              secret: c.env.AGENTPAY_SIGNING_SECRET,
+            });
             const userEmail    = travelProfile?.email          as string | undefined;
             const userName     = travelProfile?.legalName      as string | undefined;
             const userPhone    = travelProfile?.phone          as string | undefined;
@@ -881,7 +892,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userName:          userName  ?? null,
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
-                  walletPassUrl:     `${c.env.API_BASE_URL}/api/wallet/pass/${hireResult.jobId}`,
+                  walletPassUrl,
                   tripContext:       executingTripContext,
                   journeyId:         (item as any).journeyId ?? null,
                   legIndex:          plan.indexOf(item),
