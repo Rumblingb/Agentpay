@@ -339,7 +339,7 @@ export interface ConciergePlanItem {
   routeData?: RouteData;
   /** Nearby place results for discovery and restaurant flows */
   nearbyPlaces?: NearbyPlace[];
-  /** Flight details — present for search_flights tool */
+  /** Flight details - present for search_flights / book_flight tools */
   flightDetails?: {
     origin: string;
     destination: string;

@@ -238,6 +238,7 @@ const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
   book_bus:            ['legalName', 'email', 'phone'],
   book_taxi:      ['legalName', 'phone'],
   search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
+  book_flight:    ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
   research:       [],
 };
 

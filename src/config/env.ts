@@ -104,6 +104,7 @@ export interface Env {
   // ── Optional integrations ────────────────────────────────────────────────
   SENTRY_DSN: string | undefined;
   OPENAI_API_KEY: string | undefined;
+  DUFFEL_API_KEY: string | undefined;
   /** Base58-encoded private key for the on-chain IdentityVerifierAgent. */
   IDENTITY_VERIFIER_PRIVATE_KEY: string | undefined;
 }
@@ -236,6 +237,7 @@ function parseEnv(): Env {
 
     SENTRY_DSN: raw.SENTRY_DSN,
     OPENAI_API_KEY: raw.OPENAI_API_KEY,
+    DUFFEL_API_KEY: raw.DUFFEL_API_KEY,
     IDENTITY_VERIFIER_PRIVATE_KEY: raw.IDENTITY_VERIFIER_PRIVATE_KEY,
   };
 }
