@@ -44,6 +44,7 @@ import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPa
 import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import { withBookingState } from '../lib/bookingState';
+import { recordMobileTelemetry, shouldAlertOnMobileTelemetry } from '../lib/mobileTelemetry';
 import { createSignedWalletPassUrl } from '../lib/walletPass';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
@@ -124,14 +125,51 @@ conciergeRouter.post('/telemetry', async (c) => {
     return c.json({ error: 'event and screen are required' }, 400);
   }
 
+  const severity = body.severity ?? 'info';
+  const userAgent = c.req.header('user-agent') ?? null;
+
+  let sql: ReturnType<typeof createDb> | null = null;
+  try {
+    sql = createDb(c.env);
+    await recordMobileTelemetry(sql, {
+      event: body.event,
+      severity,
+      screen: body.screen,
+      message: body.message ?? null,
+      metadata: body.metadata ?? null,
+      userAgent,
+    });
+  } catch (error) {
+    broLog('mobile_telemetry_persist_failed', {
+      event: body.event,
+      screen: body.screen,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    if (sql) {
+      await sql.end().catch(() => {});
+    }
+  }
+
   broLog('mobile_telemetry', {
-    severity: body.severity ?? 'info',
+    severity,
     screen: body.screen,
     event: body.event,
     message: body.message ?? null,
     metadata: body.metadata ?? null,
-    userAgent: c.req.header('user-agent') ?? null,
+    userAgent,
   });
+
+  if (shouldAlertOnMobileTelemetry(body.event, severity)) {
+    broLog('mobile_signal_alert', {
+      severity,
+      screen: body.screen,
+      event: body.event,
+      message: body.message ?? null,
+      metadata: body.metadata ?? null,
+      userAgent,
+    });
+  }
 
   return c.json({ ok: true });
 });
