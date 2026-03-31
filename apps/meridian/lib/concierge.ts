@@ -60,11 +60,11 @@ export async function executeIntent(params: {
 // ── Status narration ──────────────────────────────────────────────────────────
 
 const STATUS_LINES = [
-  "Still on it — checking availability.",
-  "Confirming the schedule now.",
-  "Finishing the booking now.",
-  "Securing your seat.",
-  "One moment — wrapping up.",
+  'Ace is checking the live route now.',
+  'Ace is holding the strongest available option.',
+  'Ace is carrying the booking through fulfilment.',
+  'Ace is keeping the trip together while the ticket issues.',
+  'Ace is still on it. You do not need to start over.',
 ];
 
 /**

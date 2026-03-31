@@ -4,9 +4,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getIntentStatus } from '../../../lib/api';
-import { journeyDisplayRoute, journeyIsLive, journeyPrimaryIntentPrompt, journeyProactiveActionLabel, journeyStatusLabel } from '../../../lib/journeySession';
-import { loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
-import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards } from '../../../lib/trip';
+import {
+  journeyDisplayRoute,
+  journeyEtaLine,
+  journeyInsights,
+  journeyIsLive,
+  journeyPrimaryIntentPrompt,
+  journeyProactiveActionLabel,
+  journeyStatusLabel,
+  journeySteps,
+  journeyTrustLine,
+} from '../../../lib/journeySession';
+import { loadJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
+import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
 import { C } from '../../../lib/theme';
 
 function sessionTone(session: JourneySession) {
@@ -26,6 +36,22 @@ function sessionTone(session: JourneySession) {
 
 function statusLookupId(session: JourneySession): string {
   return session.jobId || session.intentId || '';
+}
+
+function relativeDepartureLabel(value?: string | null): string | null {
+  if (!value) return null;
+  const when = new Date(value);
+  if (Number.isNaN(when.getTime())) return null;
+  const diffMinutes = Math.round((when.getTime() - Date.now()) / 60_000);
+  if (diffMinutes <= 0) return 'Now';
+  if (diffMinutes < 60) return `In ${diffMinutes} min`;
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  return minutes > 0 ? `In ${hours}h ${minutes}m` : `In ${hours}h`;
+}
+
+function timelineLegs(trip: TripContext | null | undefined) {
+  return trip?.legs ?? [];
 }
 
 export default function JourneyScreen() {
@@ -69,18 +95,24 @@ export default function JourneyScreen() {
           const paymentConfirmed = paymentConfirmedFromMetadata(data.metadata);
           const nextTripContext = serverTrip
             ? syncTripBookingState(serverTrip, {
-                phase: data.status === 'completed' || data.status === 'confirmed' || data.status === 'verified'
-                  ? 'booked'
-                  : data.status === 'failed' || data.status === 'expired' || data.status === 'rejected'
-                  ? 'attention'
-                  : serverTrip.phase,
+                phase:
+                  data.status === 'completed' || data.status === 'confirmed' || data.status === 'verified'
+                    ? 'booked'
+                    : data.status === 'failed' || data.status === 'expired' || data.status === 'rejected'
+                    ? 'attention'
+                    : serverTrip.phase,
                 bookingConfirmed: ['completed', 'confirmed', 'verified'].includes(data.status),
                 paymentConfirmed,
                 paymentRequired: !!(session.fiatAmount && session.fiatAmount > 0),
                 bookingRef: proof.bookingRef ?? session.bookingRef ?? undefined,
                 origin: proof.fromStation ?? session.fromStation ?? undefined,
                 destination: proof.toStation ?? session.toStation ?? undefined,
-                departureTime: proof.departureDatetime ?? proof.departureTime ?? session.departureDatetime ?? session.departureTime ?? undefined,
+                departureTime:
+                  proof.departureDatetime
+                  ?? proof.departureTime
+                  ?? session.departureDatetime
+                  ?? session.departureTime
+                  ?? undefined,
                 arrivalTime: proof.arrivalTime ?? session.arrivalTime ?? undefined,
                 operator: proof.operator ?? session.operator ?? undefined,
                 finalLegSummary: proof.finalLegSummary ?? session.finalLegSummary ?? undefined,
@@ -91,12 +123,11 @@ export default function JourneyScreen() {
           const nextSession: JourneySession = {
             ...session,
             intentId: data.intentId ?? session.intentId,
-            jobId: session.jobId,
             title: nextTripContext?.title ?? session.title,
             state:
               ['failed', 'expired', 'rejected'].includes(data.status) ? 'attention'
               : nextTripContext?.phase === 'in_transit' ? 'in_transit'
-              : nextTripContext?.phase === 'arrived' ? 'arriving'
+              : nextTripContext?.phase === 'arriving' || nextTripContext?.phase === 'arrived' ? 'arriving'
               : nextTripContext?.watchState?.bookingState === 'payment_pending' ? 'payment_pending'
               : ['completed', 'confirmed', 'verified'].includes(data.status) ? 'ticketed'
               : session.state,
@@ -112,14 +143,19 @@ export default function JourneyScreen() {
             finalLegSummary: proof.finalLegSummary ?? session.finalLegSummary ?? null,
             tripContext: nextTripContext ?? session.tripContext,
             shareToken: data.metadata?.shareToken ?? session.shareToken ?? null,
-            walletPassUrl: data.metadata?.walletPassUrl ?? data.metadata?.appleWalletUrl ?? data.metadata?.passUrl ?? session.walletPassUrl ?? null,
+            walletPassUrl:
+              data.metadata?.walletPassUrl
+              ?? data.metadata?.appleWalletUrl
+              ?? data.metadata?.passUrl
+              ?? session.walletPassUrl
+              ?? null,
             updatedAt: new Date().toISOString(),
           };
 
           await saveJourneySession(nextSession);
           setSession(nextSession);
         } catch {
-          // keep the last durable session and stay calm
+          // Keep the last durable session and stay calm.
         }
       })();
     }, 8000);
@@ -128,9 +164,13 @@ export default function JourneyScreen() {
   }, [session]);
 
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
+  const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
+  const steps = useMemo(() => (session ? journeySteps(session) : []), [session]);
+  const legs = useMemo(() => timelineLegs(session?.tripContext), [session?.tripContext]);
   const tone = session ? sessionTone(session) : null;
   const routeLabel = session ? journeyDisplayRoute(session) : '';
   const repeatPrompt = session ? journeyPrimaryIntentPrompt(session) : null;
+  const departureCountdown = relativeDepartureLabel(session?.departureDatetime ?? session?.departureTime ?? null);
 
   const openReceipt = useCallback(() => {
     if (!session) return;
@@ -182,8 +222,13 @@ export default function JourneyScreen() {
     await Linking.openURL(`https://maps.google.com/?q=${encodeURIComponent(session.toStation)}`);
   }, [session?.toStation]);
 
+  const openShare = useCallback(async () => {
+    if (!session?.shareToken) return;
+    await Linking.openURL(`https://api.agentpay.so/trip/view/${session.shareToken}`);
+  }, [session?.shareToken]);
+
   const askAce = useCallback(() => {
-    const prompt = repeatPrompt ?? (routeLabel ? `${routeLabel.replace(' → ', ' to ')} next available` : undefined);
+    const prompt = repeatPrompt ?? (routeLabel ? `${routeLabel.replace(' -> ', ' to ')} next available` : undefined);
     router.replace({ pathname: '/(main)/converse', params: prompt ? { prefill: prompt } : undefined } as any);
   }, [repeatPrompt, routeLabel]);
 
@@ -237,43 +282,121 @@ export default function JourneyScreen() {
         </View>
 
         <Text style={styles.routeTitle}>{routeLabel}</Text>
-        <Text style={styles.routeBody}>
-          {session.finalLegSummary || session.tripContext?.watchState?.platformInfo || 'Ace is keeping this journey together for you.'}
-        </Text>
+        <Text style={styles.routeBody}>{journeyTrustLine(session)}</Text>
 
-        <View style={styles.summaryCard}>
-          <SummaryRow label="Reference" value={session.bookingRef ?? 'Not issued yet'} />
-          <SummaryRow label="Departs" value={session.departureTime ?? 'TBD'} />
-          <SummaryRow label="Platform" value={session.platform ?? 'TBD'} />
-          <SummaryRow label="Operator" value={session.operator ?? 'Ace is still checking'} />
-          {session.fiatAmount != null && session.currencySymbol && (
-            <SummaryRow
-              label={session.state === 'payment_pending' ? 'Held fare' : 'Price'}
-              value={`${session.currencySymbol}${session.fiatAmount.toFixed(2)} ${session.currencyCode ?? ''}`.trim()}
-            />
-          )}
+        <View style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroEyebrowWrap}>
+              <Text style={styles.heroEyebrow}>Ace live session</Text>
+              <Text style={styles.heroTitle}>{session.finalLegSummary || journeyEtaLine(session)}</Text>
+            </View>
+            <View style={styles.heroOrb}>
+              <Ionicons name="navigate-outline" size={24} color="#dcecff" />
+            </View>
+          </View>
+
+          <View style={styles.summaryGrid}>
+            <SummaryPill label="Departs" value={session.departureTime ?? 'TBD'} />
+            <SummaryPill label="Countdown" value={departureCountdown ?? 'Watching'} />
+            <SummaryPill label="Platform" value={session.platform ?? 'TBD'} />
+            <SummaryPill label="Operator" value={session.operator ?? 'Live lookup'} />
+            {session.fiatAmount != null && session.currencySymbol && (
+              <SummaryPill
+                label={session.state === 'payment_pending' ? 'Held fare' : 'Price'}
+                value={`${session.currencySymbol}${session.fiatAmount.toFixed(2)}`}
+              />
+            )}
+            <SummaryPill label="Reference" value={session.bookingRef ?? 'Not issued'} mono />
+          </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionEyebrow}>What Ace is doing</Text>
+          <View style={styles.stepsCard}>
+            {steps.map((step) => (
+              <View key={step.key} style={styles.stepRow}>
+                <View
+                  style={[
+                    styles.stepDot,
+                    step.state === 'done' && styles.stepDotDone,
+                    step.state === 'current' && styles.stepDotCurrent,
+                  ]}
+                />
+                <View style={styles.stepCopy}>
+                  <Text style={[styles.stepTitle, step.state === 'upcoming' && styles.stepTitleMuted]}>{step.label}</Text>
+                  <Text style={styles.stepBody}>{step.detail}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {insights.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionEyebrow}>Live signals</Text>
+            <View style={styles.cardsWrap}>
+              {insights.map((insight) => (
+                <InsightCard key={insight.key} insight={insight} />
+              ))}
+            </View>
+          </View>
+        )}
+
         {cards.length > 0 && (
-          <View style={styles.cardsWrap}>
-            {cards.slice(0, 3).map((card) => {
-              const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
-              const cta = journeyProactiveActionLabel(card);
-              return (
-                <View key={card.id} style={[styles.card, { borderColor: `${accent}33` }]}>
-                  <View style={[styles.cardDot, { backgroundColor: accent }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{card.title}</Text>
-                    <Text style={styles.cardBody}>{card.body}</Text>
-                    {cta && (
-                      <Pressable onPress={() => { void handleCard(card); }} style={styles.cardBtn}>
-                        <Text style={styles.cardBtnText}>{cta}</Text>
-                      </Pressable>
+          <View style={styles.section}>
+            <Text style={styles.sectionEyebrow}>Actions Ace can take now</Text>
+            <View style={styles.cardsWrap}>
+              {cards.slice(0, 3).map((card) => {
+                const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
+                const cta = journeyProactiveActionLabel(card);
+                return (
+                  <View key={card.id} style={[styles.card, { borderColor: `${accent}33` }]}>
+                    <View style={[styles.cardDot, { backgroundColor: accent }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>{card.title}</Text>
+                      <Text style={styles.cardBody}>{card.body}</Text>
+                      {cta && (
+                        <Pressable onPress={() => { void handleCard(card); }} style={styles.cardBtn}>
+                          <Text style={styles.cardBtnText}>{cta}</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {legs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionEyebrow}>Trip timeline</Text>
+            <View style={styles.timelineCard}>
+              {legs.map((leg, index) => (
+                <View key={leg.id ?? `${leg.mode}-${index}`} style={styles.timelineRow}>
+                  <View
+                    style={[
+                      styles.timelineDot,
+                      (leg.status === 'completed' || leg.status === 'booked') && styles.timelineDotDone,
+                      leg.status === 'attention' && styles.timelineDotWarn,
+                    ]}
+                  />
+                  <View style={styles.timelineCopy}>
+                    <Text style={styles.timelineTitle}>{`Leg ${index + 1} · ${leg.label ?? leg.operator ?? leg.mode}`}</Text>
+                    <Text style={styles.timelineBody}>
+                      {[leg.origin, leg.destination].filter(Boolean).join(' -> ') || 'Journey leg'}
+                    </Text>
+                    {(leg.departureTime || leg.arrivalTime) && (
+                      <Text style={styles.timelineMeta}>
+                        {[leg.departureTime ? `Dep ${leg.departureTime}` : null, leg.arrivalTime ? `Arr ${leg.arrivalTime}` : null]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </Text>
                     )}
                   </View>
                 </View>
-              );
-            })}
+              ))}
+            </View>
           </View>
         )}
 
@@ -288,47 +411,64 @@ export default function JourneyScreen() {
             </Pressable>
           )}
 
-          {session.walletPassUrl && (
-            <Pressable onPress={() => { void openWallet(); }} style={styles.secondaryBtn}>
-              <Ionicons name="wallet-outline" size={16} color="#cbe8ff" />
-              <Text style={styles.secondaryBtnText}>Apple Wallet</Text>
-            </Pressable>
-          )}
+          <View style={styles.secondaryGrid}>
+            {session.walletPassUrl && (
+              <Pressable onPress={() => { void openWallet(); }} style={styles.secondaryBtn}>
+                <Ionicons name="wallet-outline" size={16} color="#cbe8ff" />
+                <Text style={styles.secondaryBtnText}>Apple Wallet</Text>
+              </Pressable>
+            )}
 
-          {session.toStation && (
-            <Pressable onPress={() => { void openMap(); }} style={styles.secondaryBtn}>
-              <Ionicons name="navigate-outline" size={16} color="#cbe8ff" />
-              <Text style={styles.secondaryBtnText}>Navigate</Text>
-            </Pressable>
-          )}
+            {session.toStation && (
+              <Pressable onPress={() => { void openMap(); }} style={styles.secondaryBtn}>
+                <Ionicons name="navigate-outline" size={16} color="#cbe8ff" />
+                <Text style={styles.secondaryBtnText}>Navigate</Text>
+              </Pressable>
+            )}
 
-          {session.shareToken && (
-            <Pressable
-              onPress={() => {
-                void Linking.openURL(`https://api.agentpay.so/trip/view/${session.shareToken}`);
-              }}
-              style={styles.secondaryBtn}
-            >
-              <Ionicons name="people-outline" size={16} color="#cbe8ff" />
-              <Text style={styles.secondaryBtnText}>Live share</Text>
-            </Pressable>
-          )}
+            {session.shareToken && (
+              <Pressable onPress={() => { void openShare(); }} style={styles.secondaryBtn}>
+                <Ionicons name="people-outline" size={16} color="#cbe8ff" />
+                <Text style={styles.secondaryBtnText}>Live share</Text>
+              </Pressable>
+            )}
 
-          <Pressable onPress={askAce} style={styles.secondaryBtn}>
-            <Ionicons name="sparkles-outline" size={16} color="#cbe8ff" />
-            <Text style={styles.secondaryBtnText}>Ask Ace</Text>
-          </Pressable>
+            <Pressable onPress={askAce} style={styles.secondaryBtn}>
+              <Ionicons name="sparkles-outline" size={16} color="#cbe8ff" />
+              <Text style={styles.secondaryBtnText}>Ask Ace</Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function SummaryPill({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <View style={styles.summaryRow}>
+    <View style={styles.summaryPill}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={[styles.summaryValue, mono && styles.summaryValueMono]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function InsightCard({ insight }: { insight: ReturnType<typeof journeyInsights>[number] }) {
+  const toneStyles = insight.tone === 'warning'
+    ? { bg: 'rgba(69, 26, 3, 0.55)', border: 'rgba(180, 83, 9, 0.5)', dot: '#f59e0b' }
+    : insight.tone === 'success'
+    ? { bg: 'rgba(5, 46, 22, 0.55)', border: 'rgba(22, 101, 52, 0.5)', dot: '#4ade80' }
+    : insight.tone === 'info'
+    ? { bg: 'rgba(8, 47, 73, 0.5)', border: 'rgba(14, 116, 144, 0.45)', dot: '#60a5fa' }
+    : { bg: 'rgba(11, 18, 32, 0.92)', border: 'rgba(51, 65, 85, 0.7)', dot: '#94a3b8' };
+
+  return (
+    <View style={[styles.insightCard, { backgroundColor: toneStyles.bg, borderColor: toneStyles.border }]}>
+      <View style={[styles.insightDot, { backgroundColor: toneStyles.dot }]} />
+      <View style={styles.insightCopy}>
+        <Text style={styles.insightTitle}>{insight.title}</Text>
+        <Text style={styles.insightBody}>{insight.body}</Text>
+      </View>
     </View>
   );
 }
@@ -349,18 +489,81 @@ const styles = StyleSheet.create({
   statePillText: { fontSize: 12, fontWeight: '700' },
   routeTitle: { fontSize: 30, lineHeight: 36, letterSpacing: -0.8, color: '#f8fafc', fontWeight: '700', marginBottom: 10 },
   routeBody: { fontSize: 15, lineHeight: 22, color: '#8ea1b4', marginBottom: 20 },
-  summaryCard: {
+  heroCard: {
+    backgroundColor: 'rgba(6, 13, 24, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.42)',
+    borderRadius: 26,
+    padding: 20,
+    marginBottom: 20,
+  },
+  heroTopRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 },
+  heroEyebrowWrap: { flex: 1, gap: 6 },
+  heroEyebrow: { fontSize: 11, color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.1 },
+  heroTitle: { fontSize: 18, lineHeight: 25, color: '#eef6ff', fontWeight: '700' },
+  heroOrb: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(113, 140, 170, 0.28)',
+  },
+  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  summaryPill: {
+    width: '47%',
+    backgroundColor: 'rgba(11, 18, 32, 0.94)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(51, 65, 85, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 6,
+  },
+  summaryLabel: { fontSize: 10, color: '#7f95aa', textTransform: 'uppercase', letterSpacing: 0.9, fontWeight: '700' },
+  summaryValue: { fontSize: 14, color: '#dcecff', fontWeight: '600' },
+  summaryValueMono: { fontFamily: 'monospace', fontSize: 12 },
+  section: { marginBottom: 20 },
+  sectionEyebrow: { fontSize: 11, color: '#9db1c5', textTransform: 'uppercase', letterSpacing: 1, fontWeight: '700', marginBottom: 10 },
+  stepsCard: {
     backgroundColor: '#0b1220',
     borderWidth: 1,
     borderColor: '#1e293b',
     borderRadius: 18,
-    padding: 18,
-    marginBottom: 18,
+    padding: 16,
+    gap: 12,
   },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 20, marginBottom: 12 },
-  summaryLabel: { fontSize: 12, color: '#7f95aa', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: '700' },
-  summaryValue: { flex: 1, fontSize: 14, color: '#dcecff', textAlign: 'right', fontWeight: '600' },
-  cardsWrap: { gap: 10, marginBottom: 18 },
+  stepRow: { flexDirection: 'row', gap: 12 },
+  stepDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 3,
+    borderWidth: 1.5,
+    borderColor: '#475569',
+    backgroundColor: '#0f172a',
+  },
+  stepDotDone: { borderColor: '#22c55e', backgroundColor: '#22c55e' },
+  stepDotCurrent: { borderColor: '#60a5fa', backgroundColor: '#60a5fa' },
+  stepCopy: { flex: 1 },
+  stepTitle: { fontSize: 13, color: '#e2e8f0', fontWeight: '700', marginBottom: 2 },
+  stepTitleMuted: { color: '#94a3b8' },
+  stepBody: { fontSize: 12, lineHeight: 18, color: '#94a3b8' },
+  cardsWrap: { gap: 10 },
+  insightCard: {
+    flexDirection: 'row',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  insightDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
+  insightCopy: { flex: 1 },
+  insightTitle: { fontSize: 13, color: '#f8fafc', fontWeight: '700', marginBottom: 3 },
+  insightBody: { fontSize: 12, color: '#9fb0c2', lineHeight: 18 },
   card: {
     flexDirection: 'row',
     gap: 10,
@@ -384,6 +587,28 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   cardBtnText: { fontSize: 12, fontWeight: '700', color: '#cbe8ff' },
+  timelineCard: {
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
+  },
+  timelineRow: { flexDirection: 'row', gap: 12 },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 5,
+    backgroundColor: '#60a5fa',
+  },
+  timelineDotDone: { backgroundColor: '#4ade80' },
+  timelineDotWarn: { backgroundColor: '#f59e0b' },
+  timelineCopy: { flex: 1 },
+  timelineTitle: { fontSize: 13, color: '#e2e8f0', fontWeight: '700', marginBottom: 2 },
+  timelineBody: { fontSize: 12, color: '#94a3b8', lineHeight: 18 },
+  timelineMeta: { fontSize: 11, color: '#6b7280', marginTop: 3 },
   actions: { gap: 10 },
   primaryBtn: {
     backgroundColor: '#1d4ed8',
@@ -393,6 +618,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryBtnText: { fontSize: 15, fontWeight: '700', color: '#eff6ff' },
+  secondaryGrid: { gap: 10 },
   secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',

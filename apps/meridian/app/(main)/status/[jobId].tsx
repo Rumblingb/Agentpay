@@ -123,7 +123,7 @@ function buildConciergeStages(params: {
     return {
       headline: 'This journey needs intervention',
       subline: 'Ace still has the trip, but something changed before it was safe to lock in.',
-      eta: 'This should normally complete within about 5 minutes. This one needs attention.',
+      eta: 'Ace kept the journey state intact so you can recover without losing the context.',
       stages,
     };
   }
@@ -141,20 +141,20 @@ function buildConciergeStages(params: {
     return {
       headline: 'Everything is lined up for payment',
       subline: 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.',
-      eta: 'Most requests reach this point inside about 5 minutes.',
+      eta: 'The route is being held while payment finishes the last step.',
       stages,
     };
   }
 
-  return {
-    headline: 'Ace is handling the booking now',
-    subline: 'Ace is working through the live booking steps for you now.',
+    return {
+      headline: 'Ace is handling the booking now',
+      subline: 'Ace is working through the live booking steps for you now.',
     eta: params.elapsed < 300
-      ? 'Most bookings settle within about 5 minutes.'
-      : 'This is taking longer than usual, but Ace is still on it.',
-    stages,
-  };
-}
+      ? 'Most bookings settle inside a few minutes. Ace keeps ownership while this runs.'
+      : 'This is taking longer than usual, but Ace is still carrying the booking in the background.',
+      stages,
+    };
+  }
 
 function recoveryPrompt(params: {
   fromStation?: string | null;
@@ -210,7 +210,7 @@ export default function StatusScreen() {
 
   const checkRef    = useRef(false);     // prevent double-narration
   const elapsedRef  = useRef(0);
-  const POLL_TIMEOUT_S = 90;             // give up polling after 90s
+  const POLL_TIMEOUT_S = 300;            // keep the live journey warm for up to 5 minutes
   const fadeSuccess = useRef(new Animated.Value(0)).current;
   const orbScale    = useRef(new Animated.Value(1)).current;
 
@@ -399,8 +399,8 @@ export default function StatusScreen() {
           clearInterval(t);
           setStatusPhase('error');
           const errMsg = s === 'expired'
-            ? 'Booking timed out. Please try again.'
-            : 'Booking couldn\'t be completed. Please try again.';
+            ? 'The hold expired before ticket issue finished. Ace kept the journey here so you can choose the next clean step.'
+            : 'This booking could not finish cleanly. Ace kept the journey context so you can recover without starting over.';
           setErrorMsg(errMsg);
           setPhase('error');
           const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
@@ -457,7 +457,7 @@ export default function StatusScreen() {
           // Show a soft message rather than spinning forever.
           clearInterval(t);
           setStatusPhase('error');
-          setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
+          setErrorMsg('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
           setPhase('error');
           const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
             phase: 'attention',
@@ -507,7 +507,7 @@ export default function StatusScreen() {
             shareToken,
             updatedAt: new Date().toISOString(),
           });
-          await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
+          await speak('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
         }
       } catch {
         // transient — keep polling
