@@ -204,6 +204,8 @@ export async function scheduleTravelDayNudge(params: {
 export async function scheduleProactiveRouteReminder(params: {
   routeKey: string;
   route: string;
+  origin?: string | null;
+  destination?: string | null;
   count: number;
   typicalFareGbp?: number | null;
   weekday: number;
@@ -227,21 +229,33 @@ export async function scheduleProactiveRouteReminder(params: {
   const trigger = scheduleAt(nudge);
   if (!trigger) return;
 
+  const timeLabel = params.minutesOfDay != null
+    ? `${String(Math.floor(params.minutesOfDay / 60)).padStart(2, '0')}:${String(params.minutesOfDay % 60).padStart(2, '0')}`
+    : null;
+  const routeLabel = params.destination
+    ? `your usual ${params.destination} run`
+    : params.route;
   const fare = typeof params.typicalFareGbp === 'number'
-    ? ` around £${params.typicalFareGbp.toFixed(2)}`
+    ? `, around GBP ${params.typicalFareGbp.toFixed(2)}`
     : '';
+  const body = timeLabel
+    ? `Tomorrow's ${routeLabel}. I found the ${timeLabel}${fare}. Want me to book it?`
+    : `Tomorrow's ${routeLabel}. Want Ace to line it up for you?`;
+  const transcript = timeLabel
+    ? `${params.route} tomorrow at ${timeLabel}`
+    : `${params.route} tomorrow`;
 
   await Notifications.scheduleNotificationAsync({
     identifier: routeNotifId(params.routeKey, 'proactive'),
     content: {
-      title: 'Ace already checked your usual route',
-      body: `${params.route}${fare}. Want Ace to line it up for you?`,
+      title: "Tomorrow's your usual route",
+      body,
       data: {
         routeKey: params.routeKey,
         screen: 'converse',
         action: 'proactive_route',
         route: params.route,
-        transcript: params.route,
+        transcript,
       },
     },
     trigger,

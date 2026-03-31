@@ -410,6 +410,8 @@ export default function ReceiptScreen() {
       void scheduleProactiveRouteReminder({
         routeKey: memory.routeKey,
         route: `${memory.origin} to ${memory.destination}`,
+        origin: memory.origin,
+        destination: memory.destination,
         count: memory.count,
         typicalFareGbp: memory.typicalFareGbp ?? null,
         weekday,

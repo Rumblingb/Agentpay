@@ -877,8 +877,8 @@ export default function ConverseScreen() {
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setError(null);
-    await handleIntent(text);
-  }, [handleIntent, setError, textFallbackDraft]);
+    await runIntentWithUiFallback(text);
+  }, [runIntentWithUiFallback, setError, textFallbackDraft]);
 
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
@@ -1076,7 +1076,7 @@ export default function ConverseScreen() {
         return;
       }
 
-      await handleIntent(text);
+      await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
       const msg = (e.message ?? '').toLowerCase();
@@ -1105,7 +1105,7 @@ export default function ConverseScreen() {
     } finally {
       finishingRecordingRef.current = false;
     }
-  }, [handleIntent, openTextFallback, setError]);
+  }, [openTextFallback, runIntentWithUiFallback, setError]);
 
   const beginVoiceCapture = useCallback(async () => {
     if (phase !== 'idle' && phase !== 'error') return;
@@ -1153,8 +1153,8 @@ export default function ConverseScreen() {
       kind === 'home'
         ? `Get me home from ${nearestStation.name} to ${destination}`
         : `Get to work from ${nearestStation.name} to ${destination}`;
-    await handleIntent(text);
-  }, [handleIntent, nearestStation]);
+    await runIntentWithUiFallback(text);
+  }, [nearestStation, runIntentWithUiFallback]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1200,7 +1200,7 @@ export default function ConverseScreen() {
     : null;
   const memoryBody = routeMemory
     ? routeMemory.count >= 3
-      ? `Ace has seen this route ${routeMemory.count} times and can line it up before you ask.`
+      ? `Ace has seen this route ${routeMemory.count} times and can line it up before you ask tomorrow.`
       : `Ace remembers this route and can line it up quickly when you need it.`
     : null;
   const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;

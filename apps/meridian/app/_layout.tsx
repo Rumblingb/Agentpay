@@ -18,8 +18,8 @@ export default function RootLayout() {
       if (data?.screen === 'converse' && data?.action === 'rebook' && data?.transcript) {
         // Cancellation rebook — open Ace with pre-filled transcript
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });
-      } else if (data?.action === 'proactive_route' && data?.route) {
-        router.push({ pathname: '/(main)/converse', params: { prefill: String(data.route) } });
+      } else if (data?.action === 'proactive_route' && (data?.transcript || data?.route)) {
+        router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
       } else if (data?.action === 'proactive_reroute' && (data?.transcript || data?.route)) {
         router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
       } else if (data?.action === 'travel_day' && data?.intentId) {
