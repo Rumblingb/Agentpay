@@ -465,7 +465,7 @@ export async function clearTrips(): Promise<void> {
   ]);
 }
 
-const MAX_ROUTE_MEMORIES = 5;
+const MAX_ROUTE_MEMORIES = 10;
 
 function routeKey(origin: string, destination: string): string {
   return `${origin.trim().toLowerCase()}__${destination.trim().toLowerCase()}`;
