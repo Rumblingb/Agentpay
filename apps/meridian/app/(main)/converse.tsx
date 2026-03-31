@@ -1603,16 +1603,6 @@ export default function ConverseScreen() {
             }
             return null;
           })();
-          const recommendation = buildRecommendationBrief({
-            plan,
-            sourceLabel,
-            familyRailcardReady,
-          });
-          const readinessItems = pendingPlanRef.current?.readiness ?? [];
-          const readinessWarningCount = readinessItems.filter((item) => item.tone === 'warning').length;
-          const readinessSummary = readinessWarningCount > 0
-            ? `${readinessWarningCount} last check${readinessWarningCount === 1 ? '' : 's'} may still need attention after you approve.`
-            : 'Ace has already checked the route, fare, and booking readiness for this trip.';
           const companionSummary = travellerCount > 1
             ? `${travellerCount} travellers${childCount > 0 ? `, including ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}`
             : null;
@@ -1623,37 +1613,27 @@ export default function ConverseScreen() {
             : hotel
             ? `${hotel.name}${hotel.area ? `, ${hotel.area}` : ''}`
             : finalLegSummary;
+          const confirmMeta = [itinerarySummary, sourceLabel, companionSummary].filter(Boolean).join(' | ');
+          const decisionLine = isIndia
+            ? 'Ace has the route. You just need to say yes before UPI opens.'
+            : 'Ace has the route. You just need to say yes.';
           const paymentSummary = isIndia
-            ? 'UPI happens on the next step after you approve.'
-            : 'Face ID is the final check before Ace secures it.';
+            ? 'UPI opens right after you approve.'
+            : 'Face ID is the final approval before money moves.';
           // Hotel details — single hotel booking
           return (
             <View style={styles.confirmCard}>
-              <Text style={styles.confirmEyebrow}>Ready to secure</Text>
+              <Text style={styles.confirmEyebrow}>Ready when you are</Text>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
-              {itinerarySummary && (
-                <Text style={styles.confirmLead}>{itinerarySummary}</Text>
-              )}
+              {confirmMeta ? (
+                <Text style={styles.confirmMeta}>{confirmMeta}</Text>
+              ) : null}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
               )}
-              <Text style={styles.confirmReason}>
-                {recommendation?.why ?? readinessSummary}
-              </Text>
-              <View style={styles.confirmVaultRow}>
-                {sourceLabel && (
-                  <View style={styles.sourceBadge}>
-                    <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
-                  </View>
-                )}
-                {companionSummary && (
-                  <View style={styles.sourceBadge}>
-                    <Text style={styles.sourceBadgeText}>{companionSummary}</Text>
-                  </View>
-                )}
-              </View>
+              <Text style={styles.confirmDecision}>{decisionLine}</Text>
               {pendingPlanRef.current?.assumptionNote && (
                 <Text style={styles.confirmFootnote}>{pendingPlanRef.current.assumptionNote}</Text>
               )}
@@ -1673,10 +1653,10 @@ export default function ConverseScreen() {
                   <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
                 </View>
               )}
-              <Text style={styles.confirmFootnote}>{paymentSummary}</Text>
+              <Text style={styles.confirmSecurityLine}>{paymentSummary}</Text>
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
-                  colors={['#0d1623', '#1d3045']}
+                  colors={['#13263b', '#274665']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.confirmBtnGrad}
                 >
@@ -2250,51 +2230,44 @@ const styles = StyleSheet.create({
   confirmCard: {
     borderWidth: 1,
     borderColor: 'rgba(156, 204, 240, 0.28)',
-    borderRadius: 30,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 18,
-    marginBottom: 12,
+    borderRadius: 34,
+    paddingHorizontal: 26,
+    paddingTop: 28,
+    paddingBottom: 20,
+    marginBottom: 10,
     alignSelf: 'stretch',
-    backgroundColor: 'rgba(4, 10, 18, 0.94)',
+    backgroundColor: 'rgba(4, 10, 18, 0.96)',
     shadowColor: '#9cccf0',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 28,
-    elevation: 14,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
+    elevation: 18,
   },
   confirmEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#d7e6f5',
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
   },
   confirmTrip: {
-    fontSize: 18,
+    fontSize: 22,
     color: '#eef6ff',
     textAlign: 'center',
-    lineHeight: 25,
-    letterSpacing: -0.2,
+    lineHeight: 30,
+    letterSpacing: -0.5,
     fontWeight: '700',
+    marginBottom: 8,
   },
-  sourceBadge: {
-    alignSelf: 'center',
-    backgroundColor: 'rgba(8, 18, 32, 0.86)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.22)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  sourceBadgeText: {
-    fontSize: 11,
-    color: '#93c5fd',
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+  confirmMeta: {
+    fontSize: 12,
+    color: '#89a5bf',
+    textAlign: 'center',
+    lineHeight: 18,
+    letterSpacing: 0.2,
+    marginBottom: 12,
   },
   assumptionCard: {
     flexDirection: 'row',
@@ -2314,37 +2287,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   confirmPrice: {
-    fontSize: 46,
+    fontSize: 54,
     fontWeight: '800',
     color: C.textPrimary,
     textAlign: 'center',
-    letterSpacing: -1.5,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  confirmReason: {
-    fontSize: 14,
-    color: '#c7d4e1',
-    textAlign: 'center',
-    lineHeight: 21,
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  confirmLead: {
-    fontSize: 13,
-    color: '#88a1b9',
-    textAlign: 'center',
-    lineHeight: 18,
-    letterSpacing: 0.1,
-    marginTop: 10,
-  },
-  confirmVaultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
+    letterSpacing: -2,
+    marginTop: 6,
     marginBottom: 12,
+  },
+  confirmDecision: {
+    fontSize: 15,
+    color: '#d9e7f5',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 14,
   },
   confirmFootnote: {
     fontSize: 12,
@@ -2352,6 +2308,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 14,
+  },
+  confirmSecurityLine: {
+    fontSize: 12,
+    color: '#9eb8d2',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 16,
   },
   confirmRetryCard: {
     flexDirection: 'row',
@@ -2373,19 +2336,19 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   confirmBtn: {
-    borderRadius: 14,
+    borderRadius: 18,
     overflow: 'hidden',
-    marginTop: 4,
+    marginTop: 8,
   },
   confirmBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    paddingVertical: 17,
+    paddingVertical: 19,
   },
-  confirmText: { fontSize: 15, color: '#edf6ff', fontWeight: '700', letterSpacing: 0.2 },
-  confirmCancel: { alignItems: 'center', paddingVertical: 8 },
+  confirmText: { fontSize: 16, color: '#edf6ff', fontWeight: '700', letterSpacing: 0.2 },
+  confirmCancel: { alignItems: 'center', paddingVertical: 10, marginTop: 2 },
   confirmCancelText: { fontSize: 13, color: C.textDim },
 
   errorCard: {
