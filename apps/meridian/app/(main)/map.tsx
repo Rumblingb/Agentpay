@@ -206,7 +206,7 @@ export default function MapScreen() {
         {polylineCoords.length > 0 && (
           <Polyline
             coordinates={polylineCoords}
-            strokeColor="#4ade80"
+            strokeColor="#8dbfe7"
             strokeWidth={4}
           />
         )}
@@ -225,7 +225,7 @@ export default function MapScreen() {
             <Marker
               key={i}
               coordinate={{ latitude: p.lat, longitude: p.lon }}
-              pinColor="#34d399"
+              pinColor="#8dbfe7"
               title={p.name}
               description={p.rating ? `★ ${p.rating.toFixed(1)}` : p.address}
             />

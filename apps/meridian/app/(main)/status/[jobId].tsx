@@ -1071,7 +1071,7 @@ function StatusAtmosphere() {
   return (
     <View pointerEvents="none" style={styles.atmosphere}>
       <LinearGradient
-        colors={['rgba(16, 185, 129, 0.14)', 'rgba(16, 185, 129, 0)']}
+        colors={['rgba(164, 212, 255, 0.16)', 'rgba(164, 212, 255, 0)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.atmosphereGlowLeft}

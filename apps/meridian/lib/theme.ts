@@ -11,11 +11,11 @@ export const C = {
   borderMd: '#1a3050',   // visible
 
   // ── Emerald (brand primary) ────────────────────────────────────────────────
-  em:        '#10b981',
-  emBright:  '#34d399',
-  emDim:     '#052e16',
-  emMid:     '#064e3b',
-  emGlow:    '#065f46',
+  em:        '#8dbfe7',
+  emBright:  '#dcecff',
+  emDim:     '#102031',
+  emMid:     '#1d3448',
+  emGlow:    '#335772',
 
   // ── Indigo (AI thinking state) ─────────────────────────────────────────────
   indigo:      '#6366f1',
@@ -52,13 +52,13 @@ export const C = {
 
 /** Phase → glow/shadow colour */
 export const PHASE_SHADOW: Record<string, string> = {
-  idle:       '#10b981',
-  listening:  '#10b981',
-  thinking:   '#6366f1',
-  choosing:   '#10b981',
+  idle:       '#8dbfe7',
+  listening:  '#cbe8ff',
+  thinking:   '#8bc8ff',
+  choosing:   '#8dbfe7',
   confirming: '#f59e0b',
-  hiring:     '#6366f1',
-  executing:  '#10b981',
+  hiring:     '#8bc8ff',
+  executing:  '#8dbfe7',
   done:       '#4ade80',
   error:      '#f87171',
 };
@@ -66,7 +66,7 @@ export const PHASE_SHADOW: Record<string, string> = {
 /** Phase → label colour */
 export const PHASE_LABEL_COLOR: Record<string, string> = {
   idle:       '#475569',
-  listening:  '#10b981',
+  listening:  '#cbe8ff',
   thinking:   '#38bdf8',
   choosing:   '#475569',
   confirming: '#f59e0b',

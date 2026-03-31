@@ -610,7 +610,7 @@ export default function OnboardScreen() {
             {step === 'privacy' && (
               <View style={styles.stepWrap}>
                 <View style={styles.shieldBadge}>
-                  <Ionicons name="shield-checkmark" size={40} color="#4ade80" />
+                  <Ionicons name="shield-checkmark" size={40} color="#dcecff" />
                 </View>
 
                 <Text style={styles.stepTitle}>Your data.{'\n'}Your advantage.</Text>
@@ -945,7 +945,7 @@ export default function OnboardScreen() {
                   disabled={profileSaving}
                 >
                   <LinearGradient
-                    colors={['#065f46', '#14532d']}
+                    colors={['#102031', '#1d3448']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.btnGrad}
@@ -954,8 +954,8 @@ export default function OnboardScreen() {
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <>
-                        <Ionicons name="finger-print" size={20} color="#4ade80" />
-                        <Text style={[styles.btnText, { color: '#4ade80' }]}>
+                        <Ionicons name="finger-print" size={20} color="#dcecff" />
+                        <Text style={[styles.btnText, { color: '#dcecff' }]}>
                           Save with {biometricLabel}
                         </Text>
                       </>
@@ -1012,7 +1012,7 @@ export default function OnboardScreen() {
                   disabled={loading}
                 >
                   <LinearGradient
-                    colors={['#4338ca', '#6366f1']}
+                    colors={['#102031', '#1d3448']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.btnGrad}
@@ -1086,7 +1086,7 @@ function PrimaryBtn({ onPress, label, disabled }: { onPress: () => void; label: 
   return (
     <Pressable onPress={onPress} disabled={disabled} style={[styles.primaryBtn, disabled && { opacity: 0.5 }]}>
       <LinearGradient
-        colors={['#4338ca', '#6366f1']}
+        colors={['#102031', '#1d3448']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.btnGrad}
@@ -1102,7 +1102,7 @@ function Feature({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={featStyles.row}>
       <View style={featStyles.iconWrap}>
-        <Ionicons name={icon as any} size={18} color="#818cf8" />
+        <Ionicons name={icon as any} size={18} color="#cbe8ff" />
       </View>
       <Text style={featStyles.text}>{text}</Text>
     </View>
@@ -1112,7 +1112,7 @@ function Feature({ icon, text }: { icon: string; text: string }) {
 function PromiseRow({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={promiseStyles.row}>
-      <Ionicons name={icon as any} size={16} color="#4ade80" />
+      <Ionicons name={icon as any} size={16} color="#cbe8ff" />
       <Text style={promiseStyles.text}>{text}</Text>
     </View>
   );
@@ -1132,8 +1132,8 @@ function ConsentRow({
       <Switch
         value={value}
         onValueChange={onToggle}
-        trackColor={{ false: '#1f2937', true: '#4338ca' }}
-        thumbColor={value ? '#818cf8' : '#6b7280'}
+        trackColor={{ false: '#1f2937', true: '#24384d' }}
+        thumbColor={value ? '#dcecff' : '#6b7280'}
       />
     </View>
   );
@@ -1156,7 +1156,7 @@ function FieldLabel({ text, hint }: { text: string; hint?: string }) {
 
 const featStyles = StyleSheet.create({
   row:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-  iconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#1e1b4b', alignItems: 'center', justifyContent: 'center' },
+  iconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#102031', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(122, 167, 214, 0.18)' },
   text:     { flex: 1, fontSize: 15, color: '#d1d5db', lineHeight: 21 },
 });
 
@@ -1193,7 +1193,7 @@ const styles = StyleSheet.create({
   orb: {
     width: 100, height: 100, borderRadius: 50,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#6366f1', shadowOffset: { width: 0, height: 0 },
+    shadowColor: '#8dbfe7', shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8, shadowRadius: 40, elevation: 20,
   },
   heroTitle: {
@@ -1209,7 +1209,8 @@ const styles = StyleSheet.create({
   // Privacy
   shieldBadge: {
     width: 72, height: 72, borderRadius: 20,
-    backgroundColor: '#052e16', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#102031', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(122, 167, 214, 0.18)',
     marginBottom: 24,
   },
   promiseList:    { marginBottom: 24 },
@@ -1238,7 +1239,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111', borderWidth: 1, borderColor: '#1f2937', borderRadius: 12,
   },
   irctcLink: { marginBottom: 12 },
-  irctcLinkText: { fontSize: 12, color: '#4f46e5', textDecorationLine: 'underline' },
+  irctcLinkText: { fontSize: 12, color: '#8dbfe7', textDecorationLine: 'underline' },
 
   prefLabel: { fontSize: 12, color: '#6b7280', marginBottom: 8 },
 
@@ -1249,9 +1250,9 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, borderColor: '#1f2937',
     backgroundColor: '#0d0d0d',
   },
-  chipActive:     { backgroundColor: '#1e1b4b', borderColor: '#4338ca' },
+  chipActive:     { backgroundColor: '#102031', borderColor: '#335772' },
   chipText:       { fontSize: 14, fontWeight: '500', color: '#6b7280' },
-  chipTextActive: { color: '#818cf8' },
+  chipTextActive: { color: '#dcecff' },
 
   // Button
   primaryBtn: { borderRadius: 14, overflow: 'hidden', marginBottom: 16 },
@@ -1268,7 +1269,7 @@ const styles = StyleSheet.create({
   error:    { fontSize: 13, color: '#f87171', marginBottom: 16, textAlign: 'center' },
   profileExplainer: { fontSize: 12, color: '#4b5563', lineHeight: 18, textAlign: 'center', marginBottom: 16, marginTop: -4 },
   legalNote:{ fontSize: 11, color: '#374151', textAlign: 'center', lineHeight: 17, marginTop: 8 },
-  legalLink:{ color: '#818cf8', textDecorationLine: 'underline' },
+  legalLink:{ color: '#a9dcff', textDecorationLine: 'underline' },
 });
 
 // ── Demo screen styles ────────────────────────────────────────────────────
