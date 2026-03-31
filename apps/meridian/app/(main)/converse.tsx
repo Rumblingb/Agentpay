@@ -1223,9 +1223,6 @@ export default function ConverseScreen() {
                 <View style={styles.modeCard}>
                   <View style={styles.modeHeader}>
                     <Text style={styles.modeEyebrow}>Who is travelling?</Text>
-                    <Text style={styles.modeHint}>
-                      If both phones are open, choose whether this request is just for you or for {preferredTravelUnit.name}.
-                    </Text>
                   </View>
                   <View style={styles.modeRow}>
                     <Pressable
@@ -1893,12 +1890,8 @@ const styles = StyleSheet.create({
     lineHeight: 44,
   },
   heroStage: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(122, 167, 214, 0.22)',
-    backgroundColor: 'rgba(10, 18, 29, 0.84)',
-    paddingHorizontal: 20,
-    paddingVertical: 22,
+    paddingHorizontal: 4,
+    paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 18,
   },
@@ -1937,11 +1930,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginBottom: 6,
-  },
-  modeHint: {
-    color: C.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
   },
   modeRow: {
     flexDirection: 'row',
