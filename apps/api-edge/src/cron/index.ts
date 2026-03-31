@@ -6,8 +6,9 @@
  * handler.
  *
  * Cron schedule (defined in wrangler.toml [[triggers.crons]]):
- *   every 5 min  — liquidity monitor (matches liquidityService.ts CRON_INTERVAL_MS)
- *   every 15 min — reconciliation   (matches reconciliationDaemon.ts DEFAULT_INTERVAL_MS)
+ *   every 5 min  - liquidity monitor / live disruption watches
+ *   every 15 min - reconciliation / booking recovery
+ *   hourly       - proactive route pattern nudges (gated to 9pm London time)
  *
  * Note: The Solana listener (30-second poll) is NOT migrated here because
  * Cloudflare Cron Triggers have a minimum interval of 1 minute.  The Solana
@@ -52,7 +53,7 @@ export async function scheduledHandler(
       ctx.waitUntil(runBookingRecoveryCron(env));
       break;
 
-    case '0 9 * * 1':
+    case '0 * * * *':
       ctx.waitUntil(runMondayPattern(env));
       break;
 
