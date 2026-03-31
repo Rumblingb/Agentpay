@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
 import { saveActiveTrip } from '../../../lib/storage';
+import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
@@ -202,6 +203,7 @@ export default function StatusScreen() {
   const [issueText, setIssueText]             = useState('');
   const [issueSending, setIssueSending]       = useState(false);
   const [issueSent, setIssueSent]             = useState(false);
+  const rerouteReminderScheduledRef           = useRef(false);
 
   const checkRef    = useRef(false);     // prevent double-narration
   const elapsedRef  = useRef(0);
@@ -600,6 +602,55 @@ export default function StatusScreen() {
     }
   };
 
+  useEffect(() => {
+    const route = [fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ');
+    const transcriptForRecovery = route ? `${route} next available` : null;
+    const shouldNudge =
+      !!tripContext?.watchState?.delayRisk
+      || !!tripContext?.watchState?.connectionRisk
+      || statusPhase === 'error';
+    if (!jobId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
+    rerouteReminderScheduledRef.current = true;
+
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleProactiveRerouteReminder({
+        intentId: jobId,
+        route,
+        reason: tripContext?.watchState?.connectionRisk
+          ? 'The connection is getting tight.'
+          : statusPhase === 'error'
+          ? 'This booking needs a cleaner route.'
+          : 'The trip looks delayed.',
+        transcript: transcriptForRecovery,
+        shareToken,
+      });
+    })();
+  }, [
+    jobId,
+    fromStation,
+    toStation,
+    tripContext?.origin,
+    tripContext?.destination,
+    tripContext?.watchState?.delayRisk,
+    tripContext?.watchState?.connectionRisk,
+    statusPhase,
+    shareToken,
+  ]);
+
+  const handleProactiveCardPress = async (card: ProactiveCard) => {
+    const route = [fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ');
+    if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind) && route) {
+      router.replace({ pathname: '/(main)/converse', params: { prefill: `${route} next available` } } as any);
+      return;
+    }
+    if ((card.kind === 'leave_now' || card.kind === 'destination_suggestion') && (toStation || tripContext?.destination)) {
+      const target = encodeURIComponent((toStation ?? tripContext?.destination)!);
+      await Linking.openURL(`https://maps.google.com/?q=${target}`);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusAtmosphere />
@@ -832,7 +883,7 @@ export default function StatusScreen() {
         {cards.length > 0 && (
           <View style={styles.proactiveWrap}>
             {cards.slice(0, 2).map((card) => (
-              <ProactiveStatusCard key={card.id} card={card} />
+              <ProactiveStatusCard key={card.id} card={card} onPress={() => { void handleProactiveCardPress(card); }} />
             ))}
           </View>
         )}
@@ -1097,14 +1148,36 @@ const statusStyles = StyleSheet.create({
   },
 });
 
-function ProactiveStatusCard({ card }: { card: ProactiveCard }) {
+function proactiveCardActionLabel(card: ProactiveCard): string | null {
+  switch (card.kind) {
+    case 'delay_risk':
+    case 'connection_risk':
+    case 'platform_changed':
+    case 'gate_changed':
+      return 'Ask Ace to reroute';
+    case 'leave_now':
+      return 'Navigate';
+    case 'destination_suggestion':
+      return 'Open map';
+    default:
+      return card.ctaLabel ?? null;
+  }
+}
+
+function ProactiveStatusCard({ card, onPress }: { card: ProactiveCard; onPress?: () => void }) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
+  const actionLabel = proactiveCardActionLabel(card);
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
       <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
       <View style={{ flex: 1 }}>
         <Text style={styles.proactiveTitle}>{card.title}</Text>
         <Text style={styles.proactiveBody}>{card.body}</Text>
+        {actionLabel && onPress && (
+          <Pressable onPress={onPress} style={styles.proactiveActionBtn}>
+            <Text style={styles.proactiveActionText}>{actionLabel}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -1345,6 +1418,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.textSecondary,
     lineHeight: 17,
+  },
+  proactiveActionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+  },
+  proactiveActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cbe8ff',
   },
 
   bookingRefWrap: {

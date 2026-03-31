@@ -7,7 +7,7 @@
  * - Saves trip to AsyncStorage for My Trips history
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,7 @@ import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatu
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, saveActiveTrip, upsertTrip, recordRouteMemory } from '../../../lib/storage';
-import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
+import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -211,9 +211,12 @@ export default function ReceiptScreen() {
   const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
   const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; bookingUrl?: string } } | null>(null);
   const [partnerCheckoutUrl, setPartnerCheckoutUrl] = useState<string | null>(null);
+  const [walletPassUrl, setWalletPassUrl] = useState<string | null>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
+  const [walletNote, setWalletNote] = useState<string | null>(null);
+  const rerouteReminderScheduledRef = useRef(false);
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const repeatRoutePrompt = repeatPrompt({
@@ -254,6 +257,12 @@ export default function ReceiptScreen() {
         if (hd?.bestOption) setHotelDetails(hd);
         const checkoutUrl = (r as any)?.metadata?.partnerCheckoutUrl;
         if (checkoutUrl) setPartnerCheckoutUrl(checkoutUrl);
+        const passUrl =
+          (r as any)?.metadata?.walletPassUrl
+          || (r as any)?.metadata?.appleWalletUrl
+          || (r as any)?.metadata?.passUrl
+          || null;
+        if (passUrl) setWalletPassUrl(passUrl);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -264,6 +273,13 @@ export default function ReceiptScreen() {
       setPartnerCheckoutUrl(partnerCheckoutUrlParam);
     }
   }, [partnerCheckoutUrlParam]);
+
+  useEffect(() => {
+    if (walletPassUrl) return;
+    if (partnerCheckoutUrlParam?.endsWith('.pkpass')) {
+      setWalletPassUrl(partnerCheckoutUrlParam);
+    }
+  }, [partnerCheckoutUrlParam, walletPassUrl]);
 
   useEffect(() => {
     if (finalLegSummary) {
@@ -481,6 +497,50 @@ export default function ReceiptScreen() {
     })();
   }, [intentId, hotelDetails, tripContext, shareToken, partnerCheckoutUrl]);
 
+  useEffect(() => {
+    const route = [fromStation, toStation].filter(Boolean).join(' to ');
+    const transcriptForRecovery =
+      transcript
+      || (route ? `${route} next available` : null);
+    const shouldNudge =
+      isDelayed
+      || hasPlatformChanged
+      || hasGateUpdated
+      || !!tripContext?.watchState?.delayRisk
+      || !!tripContext?.watchState?.connectionRisk;
+    if (!intentId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
+    rerouteReminderScheduledRef.current = true;
+
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleProactiveRerouteReminder({
+        intentId,
+        route,
+        reason: hasPlatformChanged
+          ? 'The platform changed.'
+          : hasGateUpdated
+          ? 'The gate changed.'
+          : isDelayed || tripContext?.watchState?.delayRisk
+          ? 'The trip looks delayed.'
+          : 'The connection is getting tight.',
+        transcript: transcriptForRecovery,
+        shareToken,
+      });
+    })();
+  }, [
+    intentId,
+    fromStation,
+    toStation,
+    transcript,
+    isDelayed,
+    hasPlatformChanged,
+    hasGateUpdated,
+    tripContext?.watchState?.delayRisk,
+    tripContext?.watchState?.connectionRisk,
+    shareToken,
+  ]);
+
   const handleShare = async () => {
     const heading = receipt ? `Ace — ${modeMeta.title}` : 'Ace — Saved details';
     const detailLine = fromStation && toStation
@@ -515,6 +575,46 @@ export default function ReceiptScreen() {
   const handleDone = () => {
     reset();
     router.replace('/(main)/converse');
+  };
+
+  const handleAddToWallet = async () => {
+    if (!walletPassUrl) return;
+    try {
+      await Linking.openURL(walletPassUrl);
+      setWalletNote('Ace opened Apple Wallet with your pass.');
+    } catch {
+      setWalletNote('Ace could not open Wallet right now. Keep the ticket code handy.');
+    }
+  };
+
+  const handleProactiveCardPress = async (card: ProactiveCard) => {
+    if (card.kind === 'destination_suggestion' && (toStation || destination)) {
+      const target = encodeURIComponent((toStation ?? destination)!);
+      const citymapperUrl = `citymapper://directions?endname=${target}&endaddress=${target}`;
+      const mapsUrl = `https://maps.google.com/?q=${target}`;
+      try {
+        const canOpen = await Linking.canOpenURL(citymapperUrl);
+        await Linking.openURL(canOpen ? citymapperUrl : mapsUrl);
+      } catch {
+        await Linking.openURL(mapsUrl);
+      }
+      return;
+    }
+
+    if (card.kind === 'leave_now' && (toStation || destination)) {
+      const target = encodeURIComponent((toStation ?? destination)!);
+      await Linking.openURL(`https://maps.google.com/?q=${target}`);
+      return;
+    }
+
+    if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) {
+      const routePrompt =
+        transcript
+        || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
+      if (routePrompt) {
+        router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
+      }
+    }
   };
 
   const openPendingPayment = async () => {
@@ -796,7 +896,7 @@ export default function ReceiptScreen() {
             {cards.length > 0 && (
               <View style={styles.proactiveWrap}>
                 {cards.slice(0, 2).map((card) => (
-                  <ProactiveReceiptCard key={card.id} card={card} />
+                  <ProactiveReceiptCard key={card.id} card={card} onPress={() => { void handleProactiveCardPress(card); }} />
                 ))}
               </View>
             )}
@@ -1020,6 +1120,17 @@ export default function ReceiptScreen() {
                 <Ionicons name="people-outline" size={18} color="#4ade80" />
                 <Text style={[styles.shareBtnText, { color: '#4ade80' }]}>Share live tracking</Text>
               </Pressable>
+            )}
+
+            {walletPassUrl && (
+              <Pressable onPress={() => { void handleAddToWallet(); }} style={styles.shareBtn}>
+                <Ionicons name="wallet-outline" size={18} color="#cbe8ff" />
+                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>Add to Apple Wallet</Text>
+              </Pressable>
+            )}
+
+            {walletNote && (
+              <Text style={styles.walletNote}>{walletNote}</Text>
             )}
 
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
@@ -1325,14 +1436,36 @@ const rowStyles = StyleSheet.create({
   pillText: { fontSize: 12, color: '#4ade80', fontWeight: '600' },
 });
 
-function ProactiveReceiptCard({ card }: { card: ProactiveCard }) {
+function proactiveCardActionLabel(card: ProactiveCard): string | null {
+  switch (card.kind) {
+    case 'delay_risk':
+    case 'connection_risk':
+    case 'platform_changed':
+    case 'gate_changed':
+      return 'Ask Ace to reroute';
+    case 'destination_suggestion':
+      return 'Open map';
+    case 'leave_now':
+      return 'Navigate';
+    default:
+      return card.ctaLabel ?? null;
+  }
+}
+
+function ProactiveReceiptCard({ card, onPress }: { card: ProactiveCard; onPress?: () => void }) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
+  const actionLabel = proactiveCardActionLabel(card);
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
       <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
       <View style={{ flex: 1 }}>
         <Text style={styles.proactiveTitle}>{card.title}</Text>
         <Text style={styles.proactiveBody}>{card.body}</Text>
+        {actionLabel && onPress && (
+          <Pressable onPress={onPress} style={styles.proactiveActionBtn}>
+            <Text style={styles.proactiveActionText}>{actionLabel}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -1466,6 +1599,27 @@ const styles = StyleSheet.create({
   proactiveDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
   proactiveTitle: { fontSize: 12, color: '#f9fafb', fontWeight: '700', marginBottom: 2 },
   proactiveBody: { fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  proactiveActionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+  },
+  proactiveActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cbe8ff',
+  },
+  walletNote: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#7f95aa',
+    textAlign: 'center',
+  },
 
   card: {
     width: '100%',

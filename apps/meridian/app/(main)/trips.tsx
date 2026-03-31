@@ -78,6 +78,16 @@ function tripMetaLine(trip: TripEntry) {
   return [meta.label, trip.operator].filter(Boolean).join(' · ');
 }
 
+function hasLiveJourneyState(trip: TripEntry) {
+  const bookingState = trip.tripContext?.watchState?.bookingState;
+  return trip.tripContext?.status === 'active'
+    || trip.tripContext?.status === 'attention'
+    || bookingState === 'securing'
+    || bookingState === 'payment_pending'
+    || bookingState === 'payment_confirmed'
+    || bookingState === 'issued';
+}
+
 export default function TripsScreen() {
   const insets = useSafeAreaInsets();
   const [trips, setTrips] = useState<TripEntry[]>([]);
@@ -167,6 +177,7 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
   const metaLine = tripMetaLine(trip);
   const repeat = repeatPrompt(trip);
   const stateMeta = tripStateMeta(trip);
+  const liveJourney = hasLiveJourneyState(trip);
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -219,6 +230,12 @@ function TripCard({ trip, onPress }: { trip: TripEntry; onPress: () => void }) {
           >
             <Ionicons name="refresh-outline" size={13} color="#93c5fd" />
             <Text style={styles.repeatBtnText}>Book again</Text>
+          </Pressable>
+        )}
+        {liveJourney && (
+          <Pressable onPress={onPress} style={styles.liveBtn}>
+            <Ionicons name="radio-outline" size={13} color="#cbe8ff" />
+            <Text style={styles.liveBtnText}>Continue live journey</Text>
           </Pressable>
         )}
       </View>
@@ -319,6 +336,20 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   repeatBtnText: { fontSize: 12, fontWeight: '600', color: '#93c5fd' },
+  liveBtn: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  liveBtnText: { fontSize: 12, fontWeight: '700', color: '#cbe8ff' },
   cardRight: { alignItems: 'flex-end' },
   cardAmount: { fontSize: 15, fontWeight: '700', color: '#f9fafb' },
   cardCurrency: { fontSize: 11, color: '#6b7280' },

@@ -248,6 +248,35 @@ export async function scheduleProactiveRouteReminder(params: {
   });
 }
 
+export async function scheduleProactiveRerouteReminder(params: {
+  intentId: string;
+  route: string;
+  reason: string;
+  transcript?: string | null;
+  shareToken?: string | null;
+}): Promise<void> {
+  const triggerAt = new Date(Date.now() + 12_000);
+  const trigger = scheduleAt(triggerAt);
+  if (!trigger) return;
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: notifId(params.intentId, 'reroute'),
+    content: {
+      title: 'Ace found a stronger way through',
+      body: `${params.reason} Want Ace to line up the next best option?`,
+      data: {
+        intentId: params.intentId,
+        screen: 'converse',
+        action: 'proactive_reroute',
+        route: params.route,
+        transcript: params.transcript ?? `${params.route} next available`,
+        shareToken: params.shareToken ?? undefined,
+      },
+    },
+    trigger,
+  });
+}
+
 export async function scheduleHotelNotifications(
   intentId: string,
   params: {
@@ -349,6 +378,7 @@ export async function cancelJourneyNotifications(intentId: string): Promise<void
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, '10min')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'arrival')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'travel-day')),
+    Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'reroute')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-24h')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-2h')),
     Notifications.cancelScheduledNotificationAsync(notifId(intentId, 'hotel-checkout')),
