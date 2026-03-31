@@ -28,6 +28,7 @@ import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIss
 import { patchJourneySession, saveActiveTrip, saveJourneySession } from '../../../lib/storage';
 import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
+import { getRememberedConfirmApprovedAt, trackClientEvent } from '../../../lib/telemetry';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
 import { inferJourneyWalletUrl, journeySteps } from '../../../lib/journeySession';
@@ -100,6 +101,7 @@ export default function StatusScreen() {
   const [issueSending, setIssueSending]       = useState(false);
   const [issueSent, setIssueSent]             = useState(false);
   const rerouteReminderScheduledRef           = useRef(false);
+  const ticketIssuedLoggedRef                 = useRef(false);
   const currentIntentId = resolvedIntentId || intentId || jobId;
 
   const checkRef    = useRef(false);     // prevent double-narration
@@ -237,6 +239,21 @@ export default function StatusScreen() {
             const paymentWasConfirmed = paymentConfirmedFromMetadata(data.metadata);
             if (paymentWasConfirmed) {
               setPaymentConfirmed(true);
+            }
+            if (!ticketIssuedLoggedRef.current) {
+              ticketIssuedLoggedRef.current = true;
+              const confirmedAtMs = getRememberedConfirmApprovedAt(data.intentId ?? currentIntentId ?? jobId);
+              void trackClientEvent({
+                event: 'ticket_issued',
+                screen: 'status',
+                metadata: {
+                  intentId: data.intentId ?? currentIntentId,
+                  jobId,
+                  bookingRef: ref,
+                  paymentConfirmed: paymentWasConfirmed,
+                  time_from_confirm_ms: confirmedAtMs ? Date.now() - confirmedAtMs : null,
+                },
+              });
             }
             const nextTripContext = syncTripBookingState(serverTrip ?? tripContext, {
               phase: 'booked',
@@ -669,6 +686,18 @@ export default function StatusScreen() {
     setPayLoading(true);
     setPaymentRecoveryNote('Complete payment, then return here. Ace will keep checking automatically.');
     try {
+      void trackClientEvent({
+        event: 'payment_opened',
+        screen: 'status',
+        metadata: {
+          intentId: currentIntentId,
+          jobId,
+          journeyId: paramJourneyId ?? null,
+          fiatAmount: parseFloat(fiatAmount),
+          currencyCode: paramCode ?? 'GBP',
+          paymentRail: (paramCode ?? 'GBP').toUpperCase() === 'INR' ? 'upi' : 'checkout',
+        },
+      });
       if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
         const { shortUrl } = await createUpiPaymentLink({
           jobId,

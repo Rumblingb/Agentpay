@@ -17,6 +17,7 @@ import * as FileSystem from 'expo-file-system';
 export { speak, stopSpeaking } from './tts';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
   const controller = new AbortController();
@@ -203,7 +204,10 @@ export async function transcribeAudio(uri: string): Promise<string> {
       `${BASE}/api/voice/transcribe`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
+        },
         body: JSON.stringify({ audio: base64Audio, mimeType: 'audio/m4a' }),
       },
       45_000,

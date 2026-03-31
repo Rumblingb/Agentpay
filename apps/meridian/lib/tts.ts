@@ -9,6 +9,7 @@ const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
 let activeSpeechResolver: (() => void) | null = null;
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
@@ -47,6 +48,25 @@ async function stopActivePlayback(): Promise<void> {
   }
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let output = '';
+
+  for (let index = 0; index < bytes.length; index += 3) {
+    const a = bytes[index] ?? 0;
+    const b = bytes[index + 1] ?? 0;
+    const c = bytes[index + 2] ?? 0;
+    const chunk = (a << 16) | (b << 8) | c;
+
+    output += BASE64_ALPHABET[(chunk >> 18) & 63];
+    output += BASE64_ALPHABET[(chunk >> 12) & 63];
+    output += index + 1 < bytes.length ? BASE64_ALPHABET[(chunk >> 6) & 63] : '=';
+    output += index + 2 < bytes.length ? BASE64_ALPHABET[chunk & 63] : '=';
+  }
+
+  return output;
+}
+
 async function requestVoiceAudio(text: string): Promise<string | null> {
   const response = await fetchWithTimeout(`${BASE}/api/voice/tts`, {
     method: 'POST',
@@ -57,13 +77,19 @@ async function requestVoiceAudio(text: string): Promise<string | null> {
     body: JSON.stringify({ text }),
   });
 
-  if (response.status === 204 || !response.ok) {
+  if (response.status === 204 || response.status === 503 || !response.ok) {
     return null;
   }
 
-  const data = await response.json().catch(() => null) as { audio?: string } | null;
-  const audio = data?.audio?.trim();
-  return audio ? audio : null;
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json().catch(() => null) as { audio?: string } | null;
+    const audio = data?.audio?.trim();
+    return audio ? audio : null;
+  }
+
+  const arrayBuffer = await response.arrayBuffer().catch(() => null);
+  return arrayBuffer ? arrayBufferToBase64(arrayBuffer) : null;
 }
 
 async function playSystemVoice(text: string): Promise<void> {

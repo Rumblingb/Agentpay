@@ -60,6 +60,7 @@ import { OrbAnimation } from '../components/OrbAnimation';
 import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
   const controller = new AbortController();
@@ -275,7 +276,10 @@ export default function OnboardScreen() {
       try {
         const res = await fetchWithTimeout(`${BASE}/api/voice/extract-profile`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
+          },
           body: JSON.stringify({ transcript }),
         }, 15_000);
         if (!res.ok) {

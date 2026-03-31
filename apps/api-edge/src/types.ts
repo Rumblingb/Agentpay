@@ -212,6 +212,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
+  ELEVENLABS_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */

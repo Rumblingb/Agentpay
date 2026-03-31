@@ -45,7 +45,7 @@ import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import type { TripContext } from '../../lib/trip';
-import { trackClientEvent } from '../../lib/telemetry';
+import { rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
 import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
 
 type MarketNationality = 'uk' | 'india' | 'other';
@@ -564,6 +564,8 @@ export default function ConverseScreen() {
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const prefillFiredRef = useRef(false);
   const voiceCaptureStartedAtRef = useRef<number | null>(null);
+  const planReceivedAtRef = useRef<number | null>(null);
+  const executionApprovedAtRef = useRef<number | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
@@ -862,6 +864,7 @@ export default function ConverseScreen() {
         currencyCode: response.currencyCode ?? currencyCode,
       },
     });
+    planReceivedAtRef.current = Date.now();
 
     // If plan needs biometric confirmation, store it only when Ace is no longer asking a follow-up.
     if (response.needsBiometric && response.plan && response.plan.length > 0 && !waitingForFollowUp) {
@@ -887,6 +890,7 @@ export default function ConverseScreen() {
 
       // Auto-confirm if total is within the spending limit (no fingerprint needed)
       if (total > 0 && total <= autoConfirmLimitUsdc && !sharedReadiness.requiresManualConfirm) {
+        executionApprovedAtRef.current = Date.now();
         logConverseEvent({
           event: 'confirm_auto_approved',
           metadata: {
@@ -1033,6 +1037,9 @@ export default function ConverseScreen() {
           ].filter(Boolean).join(' -> '))
           || firstAction.displayName;
         const liveIntentId = firstAction.jobId;
+        rememberConfirmApproved(liveIntentId, executionApprovedAtRef.current ?? executeStartedAt);
+        planReceivedAtRef.current = null;
+        executionApprovedAtRef.current = null;
         await saveJourneySession({
           intentId: liveIntentId,
           jobId: firstAction.jobId,
@@ -1058,6 +1065,8 @@ export default function ConverseScreen() {
         });
         router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveIntentId } });
       } else {
+        planReceivedAtRef.current = null;
+        executionApprovedAtRef.current = null;
         logConverseEvent({
           event: 'execute_returned_no_actions',
           severity: 'warning',
@@ -1071,6 +1080,7 @@ export default function ConverseScreen() {
       }
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
+      executionApprovedAtRef.current = null;
       logConverseEvent({
         event: 'execute_failed',
         severity: 'warning',
@@ -1092,10 +1102,46 @@ export default function ConverseScreen() {
   const handleBiometricConfirm = useCallback(async () => {
     const pending = pendingPlanRef.current;
     if (!pending) return;
+    const pressedAt = Date.now();
+    const planToConfirmLatencyMs =
+      planReceivedAtRef.current != null ? pressedAt - planReceivedAtRef.current : null;
+
+    logConverseEvent({
+      event: 'confirm_pressed',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+        planToConfirmLatencyMs,
+      },
+    });
+    if (planToConfirmLatencyMs != null) {
+      logConverseEvent({
+        event: 'plan_to_confirm_latency',
+        metadata: {
+          latencyMs: planToConfirmLatencyMs,
+          amountUsdc: pending.totalPriceUsdc,
+          fiatAmount: pending.fiatAmount,
+          currencyCode: pending.fiatCode,
+        },
+      });
+    }
 
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
       const retryMsg = 'Confirmation was not completed. You can try again when you are ready.';
+      logConverseEvent({
+        event: 'confirm_failure',
+        severity: 'warning',
+        message: retryMsg,
+        metadata: {
+          amountUsdc: pending.totalPriceUsdc,
+          fiatAmount: pending.fiatAmount,
+          currencyCode: pending.fiatCode,
+          planToConfirmLatencyMs,
+          reason: 'biometric_not_completed',
+        },
+      });
       logConverseEvent({
         event: 'confirm_not_completed',
         severity: 'warning',
@@ -1107,6 +1153,16 @@ export default function ConverseScreen() {
     }
 
     setConfirmRetryNote(null);
+    executionApprovedAtRef.current = pressedAt;
+    logConverseEvent({
+      event: 'confirm_success',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+        planToConfirmLatencyMs,
+      },
+    });
     logConverseEvent({
       event: 'confirm_approved',
       metadata: {
@@ -1142,6 +1198,8 @@ export default function ConverseScreen() {
         currencyCode: pending?.fiatCode ?? null,
       },
     });
+    planReceivedAtRef.current = null;
+    executionApprovedAtRef.current = null;
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
   }, [logConverseEvent]);
@@ -1174,6 +1232,13 @@ export default function ConverseScreen() {
         const msg = (e.message ?? '').toLowerCase();
         const rawMessage = e.message ?? 'Voice transcription failed.';
         console.error('[bro/stt]', rawMessage);
+        void trackClientEvent({
+          event: 'stt_failure',
+          screen: 'converse',
+          severity: 'warning',
+          message: rawMessage,
+          metadata: { phase: 'transcribe' },
+        });
         void trackClientEvent({
           event: 'stt_transcription_failed',
           screen: 'converse',
@@ -1226,12 +1291,27 @@ export default function ConverseScreen() {
           textLength: text.trim().length,
         },
       });
+      logConverseEvent({
+        event: 'stt_success',
+        metadata: {
+          captureMs: voiceCaptureStartedAtRef.current ? Date.now() - voiceCaptureStartedAtRef.current : null,
+          sttMs: Date.now() - transcribeStartedAt,
+          transcriptLength: text.trim().length,
+        },
+      });
 
       await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
       const msg = (e.message ?? '').toLowerCase();
       const rawMessage = e.message ?? 'Voice capture failed.';
+      void trackClientEvent({
+        event: 'stt_failure',
+        screen: 'converse',
+        severity: 'warning',
+        message: rawMessage,
+        metadata: { phase: 'capture' },
+      });
       void trackClientEvent({
         event: 'voice_capture_failed',
         screen: 'converse',
@@ -1268,6 +1348,10 @@ export default function ConverseScreen() {
     voiceCaptureStartedAtRef.current = Date.now();
     logConverseEvent({
       event: 'voice_capture_started',
+      metadata: { fromPhase: phase },
+    });
+    logConverseEvent({
+      event: 'voice_session_start',
       metadata: { fromPhase: phase },
     });
     try {

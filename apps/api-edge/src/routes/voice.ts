@@ -1,17 +1,45 @@
 /**
- * Voice proxy routes — /api/voice/*
+ * Voice proxy routes - /api/voice/*
  *
- * Server-side STT and TTS so the mobile app never needs an OpenAI key.
- * Requires OPENAI_API_KEY Workers secret (`wrangler secret put OPENAI_API_KEY`).
+ * Server-side STT and TTS so the mobile app never needs a provider key.
  *
- * POST /api/voice/transcribe  — multipart audio → transcript text
- * POST /api/voice/tts         — text → base64 MP3 audio
+ * POST /api/voice/transcribe      -> transcript text
+ * POST /api/voice/extract-profile -> extracted profile fields
+ * POST /api/voice/tts             -> streamed MP3 audio
  */
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 
 export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
+
+function broLog(event: string, data: Record<string, unknown>) {
+  console.log(
+    JSON.stringify({
+      scope: 'voice',
+      event,
+      ...data,
+      ts: new Date().toISOString(),
+    }),
+  );
+}
+
+function requireBroClientKey(c: {
+  req: { header: (name: string) => string | undefined };
+  env: Env;
+  json: (body: unknown, status?: number) => Response;
+}): Response | null {
+  if (!c.env.BRO_CLIENT_KEY) {
+    return null;
+  }
+  const clientKey = c.req.header('x-bro-key') ?? '';
+  if (clientKey === c.env.BRO_CLIENT_KEY) {
+    return null;
+  }
+  return c.json({ error: 'Unauthorized' }, 401);
+}
 
 function containsArabicScript(text: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
@@ -27,11 +55,10 @@ function shouldFallbackToEnglishWhisper(text: string): boolean {
   return false;
 }
 
-// ── POST /api/voice/transcribe ────────────────────────────────────────────
-// Accepts: multipart/form-data with field "audio" (m4a/webm/wav file)
-// Returns: { transcript: string }
-
 voiceRouter.post('/transcribe', async (c) => {
+  const unauthorized = requireBroClientKey(c);
+  if (unauthorized) return unauthorized;
+
   const contentType = c.req.header('content-type') ?? '';
   let audioBytes: Uint8Array | null = null;
   let audioBlob: Blob | null = null;
@@ -40,8 +67,8 @@ voiceRouter.post('/transcribe', async (c) => {
     try {
       const body = await c.req.json<{ audio?: string; mimeType?: string }>();
       if (!body.audio) return c.json({ error: 'Missing audio field' }, 400);
-      audioBytes = Uint8Array.from(atob(body.audio), c => c.charCodeAt(0));
-      audioBlob  = new Blob([audioBytes], { type: body.mimeType ?? 'audio/m4a' });
+      audioBytes = Uint8Array.from(atob(body.audio), (char) => char.charCodeAt(0));
+      audioBlob = new Blob([audioBytes], { type: body.mimeType ?? 'audio/m4a' });
     } catch {
       return c.json({ error: 'Invalid JSON body' }, 400);
     }
@@ -51,7 +78,7 @@ voiceRouter.post('/transcribe', async (c) => {
       const file = formData.get('audio') as File | null;
       if (!file) return c.json({ error: 'Missing audio field' }, 400);
       audioBytes = new Uint8Array(await file.arrayBuffer());
-      audioBlob  = file;
+      audioBlob = file;
     } catch {
       return c.json({ error: 'Invalid form data' }, 400);
     }
@@ -61,7 +88,6 @@ voiceRouter.post('/transcribe', async (c) => {
     return c.json({ error: 'Missing audio field' }, 400);
   }
 
-  // ── Primary: Cloudflare Workers AI Whisper (in-process, no external fetch) ──
   if (c.env.AI) {
     try {
       const result = await (c.env.AI as any).run('@cf/openai/whisper', {
@@ -71,13 +97,11 @@ voiceRouter.post('/transcribe', async (c) => {
       if (transcript && !shouldFallbackToEnglishWhisper(transcript)) {
         return c.json({ transcript });
       }
-      // Empty transcript — fall through to OpenAI
-    } catch (e: any) {
-      console.warn('[voice/transcribe] CF AI failed, trying OpenAI:', e.message);
+    } catch (error: any) {
+      console.warn('[voice/transcribe] cf_ai_failed', error?.message ?? String(error));
     }
   }
 
-  // ── Fallback: OpenAI Whisper ──────────────────────────────────────────────
   const openaiKey = c.env.OPENAI_API_KEY;
   if (!openaiKey) return c.json({ error: 'Voice service not configured' }, 503);
 
@@ -92,29 +116,24 @@ voiceRouter.post('/transcribe', async (c) => {
     );
 
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method:  'POST',
+      method: 'POST',
       headers: { Authorization: `Bearer ${openaiKey}` },
-      body:    whisperForm,
+      body: whisperForm,
     });
 
     if (!res.ok) return c.json({ error: `Whisper error ${res.status}` }, 502);
 
-    const data = await res.json() as { text: string };
+    const data = (await res.json()) as { text: string };
     return c.json({ transcript: (data.text ?? '').trim() });
-  } catch (e: any) {
-    return c.json({ error: e.message ?? 'Transcription failed' }, 500);
+  } catch (error: any) {
+    return c.json({ error: error?.message ?? 'Transcription failed' }, 500);
   }
 });
 
-// ── POST /api/voice/extract-profile ──────────────────────────────────────
-// Accepts: { transcript: string }
-// Returns: { fields: { legalName?, email?, phone?, railcardType?, nationality? } }
-//
-// Used by onboarding: user speaks their details, Claude extracts the fields.
-// Example: "I'm John Smith, my email is john@example.com, phone 07700 900123,
-//           I have a 16-25 railcard"
-
 voiceRouter.post('/extract-profile', async (c) => {
+  const unauthorized = requireBroClientKey(c);
+  if (unauthorized) return unauthorized;
+
   const anthropicKey = c.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
     return c.json({ error: 'AI not configured' }, 503);
@@ -134,12 +153,12 @@ voiceRouter.post('/extract-profile', async (c) => {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key':         anthropicKey,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
-        'content-type':      'application/json',
+        'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 256,
         system: `Extract travel profile fields from the user's spoken input.
 Return ONLY valid JSON with these optional fields (include only what was clearly stated):
@@ -158,12 +177,11 @@ If a field is not mentioned, omit it. Return only JSON, no explanation.`,
 
     if (!res.ok) return c.json({ fields: {} });
 
-    const data = await res.json() as { content: Array<{ type: string; text: string }> };
-    const text = data.content?.find(b => b.type === 'text')?.text ?? '{}';
+    const data = (await res.json()) as { content: Array<{ type: string; text: string }> };
+    const text = data.content?.find((block) => block.type === 'text')?.text ?? '{}';
 
     let fields: Record<string, string> = {};
     try {
-      // Strip any markdown code fences Claude might add
       const clean = text.replace(/```json\n?|\n?```/g, '').trim();
       fields = JSON.parse(clean);
     } catch {
@@ -176,56 +194,75 @@ If a field is not mentioned, omit it. Return only JSON, no explanation.`,
   }
 });
 
-// ── POST /api/voice/tts ───────────────────────────────────────────────────
-// Accepts: { text: string }
-// Returns: { audio: string } — base64 encoded MP3
-
 voiceRouter.post('/tts', async (c) => {
-  const openaiKey = c.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    // Return 204 — app will fall back to system TTS
-    return c.body(null, 204);
-  }
+  const unauthorized = requireBroClientKey(c);
+  if (unauthorized) return unauthorized;
 
   let text: string;
+  let voiceId: string | undefined;
   try {
-    const body = await c.req.json<{ text: string }>();
+    const body = await c.req.json<{ text: string; voiceId?: string }>();
     text = (body.text ?? '').trim();
+    voiceId = body.voiceId?.trim() || undefined;
   } catch {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
   if (!text) return c.json({ error: 'Missing text' }, 400);
-  // Truncate to avoid runaway TTS costs
   if (text.length > 500) text = text.slice(0, 500);
 
+  const elevenLabsKey = c.env.ELEVENLABS_API_KEY;
+  if (!elevenLabsKey) {
+    return c.json({ error: 'tts_unavailable' }, 503);
+  }
+
+  const selectedVoiceId = voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID;
+  const startedAt = Date.now();
+
   try {
-    const res = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}/stream?output_format=mp3_44100_128`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': elevenLabsKey,
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+        }),
+        signal: AbortSignal.timeout(20_000),
       },
-      body: JSON.stringify({ model: 'tts-1', voice: 'nova', input: text }),
+    );
+
+    const timeToFirstByteMs = Date.now() - startedAt;
+    broLog('tts_requested', {
+      ok: res.ok,
+      status: res.status,
+      voiceId: selectedVoiceId,
+      textLength: text.length,
+      timeToFirstByteMs,
     });
 
-    if (!res.ok) {
-      return c.body(null, 204); // fall back to system TTS
+    if (!res.ok || !res.body) {
+      return c.json({ error: 'tts_unavailable' }, 503);
     }
 
-    const arrayBuffer = await res.arrayBuffer();
-    const base64 = arrayBufferToBase64(arrayBuffer);
-    return c.json({ audio: base64 });
-  } catch {
-    return c.body(null, 204); // fall back to system TTS
+    return new Response(res.body, {
+      status: 200,
+      headers: {
+        'Content-Type': res.headers.get('content-type') ?? 'audio/mpeg',
+        'Cache-Control': 'no-store',
+        'X-Bro-TTFB-Ms': String(timeToFirstByteMs),
+      },
+    });
+  } catch (error) {
+    broLog('tts_failed', {
+      voiceId: selectedVoiceId,
+      textLength: text.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: 'tts_unavailable' }, 503);
   }
 });
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
