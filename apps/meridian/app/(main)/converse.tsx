@@ -562,6 +562,7 @@ export default function ConverseScreen() {
 
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const prefillFiredRef = useRef(false);
+  const voiceCaptureStartedAtRef = useRef<number | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
@@ -581,6 +582,21 @@ export default function ConverseScreen() {
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
   const [guidanceSessions, setGuidanceSessions] = useState(0);
   const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
+
+  const logConverseEvent = useCallback((params: {
+    event: string;
+    severity?: 'info' | 'warning' | 'error';
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void trackClientEvent({
+      event: params.event,
+      screen: 'converse',
+      severity: params.severity,
+      message: params.message,
+      metadata: params.metadata,
+    });
+  }, []);
 
   useEffect(() => {
     if (turns.length === 0) return;
@@ -740,12 +756,23 @@ export default function ConverseScreen() {
 
     const prepared = prepareIntentRequest({ text, nearestStation });
     const displayText = prepared.displayText;
+    const usingSharedTravel =
+      !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
 
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setTranscript(displayText);
     setPhase('thinking');
+    const planStartedAt = Date.now();
+    logConverseEvent({
+      event: 'plan_requested',
+      metadata: {
+        bookingMode: usingSharedTravel ? 'shared' : 'solo',
+        textLength: displayText.length,
+        usedLocationAssumption: !!prepared.assumptionNote,
+      },
+    });
 
     // Load travel profile for Phase 1 — preferences only, no identity data.
     // Full profile (legalName, email, phone, documents) is loaded AFTER biometric
@@ -753,7 +780,6 @@ export default function ConverseScreen() {
     // reaches memory before the user explicitly authorises the booking.
     let profile: TravelProfile | null = null;
     let travelProfile: Record<string, unknown> | undefined;
-    const usingSharedTravel = !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
     try {
       if (await hasProfile()) {
         profile = await loadProfileRaw();
@@ -824,6 +850,17 @@ export default function ConverseScreen() {
     }
 
     const waitingForFollowUp = narrationStillNeedsAnswer(response.narration);
+    logConverseEvent({
+      event: 'plan_received',
+      metadata: {
+        latencyMs: Date.now() - planStartedAt,
+        planItems: response.plan?.length ?? 0,
+        needsBiometric: !!response.needsBiometric,
+        waitingForFollowUp,
+        fiatAmount: response.fiatAmount ?? null,
+        currencyCode: response.currencyCode ?? currencyCode,
+      },
+    });
 
     // If plan needs biometric confirmation, store it only when Ace is no longer asking a follow-up.
     if (response.needsBiometric && response.plan && response.plan.length > 0 && !waitingForFollowUp) {
@@ -849,38 +886,65 @@ export default function ConverseScreen() {
 
       // Auto-confirm if total is within the spending limit (no fingerprint needed)
       if (total > 0 && total <= autoConfirmLimitUsdc && !sharedReadiness.requiresManualConfirm) {
-        await executePhase2(pendingPlanRef.current);
+        logConverseEvent({
+          event: 'confirm_auto_approved',
+          metadata: {
+            amountUsdc: total,
+            fiatAmount,
+            currencyCode: fiatCode,
+          },
+        });
+        await executePhase2(pendingPlanRef.current, 'auto_limit');
         return;
       }
 
       // Above limit — show confirmation card with price + fingerprint gate
       setConfirmRetryNote(null);
       setPhase('confirming');
+      logConverseEvent({
+        event: 'confirm_shown',
+        metadata: {
+          amountUsdc: total,
+          fiatAmount,
+          currencyCode: fiatCode,
+          planItems: response.plan.length,
+          requiresManualConfirm: sharedReadiness.requiresManualConfirm,
+        },
+      });
       return;
     }
 
     // No action needed yet (research, clarification, or error from Claude)
     pendingPlanRef.current = null;
     setPhase('idle');
-  }, [agentId, autoConfirmLimitUsdc, bookingMode, nearestStation, preferredTravelUnit, speakIfEnabled]);
+  }, [agentId, autoConfirmLimitUsdc, bookingMode, currencyCode, logConverseEvent, nearestStation, preferredTravelUnit, speakIfEnabled]);
 
   const runIntentWithUiFallback = useCallback(async (text: string) => {
     try {
       await handleIntent(text);
     } catch (e: any) {
       const msg = e?.message ?? 'Ace could not line that route up. Please try again.';
+      logConverseEvent({
+        event: 'plan_failed',
+        severity: 'warning',
+        message: msg,
+      });
       setError(msg);
       setPhase('error');
       await speakIfEnabled(`Sorry. ${msg}`);
     }
-  }, [handleIntent, setError, setPhase, speakIfEnabled]);
+  }, [handleIntent, logConverseEvent, setError, setPhase, speakIfEnabled]);
 
   // Auto-fire a pre-filled transcript (e.g. from a disruption rebook notification tap)
   useEffect(() => {
     if (!prefill || prefillFiredRef.current || !agentId) return;
     prefillFiredRef.current = true;
+    logConverseEvent({
+      event: 'prefill_consumed',
+      metadata: { source: 'notification_or_link' },
+    });
     void runIntentWithUiFallback(prefill);
-  }, [prefill, agentId, runIntentWithUiFallback]);
+  }, [prefill, agentId, logConverseEvent, runIntentWithUiFallback]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -889,15 +953,30 @@ export default function ConverseScreen() {
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setError(null);
+    logConverseEvent({
+      event: 'text_fallback_submitted',
+      metadata: { length: text.length },
+    });
     await runIntentWithUiFallback(text);
-  }, [runIntentWithUiFallback, setError, textFallbackDraft]);
+  }, [logConverseEvent, runIntentWithUiFallback, setError, textFallbackDraft]);
 
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
-  const executePhase2 = useCallback(async (pending: NonNullable<typeof pendingPlanRef.current>) => {
+  const executePhase2 = useCallback(async (
+    pending: NonNullable<typeof pendingPlanRef.current>,
+    trigger: 'auto_limit' | 'biometric',
+  ) => {
     setPhase('thinking');
     const { transcript: savedTranscript, plan, fullProfile } = pending;
     pendingPlanRef.current = null;
+    const executeStartedAt = Date.now();
+    logConverseEvent({
+      event: 'execute_started',
+      metadata: {
+        trigger,
+        planItems: plan.length,
+      },
+    });
 
     try {
       const response = await executeIntent({
@@ -919,6 +998,15 @@ export default function ConverseScreen() {
       }
 
       if (response.actions.length > 0) {
+        logConverseEvent({
+          event: 'execute_succeeded',
+          metadata: {
+            trigger,
+            latencyMs: Date.now() - executeStartedAt,
+            actionsCount: response.actions.length,
+            firstToolName: response.actions[0]?.toolName ?? null,
+          },
+        });
         const firstAction = response.actions[0];
         setCurrentAgent({
           agentId:         firstAction.agentId,
@@ -969,16 +1057,34 @@ export default function ConverseScreen() {
         });
         router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveIntentId } });
       } else {
+        logConverseEvent({
+          event: 'execute_returned_no_actions',
+          severity: 'warning',
+          metadata: {
+            trigger,
+            latencyMs: Date.now() - executeStartedAt,
+          },
+        });
         setError(response.narration);
         setPhase('error');
       }
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
+      logConverseEvent({
+        event: 'execute_failed',
+        severity: 'warning',
+        message: msg,
+        metadata: {
+          trigger,
+          latencyMs: Date.now() - executeStartedAt,
+          planItems: plan.length,
+        },
+      });
       setError(msg);
       setConfirmRetryNote(null);
       await speakIfEnabled(`Sorry. ${msg}`);
     }
-  }, [agentId, setCurrentAgent, speakIfEnabled]);
+  }, [agentId, logConverseEvent, setCurrentAgent, speakIfEnabled]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
 
@@ -989,12 +1095,25 @@ export default function ConverseScreen() {
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
       const retryMsg = 'Confirmation was not completed. You can try again when you are ready.';
+      logConverseEvent({
+        event: 'confirm_not_completed',
+        severity: 'warning',
+        message: retryMsg,
+      });
       setConfirmRetryNote(retryMsg);
       addTurn({ role: 'meridian', text: retryMsg, ts: Date.now() });
       return;
     }
 
     setConfirmRetryNote(null);
+    logConverseEvent({
+      event: 'confirm_approved',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+      },
+    });
 
     // Load full profile NOW — only after biometric success.
     // This is the first time legalName, email, phone, and documents enter memory.
@@ -1005,17 +1124,26 @@ export default function ConverseScreen() {
       // Biometric already succeeded — proceed without full profile if load fails
     }
 
-    await executePhase2(pending);
-  }, [agentId, executePhase2, speakIfEnabled]);
+    await executePhase2(pending, 'biometric');
+  }, [agentId, executePhase2, logConverseEvent, speakIfEnabled]);
 
   // ── Cancel confirmation ───────────────────────────────────────────────────
 
   const handleCancelConfirm = useCallback(async () => {
+    const pending = pendingPlanRef.current;
     pendingPlanRef.current = null;
     setConfirmRetryNote(null);
+    logConverseEvent({
+      event: 'confirm_cancelled',
+      metadata: {
+        amountUsdc: pending?.totalPriceUsdc ?? null,
+        fiatAmount: pending?.fiatAmount ?? null,
+        currencyCode: pending?.fiatCode ?? null,
+      },
+    });
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
-  }, []);
+  }, [logConverseEvent]);
 
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
@@ -1038,6 +1166,7 @@ export default function ConverseScreen() {
       if (!uri) { setPhase('idle'); return; }
 
       let text = '';
+      const transcribeStartedAt = Date.now();
       try {
         text = await transcribeAudio(uri);
       } catch (e: any) {
@@ -1088,6 +1217,15 @@ export default function ConverseScreen() {
         return;
       }
 
+      logConverseEvent({
+        event: 'voice_transcribed',
+        metadata: {
+          captureMs: voiceCaptureStartedAtRef.current ? Date.now() - voiceCaptureStartedAtRef.current : null,
+          sttMs: Date.now() - transcribeStartedAt,
+          textLength: text.trim().length,
+        },
+      });
+
       await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
@@ -1117,7 +1255,7 @@ export default function ConverseScreen() {
     } finally {
       finishingRecordingRef.current = false;
     }
-  }, [openTextFallback, runIntentWithUiFallback, setError]);
+  }, [logConverseEvent, openTextFallback, runIntentWithUiFallback, setError]);
 
   const beginVoiceCapture = useCallback(async () => {
     if (phase !== 'idle' && phase !== 'error') return;
@@ -1126,6 +1264,11 @@ export default function ConverseScreen() {
     setTextFallbackVisible(false);
     setError(null);
     setPhase('listening');
+    voiceCaptureStartedAtRef.current = Date.now();
+    logConverseEvent({
+      event: 'voice_capture_started',
+      metadata: { fromPhase: phase },
+    });
     try {
       await startRecording({
         autoStopOnSilence: true,
@@ -1149,7 +1292,7 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [finishVoiceCapture, phase, reset, setError]);
+  }, [finishVoiceCapture, logConverseEvent, phase, reset, setError]);
 
   const handleOrbTap = useCallback(async () => {
     if (phase === 'listening') {

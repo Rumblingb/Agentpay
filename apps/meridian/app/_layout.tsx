@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
+import { trackClientEvent } from '../lib/telemetry';
 
 export default function RootLayout() {
   const router = useRouter();
@@ -15,6 +16,15 @@ export default function RootLayout() {
       if (handledNotificationRef.current === responseId) return;
       handledNotificationRef.current = responseId;
       const data = response.notification.request.content.data as any;
+      void trackClientEvent({
+        event: 'notification_opened',
+        screen: 'root',
+        metadata: {
+          action: data?.action ?? null,
+          screen: data?.screen ?? null,
+          intentId: data?.intentId ? String(data.intentId) : null,
+        },
+      });
       if (data?.screen === 'converse' && data?.action === 'rebook' && data?.transcript) {
         // Cancellation rebook — open Ace with pre-filled transcript
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });

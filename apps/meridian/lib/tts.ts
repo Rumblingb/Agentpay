@@ -1,30 +1,26 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import * as Speech from 'expo-speech';
+import { trackClientEvent } from './telemetry';
 
-const DEFAULT_ACE_VOICE_ID = 'jpzKOF4VdptUa52jEdw5';
-export const ELEVENLABS_ACE_VOICE_ID =
-  process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID ?? DEFAULT_ACE_VOICE_ID;
+const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
+let activeSpeechResolver: (() => void) | null = null;
 
-function encodeBase64(bytes: Uint8Array): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let output = '';
-
-  for (let index = 0; index < bytes.length; index += 3) {
-    const byte1 = bytes[index] ?? 0;
-    const byte2 = bytes[index + 1] ?? 0;
-    const byte3 = bytes[index + 2] ?? 0;
-    const combined = (byte1 << 16) | (byte2 << 8) | byte3;
-
-    output += alphabet[(combined >> 18) & 63];
-    output += alphabet[(combined >> 12) & 63];
-    output += index + 1 < bytes.length ? alphabet[(combined >> 6) & 63] : '=';
-    output += index + 2 < bytes.length ? alphabet[combined & 63] : '=';
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return output;
 }
 
 async function stopActivePlayback(): Promise<void> {
@@ -36,50 +32,101 @@ async function stopActivePlayback(): Promise<void> {
     activeSound = null;
   }
 
+  if (activeSpeechResolver) {
+    const resolve = activeSpeechResolver;
+    activeSpeechResolver = null;
+    try {
+      await Speech.stop();
+    } catch {}
+    resolve();
+  }
+
   if (activeUri) {
     FileSystem.deleteAsync(activeUri, { idempotent: true }).catch(() => {});
     activeUri = null;
   }
 }
 
+async function requestVoiceAudio(text: string): Promise<string | null> {
+  const response = await fetchWithTimeout(`${BASE}/api/voice/tts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  if (response.status === 204 || !response.ok) {
+    return null;
+  }
+
+  const data = await response.json().catch(() => null) as { audio?: string } | null;
+  const audio = data?.audio?.trim();
+  return audio ? audio : null;
+}
+
+async function playSystemVoice(text: string): Promise<void> {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+  });
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (activeSpeechResolver === finish) {
+        activeSpeechResolver = null;
+      }
+      resolve();
+    };
+
+    activeSpeechResolver = finish;
+    Speech.speak(text, {
+      language: 'en-GB',
+      pitch: 0.96,
+      rate: 0.94,
+      onDone: finish,
+      onStopped: finish,
+      onError: finish,
+    });
+  });
+}
+
 export async function speakBro(text: string): Promise<void> {
-  const apiKey = process.env.EXPO_PUBLIC_ELEVENLABS_KEY;
-  if (!apiKey || !text.trim()) {
+  const trimmed = text.trim();
+  if (!trimmed) {
     return;
   }
 
   await stopActivePlayback();
+  const startedAt = Date.now();
 
   try {
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_ACE_VOICE_ID}/stream`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
-          Accept: 'audio/mpeg',
+    const audioBase64 = await requestVoiceAudio(trimmed);
+
+    if (!audioBase64) {
+      void trackClientEvent({
+        event: 'tts_fallback_system',
+        screen: 'voice',
+        metadata: {
+          latencyMs: Date.now() - startedAt,
+          textLength: trimmed.length,
         },
-        body: JSON.stringify({
-          text,
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.42,
-            similarity_boost: 0.78,
-            style: 0.08,
-            speed: 0.88,
-            use_speaker_boost: true,
-          },
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      return;
-    }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0) {
+      });
+      await playSystemVoice(trimmed);
+      void trackClientEvent({
+        event: 'tts_played',
+        screen: 'voice',
+        metadata: {
+          provider: 'system_fallback',
+          latencyMs: Date.now() - startedAt,
+          textLength: trimmed.length,
+        },
+      });
       return;
     }
 
@@ -89,8 +136,8 @@ export async function speakBro(text: string): Promise<void> {
       staysActiveInBackground: false,
     });
 
-    const uri = `${FileSystem.cacheDirectory}bro_elevenlabs_${Date.now()}.mp3`;
-    await FileSystem.writeAsStringAsync(uri, encodeBase64(bytes), {
+    const uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
+    await FileSystem.writeAsStringAsync(uri, audioBase64, {
       encoding: FileSystem.EncodingType.Base64,
     });
     activeUri = uri;
@@ -109,8 +156,39 @@ export async function speakBro(text: string): Promise<void> {
         }
       });
     });
-  } catch {
+    void trackClientEvent({
+      event: 'tts_played',
+      screen: 'voice',
+      metadata: {
+        provider: 'server',
+        latencyMs: Date.now() - startedAt,
+        textLength: trimmed.length,
+      },
+    });
+  } catch (error: any) {
     await stopActivePlayback();
+    void trackClientEvent({
+      event: 'tts_failed',
+      screen: 'voice',
+      severity: 'warning',
+      message: error?.message ?? 'Server voice playback failed.',
+      metadata: {
+        provider: 'server',
+        textLength: trimmed.length,
+      },
+    });
+    try {
+      await playSystemVoice(trimmed);
+      void trackClientEvent({
+        event: 'tts_played',
+        screen: 'voice',
+        metadata: {
+          provider: 'system_recovery',
+          latencyMs: Date.now() - startedAt,
+          textLength: trimmed.length,
+        },
+      });
+    } catch {}
   }
 }
 

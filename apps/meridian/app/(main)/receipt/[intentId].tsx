@@ -34,6 +34,7 @@ import { loadActiveTrip, patchJourneySession, saveActiveTrip, saveJourneySession
 import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { trackClientEvent } from '../../../lib/telemetry';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -217,6 +218,23 @@ export default function ReceiptScreen() {
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
   const rerouteReminderScheduledRef = useRef(false);
+  const walletTelemetryTrackedRef = useRef(false);
+  const rerouteTelemetryTrackedRef = useRef(false);
+
+  const logReceiptEvent = (params: {
+    event: string;
+    severity?: 'info' | 'warning' | 'error';
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void trackClientEvent({
+      event: params.event,
+      screen: 'receipt',
+      severity: params.severity,
+      message: params.message,
+      metadata: params.metadata,
+    });
+  };
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const repeatRoutePrompt = repeatPrompt({
@@ -246,6 +264,26 @@ export default function ReceiptScreen() {
     : receipt
     ? 'Booking confirmed'
     : 'Journey details ready';
+
+  useEffect(() => {
+    if (!walletPassUrl || walletTelemetryTrackedRef.current) return;
+    walletTelemetryTrackedRef.current = true;
+    logReceiptEvent({
+      event: 'wallet_available',
+      metadata: { intentId, source: 'receipt' },
+    });
+  }, [intentId, walletPassUrl]);
+
+  useEffect(() => {
+    if (!cards.some((card) => ['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) || rerouteTelemetryTrackedRef.current) {
+      return;
+    }
+    rerouteTelemetryTrackedRef.current = true;
+    logReceiptEvent({
+      event: 'reroute_offer_available',
+      metadata: { intentId, source: 'receipt' },
+    });
+  }, [cards, intentId]);
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -634,15 +672,25 @@ export default function ReceiptScreen() {
   const handleAddToWallet = async () => {
     if (!walletPassUrl) return;
     try {
+      await Linking.openURL(walletPassUrl);
       const openedAt = new Date().toISOString();
       await patchJourneySession(intentId, {
         walletPassUrl,
         walletLastOpenedAt: openedAt,
         updatedAt: openedAt,
       }).catch(() => null);
-      await Linking.openURL(walletPassUrl);
+      logReceiptEvent({
+        event: 'wallet_opened',
+        metadata: { intentId, source: 'receipt' },
+      });
       setWalletNote('Ace opened Apple Wallet with your pass.');
-    } catch {
+    } catch (error: any) {
+      logReceiptEvent({
+        event: 'wallet_open_failed',
+        severity: 'warning',
+        message: error?.message ?? 'Wallet failed to open from Receipt.',
+        metadata: { intentId, source: 'receipt' },
+      });
       setWalletNote('Ace could not open Wallet right now. Keep the ticket code handy.');
     }
   };
@@ -658,12 +706,20 @@ export default function ReceiptScreen() {
       } catch {
         await Linking.openURL(mapsUrl);
       }
+      logReceiptEvent({
+        event: 'journey_navigation_opened',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
       return;
     }
 
     if (card.kind === 'leave_now' && (toStation || destination)) {
       const target = encodeURIComponent((toStation ?? destination)!);
       await Linking.openURL(`https://maps.google.com/?q=${target}`);
+      logReceiptEvent({
+        event: 'journey_navigation_opened',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
       return;
     }
 
@@ -672,6 +728,10 @@ export default function ReceiptScreen() {
         transcript
         || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
       if (routePrompt) {
+        logReceiptEvent({
+          event: 'reroute_offer_accepted',
+          metadata: { intentId, source: 'receipt', cardKind: card.kind },
+        });
         router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
       }
     }
@@ -683,6 +743,10 @@ export default function ReceiptScreen() {
     if (!amount) return;
     setPayLoading(true);
     setPaymentRecoveryNote('Complete payment, then return here. Ace will keep watching the booking.');
+    logReceiptEvent({
+      event: 'payment_recovery_opened',
+      metadata: { intentId, currencyCode: fiatCode ?? 'GBP' },
+    });
     try {
       if ((fiatCode ?? 'GBP').toUpperCase() === 'INR') {
         const { shortUrl } = await createUpiPaymentLink({

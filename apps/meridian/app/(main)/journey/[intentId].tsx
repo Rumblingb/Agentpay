@@ -18,6 +18,7 @@ import {
 } from '../../../lib/journeySession';
 import { loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
+import { trackClientEvent } from '../../../lib/telemetry';
 import { C } from '../../../lib/theme';
 
 function sessionTone(session: JourneySession) {
@@ -65,6 +66,23 @@ export default function JourneyScreen() {
   const [session, setSession] = useState<JourneySession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [walletTrackedFor, setWalletTrackedFor] = useState<string | null>(null);
+  const [rerouteTrackedFor, setRerouteTrackedFor] = useState<string | null>(null);
+
+  const logJourneyEvent = useCallback((params: {
+    event: string;
+    severity?: 'info' | 'warning' | 'error';
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void trackClientEvent({
+      event: params.event,
+      screen: 'journey',
+      severity: params.severity,
+      message: params.message,
+      metadata: params.metadata,
+    });
+  }, []);
 
   const refreshSession = useCallback(async () => {
     if (!intentId) return;
@@ -196,7 +214,29 @@ export default function JourneyScreen() {
     };
     setSession(nextSession);
     void patchJourneySession(intentId, nextSession);
-  }, [intentId, rerouteTitle, rerouteBody, rerouteTranscript, session]);
+    logJourneyEvent({
+      event: 'reroute_offer_viewed',
+      metadata: { intentId },
+    });
+  }, [intentId, logJourneyEvent, rerouteBody, rerouteTitle, rerouteTranscript, session]);
+
+  useEffect(() => {
+    if (!session?.walletPassUrl || walletTrackedFor === session.intentId) return;
+    setWalletTrackedFor(session.intentId);
+    logJourneyEvent({
+      event: 'wallet_available',
+      metadata: { intentId: session.intentId, source: 'journey' },
+    });
+  }, [logJourneyEvent, session, walletTrackedFor]);
+
+  useEffect(() => {
+    if (!session?.rerouteOfferTranscript || rerouteTrackedFor === session.intentId) return;
+    setRerouteTrackedFor(session.intentId);
+    logJourneyEvent({
+      event: 'reroute_offer_available',
+      metadata: { intentId: session.intentId, source: 'journey' },
+    });
+  }, [logJourneyEvent, rerouteTrackedFor, session]);
 
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
   const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
@@ -256,39 +296,79 @@ export default function JourneyScreen() {
 
   const openWallet = useCallback(async () => {
     if (!session?.walletPassUrl) return;
-    const openedAt = new Date().toISOString();
-    setSession((current) => current ? { ...current, walletLastOpenedAt: openedAt, updatedAt: openedAt } : current);
-    void patchJourneySession(session.intentId, {
-      walletLastOpenedAt: openedAt,
-      updatedAt: openedAt,
-    });
-    await Linking.openURL(session.walletPassUrl);
-  }, [session]);
+    try {
+      await Linking.openURL(session.walletPassUrl);
+      const openedAt = new Date().toISOString();
+      setSession((current) => current ? { ...current, walletLastOpenedAt: openedAt, updatedAt: openedAt } : current);
+      void patchJourneySession(session.intentId, {
+        walletLastOpenedAt: openedAt,
+        updatedAt: openedAt,
+      });
+      logJourneyEvent({
+        event: 'wallet_opened',
+        metadata: { intentId: session.intentId, source: 'journey' },
+      });
+    } catch (error: any) {
+      logJourneyEvent({
+        event: 'wallet_open_failed',
+        severity: 'warning',
+        message: error?.message ?? 'Wallet failed to open from Journey.',
+        metadata: { intentId: session.intentId, source: 'journey' },
+      });
+    }
+  }, [logJourneyEvent, session]);
 
   const openMap = useCallback(async () => {
     if (!session?.toStation) return;
     await Linking.openURL(`https://maps.google.com/?q=${encodeURIComponent(session.toStation)}`);
-  }, [session?.toStation]);
+    logJourneyEvent({
+      event: 'journey_navigation_opened',
+      metadata: { intentId: session.intentId, destination: session.toStation },
+    });
+  }, [logJourneyEvent, session]);
 
   const openShare = useCallback(async () => {
     if (!session?.shareToken) return;
     await Linking.openURL(`https://api.agentpay.so/trip/view/${session.shareToken}`);
-  }, [session?.shareToken]);
+    logJourneyEvent({
+      event: 'journey_share_opened',
+      metadata: { intentId: session.intentId },
+    });
+  }, [logJourneyEvent, session]);
 
   const askAce = useCallback(() => {
     const prompt = repeatPrompt ?? (routeLabel ? `${routeLabel.replace(' -> ', ' to ')} next available` : undefined);
+    if (session) {
+      logJourneyEvent({
+        event: session.rerouteOfferTranscript ? 'reroute_offer_accepted' : 'journey_reopened_in_ace',
+        metadata: {
+          intentId: session.intentId,
+          source: session.rerouteOfferTranscript ? 'journey_offer' : 'journey',
+        },
+      });
+    }
     router.replace({ pathname: '/(main)/converse', params: prompt ? { prefill: prompt } : undefined } as any);
-  }, [repeatPrompt, routeLabel]);
+  }, [logJourneyEvent, repeatPrompt, routeLabel, session]);
 
   const handleCard = useCallback(async (card: (typeof cards)[number]) => {
     if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) {
+      if (session) {
+        logJourneyEvent({
+          event: 'reroute_offer_accepted',
+          metadata: {
+            intentId: session.intentId,
+            source: 'journey_card',
+            cardKind: card.kind,
+          },
+        });
+      }
       askAce();
       return;
     }
     if (card.kind === 'destination_suggestion' || card.kind === 'leave_now') {
       await openMap();
     }
-  }, [askAce, openMap]);
+  }, [askAce, logJourneyEvent, openMap, session]);
 
   if (loading) {
     return (
