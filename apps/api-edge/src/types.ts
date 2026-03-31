@@ -314,6 +314,18 @@ export interface Env {
    */
   TWELVEGO_API_KEY?: string;
 
+  // ── Apple Wallet pass generation ─────────────────────────────────────────
+  /** 10-char Apple Developer team ID — e.g. "ABCDE12345". npx wrangler secret put APPLE_PASS_TEAM_ID */
+  APPLE_PASS_TEAM_ID?: string;
+  /** Pass Type Identifier — e.g. "pass.so.agentpay.ace". Register at developer.apple.com/account/resources/identifiers. npx wrangler secret put APPLE_PASS_TYPE_ID */
+  APPLE_PASS_TYPE_ID?: string;
+  /** Pass Type Certificate PEM (no bag attributes). Export from Keychain after creating in Apple Developer portal. npx wrangler secret put APPLE_PASS_CERT_PEM */
+  APPLE_PASS_CERT_PEM?: string;
+  /** Private key PEM (PKCS8) matching the pass certificate. npx wrangler secret put APPLE_PASS_KEY_PEM */
+  APPLE_PASS_KEY_PEM?: string;
+  /** Apple WWDR G4 intermediate certificate PEM. Download from https://www.apple.com/certificateauthority/. npx wrangler secret put APPLE_PASS_WWDR_PEM */
+  APPLE_PASS_WWDR_PEM?: string;
+
   // ── Operations (Make.com fulfillment sheet) ───────────────────────────────
   /**
    * Make.com webhook URL — every confirmed booking POSTs here.

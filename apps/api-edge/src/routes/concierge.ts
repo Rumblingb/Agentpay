@@ -754,6 +754,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   },
                   bookingReference:  order.bookingReference,
                   pendingFulfilment: false,
+                  walletPassUrl:     `${c.env.API_BASE_URL}/api/wallet/pass/${hireResult.jobId}`,
                   tripContext: toCompletedTripContext(executingTripContext, {
                     bookingRef: order.bookingReference,
                     origin: order.origin,
@@ -865,6 +866,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userName:          userName  ?? null,
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
+                  walletPassUrl:     `${c.env.API_BASE_URL}/api/wallet/pass/${hireResult.jobId}`,
                   tripContext:       executingTripContext,
                   journeyId:         (item as any).journeyId ?? null,
                   legIndex:          plan.indexOf(item),

@@ -155,6 +155,11 @@ export default function JourneyScreen() {
               ?? data.metadata?.passUrl
               ?? session.walletPassUrl
               ?? null,
+            // Reroute offer — written by platformWatch cron when disruption is detected.
+            // Survives app restarts because it lives on the session record.
+            rerouteOfferTitle:      data.metadata?.rerouteOfferTitle      ?? session.rerouteOfferTitle      ?? null,
+            rerouteOfferBody:       data.metadata?.rerouteOfferBody       ?? session.rerouteOfferBody       ?? null,
+            rerouteOfferTranscript: data.metadata?.rerouteOfferTranscript ?? session.rerouteOfferTranscript ?? null,
             updatedAt: new Date().toISOString(),
           };
 

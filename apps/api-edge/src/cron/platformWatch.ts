@@ -142,28 +142,49 @@ export async function runPlatformWatch(env: Env): Promise<void> {
           } catch { /* non-fatal */ }
 
           const cancelledTime = departureDatetime ? departureDatetime.slice(11, 16) : 'your train';
-          const pushBody = destination
-            ? `Your ${cancelledTime} to ${destination} is cancelled.${altText || ' Ask Bro for alternatives.'}`
-            : `Your train is cancelled.${altText || ' Ask Bro for alternatives.'}`;
 
           const transcript = altService && destination
             ? `Rebook my cancelled ${cancelledTime} to ${destination} — put me on the ${(altService as any).departureTime} instead`
             : `My train to ${destination ?? origin} was cancelled — find me the next one`;
 
+          // If we found an alternative, build a richer offer-style push that deep-links
+          // into the live Journey surface with the specific train pre-populated.
+          const rerouteTitle = altService
+            ? `Your ${cancelledTime} to ${destination ?? origin} is cancelled`
+            : undefined;
+          const rerouteBody = altService
+            ? `I found the ${(altService as any).departureTime}${(altService as any).estimatedFareGbp ? ` · £${(altService as any).estimatedFareGbp}` : ''}. Tap to switch.`
+            : undefined;
+
+          const pushAction = altService ? 'proactive_reroute' : 'cancelled';
+          const pushBody = rerouteBody
+            ?? (destination
+              ? `Your ${cancelledTime} to ${destination} is cancelled. Ask Ace for alternatives.`
+              : `Your train is cancelled. Ask Ace for alternatives.`);
+
           await sendExpoPush(
             pushToken,
-            '⚠️ Train cancelled',
+            rerouteTitle ?? '⚠️ Train cancelled',
             pushBody,
             {
               intentId: row.id,
-              screen:   'receipt',
-              action:   'cancelled',
+              screen:   altService ? 'journey' : 'receipt',
+              action:   pushAction,
               transcript,
-              destination: destination ?? origin,
+              rerouteTitle:  rerouteTitle ?? undefined,
+              rerouteBody:   rerouteBody ?? undefined,
+              destination:   destination ?? origin,
               disruptionRoute: route,
             },
           );
-          await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Bro for alternatives.'}`, sql);
+          await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Ace for alternatives.'}`, sql);
+
+          // Persist the reroute offer into the job so Journey polling can surface it.
+          if (rerouteTitle && rerouteBody) {
+            metaUpdates.rerouteOfferTitle      = rerouteTitle;
+            metaUpdates.rerouteOfferBody       = rerouteBody;
+            metaUpdates.rerouteOfferTranscript = transcript;
+          }
 
           metaUpdates.cancellationNotified = true;
           // Deactivate watch — journey is cancelled
@@ -230,22 +251,39 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             }
           } catch { /* non-fatal */ }
 
-          const delayBody = `${route} running ${status.delayMinutes} min late.${delayAltText || ' Check app for alternatives.'}`;
+          // If we have an alternative, surface a specific offer rather than a generic nudge.
+          const hasDelayAlt = !!delayAltTranscript;
+          const delayRerouteTitle = hasDelayAlt
+            ? `${status.delayMinutes} min delay on your ${departureDatetime?.slice(11, 16) ?? 'train'}`
+            : undefined;
+          const delayRerouteBody  = hasDelayAlt ? delayAltText.trim() : undefined;
+          const delayAction       = hasDelayAlt ? 'proactive_reroute' : 'delay';
+          const delayBody         = delayRerouteBody
+            ?? `${route} running ${status.delayMinutes} min late. Check app for alternatives.`;
 
           await sendExpoPush(
             pushToken,
-            `⏱ ${status.delayMinutes} min delay`,
+            delayRerouteTitle ?? `⏱ ${status.delayMinutes} min delay`,
             delayBody,
             {
               intentId: row.id,
-              screen: 'receipt',
-              action: 'delay',
-              delayMinutes: status.delayMinutes,
-              transcript: delayAltTranscript,
+              screen:   hasDelayAlt ? 'journey' : 'receipt',
+              action:   delayAction,
+              delayMinutes:  status.delayMinutes,
+              transcript:    delayAltTranscript ?? undefined,
+              rerouteTitle:  delayRerouteTitle  ?? undefined,
+              rerouteBody:   delayRerouteBody   ?? undefined,
               disruptionRoute: route,
             },
           );
           await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.${delayAltText}`, sql);
+
+          // Persist reroute offer so the Journey screen can show it on next poll.
+          if (delayRerouteTitle && delayRerouteBody) {
+            metaUpdates.rerouteOfferTitle      = delayRerouteTitle;
+            metaUpdates.rerouteOfferBody       = delayRerouteBody;
+            metaUpdates.rerouteOfferTranscript = delayAltTranscript ?? undefined;
+          }
 
           metaUpdates.delayNotified = true;
           needsUpdate = true;

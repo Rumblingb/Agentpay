@@ -103,7 +103,8 @@ export async function speakBro(text: string): Promise<void> {
 
     await new Promise<void>((resolve) => {
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) {
+        // Resolve on natural finish OR when unloaded by cancelSpeech() interrupt.
+        if ((status.isLoaded && status.didJustFinish) || !status.isLoaded) {
           void stopActivePlayback().finally(resolve);
         }
       });

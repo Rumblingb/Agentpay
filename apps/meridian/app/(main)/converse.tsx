@@ -35,7 +35,7 @@ import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech } from '../../lib/tts';
-import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
+import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
@@ -610,6 +610,18 @@ export default function ConverseScreen() {
     (async () => {
       const trip = await loadActiveTrip();
       if (active) setActiveTrip(trip);
+
+      // If there is a live journey in a state the user should be watching,
+      // and this screen was opened normally (not from a notification prefill),
+      // redirect straight to the Journey surface so it becomes the gravity centre.
+      if (!prefill) {
+        const liveSession = await loadCurrentJourneySession().catch(() => null);
+        if (active && liveSession && ['ticketed', 'in_transit', 'arriving', 'securing'].includes(liveSession.state)) {
+          router.replace({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveSession.intentId } });
+          return;
+        }
+      }
+
       const sharedUnit = await loadPreferredTravelUnit().catch(() => null);
       const memories = await loadRouteMemories().catch(() => []);
       if (active) {
@@ -622,7 +634,7 @@ export default function ConverseScreen() {
     return () => {
       active = false;
     };
-  }, []));
+  }, [prefill]));
 
 
   // Detect nearest station on mount (fire-and-forget, best-effort)
