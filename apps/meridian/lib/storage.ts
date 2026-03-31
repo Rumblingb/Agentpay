@@ -91,6 +91,10 @@ export interface JourneySession {
   tripContext?: TripContext | null;
   shareToken?: string | null;
   walletPassUrl?: string | null;
+  walletLastOpenedAt?: string | null;
+  rerouteOfferTitle?: string | null;
+  rerouteOfferBody?: string | null;
+  rerouteOfferTranscript?: string | null;
   supportState?: 'none' | 'available' | 'requested';
   lastEventKey?: string | null;
   lastEventAt?: string | null;
@@ -249,6 +253,10 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     tripContext: trip.tripContext ?? null,
     shareToken: trip.shareToken ?? null,
     walletPassUrl: trip.walletPassUrl ?? null,
+    walletLastOpenedAt: null,
+    rerouteOfferTitle: null,
+    rerouteOfferBody: null,
+    rerouteOfferTranscript: null,
     updatedAt: trip.updatedAt,
   };
 }

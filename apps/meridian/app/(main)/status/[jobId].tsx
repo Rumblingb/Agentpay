@@ -25,7 +25,7 @@ import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
 import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
-import { saveActiveTrip, saveJourneySession } from '../../../lib/storage';
+import { patchJourneySession, saveActiveTrip, saveJourneySession } from '../../../lib/storage';
 import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
 import { speak } from '../../../lib/tts';
@@ -653,7 +653,25 @@ export default function StatusScreen() {
     if (!jobId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
     rerouteReminderScheduledRef.current = true;
 
+    const offerTitle = tripContext?.watchState?.connectionRisk
+      ? 'Ace can rescue the connection'
+      : statusPhase === 'error'
+      ? 'Ace can line up a cleaner route'
+      : 'Ace found a stronger way through';
+    const offerBody = tripContext?.watchState?.connectionRisk
+      ? 'The onward connection is getting tight. Ace can line up the next best option before it breaks.'
+      : statusPhase === 'error'
+      ? 'This booking hit friction. Ace kept the route context intact and can shape a cleaner alternative.'
+      : 'Timing shifted on this trip. Ace can line up the next best option before the delay gets expensive.';
+
     void (async () => {
+      await patchJourneySession(currentIntentId, {
+        rerouteOfferTitle: offerTitle,
+        rerouteOfferBody: offerBody,
+        rerouteOfferTranscript: transcriptForRecovery,
+        lastEventKey: 'reroute_offer',
+        lastEventAt: new Date().toISOString(),
+      }).catch(() => null);
       const granted = await requestNotificationPermission();
       if (!granted) return;
       await scheduleProactiveRerouteReminder({
@@ -666,6 +684,8 @@ export default function StatusScreen() {
           : 'The trip looks delayed.',
         transcript: transcriptForRecovery,
         shareToken,
+        offerTitle,
+        offerBody,
       });
     })();
   }, [

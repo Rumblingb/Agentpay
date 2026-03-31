@@ -16,7 +16,7 @@ import {
   journeySteps,
   journeyTrustLine,
 } from '../../../lib/journeySession';
-import { loadJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
+import { loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
 import { C } from '../../../lib/theme';
 
@@ -56,7 +56,12 @@ function timelineLegs(trip: TripContext | null | undefined) {
 }
 
 export default function JourneyScreen() {
-  const { intentId } = useLocalSearchParams<{ intentId: string }>();
+  const { intentId, rerouteTitle, rerouteBody, rerouteTranscript } = useLocalSearchParams<{
+    intentId: string;
+    rerouteTitle?: string;
+    rerouteBody?: string;
+    rerouteTranscript?: string;
+  }>();
   const [session, setSession] = useState<JourneySession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +169,30 @@ export default function JourneyScreen() {
     return () => clearInterval(interval);
   }, [session]);
 
+  useEffect(() => {
+    if (!intentId || !session) return;
+    const nextTitle = rerouteTitle?.trim() || null;
+    const nextBody = rerouteBody?.trim() || null;
+    const nextTranscript = rerouteTranscript?.trim() || null;
+    const changed =
+      (nextTitle && nextTitle !== session.rerouteOfferTitle)
+      || (nextBody && nextBody !== session.rerouteOfferBody)
+      || (nextTranscript && nextTranscript !== session.rerouteOfferTranscript);
+    if (!changed) return;
+
+    const nextSession: JourneySession = {
+      ...session,
+      rerouteOfferTitle: nextTitle ?? session.rerouteOfferTitle ?? null,
+      rerouteOfferBody: nextBody ?? session.rerouteOfferBody ?? null,
+      rerouteOfferTranscript: nextTranscript ?? session.rerouteOfferTranscript ?? null,
+      lastEventKey: 'reroute_offer',
+      lastEventAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setSession(nextSession);
+    void patchJourneySession(intentId, nextSession);
+  }, [intentId, rerouteTitle, rerouteBody, rerouteTranscript, session]);
+
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
   const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
   const steps = useMemo(() => (session ? journeySteps(session) : []), [session]);
@@ -222,8 +251,14 @@ export default function JourneyScreen() {
 
   const openWallet = useCallback(async () => {
     if (!session?.walletPassUrl) return;
+    const openedAt = new Date().toISOString();
+    setSession((current) => current ? { ...current, walletLastOpenedAt: openedAt, updatedAt: openedAt } : current);
+    void patchJourneySession(session.intentId, {
+      walletLastOpenedAt: openedAt,
+      updatedAt: openedAt,
+    });
     await Linking.openURL(session.walletPassUrl);
-  }, [session?.walletPassUrl]);
+  }, [session]);
 
   const openMap = useCallback(async () => {
     if (!session?.toStation) return;
@@ -443,7 +478,7 @@ export default function JourneyScreen() {
             {session.walletPassUrl && (
               <Pressable onPress={() => { void openWallet(); }} style={styles.secondaryBtn}>
                 <Ionicons name="wallet-outline" size={16} color="#cbe8ff" />
-                <Text style={styles.secondaryBtnText}>Apple Wallet</Text>
+                <Text style={styles.secondaryBtnText}>{session.walletLastOpenedAt ? 'Open Wallet' : 'Add to Wallet'}</Text>
               </Pressable>
             )}
 

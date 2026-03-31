@@ -268,6 +268,8 @@ export async function scheduleProactiveRerouteReminder(params: {
   reason: string;
   transcript?: string | null;
   shareToken?: string | null;
+  offerTitle?: string | null;
+  offerBody?: string | null;
 }): Promise<void> {
   const triggerAt = new Date(Date.now() + 12_000);
   const trigger = scheduleAt(triggerAt);
@@ -276,15 +278,17 @@ export async function scheduleProactiveRerouteReminder(params: {
   await Notifications.scheduleNotificationAsync({
     identifier: notifId(params.intentId, 'reroute'),
     content: {
-      title: 'Ace found a stronger way through',
-      body: `${params.reason} Want Ace to line up the next best option?`,
+      title: params.offerTitle ?? 'Ace found a stronger way through',
+      body: params.offerBody ?? `${params.reason} Want Ace to line up the next best option?`,
       data: {
         intentId: params.intentId,
-        screen: 'converse',
+        screen: 'journey',
         action: 'proactive_reroute',
         route: params.route,
         transcript: params.transcript ?? `${params.route} next available`,
         shareToken: params.shareToken ?? undefined,
+        rerouteTitle: params.offerTitle ?? undefined,
+        rerouteBody: params.offerBody ?? undefined,
       },
     },
     trigger,

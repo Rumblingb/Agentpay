@@ -69,6 +69,7 @@ export function journeyIsLive(session: JourneySession): boolean {
 }
 
 export function journeyPrimaryIntentPrompt(session: JourneySession): string | null {
+  if (session.rerouteOfferTranscript) return session.rerouteOfferTranscript;
   if (session.fromStation && session.toStation) {
     if (session.state === 'attention') return `${session.fromStation} to ${session.toStation} next available`;
     return `${session.fromStation} to ${session.toStation} again`;
@@ -167,11 +168,22 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
     });
   }
 
+  if (session.rerouteOfferTitle && session.rerouteOfferBody) {
+    insights.unshift({
+      key: 'reroute-offer',
+      title: session.rerouteOfferTitle,
+      body: session.rerouteOfferBody,
+      tone: 'warning',
+    });
+  }
+
   if (session.walletPassUrl) {
     insights.push({
       key: 'wallet',
-      title: 'Wallet pass is ready',
-      body: 'You can move this ticket into Apple Wallet so Ace becomes invisible at the gate.',
+      title: session.walletLastOpenedAt ? 'Wallet pass is on hand' : 'Wallet pass is ready',
+      body: session.walletLastOpenedAt
+        ? 'Ace can reopen the pass whenever you need it at the gate.'
+        : 'You can move this ticket into Apple Wallet so Ace becomes invisible at the gate.',
       tone: 'success',
     });
   }

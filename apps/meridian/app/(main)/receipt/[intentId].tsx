@@ -30,7 +30,7 @@ import * as FileSystem from 'expo-file-system';
 import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
-import { loadActiveTrip, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory } from '../../../lib/storage';
+import { loadActiveTrip, patchJourneySession, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory } from '../../../lib/storage';
 import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
@@ -539,7 +539,29 @@ export default function ReceiptScreen() {
     if (!intentId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
     rerouteReminderScheduledRef.current = true;
 
+    const offerTitle = hasPlatformChanged
+      ? 'Ace spotted a cleaner platform move'
+      : hasGateUpdated
+      ? 'Ace spotted a cleaner gate move'
+      : isDelayed || tripContext?.watchState?.delayRisk
+      ? 'Ace can line up a cleaner train'
+      : 'Ace can protect the connection';
+    const offerBody = hasPlatformChanged
+      ? `Platform ${notifiedPlatform ?? 'details'} changed. Ace can line up the next best route without losing context.`
+      : hasGateUpdated
+      ? `Gate ${notifiedGate ?? 'details'} changed. Ace can reshape the next clean step for you.`
+      : isDelayed || tripContext?.watchState?.delayRisk
+      ? 'Timing shifted. Ace can line up the next strongest option before this becomes a scramble.'
+      : 'The onward connection is getting tight. Ace can line up a cleaner route now.';
+
     void (async () => {
+      await patchJourneySession(intentId, {
+        rerouteOfferTitle: offerTitle,
+        rerouteOfferBody: offerBody,
+        rerouteOfferTranscript: transcriptForRecovery,
+        lastEventKey: 'reroute_offer',
+        lastEventAt: new Date().toISOString(),
+      }).catch(() => null);
       const granted = await requestNotificationPermission();
       if (!granted) return;
       await scheduleProactiveRerouteReminder({
@@ -554,6 +576,8 @@ export default function ReceiptScreen() {
           : 'The connection is getting tight.',
         transcript: transcriptForRecovery,
         shareToken,
+        offerTitle,
+        offerBody,
       });
     })();
   }, [
@@ -564,6 +588,8 @@ export default function ReceiptScreen() {
     isDelayed,
     hasPlatformChanged,
     hasGateUpdated,
+    notifiedPlatform,
+    notifiedGate,
     tripContext?.watchState?.delayRisk,
     tripContext?.watchState?.connectionRisk,
     shareToken,
@@ -608,6 +634,12 @@ export default function ReceiptScreen() {
   const handleAddToWallet = async () => {
     if (!walletPassUrl) return;
     try {
+      const openedAt = new Date().toISOString();
+      await patchJourneySession(intentId, {
+        walletPassUrl,
+        walletLastOpenedAt: openedAt,
+        updatedAt: openedAt,
+      }).catch(() => null);
       await Linking.openURL(walletPassUrl);
       setWalletNote('Ace opened Apple Wallet with your pass.');
     } catch {

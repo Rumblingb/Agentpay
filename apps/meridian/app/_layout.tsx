@@ -20,6 +20,16 @@ export default function RootLayout() {
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });
       } else if (data?.action === 'proactive_route' && (data?.transcript || data?.route)) {
         router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
+      } else if (data?.action === 'proactive_reroute' && data?.intentId) {
+        router.push({
+          pathname: '/(main)/journey/[intentId]',
+          params: {
+            intentId: String(data.intentId),
+            rerouteTranscript: data?.transcript ? String(data.transcript) : undefined,
+            rerouteTitle: data?.rerouteTitle ? String(data.rerouteTitle) : undefined,
+            rerouteBody: data?.rerouteBody ? String(data.rerouteBody) : undefined,
+          },
+        });
       } else if (data?.action === 'proactive_reroute' && (data?.transcript || data?.route)) {
         router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
       } else if (data?.action === 'travel_day' && data?.intentId) {
