@@ -31,6 +31,7 @@ import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, PHASE_LABEL_COLOR } from '../../lib/theme';
 
+import { AceMark } from '../../components/AceMark';
 import { OrbAnimation } from '../../components/OrbAnimation';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
@@ -589,6 +590,7 @@ export default function ConverseScreen() {
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
 
   useEffect(() => {
+    if (turns.length === 0) return;
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
 
@@ -1153,6 +1155,22 @@ export default function ConverseScreen() {
     return 'Good evening';
   })();
 
+  const lastRouteHintPreview = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
+    ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
+    : null;
+
+  const heroExample = bookingMode === 'shared'
+    ? 'Ace, get us to Glasgow tomorrow.'
+    : lastRouteHintPreview
+    ? `Ace, ${lastRouteHintPreview.replace(/\?$/, '')}.`
+    : nearestStation
+    ? `Ace, get me from ${nearestStation} tomorrow morning.`
+    : 'Ace, get me to Glasgow tomorrow.';
+
+  const heroResponse = bookingMode === 'shared'
+    ? `Planning for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
+    : 'Planning the strongest route for you.';
+
   // Last route suggestion — "Same route as last time?"
   const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
     ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
@@ -1165,7 +1183,9 @@ export default function ConverseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerBrand}>
-          <View style={styles.headerDot} />
+          <View style={styles.headerMarkWrap}>
+            <AceMark size={26} />
+          </View>
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
             <Text style={styles.headerSubtitle}>Travel, handled</Text>
@@ -1216,6 +1236,11 @@ export default function ConverseScreen() {
                   ? `You are in ${locationLabel ?? 'your area'}. Ace will choose the best departure point from nearby, line up the route, and secure it if you want.`
                   : `Say where you are going and Ace will line up the route, secure it, and stay with the trip.`}
               </Text>
+              <View style={styles.heroStage}>
+                <AceMark size={94} />
+                <Text style={styles.heroExample}>{heroExample}</Text>
+                <Text style={styles.heroResponse}>{heroResponse}</Text>
+              </View>
               {preferredTravelUnit && (
                 <View style={styles.modeCard}>
                   <View style={styles.modeHeader}>
@@ -1257,22 +1282,6 @@ export default function ConverseScreen() {
                   </Text>
                 </View>
               )}
-              <View style={styles.heroStatRow}>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Voice first</Text>
-                  <Text style={styles.heroStatLabel}>natural requests</Text>
-                </View>
-                <View style={styles.heroStatDivider} />
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Fast start</Text>
-                  <Text style={styles.heroStatLabel}>Ace takes it from here</Text>
-                </View>
-                <View style={styles.heroStatDivider} />
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Live recovery</Text>
-                  <Text style={styles.heroStatLabel}>delays and changes</Text>
-                </View>
-              </View>
             </View>
               {activeTrip && (
                 <Pressable
@@ -2063,52 +2072,48 @@ const styles = StyleSheet.create({
   headerBrand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 10,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  headerDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: C.em,
-    shadowColor: C.em,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
+  headerMarkWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    color: C.textPrimary,
-    letterSpacing: 1.8,
+    color: '#f4f7fb',
+    letterSpacing: 2.2,
   },
   headerSubtitle: {
     fontSize: 10,
-    color: C.textMuted,
-    letterSpacing: 1.6,
+    color: '#6f7d8d',
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
     marginTop: 2,
   },
   nearBadge: {
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(10, 16, 26, 0.82)',
     borderWidth: 1,
-    borderColor: '#1e293b',
-    borderRadius: 12,
-    paddingHorizontal: 10,
+    borderColor: 'rgba(113, 140, 170, 0.18)',
+    borderRadius: 14,
+    paddingHorizontal: 11,
     paddingVertical: 5,
   },
-  nearBadgeText: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  nearBadgeText: { fontSize: 11, color: '#9fb0c2', fontWeight: '600' },
   headerIconBtn: {
     width: 34,
     height: 34,
-    borderRadius: 12,
+    borderRadius: 13,
     borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
+    borderColor: 'rgba(113, 140, 170, 0.16)',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2124,9 +2129,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(53, 83, 122, 0.4)',
     borderRadius: 28,
     paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 18,
-    marginBottom: 18,
+    paddingTop: 22,
+    paddingBottom: 22,
+    marginBottom: 22,
     shadowColor: '#020617',
     shadowOpacity: 0.4,
     shadowRadius: 18,
@@ -2161,15 +2166,42 @@ const styles = StyleSheet.create({
   emptyHint: {
     fontSize: 15,
     color: C.textSecondary,
-    marginBottom: 18,
+    marginBottom: 22,
     lineHeight: 24,
     letterSpacing: 0.1,
+  },
+  heroStage: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.22)',
+    backgroundColor: 'rgba(10, 18, 29, 0.84)',
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  heroExample: {
+    marginTop: 18,
+    fontSize: 26,
+    lineHeight: 34,
+    letterSpacing: -0.7,
+    textAlign: 'center',
+    color: '#e5edf7',
+    fontWeight: '500',
+  },
+  heroResponse: {
+    marginTop: 14,
+    fontSize: 17,
+    lineHeight: 24,
+    textAlign: 'center',
+    color: '#7f95aa',
+    fontWeight: '500',
   },
   modeCard: {
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(125, 211, 252, 0.16)',
-    backgroundColor: 'rgba(7, 14, 24, 0.84)',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    backgroundColor: 'rgba(8, 14, 22, 0.72)',
     padding: 16,
     marginBottom: 18,
   },
@@ -2199,8 +2231,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    borderColor: 'rgba(113, 140, 170, 0.14)',
+    backgroundColor: 'rgba(11, 17, 27, 0.72)',
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2208,12 +2240,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modeBtnActive: {
-    backgroundColor: 'rgba(8, 47, 73, 0.92)',
-    borderColor: 'rgba(125, 211, 252, 0.34)',
+    backgroundColor: 'rgba(16, 24, 35, 0.9)',
+    borderColor: 'rgba(171, 207, 239, 0.28)',
   },
   modeBtnSharedActive: {
-    backgroundColor: 'rgba(48, 16, 82, 0.9)',
-    borderColor: 'rgba(216, 180, 254, 0.38)',
+    backgroundColor: 'rgba(17, 24, 36, 0.9)',
+    borderColor: 'rgba(194, 208, 226, 0.26)',
   },
   modeBtnText: {
     color: '#cbd5e1',
@@ -2231,33 +2263,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  heroStatRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 12,
-  },
-  heroStat: {
-    flex: 1,
-  },
-  heroStatValue: {
-    fontSize: 13,
-    color: '#f8fafc',
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  heroStatLabel: {
-    fontSize: 11,
-    color: C.textMuted,
-    lineHeight: 15,
-  },
-  heroStatDivider: {
-    width: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.14)',
-  },
   activeTripCard: {
-    backgroundColor: 'rgba(8, 18, 32, 0.9)',
+    backgroundColor: 'rgba(8, 14, 22, 0.86)',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 24,
     padding: 18,
     marginBottom: 22,
@@ -2269,7 +2278,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   activeTripPill: {
-    backgroundColor: C.indigoDim,
+    backgroundColor: 'rgba(18, 26, 39, 0.92)',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -2283,7 +2292,7 @@ const styles = StyleSheet.create({
   activeTripPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#b8c4ff',
+    color: '#bed0e3',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
@@ -2307,9 +2316,9 @@ const styles = StyleSheet.create({
   },
   suggestionsCard: {
     marginTop: 2,
-    backgroundColor: 'rgba(6, 13, 24, 0.82)',
+    backgroundColor: 'rgba(8, 12, 18, 0.62)',
     borderWidth: 1,
-    borderColor: 'rgba(53, 83, 122, 0.34)',
+    borderColor: 'rgba(113, 140, 170, 0.14)',
     borderRadius: 24,
     padding: 18,
   },
@@ -2318,7 +2327,7 @@ const styles = StyleSheet.create({
   },
   suggestionsEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#8ea1b5',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
@@ -2353,9 +2362,9 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: C.emBright,
-    shadowColor: C.emBright,
-    shadowOpacity: 0.8,
+    backgroundColor: '#dcecff',
+    shadowColor: '#dcecff',
+    shadowOpacity: 0.5,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
   },
@@ -2873,9 +2882,9 @@ const styles = StyleSheet.create({
   legTotalAmount: { fontSize: 13, color: '#f8fafc', fontWeight: '700' },
 
   usualRouteCard: {
-    backgroundColor: '#061a0e',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -2883,14 +2892,14 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   usualRouteRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  usualRouteLabel: { fontSize: 11, color: '#4ade80', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  usualRouteCount: { fontSize: 11, color: '#4ade80', opacity: 0.7, marginLeft: 'auto' as any },
+  usualRouteLabel: { fontSize: 11, color: '#c9d9e8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  usualRouteCount: { fontSize: 11, color: '#8ea1b5', opacity: 0.8, marginLeft: 'auto' as any },
   usualRouteRoute: { fontSize: 16, color: '#f8fafc', fontWeight: '700', marginBottom: 2 },
-  usualRouteFare:  { fontSize: 12, color: '#6b7280' },
+  usualRouteFare:  { fontSize: 12, color: '#7e8d9d' },
   sharedUnitCard: {
-    backgroundColor: '#16091b',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     borderWidth: 1,
-    borderColor: '#581c87',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -2903,22 +2912,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
-  sharedUnitLabel: {
-    fontSize: 14,
-    color: '#f5d0fe',
-    fontWeight: '700',
-    flex: 1,
-  },
+  sharedUnitLabel: { fontSize: 14, color: '#eef5fb', fontWeight: '700', flex: 1 },
   sharedUnitMeta: {
     fontSize: 11,
-    color: '#d8b4fe',
+    color: '#9db1c5',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '700',
   },
   sharedUnitBody: {
     fontSize: 12,
-    color: '#e9d5ff',
+    color: '#aebfd0',
     lineHeight: 18,
     marginBottom: 12,
   },
@@ -2929,23 +2933,23 @@ const styles = StyleSheet.create({
   sharedUnitBtn: {
     flex: 1,
     borderRadius: 12,
-    backgroundColor: '#a855f7',
+    backgroundColor: '#dcecff',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 11,
   },
   sharedUnitBtnSecondary: {
-    backgroundColor: '#22132f',
+    backgroundColor: 'rgba(12, 19, 29, 0.9)',
     borderWidth: 1,
-    borderColor: '#6b21a8',
+    borderColor: 'rgba(122, 167, 214, 0.18)',
   },
   sharedUnitBtnText: {
     fontSize: 12,
-    color: '#faf5ff',
+    color: '#0e1722',
     fontWeight: '700',
   },
   sharedUnitBtnTextSecondary: {
-    color: '#e9d5ff',
+    color: '#d9e7f4',
   },
   hotelCard:       { backgroundColor: '#0a0d14', borderWidth: 1, borderColor: '#1e3a5f', borderRadius: 10, padding: 12, marginBottom: 10, gap: 6 },
   hotelName:       { fontSize: 14, fontWeight: '600', color: '#f8fafc', flex: 1 },

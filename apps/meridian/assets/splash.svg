@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1242" height="2688">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="78%">
-      <stop offset="0%" stop-color="#53606d"/>
-      <stop offset="40%" stop-color="#323945"/>
-      <stop offset="100%" stop-color="#1b2027"/>
+    <radialGradient id="bg" cx="48%" cy="28%" r="82%">
+      <stop offset="0%" stop-color="#728198"/>
+      <stop offset="38%" stop-color="#495462"/>
+      <stop offset="100%" stop-color="#242b33"/>
     </radialGradient>
-    <radialGradient id="haloGlow" cx="50%" cy="39%" r="58%">
-      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.95"/>
-      <stop offset="30%" stop-color="#d8ebff" stop-opacity="0.52"/>
+    <radialGradient id="haloGlow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.96"/>
+      <stop offset="28%" stop-color="#d7eaff" stop-opacity="0.54"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="markFill" x1="10%" y1="0%" x2="90%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#cfe3ff"/>
+      <stop offset="100%" stop-color="#d4e6ff"/>
     </linearGradient>
     <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#415264"/>
-      <stop offset="100%" stop-color="#24303d"/>
+      <stop offset="0%" stop-color="#536374"/>
+      <stop offset="100%" stop-color="#26313f"/>
     </linearGradient>
     <filter id="blurGlow">
       <feGaussianBlur stdDeviation="27.323999999999998" result="b"/>
@@ -27,11 +27,10 @@
     </filter>
   </defs>
   <rect width="1242" height="2688" fill="url(#bg)"/>
-  <ellipse cx="621" cy="1155.84" rx="198.72" ry="155.25" fill="rgba(255,255,255,0.03)" stroke="rgba(226,240,255,0.88)" stroke-width="5.9616" filter="url(#blurGlow)"/>
-  <g filter="url(#markShadow)">
-    <rect x="539.028" y="1069.824" width="57.132" height="211.14000000000001" rx="28.566" fill="url(#markFill)" transform="rotate(28 567.594 1175.394)"/>
-    <rect x="645.84" y="1059.8880000000001" width="57.132" height="254.60999999999999" rx="28.566" fill="url(#markFill)" transform="rotate(-26 674.4060000000001 1197.1290000000001)"/>
-    <rect x="591.192" y="1276.8" width="62.1" height="101.84400000000001" rx="31.05" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="2.9808" transform="rotate(16 622.242 1327.722)"/>
+  <ellipse cx="621" cy="1155.84" rx="192.51" ry="229.77" fill="rgba(255,255,255,0.035)" stroke="rgba(226,240,255,0.9)" stroke-width="5.9616" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)" transform="rotate(12 621 1155.84)">
+    <path d="M 581.877 1269.75 Q 576.6605999999999 1206.0354 563.6196 1138.9674 Q 559.7072999999999 1115.4936 575.3565 1110.4634999999998 Q 623.6081999999999 1088.6663999999998 678.3804 1118.847 Q 665.3394 1185.915 631.4327999999999 1266.3966 Q 604.0467 1273.1034 581.877 1269.75 Z" fill="url(#markFill)"/>
+    <path d="M 609.0768 1304.79 Q 601.6248 1278.8322 607.0896 1248.7758000000001 Q 613.0512 1236.48 625.9680000000001 1241.9448 Q 617.0256 1273.3674 609.0768 1304.79 Z" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="2.9808"/>
   </g>
   <text x="621" y="1682.688" font-family="system-ui, -apple-system, sans-serif" font-size="130.41" font-weight="700" fill="white" text-anchor="middle" letter-spacing="8">ACE</text>
   <text x="621" y="1763.328" font-family="system-ui, -apple-system, sans-serif" font-size="31.05" fill="#b7c2ce" text-anchor="middle" letter-spacing="2">Travel, handled.</text>

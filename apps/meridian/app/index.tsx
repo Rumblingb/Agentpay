@@ -53,7 +53,13 @@ export default function BootScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.iconMark}>
-        <AceMark size={108} ringColor="rgba(222, 240, 255, 0.9)" glowColor="#a9dcff" backgroundColor="#0b1320" />
+        <AceMark
+          size={108}
+          ringColor="rgba(226, 241, 255, 0.88)"
+          glowColor="#c7e7ff"
+          backgroundColor="#2b333d"
+          iconColor="rgba(246, 249, 252, 0.98)"
+        />
       </View>
 
       {/* Wordmark */}
@@ -77,20 +83,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
-    shadowColor: '#8fd4ff',
-    shadowOpacity: 0.22,
-    shadowRadius: 28,
+    shadowColor: '#c7e7ff',
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
   },
   wordmark: {
-    color: '#f8fafc',
+    color: '#f5f7fa',
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: 6,
     marginBottom: 10,
   },
   tagline: {
-    color: '#475569',
+    color: '#7f8a98',
     fontSize: 13,
     letterSpacing: 0.3,
     fontWeight: '500',

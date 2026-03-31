@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="76%">
-      <stop offset="0%" stop-color="#5c6776"/>
-      <stop offset="38%" stop-color="#39414d"/>
-      <stop offset="100%" stop-color="#1f252e"/>
+    <radialGradient id="bg" cx="48%" cy="28%" r="84%">
+      <stop offset="0%" stop-color="#73839a"/>
+      <stop offset="35%" stop-color="#4b5665"/>
+      <stop offset="100%" stop-color="#2c333d"/>
     </radialGradient>
-    <radialGradient id="haloGlow" cx="50%" cy="40%" r="55%">
-      <stop offset="0%" stop-color="#e9f7ff" stop-opacity="0.95"/>
-      <stop offset="32%" stop-color="#cce6ff" stop-opacity="0.52"/>
+    <radialGradient id="haloGlow" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#eff8ff" stop-opacity="0.96"/>
+      <stop offset="28%" stop-color="#d5eaff" stop-opacity="0.56"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="markFill" x1="10%" y1="0%" x2="90%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#cfe3ff"/>
+      <stop offset="100%" stop-color="#d4e6ff"/>
     </linearGradient>
     <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#415264"/>
-      <stop offset="100%" stop-color="#24303d"/>
+      <stop offset="0%" stop-color="#536374"/>
+      <stop offset="100%" stop-color="#26313f"/>
     </linearGradient>
     <filter id="blurGlow">
       <feGaussianBlur stdDeviation="28.672" result="blur"/>
@@ -30,10 +30,9 @@
     </filter>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)" rx="245.76"/>
-  <ellipse cx="512" cy="512" rx="286.72" ry="225.28" fill="rgba(255,255,255,0.03)" stroke="rgba(221,240,255,0.86)" stroke-width="6.144" filter="url(#blurGlow)"/>
-  <g filter="url(#markShadow)">
-    <rect x="393.216" y="337.91999999999996" width="83.968" height="307.2" rx="41.984" fill="url(#markFill)" transform="rotate(28 435.2 491.52)"/>
-    <rect x="545.792" y="323.58399999999995" width="83.968" height="368.64" rx="41.984" fill="url(#markFill)" transform="rotate(-26 587.7760000000001 522.24)"/>
-    <rect x="481.28" y="499.712" width="90.112" height="148.48" rx="45.056" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="3.072" transform="rotate(16 526.336 573.952)"/>
+  <ellipse cx="512" cy="512" rx="276.48" ry="327.68" fill="rgba(255,255,255,0.035)" stroke="rgba(226,242,255,0.9)" stroke-width="6.144" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)" transform="rotate(12 512 512)">
+    <path d="M 453.63200000000006 645.12 Q 445.8496 551.7312 426.39360000000005 453.4272 Q 420.5568 419.0208 443.904 411.648 Q 515.8912 379.6992 597.6064 423.93600000000004 Q 578.1504 522.24 527.5648 640.2048 Q 486.70720000000006 650.0352 453.63200000000006 645.12 Z" fill="url(#markFill)"/>
+    <path d="M 493.568 619.52 Q 482.048 580.608 490.496 535.552 Q 499.712 517.12 519.68 525.312 Q 505.856 572.416 493.568 619.52 Z" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="3.072"/>
   </g>
 </svg>

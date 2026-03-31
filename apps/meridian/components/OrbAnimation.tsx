@@ -11,7 +11,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
-import { PHASE_SHADOW } from '../lib/theme';
 import { AceMark } from './AceMark';
 
 interface Props {
@@ -23,26 +22,42 @@ interface Props {
 }
 
 const PHASE_COLORS: Record<AppPhase, [string, string]> = {
-  idle: ['#052e16', '#064e3b'],
-  listening: ['#053530', '#065f46'],
-  thinking: ['#0c2240', '#1e3a5f'],
-  choosing: ['#052e16', '#064e3b'],
-  confirming: ['#451a03', '#92400e'],
-  hiring: ['#0c2240', '#1e3a5f'],
-  executing: ['#052e16', '#064e3b'],
-  done: ['#052e16', '#14532d'],
+  idle: ['#151b23', '#2f3945'],
+  listening: ['#19212a', '#34414d'],
+  thinking: ['#0f1722', '#243548'],
+  choosing: ['#151b23', '#2f3945'],
+  confirming: ['#1f1a15', '#4d4030'],
+  hiring: ['#0f1722', '#243548'],
+  executing: ['#151b23', '#2f3945'],
+  done: ['#162017', '#334337'],
   error: ['#450a0a', '#7f1d1d'],
 };
 
 const ACCENT_COLOR: Record<AppPhase, string> = {
-  idle: '#34d399',
-  listening: '#6ee7b7',
-  thinking: '#38bdf8',
-  choosing: '#34d399',
-  confirming: '#fcd34d',
-  hiring: '#38bdf8',
-  executing: '#34d399',
-  done: '#4ade80',
+  idle: '#dcecff',
+  listening: '#e3f2ff',
+  thinking: '#a7d5ff',
+  choosing: '#dcecff',
+  confirming: '#e8d6b2',
+  hiring: '#a7d5ff',
+  executing: '#dcecff',
+  done: '#d6e7da',
+  error: '#f1b3b3',
+};
+
+const GLASS_RING = 'rgba(226, 242, 255, 0.82)';
+const GLASS_GLOW = '#c7e7ff';
+const SILVER_MARK = 'rgba(244, 248, 252, 0.98)';
+const GLASS_BODY = '#313946';
+const ORB_SHADOW: Record<AppPhase, string> = {
+  idle: '#b9d8f2',
+  listening: '#c7e7ff',
+  thinking: '#8bc8ff',
+  choosing: '#b9d8f2',
+  confirming: '#e2c89c',
+  hiring: '#8bc8ff',
+  executing: '#b9d8f2',
+  done: '#b8d6bf',
   error: '#f87171',
 };
 
@@ -58,7 +73,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
 
   const colors      = PHASE_COLORS[phase];
   const accent      = ACCENT_COLOR[phase];
-  const shadowColor = PHASE_SHADOW[phase] ?? '#10b981';
+  const shadowColor = ORB_SHADOW[phase] ?? '#b9d8f2';
 
   useEffect(() => {
     glowScale.stopAnimation();
@@ -159,13 +174,13 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const handlePressOut = () => { if (!disabled && isInteractive && !onPress) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);  onPressOut?.(); } };
 
   const iconName  = phase === 'done' ? 'checkmark' : 'warning-outline';
-  const iconColor = phase === 'done' ? '#4ade80' : '#f87171';
+  const iconColor = phase === 'done' ? '#d8eadc' : '#f2b2b2';
   const iconSize  = 38;
 
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.glow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]}>
-        <LinearGradient colors={[colors[1], 'transparent']} style={styles.glowGrad} />
+        <LinearGradient colors={[shadowColor, 'transparent']} style={styles.glowGrad} />
       </Animated.View>
 
       <Animated.View style={[styles.ring, { transform: [{ scale: ring1Scale }], opacity: ring1Opacity, borderColor: accent }]} />
@@ -183,10 +198,11 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
               <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
             ) : (
               <AceMark
-                size={60}
-                ringColor={`${accent}cc`}
-                glowColor={accent}
-                backgroundColor={colors[0]}
+                size={64}
+                ringColor={GLASS_RING}
+                glowColor={GLASS_GLOW}
+                backgroundColor={GLASS_BODY}
+                iconColor={SILVER_MARK}
               />
             )}
           </LinearGradient>
@@ -223,20 +239,20 @@ const styles = StyleSheet.create({
     width: RING_SIZE,
     height: RING_SIZE,
     borderRadius: RING_SIZE / 2,
-    borderWidth: 1.5,
-    borderColor: '#10b981',
+    borderWidth: 1.2,
+    borderColor: 'rgba(220, 236, 255, 0.9)',
   },
   orb: {
     width: ORB_SIZE,
     height: ORB_SIZE,
     borderRadius: ORB_SIZE / 2,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(235, 244, 255, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.65,
-    shadowRadius: 32,
+    shadowOpacity: 0.55,
+    shadowRadius: 30,
     elevation: 15,
   },
 });

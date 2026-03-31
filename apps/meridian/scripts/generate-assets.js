@@ -23,35 +23,35 @@ if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 function iconSvg(size = 1024) {
   const center = size / 2;
   const bgRadius = size * 0.24;
-  const ringW = size * 0.56;
-  const ringH = size * 0.44;
-  const strokeW = size * 0.082;
-  const leftH = size * 0.30;
-  const rightH = size * 0.36;
-  const leftX = center - size * 0.116;
-  const rightX = center + size * 0.033;
-  const strokeY = center - size * 0.17;
-  const innerDropX = center - size * 0.03;
-  const innerDropY = center - size * 0.012;
+  const ringW = size * 0.54;
+  const ringH = size * 0.64;
+  const markW = size * 0.19;
+  const markH = size * 0.24;
+  const markX = center - markW / 2;
+  const markY = center - markH / 2 + size * 0.01;
+  const cutW = size * 0.075;
+  const cutH = size * 0.10;
+  const cutX = center - cutW * 0.24;
+  const cutY = center + size * 0.005;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="76%">
-      <stop offset="0%" stop-color="#5c6776"/>
-      <stop offset="38%" stop-color="#39414d"/>
-      <stop offset="100%" stop-color="#1f252e"/>
+    <radialGradient id="bg" cx="48%" cy="28%" r="84%">
+      <stop offset="0%" stop-color="#73839a"/>
+      <stop offset="35%" stop-color="#4b5665"/>
+      <stop offset="100%" stop-color="#2c333d"/>
     </radialGradient>
-    <radialGradient id="haloGlow" cx="50%" cy="40%" r="55%">
-      <stop offset="0%" stop-color="#e9f7ff" stop-opacity="0.95"/>
-      <stop offset="32%" stop-color="#cce6ff" stop-opacity="0.52"/>
+    <radialGradient id="haloGlow" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#eff8ff" stop-opacity="0.96"/>
+      <stop offset="28%" stop-color="#d5eaff" stop-opacity="0.56"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="markFill" x1="10%" y1="0%" x2="90%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#cfe3ff"/>
+      <stop offset="100%" stop-color="#d4e6ff"/>
     </linearGradient>
     <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#415264"/>
-      <stop offset="100%" stop-color="#24303d"/>
+      <stop offset="0%" stop-color="#536374"/>
+      <stop offset="100%" stop-color="#26313f"/>
     </linearGradient>
     <filter id="blurGlow">
       <feGaussianBlur stdDeviation="${size * 0.028}" result="blur"/>
@@ -65,11 +65,10 @@ function iconSvg(size = 1024) {
     </filter>
   </defs>
   <rect width="${size}" height="${size}" fill="url(#bg)" rx="${bgRadius}"/>
-  <ellipse cx="${center}" cy="${center}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.03)" stroke="rgba(221,240,255,0.86)" stroke-width="${size * 0.006}" filter="url(#blurGlow)"/>
-  <g filter="url(#markShadow)">
-    <rect x="${leftX}" y="${strokeY}" width="${strokeW}" height="${leftH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(28 ${leftX + strokeW / 2} ${strokeY + leftH / 2})"/>
-    <rect x="${rightX}" y="${strokeY - size * 0.014}" width="${strokeW}" height="${rightH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(-26 ${rightX + strokeW / 2} ${strokeY + rightH / 2})"/>
-    <rect x="${innerDropX}" y="${innerDropY}" width="${size * 0.088}" height="${size * 0.145}" rx="${size * 0.044}" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${size * 0.003}" transform="rotate(16 ${innerDropX + size * 0.044} ${innerDropY + size * 0.0725})"/>
+  <ellipse cx="${center}" cy="${center}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.035)" stroke="rgba(226,242,255,0.9)" stroke-width="${size * 0.006}" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)" transform="rotate(12 ${center} ${center})">
+    <path d="M ${markX + markW * 0.2} ${markY + markH} Q ${markX + markW * 0.16} ${markY + markH * 0.62} ${markX + markW * 0.06} ${markY + markH * 0.22} Q ${markX + markW * 0.03} ${markY + markH * 0.08} ${markX + markW * 0.15} ${markY + markH * 0.05} Q ${markX + markW * 0.52} ${markY - markH * 0.08} ${markX + markW * 0.94} ${markY + markH * 0.1} Q ${markX + markW * 0.84} ${markY + markH * 0.5} ${markX + markW * 0.58} ${markY + markH * 0.98} Q ${markX + markW * 0.37} ${markY + markH * 1.02} ${markX + markW * 0.2} ${markY + markH} Z" fill="url(#markFill)"/>
+    <path d="M ${cutX} ${cutY + cutH} Q ${cutX - cutW * 0.15} ${cutY + cutH * 0.62} ${cutX - cutW * 0.04} ${cutY + cutH * 0.18} Q ${cutX + cutW * 0.08} ${cutY} ${cutX + cutW * 0.34} ${cutY + cutH * 0.08} Q ${cutX + cutW * 0.16} ${cutY + cutH * 0.54} ${cutX} ${cutY + cutH} Z" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${size * 0.003}"/>
   </g>
 </svg>`;
 }
@@ -77,35 +76,35 @@ function iconSvg(size = 1024) {
 function splashSvg(w = 1242, h = 2688) {
   const cx = w / 2;
   const cy = h / 2;
-  const ringW = w * 0.32;
-  const ringH = w * 0.25;
-  const strokeW = w * 0.046;
-  const leftH = w * 0.17;
-  const rightH = w * 0.205;
-  const leftX = cx - w * 0.066;
-  const rightX = cx + w * 0.02;
-  const strokeY = cy - h * 0.102;
-  const innerDropX = cx - w * 0.024;
-  const innerDropY = cy - h * 0.025;
+  const ringW = w * 0.31;
+  const ringH = w * 0.37;
+  const markW = w * 0.105;
+  const markH = w * 0.135;
+  const markX = cx - markW / 2;
+  const markY = cy - h * 0.09;
+  const cutW = w * 0.04;
+  const cutH = w * 0.055;
+  const cutX = cx - cutW * 0.24;
+  const cutY = cy - h * 0.04;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="78%">
-      <stop offset="0%" stop-color="#53606d"/>
-      <stop offset="40%" stop-color="#323945"/>
-      <stop offset="100%" stop-color="#1b2027"/>
+    <radialGradient id="bg" cx="48%" cy="28%" r="82%">
+      <stop offset="0%" stop-color="#728198"/>
+      <stop offset="38%" stop-color="#495462"/>
+      <stop offset="100%" stop-color="#242b33"/>
     </radialGradient>
-    <radialGradient id="haloGlow" cx="50%" cy="39%" r="58%">
-      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.95"/>
-      <stop offset="30%" stop-color="#d8ebff" stop-opacity="0.52"/>
+    <radialGradient id="haloGlow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#eef8ff" stop-opacity="0.96"/>
+      <stop offset="28%" stop-color="#d7eaff" stop-opacity="0.54"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="markFill" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="markFill" x1="10%" y1="0%" x2="90%" y2="100%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#cfe3ff"/>
+      <stop offset="100%" stop-color="#d4e6ff"/>
     </linearGradient>
     <linearGradient id="innerDrop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#415264"/>
-      <stop offset="100%" stop-color="#24303d"/>
+      <stop offset="0%" stop-color="#536374"/>
+      <stop offset="100%" stop-color="#26313f"/>
     </linearGradient>
     <filter id="blurGlow">
       <feGaussianBlur stdDeviation="${w * 0.022}" result="b"/>
@@ -116,11 +115,10 @@ function splashSvg(w = 1242, h = 2688) {
     </filter>
   </defs>
   <rect width="${w}" height="${h}" fill="url(#bg)"/>
-  <ellipse cx="${cx}" cy="${cy - h * 0.07}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.03)" stroke="rgba(226,240,255,0.88)" stroke-width="${w * 0.0048}" filter="url(#blurGlow)"/>
-  <g filter="url(#markShadow)">
-    <rect x="${leftX}" y="${strokeY}" width="${strokeW}" height="${leftH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(28 ${leftX + strokeW / 2} ${strokeY + leftH / 2})"/>
-    <rect x="${rightX}" y="${strokeY - w * 0.008}" width="${strokeW}" height="${rightH}" rx="${strokeW / 2}" fill="url(#markFill)" transform="rotate(-26 ${rightX + strokeW / 2} ${strokeY + rightH / 2})"/>
-    <rect x="${innerDropX}" y="${innerDropY}" width="${w * 0.05}" height="${w * 0.082}" rx="${w * 0.025}" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${w * 0.0024}" transform="rotate(16 ${innerDropX + w * 0.025} ${innerDropY + w * 0.041})"/>
+  <ellipse cx="${cx}" cy="${cy - h * 0.07}" rx="${ringW / 2}" ry="${ringH / 2}" fill="rgba(255,255,255,0.035)" stroke="rgba(226,240,255,0.9)" stroke-width="${w * 0.0048}" filter="url(#blurGlow)"/>
+  <g filter="url(#markShadow)" transform="rotate(12 ${cx} ${cy - h * 0.07})">
+    <path d="M ${markX + markW * 0.2} ${markY + markH} Q ${markX + markW * 0.16} ${markY + markH * 0.62} ${markX + markW * 0.06} ${markY + markH * 0.22} Q ${markX + markW * 0.03} ${markY + markH * 0.08} ${markX + markW * 0.15} ${markY + markH * 0.05} Q ${markX + markW * 0.52} ${markY - markH * 0.08} ${markX + markW * 0.94} ${markY + markH * 0.1} Q ${markX + markW * 0.84} ${markY + markH * 0.5} ${markX + markW * 0.58} ${markY + markH * 0.98} Q ${markX + markW * 0.37} ${markY + markH * 1.02} ${markX + markW * 0.2} ${markY + markH} Z" fill="url(#markFill)"/>
+    <path d="M ${cutX} ${cutY + cutH} Q ${cutX - cutW * 0.15} ${cutY + cutH * 0.62} ${cutX - cutW * 0.04} ${cutY + cutH * 0.18} Q ${cutX + cutW * 0.08} ${cutY} ${cutX + cutW * 0.34} ${cutY + cutH * 0.08} Q ${cutX + cutW * 0.16} ${cutY + cutH * 0.54} ${cutX} ${cutY + cutH} Z" fill="url(#innerDrop)" stroke="rgba(255,255,255,0.08)" stroke-width="${w * 0.0024}"/>
   </g>
   <text x="${cx}" y="${cy + h*0.126}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.105}" font-weight="700" fill="white" text-anchor="middle" letter-spacing="8">ACE</text>
   <text x="${cx}" y="${cy + h*0.156}" font-family="system-ui, -apple-system, sans-serif" font-size="${w*0.025}" fill="#b7c2ce" text-anchor="middle" letter-spacing="2">Travel, handled.</text>
