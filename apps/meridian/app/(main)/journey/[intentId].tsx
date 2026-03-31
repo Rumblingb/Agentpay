@@ -337,7 +337,7 @@ export default function JourneyScreen() {
             </>
           ) : (
             <>
-              <Text style={styles.sectionEyebrow}>What Ace is doing</Text>
+              <Text style={styles.sectionEyebrow}>Live handling</Text>
               <View style={styles.stepsCard}>
                 {steps.map((step) => (
                   <View key={step.key} style={styles.stepRow}>

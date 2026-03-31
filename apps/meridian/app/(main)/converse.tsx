@@ -339,7 +339,7 @@ function activeTripStatusCopy(activeTrip: ActiveTrip): { pill: string; body: str
     : [activeTrip.departureTime, platformPart].filter(Boolean).join(' · ');
 
   return {
-    pill: 'Latest journey',
+    pill: 'Live journey',
     body: activeTrip.finalLegSummary || timingLine || 'Open for journey details',
   };
 }
@@ -1498,7 +1498,7 @@ export default function ConverseScreen() {
         {recentTurns.length > 0 && (
           <View style={styles.recentTurnsCard}>
             <View style={styles.recentTurnsHeader}>
-              <Text style={styles.recentTurnsEyebrow}>Ace is thinking</Text>
+              <Text style={styles.recentTurnsEyebrow}>Recent from Ace</Text>
               {recentTurns.length > 1 && (
                 <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
               )}

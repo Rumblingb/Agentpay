@@ -758,7 +758,7 @@ export default function StatusScreen() {
         <View style={styles.conciergeCard}>
           <View style={styles.conciergeHeader}>
             <Ionicons name="sparkles-outline" size={14} color="#93c5fd" />
-            <Text style={styles.conciergeEyebrow}>What Ace is doing</Text>
+            <Text style={styles.conciergeEyebrow}>Live handling</Text>
           </View>
           <Text style={styles.conciergeHeadline}>{conciergeHeadline}</Text>
           <Text style={styles.conciergeBody}>{conciergeSubline}</Text>

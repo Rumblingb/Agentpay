@@ -896,7 +896,7 @@ export default function ReceiptScreen() {
 
         {((receipt && !loading) || (!loading && hasJourneyDetails)) && (
           <>
-            <Text style={styles.receiptEyebrow}>Ace journey brief</Text>
+            <Text style={styles.receiptEyebrow}>Journey</Text>
             {/* Success badge */}
             <View style={styles.badge}>
               <LinearGradient colors={['#052e16', '#14532d']} style={styles.badgeGrad}>
@@ -940,7 +940,7 @@ export default function ReceiptScreen() {
                     <Text style={styles.paymentRecoveryTitle}>Payment still needs to clear</Text>
                   </View>
                   <Text style={styles.paymentRecoveryBody}>
-                    Ace has the journey lined up. Once payment clears, everything here updates automatically.
+                    Ace is holding the journey here. Once payment clears, everything updates automatically.
                   </Text>
                   {paymentRecoveryNote ? (
                     <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
@@ -1036,7 +1036,7 @@ export default function ReceiptScreen() {
                     ) : (
                       <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
                     )}
-                    <Text style={styles.showTicketText}>Show code</Text>
+                    <Text style={styles.showTicketText}>Open ticket code</Text>
                   </Pressable>
                 )}
               </View>
@@ -1118,7 +1118,7 @@ export default function ReceiptScreen() {
             {/* Actions */}
               <Pressable onPress={handleShare} style={styles.shareBtn}>
                 <Ionicons name="share-outline" size={18} color="#818cf8" />
-                <Text style={styles.shareBtnText}>Share this journey</Text>
+                <Text style={styles.shareBtnText}>Share journey</Text>
               </Pressable>
 
               {repeatRoutePrompt && (
@@ -1127,7 +1127,7 @@ export default function ReceiptScreen() {
                   style={styles.shareBtn}
                 >
                   <Ionicons name="refresh-outline" size={18} color="#93c5fd" />
-                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Ask Ace for this again</Text>
+                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Run this with Ace again</Text>
                 </Pressable>
               )}
 
@@ -1151,7 +1151,7 @@ export default function ReceiptScreen() {
             {walletPassUrl && (
               <Pressable onPress={() => { void handleAddToWallet(); }} style={styles.shareBtn}>
                 <Ionicons name="wallet-outline" size={18} color="#cbe8ff" />
-                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>Add to Apple Wallet</Text>
+                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>Add pass to Wallet</Text>
               </Pressable>
             )}
 
@@ -1365,7 +1365,7 @@ function JourneyTimeline({
           ) : (
             <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
           )}
-          <Text style={styles.showTicketText}>Show code</Text>
+          <Text style={styles.showTicketText}>Open ticket code</Text>
         </Pressable>
       )}
     </View>
@@ -1603,7 +1603,7 @@ const styles = StyleSheet.create({
   },
   receiptEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#d8e6f5',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
@@ -1725,11 +1725,11 @@ const styles = StyleSheet.create({
 
   journeyCard: {
     width: '100%',
-    backgroundColor: 'rgba(10, 26, 10, 0.9)',
+    backgroundColor: 'rgba(8, 18, 34, 0.94)',
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(53, 83, 122, 0.34)',
     marginBottom: 14,
   },
   journeyHeader: {
@@ -1742,13 +1742,15 @@ const styles = StyleSheet.create({
   journeyTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   journeyRefWrap: {
     alignItems: 'center',
-    backgroundColor: '#052e16',
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.24)',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
@@ -1765,7 +1767,7 @@ const styles = StyleSheet.create({
   journeyRef: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     letterSpacing: 2.5,
     fontFamily: 'monospace',
   },
@@ -1826,16 +1828,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginTop: 14,
-    backgroundColor: '#052e16',
+    backgroundColor: '#0b1320',
     borderRadius: 12,
     paddingVertical: 13,
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(53, 83, 122, 0.28)',
   },
   showTicketText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     letterSpacing: 0.3,
   },
 
