@@ -1,5 +1,5 @@
 /**
- * Settings screen — name, auto-confirm limit, reset
+ * Settings screen — identity, learned places, reset
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -23,7 +23,6 @@ import { clearTravelUnits, loadTravelUnitSummary, type TravelUnitSummary } from 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset, clearTurns } = useStore();
   const [name, setName]           = useState(userName);
-  const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
   const [home, setHome]           = useState(homeStation ?? '');
   const [work, setWork]           = useState(workStation ?? '');
   const [saved, setSaved]         = useState(false);
@@ -82,12 +81,11 @@ export default function SettingsScreen() {
   };
 
   const handleSave = async () => {
-    const budgetN   = parseFloat(budget) || 5;
     const newName   = name.trim() || 'there';
     const newHome   = home.trim() || undefined;
     const newWork   = work.trim() || undefined;
-    setPrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome ?? null, workStation: newWork ?? null });
-    await savePrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome, workStation: newWork });
+    setPrefs({ userName: newName, autoConfirmLimitUsdc, homeStation: newHome ?? null, workStation: newWork ?? null });
+    await savePrefs({ userName: newName, autoConfirmLimitUsdc, homeStation: newHome, workStation: newWork });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -184,24 +182,6 @@ export default function SettingsScreen() {
             placeholderTextColor="#374151"
             autoCapitalize="words"
           />
-        </Section>
-
-        {/* Auto-confirm spending limit */}
-        <Section
-          label="BOOKING LIMIT"
-          hint="Ace will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
-        >
-          <View style={styles.budgetRow}>
-            {['2', '5', '10', '25'].map((v) => (
-              <Pressable
-                key={v}
-                onPress={() => setBudget(v)}
-                style={[styles.chip, budget === v && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, budget === v && styles.chipTextActive]}>${v}</Text>
-              </Pressable>
-            ))}
-          </View>
         </Section>
 
         {/* Travel Profile */}

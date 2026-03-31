@@ -70,6 +70,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const ring2Opacity = useRef(new Animated.Value(0)).current;
   const orbScale    = useRef(new Animated.Value(1)).current;
   const orbLift     = useRef(new Animated.Value(0)).current;
+  const markHeading = useRef(new Animated.Value(0)).current;
 
   const colors      = PHASE_COLORS[phase];
   const accent      = ACCENT_COLOR[phase];
@@ -84,6 +85,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
     ring2Opacity.stopAnimation();
     orbScale.stopAnimation();
     orbLift.stopAnimation();
+    markHeading.stopAnimation();
 
     if (phase === 'idle') {
       // Slow breath — calm, present
@@ -104,6 +106,13 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         Animated.sequence([
           Animated.timing(orbLift, { toValue: -3, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           Animated.timing(orbLift, { toValue:  0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(markHeading, { toValue: -2, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 3, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 0, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }
@@ -134,6 +143,13 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         ]),
       ).start();
       Animated.timing(glowOpacity, { toValue: 0.6, duration: 400, useNativeDriver: true }).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(markHeading, { toValue: -5, duration: 850, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 6, duration: 850, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
@@ -147,6 +163,13 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
         Animated.sequence([
           Animated.timing(orbLift, { toValue: -2, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
           Animated.timing(orbLift, { toValue:  0, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ]),
+      ).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(markHeading, { toValue: -3, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 4, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(markHeading, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }
@@ -165,7 +188,10 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
       ring1Scale.setValue(1);   ring1Opacity.setValue(0);
       ring2Scale.setValue(1);   ring2Opacity.setValue(0);
     }
-  }, [phase, glowOpacity, glowScale, orbLift, orbScale, ring1Opacity, ring1Scale, ring2Opacity, ring2Scale]);
+    if (phase === 'choosing' || phase === 'confirming' || phase === 'error') {
+      Animated.timing(markHeading, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    }
+  }, [glowOpacity, glowScale, markHeading, orbLift, orbScale, phase, ring1Opacity, ring1Scale, ring2Opacity, ring2Scale]);
 
   const isInteractive = phase === 'idle' || phase === 'listening' || phase === 'confirming' || phase === 'error';
 
@@ -176,6 +202,10 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
   const iconName  = phase === 'done' ? 'checkmark' : 'warning-outline';
   const iconColor = phase === 'done' ? '#d8eadc' : '#f2b2b2';
   const iconSize  = 38;
+  const heading = markHeading.interpolate({
+    inputRange: [-8, 8],
+    outputRange: ['4deg', '20deg'],
+  });
 
   return (
     <View style={styles.container}>
@@ -197,13 +227,16 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
             {phase === 'done' || phase === 'error' ? (
               <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
             ) : (
-              <AceMark
-                size={64}
-                ringColor={GLASS_RING}
-                glowColor={GLASS_GLOW}
-                backgroundColor={GLASS_BODY}
-                iconColor={SILVER_MARK}
-              />
+              <Animated.View style={{ transform: [{ rotate: heading }] }}>
+                <AceMark
+                  size={64}
+                  ringColor={GLASS_RING}
+                  glowColor={GLASS_GLOW}
+                  backgroundColor={GLASS_BODY}
+                  iconColor={SILVER_MARK}
+                  headingDeg={0}
+                />
+              </Animated.View>
             )}
           </LinearGradient>
         </Pressable>

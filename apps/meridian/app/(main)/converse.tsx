@@ -575,10 +575,12 @@ export default function ConverseScreen() {
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
   const [preferredTravelUnit, setPreferredTravelUnit] = useState<TravelUnit | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode>('solo');
+  const [familyMemberCount, setFamilyMemberCount] = useState(0);
   const [textFallbackVisible, setTextFallbackVisible] = useState(false);
   const [textFallbackDraft, setTextFallbackDraft] = useState('');
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
   const [guidanceSessions, setGuidanceSessions] = useState(0);
+  const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
 
   useEffect(() => {
     if (turns.length === 0) return;
@@ -590,10 +592,12 @@ export default function ConverseScreen() {
     (async () => {
       try {
         const profile = await loadProfileRaw();
-        if (!active || !profile?.nationality) return;
-        setMarketNationality(profile.nationality);
+        if (!active) return;
+        if (profile?.nationality) setMarketNationality(profile.nationality);
+        setFamilyMemberCount(profile?.familyMembers?.length ?? 0);
       } catch {
         // Keep the default UK launch market if the profile is unavailable.
+        if (active) setFamilyMemberCount(0);
       }
     })();
     return () => {
@@ -610,6 +614,7 @@ export default function ConverseScreen() {
       if (active) {
         setPreferredTravelUnit(sharedUnit);
         setBookingMode(sharedUnit ? 'shared' : 'solo');
+        setTravelModePromptDismissed(false);
       }
     })();
     return () => {
@@ -1017,6 +1022,9 @@ export default function ConverseScreen() {
           metadata: { phase: 'transcribe' },
         });
         let nextMessage = __DEV__ ? `STT: ${rawMessage}` : 'Voice error — try again.';
+        if (!__DEV__) {
+          nextMessage = 'Ace missed that. Say it again, or type the trip below.';
+        }
         if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
           nextMessage = 'Ace did not catch that in time. Say it again, or type it below.';
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
@@ -1063,6 +1071,7 @@ export default function ConverseScreen() {
         metadata: { phase: 'capture' },
       });
       let nextMessage = 'Something went wrong — tap to try again.';
+      nextMessage = 'Ace missed that. Touch and say it again, or type the trip below.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -1160,14 +1169,67 @@ export default function ConverseScreen() {
     : lastRouteHintPreview
     ? `Ace, ${lastRouteHintPreview.replace(/\?$/, '')}.`
     : nearestStation
-    ? `Ace, get me from ${nearestStation} tomorrow morning.`
+    ? `Ace, get me from ${nearestStation.name} tomorrow morning.`
     : 'Ace, get me to Glasgow tomorrow.';
 
   const heroResponse = bookingMode === 'shared'
-    ? `Planning for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
-    : 'Planning the strongest route for you.';
+    ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
+    : 'I’ll line up the best way there.';
   const primarySuggestion = idleSuggestions[0] ?? null;
   const showIdleGuidance = guidanceSessions > 0 && guidanceSessions <= 3;
+  const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;
+  const shouldNudgeTravelSetup =
+    !preferredTravelUnit
+    && !travelModePromptDismissed
+    && guidanceSessions >= 2
+    && guidanceSessions % 4 === 0;
+  const inferredTravelShape =
+    familyMemberCount >= 2 ? 'family'
+    : familyMemberCount === 1 ? 'couple'
+    : 'single';
+  const travelModeReminder = preferredTravelUnit
+    ? shouldShowTravelModeReminder
+    ? {
+        eyebrow: 'Travel mode',
+        title: `Ace is set to ${preferredTravelUnit.type}.`,
+        body: `${preferredTravelUnit.name} is your current shared travel unit, so Ace can think in terms of us when you need it to.`,
+        primaryLabel: 'Manage travel mode',
+        primaryAction: () => router.push('/(main)/travel-together'),
+        secondaryLabel: null as string | null,
+        secondaryAction: null as (() => void) | null,
+      }
+    : null
+    : shouldNudgeTravelSetup
+    ? inferredTravelShape === 'family'
+      ? {
+          eyebrow: 'Travel mode',
+          title: 'Ace still sees this as solo travel.',
+          body: 'You already have family details saved. Want Ace to set up family mode quietly in the background so “for the family” just works?',
+          primaryLabel: 'Set up family mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Later',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+      : inferredTravelShape === 'couple'
+      ? {
+          eyebrow: 'Travel mode',
+          title: 'Ace is still treating you as solo.',
+          body: 'If you usually travel as a couple, Ace can help set that up in the background so “for us” becomes natural.',
+          primaryLabel: 'Set up couple mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Later',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+      : {
+          eyebrow: 'Travel mode',
+          title: 'Ace is keeping this personal to you.',
+          body: 'If that changes, Ace can set up couple or family travel in the background without interrupting how you book today.',
+          primaryLabel: 'Set up travel mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Keep solo',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+    : null;
 
   // Last route suggestion — "Same route as last time?"
   const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
@@ -1252,8 +1314,8 @@ export default function ConverseScreen() {
                   </View>
                   <Text style={styles.modeFootnote}>
                     {bookingMode === 'shared'
-                      ? 'Ace will plan this as a shared trip and keep approvals stricter.'
-                      : 'Ace will treat this as a solo booking unless you ask for the household.'}
+                      ? 'Ace will hold this as one shared trip.'
+                      : 'Ace will keep this trip just for you.'}
                   </Text>
                 </View>
               )}
@@ -1367,6 +1429,31 @@ export default function ConverseScreen() {
                   >
                     <Text style={[styles.sharedUnitBtnText, styles.sharedUnitBtnTextSecondary]}>Get us home</Text>
                   </Pressable>
+                </View>
+              </View>
+            )}
+            {travelModeReminder && (
+              <View style={styles.travelModePromptCard}>
+                <View style={styles.travelModePromptHeader}>
+                  <Text style={styles.travelModePromptEyebrow}>{travelModeReminder.eyebrow}</Text>
+                </View>
+                <Text style={styles.travelModePromptTitle}>{travelModeReminder.title}</Text>
+                <Text style={styles.travelModePromptBody}>{travelModeReminder.body}</Text>
+                <View style={styles.travelModePromptActions}>
+                  <Pressable
+                    onPress={travelModeReminder.primaryAction}
+                    style={styles.travelModePromptPrimary}
+                  >
+                    <Text style={styles.travelModePromptPrimaryText}>{travelModeReminder.primaryLabel}</Text>
+                  </Pressable>
+                  {travelModeReminder.secondaryLabel && travelModeReminder.secondaryAction && (
+                    <Pressable
+                      onPress={travelModeReminder.secondaryAction}
+                      style={styles.travelModePromptSecondary}
+                    >
+                      <Text style={styles.travelModePromptSecondaryText}>{travelModeReminder.secondaryLabel}</Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
             )}
@@ -2480,6 +2567,66 @@ const styles = StyleSheet.create({
   },
   sharedUnitBtnTextSecondary: {
     color: '#d9e7f4',
+  },
+  travelModePromptCard: {
+    backgroundColor: 'rgba(8, 14, 22, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 10,
+    width: '100%',
+  },
+  travelModePromptHeader: {
+    marginBottom: 6,
+  },
+  travelModePromptEyebrow: {
+    fontSize: 11,
+    color: '#c9d9e8',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  travelModePromptTitle: {
+    fontSize: 16,
+    color: '#f4f8fc',
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: -0.2,
+  },
+  travelModePromptBody: {
+    fontSize: 12,
+    color: '#aebfd0',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  travelModePromptActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  travelModePromptPrimary: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#dcecff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  travelModePromptPrimaryText: {
+    fontSize: 12,
+    color: '#0e1722',
+    fontWeight: '700',
+  },
+  travelModePromptSecondary: {
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  travelModePromptSecondaryText: {
+    fontSize: 12,
+    color: '#9db1c5',
+    fontWeight: '600',
   },
   myTripsBtn:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   myTripsBtnText:  { fontSize: 13, color: '#64748b' },
