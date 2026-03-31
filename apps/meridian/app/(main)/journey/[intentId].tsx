@@ -70,6 +70,7 @@ export default function JourneyScreen() {
   const [error, setError] = useState<string | null>(null);
   const [walletTrackedFor, setWalletTrackedFor] = useState<string | null>(null);
   const [rerouteTrackedFor, setRerouteTrackedFor] = useState<string | null>(null);
+  const [acknowledgedSignalIds, setAcknowledgedSignalIds] = useState<string[]>([]);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [issueCategory, setIssueCategory] = useState<'payment' | 'delay' | 'ticket' | 'other'>('delay');
   const [issueText, setIssueText] = useState('');
@@ -328,6 +329,10 @@ export default function JourneyScreen() {
   }, [intentId, logJourneyEvent, rerouteBody, rerouteTitle, rerouteTranscript, session]);
 
   useEffect(() => {
+    setAcknowledgedSignalIds([]);
+  }, [session?.intentId]);
+
+  useEffect(() => {
     if (!session?.walletPassUrl || walletTrackedFor === session.intentId) return;
     setWalletTrackedFor(session.intentId);
     logJourneyEvent({
@@ -346,6 +351,10 @@ export default function JourneyScreen() {
   }, [logJourneyEvent, rerouteTrackedFor, session]);
 
   const cards = useMemo(() => tripCards(session?.tripContext), [session?.tripContext]);
+  const visibleCards = useMemo(
+    () => cards.filter((card) => !acknowledgedSignalIds.includes(card.id)),
+    [acknowledgedSignalIds, cards],
+  );
   const recovery = useMemo(() => (session ? journeyRecovery(session) : null), [session]);
   const insights = useMemo(() => (session ? journeyInsights(session) : []), [session]);
   const steps = useMemo(() => (session ? journeySteps(session) : []), [session]);
@@ -551,7 +560,7 @@ export default function JourneyScreen() {
   }, [logJourneyEvent, repeatPrompt, routeLabel, session]);
 
   const handleCard = useCallback(async (card: (typeof cards)[number]) => {
-    if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) {
+    if (['delay_risk', 'connection_risk'].includes(card.kind)) {
       if (session) {
         logJourneyEvent({
           event: 'reroute_offer_accepted',
@@ -563,6 +572,22 @@ export default function JourneyScreen() {
         });
       }
       askAce();
+      return;
+    }
+    if (['platform_changed', 'gate_changed'].includes(card.kind)) {
+      setAcknowledgedSignalIds((current) => (
+        current.includes(card.id) ? current : [...current, card.id]
+      ));
+      if (session) {
+        logJourneyEvent({
+          event: 'journey_signal_acknowledged',
+          metadata: {
+            intentId: session.intentId,
+            source: 'journey_card',
+            cardKind: card.kind,
+          },
+        });
+      }
       return;
     }
     if (card.kind === 'destination_suggestion' || card.kind === 'leave_now') {
@@ -796,11 +821,11 @@ export default function JourneyScreen() {
           </View>
         )}
 
-        {cards.length > 0 && (
+        {visibleCards.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionEyebrow}>Actions Ace can take now</Text>
             <View style={styles.cardsWrap}>
-              {cards.slice(0, 3).map((card) => {
+              {visibleCards.slice(0, 3).map((card) => {
                 const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
                 const cta = journeyProactiveActionLabel(card);
                 return (
