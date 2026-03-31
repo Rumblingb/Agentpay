@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getIntentStatus } from '../../../lib/api';
+import { getIntentStatus, reportIssue } from '../../../lib/api';
 import { AceMark } from '../../../components/AceMark';
 import {
   journeyDisplayRoute,
@@ -20,6 +20,7 @@ import { loadJourneySession, patchJourneySession, saveJourneySession, type Journ
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
 import { trackClientEvent } from '../../../lib/telemetry';
 import { C } from '../../../lib/theme';
+import { useStore } from '../../../lib/store';
 
 function sessionTone(session: JourneySession) {
   switch (session.state) {
@@ -68,6 +69,12 @@ export default function JourneyScreen() {
   const [error, setError] = useState<string | null>(null);
   const [walletTrackedFor, setWalletTrackedFor] = useState<string | null>(null);
   const [rerouteTrackedFor, setRerouteTrackedFor] = useState<string | null>(null);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [issueCategory, setIssueCategory] = useState<'payment' | 'delay' | 'ticket' | 'other'>('delay');
+  const [issueText, setIssueText] = useState('');
+  const [issueSending, setIssueSending] = useState(false);
+  const [issueSent, setIssueSent] = useState(false);
+  const { agentId } = useStore();
 
   const logJourneyEvent = useCallback((params: {
     event: string;
@@ -370,6 +377,75 @@ export default function JourneyScreen() {
     }
   }, [askAce, logJourneyEvent, openMap, session]);
 
+  const openIssueModal = useCallback((category?: 'payment' | 'delay' | 'ticket' | 'other') => {
+    const nextCategory =
+      category
+      ?? (session?.state === 'payment_pending' ? 'payment'
+      : session?.state === 'attention' ? 'delay'
+      : 'ticket');
+    setIssueCategory(nextCategory);
+    setIssueSent(false);
+    setIssueText((current) => {
+      if (current.trim()) return current;
+      if (nextCategory === 'payment') return 'Payment did not clear or the payment flow did not complete.';
+      if (nextCategory === 'delay') return 'Something changed on this journey and I need help with the next step.';
+      if (nextCategory === 'ticket') return 'I need help with the issued ticket or booking details.';
+      return '';
+    });
+    setShowIssueModal(true);
+    if (session) {
+      logJourneyEvent({
+        event: 'support_opened',
+        metadata: { intentId: session.intentId, category: nextCategory },
+      });
+    }
+  }, [logJourneyEvent, session]);
+
+  const submitIssue = useCallback(async () => {
+    if (!session?.intentId || !agentId || issueSending) return;
+    setIssueSending(true);
+    try {
+      const route = [session.fromStation, session.toStation].filter(Boolean).join(' -> ');
+      const prefix = `[${issueCategory}]`;
+      const summary = [prefix, route, session.bookingRef ? `ref ${session.bookingRef}` : null].filter(Boolean).join(' ');
+      const userText = issueText.trim() || 'Customer requested help from the live journey screen.';
+      await reportIssue({
+        intentId: session.intentId,
+        bookingRef: session.bookingRef ?? null,
+        description: `${summary}\n${userText}`,
+        hirerId: agentId,
+      });
+      const requestedAt = new Date().toISOString();
+      const nextSession: JourneySession = {
+        ...session,
+        supportState: 'requested',
+        supportRequestedAt: requestedAt,
+        supportSummary: userText,
+        lastEventKey: 'support_requested',
+        lastEventAt: requestedAt,
+        updatedAt: requestedAt,
+      };
+      setSession(nextSession);
+      await patchJourneySession(session.intentId, nextSession).catch(() => null);
+      logJourneyEvent({
+        event: 'support_requested',
+        metadata: { intentId: session.intentId, category: issueCategory },
+      });
+      setIssueSent(true);
+      setIssueText('');
+    } catch (error: any) {
+      logJourneyEvent({
+        event: 'support_request_failed',
+        severity: 'warning',
+        message: error?.message ?? 'Could not send support request from Journey.',
+        metadata: { intentId: session.intentId, category: issueCategory },
+      });
+      setError(error?.message ?? 'Ace could not send your issue right now.');
+    } finally {
+      setIssueSending(false);
+    }
+  }, [agentId, issueCategory, issueSending, issueText, logJourneyEvent, session]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -548,6 +624,36 @@ export default function JourneyScreen() {
           </View>
         )}
 
+        {(session.supportState === 'requested' || session.state === 'attention' || session.state === 'payment_pending') && (
+          <View style={styles.section}>
+            <Text style={styles.sectionEyebrow}>Support</Text>
+            <View style={styles.supportCard}>
+              <Text style={styles.supportTitle}>
+                {session.supportState === 'requested' ? 'Support is already on this trip' : 'Need a human on this journey?'}
+              </Text>
+              <Text style={styles.supportBody}>
+                {session.supportState === 'requested'
+                  ? (session.supportSummary
+                    ? `Latest note sent: ${session.supportSummary}`
+                    : 'Ace support already has the route, booking, and live journey context attached.')
+                  : session.state === 'payment_pending'
+                  ? 'If payment or issue timing feels off, Ace support can pick this up without you re-explaining the route.'
+                  : 'Ace can hand this straight to support with the live trip context, booking state, and latest changes attached.'}
+              </Text>
+              <View style={styles.supportActions}>
+                <Pressable onPress={() => openIssueModal()} style={styles.supportPrimaryBtn}>
+                  <Text style={styles.supportPrimaryText}>{session.supportState === 'requested' ? 'Update support' : 'Get help'}</Text>
+                </Pressable>
+                {session.state !== 'payment_pending' && (
+                  <Pressable onPress={openStatus} style={styles.supportSecondaryBtn}>
+                    <Text style={styles.supportSecondaryText}>Open live handling</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
         <View style={styles.actions}>
           {session.state === 'securing' || session.state === 'payment_pending' || session.state === 'attention' ? (
             <Pressable onPress={openStatus} style={styles.primaryBtn}>
@@ -588,6 +694,47 @@ export default function JourneyScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal visible={showIssueModal} transparent animationType="fade" onRequestClose={() => setShowIssueModal(false)}>
+        <View style={styles.modalScrim}>
+          <View style={styles.issueModal}>
+            <Text style={styles.issueTitle}>Get help on this journey</Text>
+            <Text style={styles.issueBody}>
+              Ace support receives the live route, booking reference, and journey state automatically from here.
+            </Text>
+            <View style={styles.issueChips}>
+              {(['payment', 'delay', 'ticket', 'other'] as const).map((category) => (
+                <Pressable
+                  key={category}
+                  onPress={() => setIssueCategory(category)}
+                  style={[styles.issueChip, issueCategory === category && styles.issueChipActive]}
+                >
+                  <Text style={[styles.issueChipText, issueCategory === category && styles.issueChipTextActive]}>
+                    {category === 'payment' ? 'Payment' : category === 'delay' ? 'Delay' : category === 'ticket' ? 'Ticket' : 'Other'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={issueText}
+              onChangeText={setIssueText}
+              placeholder="What does Ace need to fix?"
+              placeholderTextColor="#64748b"
+              multiline
+              style={styles.issueInput}
+            />
+            {issueSent && <Text style={styles.issueSent}>Sent. Ace support now has this live journey context.</Text>}
+            <View style={styles.issueActions}>
+              <Pressable onPress={() => setShowIssueModal(false)} style={styles.issueCancelBtn}>
+                <Text style={styles.issueCancelText}>Close</Text>
+              </Pressable>
+              <Pressable onPress={() => { void submitIssue(); }} style={styles.issueSendBtn}>
+                <Text style={styles.issueSendText}>{issueSending ? 'Sending...' : 'Send issue'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -762,6 +909,35 @@ const styles = StyleSheet.create({
   timelineTitle: { fontSize: 13, color: '#e2e8f0', fontWeight: '700', marginBottom: 2 },
   timelineBody: { fontSize: 12, color: '#94a3b8', lineHeight: 18 },
   timelineMeta: { fontSize: 11, color: '#6b7280', marginTop: 3 },
+  supportCard: {
+    backgroundColor: 'rgba(11, 18, 32, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.34)',
+    borderRadius: 18,
+    padding: 16,
+    gap: 10,
+  },
+  supportTitle: { fontSize: 15, fontWeight: '700', color: '#eef6ff' },
+  supportBody: { fontSize: 12.5, lineHeight: 19, color: '#9fb0c2' },
+  supportActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  supportPrimaryBtn: {
+    borderRadius: 12,
+    backgroundColor: '#15314f',
+    borderWidth: 1,
+    borderColor: '#315b86',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  supportPrimaryText: { fontSize: 13, fontWeight: '700', color: '#dcecff' },
+  supportSecondaryBtn: {
+    borderRadius: 12,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  supportSecondaryText: { fontSize: 13, fontWeight: '600', color: '#cbd5e1' },
   actions: { gap: 10 },
   primaryBtn: {
     backgroundColor: '#1d4ed8',
@@ -788,4 +964,99 @@ const styles = StyleSheet.create({
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: '#f8fafc', marginBottom: 10 },
   emptyBody: { fontSize: 14, lineHeight: 20, color: '#7f95aa', textAlign: 'center', marginBottom: 24 },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(2, 6, 23, 0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  issueModal: {
+    width: '100%',
+    borderRadius: 18,
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    padding: 18,
+  },
+  issueTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#f8fafc',
+    marginBottom: 8,
+  },
+  issueBody: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#94a3b8',
+    marginBottom: 14,
+  },
+  issueChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  issueChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: '#0f172a',
+  },
+  issueChipActive: {
+    borderColor: '#38bdf8',
+    backgroundColor: '#082f49',
+  },
+  issueChipText: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  issueChipTextActive: {
+    color: '#bae6fd',
+  },
+  issueInput: {
+    minHeight: 108,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    backgroundColor: '#0f172a',
+    color: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
+    marginBottom: 10,
+  },
+  issueSent: {
+    fontSize: 12,
+    color: '#4ade80',
+    marginBottom: 10,
+  },
+  issueActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  issueCancelBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  issueCancelText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  issueSendBtn: {
+    borderRadius: 12,
+    backgroundColor: '#082f49',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  issueSendText: {
+    fontSize: 13,
+    color: '#bae6fd',
+    fontWeight: '700',
+  },
 });

@@ -96,6 +96,8 @@ export interface JourneySession {
   rerouteOfferBody?: string | null;
   rerouteOfferTranscript?: string | null;
   supportState?: 'none' | 'available' | 'requested';
+  supportRequestedAt?: string | null;
+  supportSummary?: string | null;
   lastEventKey?: string | null;
   lastEventAt?: string | null;
   updatedAt: string;
@@ -257,6 +259,9 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     rerouteOfferTitle: null,
     rerouteOfferBody: null,
     rerouteOfferTranscript: null,
+    supportState: 'none',
+    supportRequestedAt: null,
+    supportSummary: null,
     updatedAt: trip.updatedAt,
   };
 }

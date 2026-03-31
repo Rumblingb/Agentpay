@@ -572,6 +572,14 @@ export default function StatusScreen() {
         description: `${summary}\n${issueText.trim() || 'Customer requested help from live booking screen.'}`,
         hirerId: agentId,
       });
+      await patchJourneySession(currentIntentId, {
+        supportState: 'requested',
+        supportRequestedAt: new Date().toISOString(),
+        supportSummary: issueText.trim() || `Support requested for ${issueCategory}.`,
+        lastEventKey: 'support_requested',
+        lastEventAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       setIssueSent(true);
       setIssueText('');
     } catch (e: any) {

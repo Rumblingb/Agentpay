@@ -11,11 +11,11 @@ export function journeyStatusLabel(session: JourneySession): string {
     case 'planning':
       return 'Planning';
     case 'securing':
-      return 'Booking underway';
+      return 'Booking';
     case 'payment_pending':
-      return 'Awaiting payment';
+      return 'Payment needed';
     case 'ticketed':
-      return 'Ticketed';
+      return 'Confirmed';
     case 'in_transit':
       return 'In transit';
     case 'arriving':
@@ -185,6 +185,24 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
         ? 'Ace can reopen the pass whenever you need it at the gate.'
         : 'You can move this ticket into Apple Wallet so Ace becomes invisible at the gate.',
       tone: 'success',
+    });
+  }
+
+  if (session.supportState === 'requested') {
+    insights.push({
+      key: 'support-requested',
+      title: 'Support already has this trip',
+      body: session.supportSummary
+        ? `Ace passed the latest issue through: ${session.supportSummary}`
+        : 'You do not need to re-explain the route. Ace support has the live journey context already.',
+      tone: 'info',
+    });
+  } else if (session.state === 'attention' || session.state === 'payment_pending') {
+    insights.push({
+      key: 'support-ready',
+      title: 'Help can pick up from here',
+      body: 'If this needs a human, Ace support can take over with the trip context already attached.',
+      tone: 'neutral',
     });
   }
 

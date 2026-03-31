@@ -822,6 +822,14 @@ export default function ReceiptScreen() {
         description: issueText.trim(),
         hirerId: agentId ?? '',
       });
+      await patchJourneySession(intentId ?? '', {
+        supportState: 'requested',
+        supportRequestedAt: new Date().toISOString(),
+        supportSummary: issueText.trim() || 'Support requested from receipt.',
+        lastEventKey: 'support_requested',
+        lastEventAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       setIssueSent(true);
       setIssueText('');
     } catch {
