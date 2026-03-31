@@ -37,6 +37,7 @@ import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech
 import { speakBro, cancelSpeech } from '../../lib/tts';
 import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
+import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getLocationContext } from '../../lib/location';
@@ -625,14 +626,14 @@ export default function ConverseScreen() {
     let active = true;
     (async () => {
       const trip = await loadActiveTrip();
-      if (active) setActiveTrip(trip);
+      if (active) setActiveTrip(trip && shouldTreatTripAsLive(trip) ? trip : null);
 
       // If there is a live journey in a state the user should be watching,
       // and this screen was opened normally (not from a notification prefill),
       // redirect straight to the Journey surface so it becomes the gravity centre.
       if (!prefill) {
         const liveSession = await loadCurrentJourneySession().catch(() => null);
-        if (active && liveSession && ['ticketed', 'in_transit', 'arriving', 'securing'].includes(liveSession.state)) {
+        if (active && liveSession && shouldPreferJourney(liveSession)) {
           router.replace({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveSession.intentId } });
           return;
         }

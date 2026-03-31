@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { loadTrips as loadTripsFromStorage, type TripEntry } from '../../lib/storage';
+import { shouldTreatTripAsLive } from '../../lib/journeyRouting';
 import { formatMoneyAmount } from '../../lib/money';
 
 function repeatPrompt(trip: TripEntry): string | null {
@@ -79,13 +80,12 @@ function tripMetaLine(trip: TripEntry) {
 }
 
 function hasLiveJourneyState(trip: TripEntry) {
-  const bookingState = trip.tripContext?.watchState?.bookingState;
-  return trip.tripContext?.status === 'active'
-    || trip.tripContext?.status === 'attention'
-    || bookingState === 'securing'
-    || bookingState === 'payment_pending'
-    || bookingState === 'payment_confirmed'
-    || bookingState === 'issued';
+  return shouldTreatTripAsLive({
+    status: trip.tripContext?.status === 'attention' ? 'attention' : trip.tripContext?.watchState?.bookingState === 'issued' ? 'ticketed' : 'securing',
+    departureTime: trip.departureTime ?? null,
+    tripContext: trip.tripContext ?? null,
+    updatedAt: trip.savedAt,
+  });
 }
 
 export default function TripsScreen() {

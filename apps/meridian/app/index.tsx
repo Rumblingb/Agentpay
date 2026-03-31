@@ -10,7 +10,8 @@
 import { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
-import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip } from '../lib/storage';
+import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip, loadCurrentJourneySession } from '../lib/storage';
+import { shouldPreferJourney } from '../lib/journeyRouting';
 import { useStore } from '../lib/store';
 import { AceMark } from '../components/AceMark';
 
@@ -20,11 +21,12 @@ export default function BootScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const [creds, prefs, history, activeTrip] = await Promise.all([
+        const [creds, prefs, history, activeTrip, liveJourney] = await Promise.all([
           loadCredentials(),
           loadPrefs(),
           loadHistory(),
           loadActiveTrip(),
+          loadCurrentJourneySession(),
         ]);
 
         if (!creds || !prefs.onboarded) {
@@ -42,6 +44,11 @@ export default function BootScreen() {
           homeStation:          prefs.homeStation,
           workStation:          prefs.workStation,
         });
+
+        if (liveJourney && shouldPreferJourney(liveJourney)) {
+          router.replace({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveJourney.intentId } });
+          return;
+        }
 
         router.replace('/(main)/converse');
       } catch {
