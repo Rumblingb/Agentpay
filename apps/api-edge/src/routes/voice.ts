@@ -13,7 +13,9 @@ import type { Env, Variables } from '../types';
 
 export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
+// Daniel — deep, authoritative British male. Calm, measured, butler-like.
+// Alternative: 'JBFqnCBsd6RMkjVDRZzb' (George) if Daniel feels too formal.
+const DEFAULT_ELEVENLABS_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9';
 
 function broLog(event: string, data: Record<string, unknown>) {
   console.log(
@@ -230,7 +232,13 @@ voiceRouter.post('/tts', async (c) => {
         },
         body: JSON.stringify({
           text,
-          model_id: 'eleven_multilingual_v2',
+          model_id: 'eleven_turbo_v2_5',
+          voice_settings: {
+            stability: 0.72,          // consistent, calm — not too varied
+            similarity_boost: 0.45,   // less aggressive cloning, more natural
+            style: 0.18,              // subtle warmth without theatrical flair
+            use_speaker_boost: true,
+          },
         }),
         signal: AbortSignal.timeout(20_000),
       },

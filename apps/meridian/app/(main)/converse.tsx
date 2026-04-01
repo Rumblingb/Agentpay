@@ -31,7 +31,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../../lib/theme';
 
 import { AceMark } from '../../components/AceMark';
-import { OrbAnimation } from '../../components/OrbAnimation';
+import { AceFace } from '../../components/AceFace';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech } from '../../lib/tts';
@@ -91,6 +91,116 @@ type SharedTravelReadiness = {
 
 type BookingMode = 'solo' | 'shared';
 
+type FollowUpContext = {
+  originalRequest: string;
+  aceQuestion: string;
+  plan: ConciergePlanItem[];
+};
+
+function looksLikeOptionSelection(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    /\bfirst\b/,
+    /\b1st\b/,
+    /\boption\s*1\b/,
+    /\bsecond\b/,
+    /\b2nd\b/,
+    /\boption\s*2\b/,
+    /\bthird\b/,
+    /\b3rd\b/,
+    /\boption\s*3\b/,
+    /\bearliest\b/,
+    /\blatest\b/,
+    /\bmiddle\b/,
+    /\bcheapest\b/,
+    /\bcheaper\b/,
+    /\bfirst one\b/,
+    /\bsecond one\b/,
+    /\bthird one\b/,
+    /\bthat one\b/,
+    /\bthis one\b/,
+    /\bgo with\b/,
+    /\btake that\b/,
+    /\b\d{1,2}[:.]\d{2}\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeFreshIntent(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    /\bbook\b/,
+    /\bfind\b/,
+    /\bget me\b/,
+    /\btake me\b/,
+    /\btrain\b/,
+    /\bflight\b/,
+    /\bbus\b/,
+    /\bcoach\b/,
+    /\bhotel\b/,
+    /\bweather\b/,
+    /\bnavigate\b/,
+    /\brestaurant\b/,
+  ].some((pattern) => pattern.test(normalized)) && normalized.split(/\s+/).length > 4;
+}
+
+function shouldUseFollowUpContext(text: string, context: FollowUpContext | null): boolean {
+  if (!context) return false;
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (looksLikeOptionSelection(normalized)) return true;
+  if (looksLikeFreshIntent(normalized)) return false;
+  if (context.plan.length > 0) return false;
+  return normalized.split(/\s+/).length <= 6;
+}
+
+function describeFollowUpOption(option: ConciergePlanItem, index: number): string {
+  const trainDetails = (option as ConciergePlanItem & {
+    trainDetails?: {
+      departureTime?: string;
+      origin?: string;
+      destination?: string;
+      operator?: string;
+      country?: 'uk' | 'india' | 'eu';
+      fareInr?: number;
+      estimatedFareGbp?: number;
+    };
+  }).trainDetails;
+  if (trainDetails) {
+    const fare = trainDetails.country === 'india'
+      ? `INR ${trainDetails.fareInr ?? 0}`
+      : `GBP ${trainDetails.estimatedFareGbp ?? 0}`;
+    return `${index + 1}. ${trainDetails.departureTime} from ${trainDetails.origin} to ${trainDetails.destination} on ${trainDetails.operator}, estimated ${fare}`;
+  }
+  if (option.flightDetails) {
+    return `${index + 1}. ${option.flightDetails.departureAt} ${option.flightDetails.origin} to ${option.flightDetails.destination} on ${option.flightDetails.carrier} ${option.flightDetails.flightNumber}, ${option.flightDetails.currency} ${option.flightDetails.totalAmount}`;
+  }
+  if (option.hotelDetails?.bestOption) {
+    const best = option.hotelDetails.bestOption;
+    return `${index + 1}. ${best.name} in ${option.hotelDetails.city}, ${best.currency} ${best.totalCost} total`;
+  }
+  return `${index + 1}. ${option.displayName}`;
+}
+
+function buildFollowUpPlanningTranscript(params: {
+  reply: string;
+  context: FollowUpContext | null;
+}): string {
+  if (!params.context) return params.reply;
+  const optionsBlock = params.context.plan.length > 0
+    ? `\nPrevious options:\n${params.context.plan.map(describeFollowUpOption).join('\n')}`
+    : '';
+  return `User reply: ${params.reply}
+
+Ace follow-up context:
+- This reply refers to the immediately previous Ace follow-up.
+- Previous request: ${params.context.originalRequest}
+- Ace last reply: ${params.context.aceQuestion}${optionsBlock}
+
+Interpret ordinal replies like "first one", specific times, or short answers against that context. If the user clearly selected one of the previous options, continue with that option and do not ask them to repeat the route or say you lack previous context.`;
+}
+
 function firstSentence(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -101,7 +211,12 @@ function firstSentence(text: string): string {
 function speechPreview(text: string): string | null {
   const lead = firstSentence(text);
   if (!lead) return null;
-  return lead.length <= 140 ? lead : null;
+  if (lead.length <= 180) return lead;
+  const clause = lead.split(/[,:;—-]/)[0]?.trim() ?? '';
+  if (clause.length >= 18 && clause.length <= 180) {
+    return /[.!?]$/.test(clause) ? clause : `${clause}.`;
+  }
+  return null;
 }
 
 function shouldAutoSpeak(params: {
@@ -560,6 +675,7 @@ export default function ConverseScreen() {
     fiatCode: string;
     assumptionNote?: string | null;
   } | null>(null);
+  const followUpContextRef = useRef<FollowUpContext | null>(null);
 
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const prefillFiredRef = useRef(false);
@@ -574,6 +690,8 @@ export default function ConverseScreen() {
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
   const [routeMemory, setRouteMemory] = useState<RouteMemory | null>(null);
@@ -739,9 +857,14 @@ export default function ConverseScreen() {
     };
   }, [phase, currencyCode]);
 
-  const speakIfEnabled = useCallback(async (text: string) => {
+  const speakIfEnabled = useCallback(async (text: string, restartListening = false) => {
     if (!voiceEnabled) return;
+    setIsSpeaking(true);
     await speakBro(text);
+    setIsSpeaking(false);
+    if (restartListening) {
+      void beginVoiceCaptureRef.current?.();
+    }
   }, [voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
@@ -759,6 +882,13 @@ export default function ConverseScreen() {
 
     const prepared = prepareIntentRequest({ text, nearestStation });
     const displayText = prepared.displayText;
+    const followUpContext = shouldUseFollowUpContext(displayText, followUpContextRef.current)
+      ? followUpContextRef.current
+      : null;
+    const planningTranscript = buildFollowUpPlanningTranscript({
+      reply: prepared.planningTranscript,
+      context: followUpContext,
+    });
     const usingSharedTravel =
       !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
 
@@ -773,6 +903,7 @@ export default function ConverseScreen() {
       metadata: {
         bookingMode: usingSharedTravel ? 'shared' : 'solo',
         textLength: displayText.length,
+        usedFollowUpContext: !!followUpContext,
         usedLocationAssumption: !!prepared.assumptionNote,
       },
     });
@@ -822,7 +953,7 @@ export default function ConverseScreen() {
 
     // Phase 1: get a plan from Claude — no hire fires yet
     const response = await planIntent({
-      transcript:   prepared.planningTranscript,
+      transcript:   planningTranscript,
       hirerId:      agentId,
       travelProfile,
     });
@@ -840,7 +971,9 @@ export default function ConverseScreen() {
       needsBiometric: response.needsBiometric,
       phase: 'plan',
     })) {
-      await speakIfEnabled(firstSentence(response.narration));
+      // restartListening=true when Ace is asking a follow-up — user can reply immediately
+      const shouldRestart = narrationStillNeedsAnswer(response.narration);
+      await speakIfEnabled(speechPreview(response.narration) ?? firstSentence(response.narration), shouldRestart);
     }
 
     // Persist detected currency to store (used everywhere in app)
@@ -853,6 +986,15 @@ export default function ConverseScreen() {
     }
 
     const waitingForFollowUp = narrationStillNeedsAnswer(response.narration);
+    if (waitingForFollowUp) {
+      followUpContextRef.current = {
+        originalRequest: followUpContext?.originalRequest ?? prepared.planningTranscript,
+        aceQuestion: response.narration,
+        plan: response.plan ?? [],
+      };
+    } else {
+      followUpContextRef.current = null;
+    }
     logConverseEvent({
       event: 'plan_received',
       metadata: {
@@ -882,7 +1024,7 @@ export default function ConverseScreen() {
       const sharedReadiness = buildSharedTravelReadiness(usingSharedTravel && preferredTravelUnit ? preferredTravelUnit : null);
       // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
-        transcript: prepared.planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
+        transcript: planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
         readiness,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
         assumptionNote: prepared.assumptionNote,
@@ -999,7 +1141,7 @@ export default function ConverseScreen() {
         hasPlan: response.actions.length > 0,
         phase: 'execute',
       })) {
-        await speakIfEnabled(firstSentence(response.narration));
+        await speakIfEnabled(speechPreview(response.narration) ?? firstSentence(response.narration));
       }
 
       if (response.actions.length > 0) {
@@ -1379,9 +1521,18 @@ export default function ConverseScreen() {
     }
   }, [finishVoiceCapture, logConverseEvent, phase, reset, setError]);
 
+  // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
+  beginVoiceCaptureRef.current = beginVoiceCapture;
+
   const handleOrbTap = useCallback(async () => {
     if (phase === 'listening') {
       await finishVoiceCapture();
+      return;
+    }
+    if (phase === 'thinking' || phase === 'executing' || phase === 'hiring') {
+      // Tap during processing = interrupt and return to idle
+      cancelSpeech();
+      setPhase('idle');
       return;
     }
     await beginVoiceCapture();
@@ -1427,12 +1578,12 @@ export default function ConverseScreen() {
     : lastRouteHintPreview
     ? `Ace, ${lastRouteHintPreview.replace(/\?$/, '')}.`
     : nearestStation
-    ? `Ace, get me from ${nearestStation.name} tomorrow morning.`
-    : 'Ace, get me to Glasgow tomorrow.';
+    ? `Ace, book me a train from ${nearestStation.name} tomorrow morning.`
+    : 'Ace, book me a train to Glasgow tomorrow.';
 
   const heroResponse = bookingMode === 'shared'
     ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
-    : 'I’ll line up the best way there.';
+    : 'Where to? I\'ll find you the best option.';
   const primarySuggestion = idleSuggestions[0] ?? null;
   const showIdleGuidance = guidanceSessions > 0 && guidanceSessions <= 3;
   const memorySuggestion = routeMemory
@@ -1470,7 +1621,7 @@ export default function ConverseScreen() {
       ? {
           eyebrow: 'Travel mode',
           title: 'Ace still sees this as solo travel.',
-          body: 'You already have family details saved. Want Ace to set up family mode quietly in the background so “for the family” just works?',
+          body: 'You already have family details saved. Want Ace to set up family mode quietly in the background so "for the family" just works?',
           primaryLabel: 'Set up family mode',
           primaryAction: () => router.push('/(main)/travel-together'),
           secondaryLabel: 'Later',
@@ -1480,7 +1631,7 @@ export default function ConverseScreen() {
       ? {
           eyebrow: 'Travel mode',
           title: 'Ace is still treating you as solo.',
-          body: 'If you usually travel as a couple, Ace can help set that up in the background so “for us” becomes natural.',
+          body: 'If you usually travel as a couple, Ace can help set that up in the background so "for us" becomes natural.',
           primaryLabel: 'Set up couple mode',
           primaryAction: () => router.push('/(main)/travel-together'),
           secondaryLabel: 'Later',
@@ -1947,15 +2098,6 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        {(phase === 'listening' || ((isIdle || isError) && showIdleGuidance)) && (
-          <View style={styles.holdPlaque}>
-            <View style={styles.holdPlaqueDot} />
-            <Text style={styles.holdPlaqueText}>
-              {phase === 'listening' ? 'Listening — pause when you are done' : 'Touch Ace and speak naturally'}
-            </Text>
-          </View>
-        )}
-
         {textFallbackVisible && (
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
@@ -1992,10 +2134,11 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <OrbAnimation
+        <AceFace
           phase={phase}
+          isSpeaking={isSpeaking}
           onPress={handleOrbTap}
-          disabled={isBusy || isConfirming}
+          disabled={isConfirming}
         />
 
         {(isIdle || isError) && turns.length > 0 && (

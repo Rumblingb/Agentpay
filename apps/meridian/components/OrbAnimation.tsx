@@ -6,12 +6,11 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet, Pressable, Easing } from 'react-native';
+import { View, Animated, StyleSheet, Pressable, Easing, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
-import { AceMark } from './AceMark';
 
 interface Props {
   phase: AppPhase;
@@ -225,13 +224,10 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
               <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
             ) : (
               <Animated.View style={{ transform: [{ rotate: heading }] }}>
-                <AceMark
-                  size={64}
-                  ringColor={GLASS_RING}
-                  glowColor={GLASS_GLOW}
-                  backgroundColor={GLASS_BODY}
-                  iconColor={SILVER_MARK}
-                  headingDeg={0}
+                <Image
+                  // eslint-disable-next-line @typescript-eslint/no-require-imports
+                  source={require('../assets/ace-mark.png')}
+                  style={{ width: 72, height: 88, resizeMode: 'contain' }}
                 />
               </Animated.View>
             )}
