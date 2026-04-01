@@ -50,23 +50,23 @@ const BODY_GRADIENT: Record<AppPhase, [string, string]> = {
   error:      ['#2e0808', '#5a1010'],
 };
 
-function baseMouthWidthForPhase(phase: AppPhase): number {
+function baseMouthScaleForPhase(phase: AppPhase): number {
   switch (phase) {
     case 'listening':
-      return 34;
+      return 34 / 28;
     case 'thinking':
     case 'hiring':
     case 'executing':
-      return 22;
+      return 22 / 28;
     case 'confirming':
-      return 26;
+      return 26 / 28;
     case 'done':
-      return 52;
+      return 52 / 28;
     case 'error':
-      return 20;
+      return 20 / 28;
     case 'idle':
     default:
-      return 28;
+      return 1;
   }
 }
 
@@ -126,7 +126,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const faceLift   = useRef(new Animated.Value(0)).current;
 
   // Mouth
-  const mouthWidth   = useRef(new Animated.Value(28)).current;
+  const mouthScaleX  = useRef(new Animated.Value(1)).current;
   const mouthOpacity = useRef(new Animated.Value(0.6)).current;
   const speechMouthLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
@@ -137,7 +137,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   useEffect(() => {
     // Stop everything cleanly
     [glowScale, glowOpacity, ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-      eyeScaleY, eyeTranslateX, faceScale, faceLift, mouthWidth, mouthOpacity]
+      eyeScaleY, eyeTranslateX, faceScale, faceLift, mouthScaleX, mouthOpacity]
       .forEach((v) => v.stopAnimation());
 
     if (phase === 'idle') {
@@ -172,8 +172,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ])).start();
 
       // Mouth: thin closed line
-      Animated.timing(mouthWidth,   { toValue: 28, duration: 300, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.5, duration: 300, useNativeDriver: false }).start();
+      Animated.timing(mouthScaleX,  { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.5, duration: 300, useNativeDriver: true }).start();
     }
 
     if (phase === 'listening') {
@@ -208,8 +208,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ])).start();
 
       // Mouth slightly parted
-      Animated.timing(mouthWidth,   { toValue: 34, duration: 250, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.7, duration: 250, useNativeDriver: false }).start();
+      Animated.timing(mouthScaleX,  { toValue: 34 / 28, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.7, duration: 250, useNativeDriver: true }).start();
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
@@ -235,8 +235,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ])).start();
 
       // Mouth closed
-      Animated.timing(mouthWidth,   { toValue: 22, duration: 200, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.4, duration: 200, useNativeDriver: false }).start();
+      Animated.timing(mouthScaleX,  { toValue: 22 / 28, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.4, duration: 200, useNativeDriver: true }).start();
     }
 
     if (phase === 'confirming') {
@@ -244,8 +244,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(eyeScaleY,     { toValue: 1,  duration: 250, useNativeDriver: true }).start();
       Animated.timing(eyeTranslateX, { toValue: 0,  duration: 250, useNativeDriver: true }).start();
       Animated.timing(glowOpacity,   { toValue: 0.45, duration: 400, useNativeDriver: true }).start();
-      Animated.timing(mouthWidth,    { toValue: 26, duration: 250, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.55, duration: 250, useNativeDriver: false }).start();
+      Animated.timing(mouthScaleX,   { toValue: 26 / 28, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity,  { toValue: 0.55, duration: 250, useNativeDriver: true }).start();
     }
 
     if (phase === 'done') {
@@ -256,16 +256,16 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.spring(faceLift,   { toValue: -5,   useNativeDriver: true, speed: 18, bounciness: 8 }).start();
       Animated.timing(glowOpacity,  { toValue: 0.6,  duration: 400, useNativeDriver: true }).start();
       // Mouth widens into a subtle smile bar
-      Animated.spring(mouthWidth as any, { toValue: 52, useNativeDriver: false, speed: 20 } as any).start();
-      Animated.timing(mouthOpacity, { toValue: 0.85, duration: 300, useNativeDriver: false }).start();
+      Animated.spring(mouthScaleX, { toValue: 52 / 28, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.85, duration: 300, useNativeDriver: true }).start();
     }
 
     if (phase === 'error') {
       Animated.timing(eyeScaleY,     { toValue: 0.65, duration: 200, useNativeDriver: true }).start();
       Animated.timing(eyeTranslateX, { toValue: 0,    duration: 200, useNativeDriver: true }).start();
       Animated.timing(glowOpacity,   { toValue: 0.5,  duration: 300, useNativeDriver: true }).start();
-      Animated.timing(mouthWidth,    { toValue: 20, duration: 200, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.6, duration: 200, useNativeDriver: false }).start();
+      Animated.timing(mouthScaleX,   { toValue: 20 / 28, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity,  { toValue: 0.6, duration: 200, useNativeDriver: true }).start();
     }
 
     // Reset rings when not listening
@@ -292,25 +292,25 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     if (isSpeaking) {
       const mouthLoop = Animated.loop(
         Animated.sequence([
-          Animated.timing(mouthWidth, { toValue: 52, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.timing(mouthWidth, { toValue: 22, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.timing(mouthWidth, { toValue: 44, duration: 140, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          Animated.timing(mouthWidth, { toValue: 18, duration: 180, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          Animated.timing(mouthScaleX, { toValue: 52 / 28, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mouthScaleX, { toValue: 22 / 28, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mouthScaleX, { toValue: 44 / 28, duration: 140, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(mouthScaleX, { toValue: 18 / 28, duration: 180, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       );
       speechMouthLoopRef.current = mouthLoop;
       mouthLoop.start();
-      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 200, useNativeDriver: false }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 200, useNativeDriver: true }).start();
     } else {
-      Animated.timing(mouthWidth, {
-        toValue: baseMouthWidthForPhase(phase),
+      Animated.timing(mouthScaleX, {
+        toValue: baseMouthScaleForPhase(phase),
         duration: 250,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
       Animated.timing(mouthOpacity, {
         toValue: baseMouthOpacityForPhase(phase),
         duration: 220,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
     }
 
@@ -396,8 +396,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
               style={[
                 styles.mouth,
                 {
-                  width: mouthWidth,
                   opacity: mouthOpacity,
+                  transform: [{ scaleX: mouthScaleX }],
                 },
               ]}
             />
