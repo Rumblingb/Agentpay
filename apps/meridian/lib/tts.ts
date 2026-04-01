@@ -68,6 +68,10 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 async function requestVoiceAudio(text: string): Promise<string | null> {
+  if (!BRO_KEY) {
+    return null;
+  }
+
   const response = await fetchWithTimeout(`${BASE}/api/voice/tts`, {
     method: 'POST',
     headers: {

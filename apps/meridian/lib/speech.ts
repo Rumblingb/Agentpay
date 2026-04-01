@@ -19,6 +19,10 @@ export { speak, stopSpeaking } from './tts';
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
+function missingBroKeyMessage(): string {
+  return 'This Ace build is missing its secure app key. Please install the latest beta build.';
+}
+
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -177,6 +181,10 @@ export async function stopRecording(): Promise<string | null> {
 }
 
 export async function transcribeAudio(uri: string): Promise<string> {
+  if (!BRO_KEY) {
+    throw new Error(missingBroKeyMessage());
+  }
+
   let info: FileSystem.FileInfo;
   try {
     info = await FileSystem.getInfoAsync(uri);
@@ -220,6 +228,9 @@ export async function transcribeAudio(uri: string): Promise<string> {
     throw new Error(`Voice service unreachable: ${e.message}`);
   }
 
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(missingBroKeyMessage());
+  }
   if (!res.ok) throw new Error(`Transcription failed (${res.status})`);
   const data = (await res.json()) as { transcript?: string; error?: string };
   if (data.error) throw new Error(`Transcription error: ${data.error}`);

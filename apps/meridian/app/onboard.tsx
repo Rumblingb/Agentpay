@@ -62,6 +62,10 @@ import type { AppPhase } from '../lib/store';
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
+function missingBroKeyMessage(): string {
+  return 'This Ace build is missing its secure app key. Please install the latest beta build.';
+}
+
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -273,6 +277,11 @@ export default function OnboardScreen() {
         return;
       }
 
+      if (!BRO_KEY) {
+        setVoiceFillHint(missingBroKeyMessage());
+        return;
+      }
+
       try {
         const res = await fetchWithTimeout(`${BASE}/api/voice/extract-profile`, {
           method: 'POST',
@@ -282,6 +291,10 @@ export default function OnboardScreen() {
           },
           body: JSON.stringify({ transcript }),
         }, 15_000);
+        if (res.status === 401 || res.status === 403) {
+          setVoiceFillHint(missingBroKeyMessage());
+          return;
+        }
         if (!res.ok) {
           setVoiceFillHint('Ace could not finish that profile pass. Please type your details below.');
           return;

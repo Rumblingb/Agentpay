@@ -8,6 +8,19 @@ import type { NearbyPlace, ProactiveCard, RouteData, TripContext } from '../../.
 const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
+function requiresBroKey(path: string): boolean {
+  return (
+    path.startsWith('/api/concierge/') ||
+    path.startsWith('/api/shared-travel/') ||
+    path.startsWith('/api/trip-rooms/') ||
+    path.startsWith('/api/support/')
+  );
+}
+
+function missingBroKeyMessage(): string {
+  return 'This Ace build is missing its secure app key. Please install the latest beta build.';
+}
+
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -22,6 +35,10 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!BRO_KEY && requiresBroKey(path)) {
+    throw new Error(missingBroKeyMessage());
+  }
+
   let res: Response;
   try {
     res = await fetchWithTimeout(`${BASE}${path}`, {
