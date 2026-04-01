@@ -323,10 +323,10 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowO.value = T(0.66, 350);
       // Ring 1
       ring1O.value = withRepeat(withSequence(
-        T(0, 1800, Easing.in(Easing.quad)), T(0.28, 1, Easing.linear),
+        T(0.28, 1, Easing.linear), T(0, 1800, Easing.in(Easing.quad)),
       ), -1, false);
       ring1S.value = withRepeat(withSequence(
-        T(1.82, 1800, Easing.out(Easing.quad)), T(1, 1, Easing.linear),
+        T(1, 1, Easing.linear), T(1.82, 1800, Easing.out(Easing.quad)),
       ), -1, false);
       // Ring 2: 900ms offset
       ring2O.value = withDelay(900, withRepeat(withSequence(

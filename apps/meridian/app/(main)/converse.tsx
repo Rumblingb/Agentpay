@@ -713,6 +713,7 @@ export default function ConverseScreen() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
+  const nextSilenceMsRef = useRef(2800);
   const keyboardVisibleRef = useRef(false);
   const textFallbackVisibleRef = useRef(false);
   const phaseRef = useRef(phase);
@@ -921,6 +922,7 @@ export default function ConverseScreen() {
       const cur = phaseRef.current;
       // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
       if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
+        nextSilenceMsRef.current = 1600;
         void beginVoiceCaptureRef.current?.();
       }
     }
@@ -1145,7 +1147,7 @@ export default function ConverseScreen() {
       });
       setError(msg);
       setPhase('error');
-      await speakIfEnabled(`Sorry. ${msg}`);
+      await speakIfEnabled(`Sorry. ${msg}`, false);
     }
   }, [handleIntent, logConverseEvent, setError, setPhase, speakIfEnabled]);
 
@@ -1172,12 +1174,31 @@ export default function ConverseScreen() {
         if (liveSession && shouldPreferJourney(liveSession)) return;
         // Only start if we're still idle and the keyboard isn't up
         if (phaseRef.current === 'idle' && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+          nextSilenceMsRef.current = 2800;
           void beginVoiceCaptureRef.current?.();
         }
       })();
     }, 1200);
     return () => clearTimeout(timer);
   }, [activeTrip, agentId, prefill, voiceEnabled]);
+
+  useEffect(() => {
+    if (phase !== 'done' || isSpeaking) return;
+    const timer = setTimeout(() => {
+      if (phaseRef.current !== 'done') return;
+      setPhase('idle');
+      if (
+        voiceEnabled &&
+        !keyboardVisibleRef.current &&
+        !textFallbackVisibleRef.current &&
+        !(activeTrip && shouldTreatTripAsLive(activeTrip))
+      ) {
+        nextSilenceMsRef.current = 2800;
+        void beginVoiceCaptureRef.current?.();
+      }
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [activeTrip, isSpeaking, phase, setPhase, voiceEnabled]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -1586,9 +1607,11 @@ export default function ConverseScreen() {
       metadata: { fromPhase: phase },
     });
     try {
+      const silenceMs = nextSilenceMsRef.current;
+      nextSilenceMsRef.current = 2800;
       await startRecording({
         autoStopOnSilence: true,
-        silenceMs: 2200,
+        silenceMs,
         maxDurationMs: 12000,
         onSilence: () => {
           void finishVoiceCapture();
@@ -1624,6 +1647,7 @@ export default function ConverseScreen() {
       setPhase('idle');
       return;
     }
+    nextSilenceMsRef.current = 2800;
     await beginVoiceCapture();
   }, [beginVoiceCapture, finishVoiceCapture, phase]);
 
@@ -1642,6 +1666,29 @@ export default function ConverseScreen() {
   const isError    = phase === 'error';
   const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
+  const presenceLabel =
+    isSpeaking ? 'Ace is speaking' :
+    phase === 'listening' ? 'Ace is listening' :
+    phase === 'thinking' ? 'Ace is thinking' :
+    phase === 'hiring' || phase === 'executing' ? 'Ace is securing the trip' :
+    phase === 'done' ? 'Trip secured' :
+    phase === 'error' ? 'Ace is waiting' :
+    voiceEnabled ? 'Ace is ready' :
+    'Voice paused';
+  const presenceHint =
+    isSpeaking ? 'You can just listen.' :
+    phase === 'listening' ? 'Speak naturally.' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap Ace to interrupt.' :
+    phase === 'done' ? 'Returning to standby.' :
+    phase === 'error' ? 'Try again or type the trip below.' :
+    voiceEnabled ? 'No tap needed.' :
+    'Tap Ace to start.';
+  const presenceTone =
+    phase === 'listening' ? '#c8e8ff' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? '#8ec4e8' :
+    phase === 'done' ? '#9ed9ae' :
+    phase === 'error' ? '#e9a7a7' :
+    '#9fb1c4';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
   const idleSuggestions = personalizedIdleSuggestions({
     market: marketNationality,
@@ -2229,6 +2276,14 @@ export default function ConverseScreen() {
           onPress={handleOrbTap}
           disabled={isConfirming}
         />
+
+        {!textFallbackVisible && (
+          <View style={styles.presenceLine}>
+            <View style={[styles.presenceDot, { backgroundColor: presenceTone }]} />
+            <Text style={styles.presenceLabel}>{presenceLabel}</Text>
+            <Text style={styles.presenceHint}>{presenceHint}</Text>
+          </View>
+        )}
 
         {(isIdle || isError) && turns.length > 0 && (
           <Pressable onPress={() => reset()} style={styles.clearBtn} hitSlop={12}>
@@ -2842,6 +2897,32 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,7,15,0.92)',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(148, 163, 184, 0.16)',
+  },
+  presenceLine: {
+    marginTop: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  presenceDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    shadowColor: '#cbe8ff',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  presenceLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#dfe8f1',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  presenceHint: {
+    fontSize: 12,
+    color: '#8ea1b5',
+    letterSpacing: 0.2,
   },
   textFallbackCard: {
     width: '100%',
