@@ -173,7 +173,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
       // Mouth: thin closed line
       Animated.timing(mouthWidth,   { toValue: 28, duration: 300, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.5, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.5, duration: 300, useNativeDriver: false }).start();
     }
 
     if (phase === 'listening') {
@@ -209,7 +209,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
       // Mouth slightly parted
       Animated.timing(mouthWidth,   { toValue: 34, duration: 250, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.7, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.7, duration: 250, useNativeDriver: false }).start();
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
@@ -236,7 +236,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
       // Mouth closed
       Animated.timing(mouthWidth,   { toValue: 22, duration: 200, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.4, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.4, duration: 200, useNativeDriver: false }).start();
     }
 
     if (phase === 'confirming') {
@@ -245,7 +245,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(eyeTranslateX, { toValue: 0,  duration: 250, useNativeDriver: true }).start();
       Animated.timing(glowOpacity,   { toValue: 0.45, duration: 400, useNativeDriver: true }).start();
       Animated.timing(mouthWidth,    { toValue: 26, duration: 250, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.55, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity,  { toValue: 0.55, duration: 250, useNativeDriver: false }).start();
     }
 
     if (phase === 'done') {
@@ -257,7 +257,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(glowOpacity,  { toValue: 0.6,  duration: 400, useNativeDriver: true }).start();
       // Mouth widens into a subtle smile bar
       Animated.spring(mouthWidth as any, { toValue: 52, useNativeDriver: false, speed: 20 } as any).start();
-      Animated.timing(mouthOpacity, { toValue: 0.85, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.85, duration: 300, useNativeDriver: false }).start();
     }
 
     if (phase === 'error') {
@@ -265,7 +265,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(eyeTranslateX, { toValue: 0,    duration: 200, useNativeDriver: true }).start();
       Animated.timing(glowOpacity,   { toValue: 0.5,  duration: 300, useNativeDriver: true }).start();
       Animated.timing(mouthWidth,    { toValue: 20, duration: 200, useNativeDriver: false }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.6, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity,  { toValue: 0.6, duration: 200, useNativeDriver: false }).start();
     }
 
     // Reset rings when not listening
@@ -300,7 +300,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       );
       speechMouthLoopRef.current = mouthLoop;
       mouthLoop.start();
-      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 200, useNativeDriver: false }).start();
     } else {
       Animated.timing(mouthWidth, {
         toValue: baseMouthWidthForPhase(phase),
@@ -310,7 +310,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(mouthOpacity, {
         toValue: baseMouthOpacityForPhase(phase),
         duration: 220,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }).start();
     }
 
