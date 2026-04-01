@@ -366,12 +366,15 @@ export default function JourneyScreen() {
     ? departureCountdown === 'Now'
       ? 'Departs now'
       : `Departs ${departureCountdown.toLowerCase()}`
-    : journeyStatusLabel(session);
-  const showLiveCountdown = ['ticketed', 'in_transit', 'arriving'].includes(session.state)
+    : session
+      ? journeyStatusLabel(session)
+      : 'Live journey';
+  const showLiveCountdown = !!session
+    && ['ticketed', 'in_transit', 'arriving'].includes(session.state)
     && !!(departureCountdown || session.platform || session.toStation);
   const isAwaitingPayment = recovery?.bucket === 'awaiting_payment';
   const priceValue =
-    session.fiatAmount != null && session.currencySymbol
+    session?.fiatAmount != null && session?.currencySymbol
       ? `${session.currencySymbol}${session.fiatAmount.toFixed(2)}`
       : null;
 
