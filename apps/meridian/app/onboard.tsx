@@ -35,7 +35,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 
 import { registerAgent } from '../lib/api';
-import { saveCredentials, savePrefs } from '../lib/storage';
+import { clearActiveTrip, saveCredentials, savePrefs } from '../lib/storage';
 import { useStore } from '../lib/store';
 import {
   saveProfile,
@@ -421,11 +421,15 @@ export default function OnboardScreen() {
     setLoading(true);
     setError(null);
     try {
+      await stopSpeaking().catch(() => null);
+      await stopRecording().catch(() => null);
+
       const { agentId, agentKey } = await registerAgent({ name });
 
       await Promise.all([
         saveCredentials({ agentId, agentKey }),
         savePrefs({ userName: name, autoConfirmLimitUsdc: budgetN, onboarded: true }),
+        clearActiveTrip(),
       ]);
 
       hydrate({

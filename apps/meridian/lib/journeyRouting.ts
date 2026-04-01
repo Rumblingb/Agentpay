@@ -37,10 +37,11 @@ export function shouldPreferJourney(session: Pick<JourneySession, 'state' | 'dep
   switch (session.state) {
     case 'securing':
     case 'payment_pending':
-    case 'attention':
     case 'in_transit':
     case 'arriving':
       return true;
+    case 'attention':
+      return isRecentUpdate(session.updatedAt);
     case 'ticketed':
       return (
         isLiveTravelWindow(session.departureDatetime ?? session.departureTime ?? session.tripContext?.departureTime ?? null)
