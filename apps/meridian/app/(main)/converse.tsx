@@ -912,8 +912,11 @@ export default function ConverseScreen() {
   const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
     if (!voiceEnabled) return;
     setIsSpeaking(true);
-    await speakBro(sanitizeAceNarration(text));
-    setIsSpeaking(false);
+    try {
+      await speakBro(sanitizeAceNarration(text));
+    } finally {
+      setIsSpeaking(false);
+    }
     if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
       const cur = phaseRef.current;
       // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
@@ -1161,7 +1164,7 @@ export default function ConverseScreen() {
   // Skipped if a prefill is pending (it will take priority) or a trip is active.
   const alwaysOnFiredRef = useRef(false);
   useEffect(() => {
-    if (alwaysOnFiredRef.current || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
+    if (alwaysOnFiredRef.current || !voiceEnabled || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
     alwaysOnFiredRef.current = true;
     const timer = setTimeout(() => {
       void (async () => {
@@ -1174,7 +1177,7 @@ export default function ConverseScreen() {
       })();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [activeTrip, agentId, prefill]);
+  }, [activeTrip, agentId, prefill, voiceEnabled]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -1225,7 +1228,7 @@ export default function ConverseScreen() {
         hasPlan: response.actions.length > 0,
         phase: 'execute',
       })) {
-        await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration));
+        await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration), false);
       }
 
       if (response.actions.length > 0) {
@@ -1319,9 +1322,10 @@ export default function ConverseScreen() {
       });
       setError(msg);
       setConfirmRetryNote(null);
-      await speakIfEnabled(`Sorry. ${msg}`);
+      setPhase('error');
+      await speakIfEnabled(`Sorry. ${msg}`, false);
     }
-  }, [agentId, logConverseEvent, setCurrentAgent, speakIfEnabled]);
+  }, [agentId, logConverseEvent, setCurrentAgent, setPhase, speakIfEnabled]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
 
@@ -1565,6 +1569,7 @@ export default function ConverseScreen() {
   }, [logConverseEvent, openTextFallback, runIntentWithUiFallback, setError]);
 
   const beginVoiceCapture = useCallback(async () => {
+    if (!voiceEnabled) return;
     if (phase !== 'idle' && phase !== 'error') return;
     cancelSpeech();
     if (phase === 'error') reset();
@@ -1603,7 +1608,7 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [finishVoiceCapture, logConverseEvent, phase, reset, setError]);
+  }, [finishVoiceCapture, logConverseEvent, phase, reset, setError, voiceEnabled]);
 
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;
