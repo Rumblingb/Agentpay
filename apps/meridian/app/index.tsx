@@ -8,12 +8,11 @@
  */
 
 import { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { router } from 'expo-router';
 import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip, loadCurrentJourneySession } from '../lib/storage';
 import { shouldPreferJourney } from '../lib/journeyRouting';
 import { useStore } from '../lib/store';
-import { AceMark } from '../components/AceMark';
 
 export default function BootScreen() {
   const { hydrate } = useStore();
@@ -60,12 +59,10 @@ export default function BootScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.iconMark}>
-        <AceMark
-          size={108}
-          ringColor="rgba(226, 241, 255, 0.88)"
-          glowColor="#c7e7ff"
-          backgroundColor="#2b333d"
-          iconColor="rgba(246, 249, 252, 0.98)"
+        <Image
+          source={require('../assets/ace-mark.png')}
+          style={styles.iconImage}
+          resizeMode="contain"
         />
       </View>
 
@@ -85,15 +82,19 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   iconMark: {
-    width: 124,
-    height: 124,
+    width: 136,
+    height: 128,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 26,
     shadowColor: '#c7e7ff',
-    shadowOpacity: 0.18,
-    shadowRadius: 30,
+    shadowOpacity: 0.2,
+    shadowRadius: 34,
     shadowOffset: { width: 0, height: 0 },
+  },
+  iconImage: {
+    width: 136,
+    height: 128,
   },
   wordmark: {
     color: '#f5f7fa',
