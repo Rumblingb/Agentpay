@@ -1157,16 +1157,20 @@ export default function ConverseScreen() {
   // Skipped if a prefill is pending (it will take priority) or a trip is active.
   const alwaysOnFiredRef = useRef(false);
   useEffect(() => {
-    if (alwaysOnFiredRef.current || !agentId || prefill) return;
+    if (alwaysOnFiredRef.current || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
     alwaysOnFiredRef.current = true;
     const timer = setTimeout(() => {
-      // Only start if we're still idle and the keyboard isn't up
-      if (phaseRef.current === 'idle' && !keyboardVisibleRef.current) {
-        void beginVoiceCaptureRef.current?.();
-      }
+      void (async () => {
+        const liveSession = await loadCurrentJourneySession().catch(() => null);
+        if (liveSession && shouldPreferJourney(liveSession)) return;
+        // Only start if we're still idle and the keyboard isn't up
+        if (phaseRef.current === 'idle' && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+          void beginVoiceCaptureRef.current?.();
+        }
+      })();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [agentId, prefill]);
+  }, [activeTrip, agentId, prefill]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();

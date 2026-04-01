@@ -75,6 +75,24 @@ const MOUTH_H      = 5;
 const EYES_TOP  = 72;
 const MOUTH_TOP = 122;
 
+function baseMouthScaleForPhase(phase: AppPhase): number {
+  if (phase === 'done') return 1.8;
+  if (phase === 'listening') return 1.2;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.75;
+  if (phase === 'error') return 0.65;
+  if (phase === 'confirming') return 0.9;
+  return 1;
+}
+
+function baseMouthOpacityForPhase(phase: AppPhase): number {
+  if (phase === 'listening') return 0.75;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.35;
+  if (phase === 'confirming') return 0.55;
+  if (phase === 'done') return 0.9;
+  if (phase === 'error') return 0.55;
+  return 0.55;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
@@ -98,6 +116,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const mouthScaleX  = useRef(new Animated.Value(1)).current;
   const mouthOpacity = useRef(new Animated.Value(0.55)).current;
   const speechLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const speechBlinkLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const glowColor    = GLOW_COLOR[phase] ?? '#7ab8e8';
   const bodyColors   = FACE_GRADIENT[phase];
@@ -260,6 +279,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   useEffect(() => {
     speechLoopRef.current?.stop();
     speechLoopRef.current = null;
+    speechBlinkLoopRef.current?.stop();
+    speechBlinkLoopRef.current = null;
 
     if (isSpeaking) {
       const loop = Animated.loop(Animated.sequence([
@@ -273,24 +294,31 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       Animated.timing(mouthOpacity, { toValue: 0.95, duration: 180, useNativeDriver: true }).start();
 
       // Natural blink while speaking
-      Animated.loop(Animated.sequence([
+      const blinkLoop = Animated.loop(Animated.sequence([
         Animated.delay(2600),
         Animated.timing(eyeScaleY, { toValue: 0.08, duration: 75,  useNativeDriver: true }),
         Animated.timing(eyeScaleY, { toValue: 1,    duration: 95,  useNativeDriver: true }),
-      ])).start();
+      ]));
+      speechBlinkLoopRef.current = blinkLoop;
+      blinkLoop.start();
     } else {
-      // Return to phase-appropriate mouth
-      const targetScale = phase === 'done' ? 1.8
-        : phase === 'listening' ? 1.2
-        : phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 0.75
-        : phase === 'error' ? 0.65
-        : 1;
-      Animated.timing(mouthScaleX, { toValue: targetScale, duration: 260, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX, {
+        toValue: baseMouthScaleForPhase(phase),
+        duration: 260,
+        useNativeDriver: true,
+      }).start();
+      Animated.timing(mouthOpacity, {
+        toValue: baseMouthOpacityForPhase(phase),
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
     }
 
     return () => {
       speechLoopRef.current?.stop();
       speechLoopRef.current = null;
+      speechBlinkLoopRef.current?.stop();
+      speechBlinkLoopRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpeaking, phase]);
