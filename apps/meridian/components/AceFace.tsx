@@ -449,10 +449,9 @@ const styles = StyleSheet.create({
   },
   eyeRow: {
     flexDirection: 'row',
-    gap: EYE_GAP - EYE_W,   // gap between eyes
-    marginTop: EYE_Y + FACE_H / 2 - EYE_H / 2 - FACE_H / 2 + 20,
+    gap: EYE_GAP - EYE_W,
     position: 'absolute',
-    top: FACE_H / 2 + EYE_Y - EYE_H / 2,
+    top: FACE_H / 2 + EYE_Y - EYE_H / 2,  // ~72px from top of face
   },
   eye: {
     width: EYE_W,
@@ -463,6 +462,7 @@ const styles = StyleSheet.create({
   mouth: {
     position: 'absolute',
     top: FACE_H / 2 + MOUTH_Y - MOUTH_H / 2,
+    width: 28,   // base width — scaleX animates relative to this
     height: MOUTH_H,
     borderRadius: MOUTH_H / 2,
     backgroundColor: SILVER,

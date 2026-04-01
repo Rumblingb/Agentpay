@@ -27,6 +27,7 @@ import {
   Animated,
   Switch,
   Linking,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -171,6 +172,24 @@ export default function OnboardScreen() {
   React.useEffect(() => {
     getBiometricLabel().then(setBioLabel);
   }, []);
+
+  React.useEffect(() => {
+    if (step === 'welcome') return;
+    void stopSpeaking().catch(() => null);
+    void stopRecording().catch(() => null);
+  }, [step]);
+
+  React.useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      if (step === 'welcome') return;
+      setNameListening(false);
+      setNameThinking(false);
+      setVoiceFilling(false);
+      void stopSpeaking().catch(() => null);
+      void stopRecording().catch(() => null);
+    });
+    return () => sub.remove();
+  }, [step]);
 
   const fadeToNext = (next: Step) => {
     Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {

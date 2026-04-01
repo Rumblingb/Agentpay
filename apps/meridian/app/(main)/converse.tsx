@@ -219,13 +219,21 @@ function speechPreview(text: string): string | null {
   return null;
 }
 
+function speakableNarration(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= 220) return trimmed;
+  const lead = firstSentence(trimmed);
+  return lead.length <= 220 ? lead : null;
+}
+
 function shouldAutoSpeak(params: {
   narration: string;
   hasPlan?: boolean;
   needsBiometric?: boolean;
   phase: 'plan' | 'execute' | 'error' | 'system';
 }): boolean {
-  const preview = speechPreview(params.narration);
+  const preview = speakableNarration(params.narration);
   if (!preview) return false;
   if (params.phase === 'error') return true;
   if (params.phase === 'system') return false;
@@ -973,7 +981,7 @@ export default function ConverseScreen() {
     })) {
       // restartListening=true when Ace is asking a follow-up — user can reply immediately
       const shouldRestart = narrationStillNeedsAnswer(response.narration);
-      await speakIfEnabled(speechPreview(response.narration) ?? firstSentence(response.narration), shouldRestart);
+      await speakIfEnabled(speakableNarration(response.narration) ?? firstSentence(response.narration), shouldRestart);
     }
 
     // Persist detected currency to store (used everywhere in app)
@@ -1141,7 +1149,7 @@ export default function ConverseScreen() {
         hasPlan: response.actions.length > 0,
         phase: 'execute',
       })) {
-        await speakIfEnabled(speechPreview(response.narration) ?? firstSentence(response.narration));
+        await speakIfEnabled(speakableNarration(response.narration) ?? firstSentence(response.narration));
       }
 
       if (response.actions.length > 0) {
