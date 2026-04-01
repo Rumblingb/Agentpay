@@ -1,12 +1,12 @@
 /**
  * AceFace — Ace's conversational avatar.
  *
- * Replaces the hold-to-talk orb. A minimal geometric face lives on screen
- * and changes expression based on what Ace is doing. Tap to speak, tap to stop.
- * After Ace responds the face auto-listens — no button mechanic needed.
+ * A minimal but real-feeling face. Dark glass oval, two eyes with pupils
+ * that move and blink, a mouth that animates when speaking.
+ * Tap once to start — or opens automatically on mount (always-on mode).
  *
- * Inspired by NS-5 (I, Robot): not a cartoon, not a human — just enough geometry
- * to feel alive and present.
+ * All animations use useNativeDriver: true (iOS + Android safe).
+ * No SVG, no external animation libraries.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -22,96 +22,64 @@ interface Props {
   disabled?: boolean;
 }
 
-// ── Palette (matches OrbAnimation / icon.svg) ────────────────────────────────
+// ── Palette — matches Ace's existing dark steel aesthetic ─────────────────────
 
-const GLASS_BODY   = '#313946';
-const GLASS_RING   = 'rgba(226, 242, 255, 0.82)';
-const SILVER       = 'rgba(244, 248, 252, 0.98)';
+const FACE_BORDER    = 'rgba(200, 225, 255, 0.55)';
+const FACE_SHEEN     = 'rgba(255,255,255,0.08)';
+const EYE_WHITE      = 'rgba(230, 245, 255, 0.96)';
+const PUPIL_COLOR    = '#0e1a28';
+const MOUTH_COLOR    = 'rgba(220, 240, 255, 0.85)';
 
 const GLOW_COLOR: Record<AppPhase, string> = {
-  idle:       '#b9d8f2',
+  idle:       '#7ab8e8',
   listening:  '#c7e7ff',
-  thinking:   '#8bc8ff',
-  confirming: '#e2c89c',
-  hiring:     '#8bc8ff',
-  executing:  '#b9d8f2',
-  done:       '#b8d6bf',
-  error:      '#f87171',
+  thinking:   '#6aaee0',
+  confirming: '#d4b896',
+  hiring:     '#6aaee0',
+  executing:  '#7ab8e8',
+  done:       '#8ecfa0',
+  error:      '#e87a7a',
 };
 
-const BODY_GRADIENT: Record<AppPhase, [string, string]> = {
-  idle:       ['#1e2832', '#2f3f50'],
-  listening:  ['#1a2d3e', '#2e4258'],
-  thinking:   ['#141e2e', '#1e3248'],
-  confirming: ['#2a2010', '#4a3820'],
-  hiring:     ['#141e2e', '#1e3248'],
-  executing:  ['#1e2832', '#2f3f50'],
-  done:       ['#122018', '#1e3828'],
-  error:      ['#2e0808', '#5a1010'],
+const FACE_GRADIENT: Record<AppPhase, [string, string]> = {
+  idle:       ['#1a2535', '#0e1720'],
+  listening:  ['#1d2e42', '#0f1e2e'],
+  thinking:   ['#141e2e', '#0a1520'],
+  confirming: ['#28200f', '#1a150a'],
+  hiring:     ['#141e2e', '#0a1520'],
+  executing:  ['#1a2535', '#0e1720'],
+  done:       ['#152418', '#0a1810'],
+  error:      ['#2a0e0e', '#1a0808'],
 };
 
-function baseMouthScaleForPhase(phase: AppPhase): number {
-  switch (phase) {
-    case 'listening':
-      return 34 / 28;
-    case 'thinking':
-    case 'hiring':
-    case 'executing':
-      return 22 / 28;
-    case 'confirming':
-      return 26 / 28;
-    case 'done':
-      return 52 / 28;
-    case 'error':
-      return 20 / 28;
-    case 'idle':
-    default:
-      return 1;
-  }
-}
+// ── Dimensions ─────────────────────────────────────────────────────────────────
 
-function baseMouthOpacityForPhase(phase: AppPhase): number {
-  switch (phase) {
-    case 'listening':
-      return 0.7;
-    case 'thinking':
-    case 'hiring':
-    case 'executing':
-      return 0.4;
-    case 'confirming':
-      return 0.55;
-    case 'done':
-      return 0.85;
-    case 'error':
-      return 0.6;
-    case 'idle':
-    default:
-      return 0.5;
-  }
-}
+const FACE_W    = 152;
+const FACE_H    = 192;
+const GLOW_W    = 270;
+const GLOW_H    = 310;
+const RING_SIZE = 190;
 
-// ── Sizes ─────────────────────────────────────────────────────────────────────
+// Eye
+const EYE_W     = 30;
+const EYE_H     = 16;
+const PUPIL_W   = 12;
+const PUPIL_H   = 14;
+const EYE_SEP   = 52;   // centre-to-centre
 
-const FACE_W    = 160;
-const FACE_H    = 200;
-const GLOW_W    = 280;
-const GLOW_H    = 320;
-const RING_SIZE = 200;
-const EYE_W     = 26;
-const EYE_H     = 14;
-const EYE_GAP   = 46;   // centre-to-centre horizontal
-const EYE_Y     = -28;  // offset from face centre (upward)
-const MOUTH_H   = 5;
-const MOUTH_Y   = 32;   // offset from face centre (downward)
+// Mouth
+const MOUTH_BASE_W = 32;
+const MOUTH_H      = 5;
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// Vertical positions inside face (from top of face)
+const EYES_TOP  = 72;
+const MOUTH_TOP = 122;
+
+// ── Component ──────────────────────────────────────────────────────────────────
 
 export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
-  // Glow
-  const glowScale   = useRef(new Animated.Value(1)).current;
-  const glowOpacity = useRef(new Animated.Value(0.28)).current;
-
-  // Rings (listening pulse)
+  const glowScale    = useRef(new Animated.Value(1)).current;
+  const glowOpacity  = useRef(new Animated.Value(0.32)).current;
   const ring1Scale   = useRef(new Animated.Value(1)).current;
   const ring1Opacity = useRef(new Animated.Value(0)).current;
   const ring2Scale   = useRef(new Animated.Value(1)).current;
@@ -119,156 +87,161 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
   // Eyes
   const eyeScaleY    = useRef(new Animated.Value(1)).current;   // blink
-  const eyeTranslateX = useRef(new Animated.Value(0)).current;  // gaze drift
+  const pupilX       = useRef(new Animated.Value(0)).current;   // gaze left/right
+  const pupilY       = useRef(new Animated.Value(0)).current;   // gaze up/down
 
-  // Face lift / breathe
-  const faceScale  = useRef(new Animated.Value(1)).current;
-  const faceLift   = useRef(new Animated.Value(0)).current;
+  // Face
+  const faceScale    = useRef(new Animated.Value(1)).current;
+  const faceLift     = useRef(new Animated.Value(0)).current;
 
-  // Mouth
+  // Mouth (scaleX on fixed base width — native driver safe)
   const mouthScaleX  = useRef(new Animated.Value(1)).current;
-  const mouthOpacity = useRef(new Animated.Value(0.6)).current;
-  const speechMouthLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const mouthOpacity = useRef(new Animated.Value(0.55)).current;
+  const speechLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
-  const glowColor = GLOW_COLOR[phase] ?? '#b9d8f2';
+  const glowColor    = GLOW_COLOR[phase] ?? '#7ab8e8';
+  const bodyColors   = FACE_GRADIENT[phase];
 
-  // ── Phase animations ────────────────────────────────────────────────────────
+  // ── Phase expressions ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Stop everything cleanly
     [glowScale, glowOpacity, ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-      eyeScaleY, eyeTranslateX, faceScale, faceLift, mouthScaleX, mouthOpacity]
+      eyeScaleY, pupilX, pupilY, faceScale, faceLift, mouthScaleX, mouthOpacity]
       .forEach((v) => v.stopAnimation());
 
     if (phase === 'idle') {
-      // Slow breath glow
+      // Slow breath
       Animated.loop(Animated.sequence([
-        Animated.timing(glowScale,   { toValue: 1.1,  duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(glowScale,   { toValue: 1,    duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowScale,   { toValue: 1.08, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowScale,   { toValue: 1,    duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
       Animated.loop(Animated.sequence([
-        Animated.timing(glowOpacity, { toValue: 0.42, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(glowOpacity, { toValue: 0.18, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0.48, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0.18, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
 
-      // Slow blink every ~4s
+      // Lazy blink every ~5s
       Animated.loop(Animated.sequence([
-        Animated.delay(3200),
-        Animated.timing(eyeScaleY, { toValue: 0.12, duration: 90,  useNativeDriver: true }),
+        Animated.delay(4200),
+        Animated.timing(eyeScaleY, { toValue: 0.08, duration: 80,  useNativeDriver: true }),
         Animated.timing(eyeScaleY, { toValue: 1,    duration: 110, useNativeDriver: true }),
+        Animated.delay(200),
+        Animated.timing(eyeScaleY, { toValue: 0.08, duration: 70,  useNativeDriver: true }),
+        Animated.timing(eyeScaleY, { toValue: 1,    duration: 100, useNativeDriver: true }),
       ])).start();
 
-      // Very gentle gaze drift
+      // Gentle gaze wander
       Animated.loop(Animated.sequence([
-        Animated.timing(eyeTranslateX, { toValue: -3, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(eyeTranslateX, { toValue:  3, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(eyeTranslateX, { toValue:  0, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(pupilX, { toValue: -3, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(pupilX, { toValue:  3, duration: 3000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(pupilX, { toValue:  0, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])).start();
+      Animated.loop(Animated.sequence([
+        Animated.timing(pupilY, { toValue: -1.5, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(pupilY, { toValue:  1.5, duration: 2800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
 
       // Subtle float
       Animated.loop(Animated.sequence([
-        Animated.timing(faceLift, { toValue: -4, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(faceLift, { toValue:  0, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceLift, { toValue: -3, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceLift, { toValue:  0, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
 
-      // Mouth: thin closed line
-      Animated.timing(mouthScaleX,  { toValue: 1, duration: 300, useNativeDriver: true }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.5, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX,  { toValue: 1,    duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.55, duration: 300, useNativeDriver: true }).start();
     }
 
     if (phase === 'listening') {
-      // Pulse rings
-      const pulse = (scale: Animated.Value, opacity: Animated.Value, delay: number) =>
+      // Rings
+      const ring = (s: Animated.Value, o: Animated.Value, delay: number) =>
         Animated.loop(Animated.sequence([
           Animated.delay(delay),
           Animated.parallel([
-            Animated.timing(scale,   { toValue: 1.9, duration: 2000, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-            Animated.timing(opacity, { toValue: 0,   duration: 2000, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
+            Animated.timing(s, { toValue: 1.85, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+            Animated.timing(o, { toValue: 0,    duration: 1800, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
           ]),
           Animated.parallel([
-            Animated.timing(scale,   { toValue: 1,    duration: 0, useNativeDriver: true }),
-            Animated.timing(opacity, { toValue: 0.28, duration: 0, useNativeDriver: true }),
+            Animated.timing(s, { toValue: 1,    duration: 0, useNativeDriver: true }),
+            Animated.timing(o, { toValue: 0.28, duration: 0, useNativeDriver: true }),
           ]),
         ]));
-      pulse(ring1Scale, ring1Opacity, 0).start();
-      pulse(ring2Scale, ring2Opacity, 1000).start();
+      ring(ring1Scale, ring1Opacity, 0).start();
+      ring(ring2Scale, ring2Opacity, 900).start();
 
-      // Eyes wide, gaze side-to-side attentively
-      Animated.timing(eyeScaleY, { toValue: 1.25, duration: 250, useNativeDriver: true }).start();
+      // Eyes open wide, pupils centre and alert
+      Animated.timing(eyeScaleY, { toValue: 1.3, duration: 220, useNativeDriver: true }).start();
+      Animated.timing(pupilX,    { toValue: 0,   duration: 220, useNativeDriver: true }).start();
+      Animated.timing(pupilY,    { toValue: 0,   duration: 220, useNativeDriver: true }).start();
+
+      Animated.timing(glowOpacity, { toValue: 0.65, duration: 350, useNativeDriver: true }).start();
       Animated.loop(Animated.sequence([
-        Animated.timing(eyeTranslateX, { toValue: -4, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(eyeTranslateX, { toValue:  4, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(eyeTranslateX, { toValue:  0, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceScale, { toValue: 1.03, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceScale, { toValue: 1,    duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
 
-      Animated.timing(glowOpacity, { toValue: 0.55, duration: 400, useNativeDriver: true }).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(faceScale, { toValue: 1.04, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(faceScale, { toValue: 1,    duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])).start();
-
-      // Mouth slightly parted
-      Animated.timing(mouthScaleX,  { toValue: 34 / 28, duration: 250, useNativeDriver: true }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.7, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX,  { toValue: 1.2,  duration: 220, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.75, duration: 220, useNativeDriver: true }).start();
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
-      // Eyes look slightly up
-      Animated.timing(eyeScaleY,     { toValue: 1,  duration: 200, useNativeDriver: true }).start();
-      Animated.timing(eyeTranslateX, { toValue: 0,  duration: 200, useNativeDriver: true }).start();
+      // Eyes half-closed, pupils look slightly up — thoughtful
+      Animated.timing(eyeScaleY, { toValue: 0.75, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(pupilY,    { toValue: -2,   duration: 300, useNativeDriver: true }).start();
+      Animated.timing(pupilX,    { toValue: 0,    duration: 300, useNativeDriver: true }).start();
 
-      // Slow thoughtful blink
+      // Slow deliberate blink
       Animated.loop(Animated.sequence([
-        Animated.delay(1800),
-        Animated.timing(eyeScaleY, { toValue: 0.15, duration: 100, useNativeDriver: true }),
-        Animated.timing(eyeScaleY, { toValue: 1,    duration: 130, useNativeDriver: true }),
+        Animated.delay(2200),
+        Animated.timing(eyeScaleY, { toValue: 0.08, duration: 120, useNativeDriver: true }),
+        Animated.timing(eyeScaleY, { toValue: 0.75, duration: 150, useNativeDriver: true }),
       ])).start();
 
-      // Faster glow pulse
       Animated.loop(Animated.sequence([
-        Animated.timing(glowScale,   { toValue: 1.08, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(glowScale,   { toValue: 1,    duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowScale, { toValue: 1.06, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowScale, { toValue: 1,    duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
       Animated.loop(Animated.sequence([
-        Animated.timing(faceLift, { toValue: -3, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(faceLift, { toValue:  0, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceLift, { toValue: -2, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(faceLift, { toValue:  0, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ])).start();
 
-      // Mouth closed
-      Animated.timing(mouthScaleX,  { toValue: 22 / 28, duration: 200, useNativeDriver: true }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.4, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX,  { toValue: 0.75, duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.35, duration: 250, useNativeDriver: true }).start();
     }
 
     if (phase === 'confirming') {
-      // Steady forward gaze — attentive, waiting
-      Animated.timing(eyeScaleY,     { toValue: 1,  duration: 250, useNativeDriver: true }).start();
-      Animated.timing(eyeTranslateX, { toValue: 0,  duration: 250, useNativeDriver: true }).start();
-      Animated.timing(glowOpacity,   { toValue: 0.45, duration: 400, useNativeDriver: true }).start();
-      Animated.timing(mouthScaleX,   { toValue: 26 / 28, duration: 250, useNativeDriver: true }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.55, duration: 250, useNativeDriver: true }).start();
+      // Eyes fully open, direct gaze — awaiting decision
+      Animated.timing(eyeScaleY, { toValue: 1,   duration: 250, useNativeDriver: true }).start();
+      Animated.timing(pupilX,    { toValue: 0,   duration: 250, useNativeDriver: true }).start();
+      Animated.timing(pupilY,    { toValue: 0,   duration: 250, useNativeDriver: true }).start();
+      Animated.timing(glowOpacity, { toValue: 0.5, duration: 400, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX,  { toValue: 0.9,  duration: 250, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.55, duration: 250, useNativeDriver: true }).start();
     }
 
     if (phase === 'done') {
-      // Eyes curve upward — happiness illusion via scaleY compress + borderRadius
-      Animated.spring(eyeScaleY, { toValue: 0.55, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
-      Animated.timing(eyeTranslateX, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-      Animated.spring(faceScale,  { toValue: 1.06, useNativeDriver: true, speed: 24 }).start();
-      Animated.spring(faceLift,   { toValue: -5,   useNativeDriver: true, speed: 18, bounciness: 8 }).start();
-      Animated.timing(glowOpacity,  { toValue: 0.6,  duration: 400, useNativeDriver: true }).start();
-      // Mouth widens into a subtle smile bar
-      Animated.spring(mouthScaleX, { toValue: 52 / 28, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
-      Animated.timing(mouthOpacity, { toValue: 0.85, duration: 300, useNativeDriver: true }).start();
+      // Eyes compress upward — satisfied expression
+      Animated.spring(eyeScaleY, { toValue: 0.5, useNativeDriver: true, speed: 22, bounciness: 4 }).start();
+      Animated.timing(pupilX,    { toValue: 0,   duration: 200, useNativeDriver: true }).start();
+      Animated.timing(pupilY,    { toValue: 2,   duration: 200, useNativeDriver: true }).start();  // pupils slightly down (soft look)
+      Animated.spring(faceScale, { toValue: 1.05, useNativeDriver: true, speed: 22 }).start();
+      Animated.spring(faceLift,  { toValue: -4,   useNativeDriver: true, speed: 18, bounciness: 6 }).start();
+      Animated.timing(glowOpacity, { toValue: 0.65, duration: 400, useNativeDriver: true }).start();
+      // Mouth widens — subtle smile
+      Animated.spring(mouthScaleX,  { toValue: 1.8, useNativeDriver: true, speed: 18, bounciness: 5 } as any).start();
+      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 300, useNativeDriver: true }).start();
     }
 
     if (phase === 'error') {
-      Animated.timing(eyeScaleY,     { toValue: 0.65, duration: 200, useNativeDriver: true }).start();
-      Animated.timing(eyeTranslateX, { toValue: 0,    duration: 200, useNativeDriver: true }).start();
-      Animated.timing(glowOpacity,   { toValue: 0.5,  duration: 300, useNativeDriver: true }).start();
-      Animated.timing(mouthScaleX,   { toValue: 20 / 28, duration: 200, useNativeDriver: true }).start();
-      Animated.timing(mouthOpacity,  { toValue: 0.6, duration: 200, useNativeDriver: true }).start();
+      // Eyes narrow, slight frown
+      Animated.timing(eyeScaleY, { toValue: 0.6, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(pupilX,    { toValue: 0,   duration: 200, useNativeDriver: true }).start();
+      Animated.timing(pupilY,    { toValue: 1,   duration: 200, useNativeDriver: true }).start();
+      Animated.timing(glowOpacity, { toValue: 0.55, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(mouthScaleX,  { toValue: 0.65, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(mouthOpacity, { toValue: 0.55, duration: 200, useNativeDriver: true }).start();
     }
 
-    // Reset rings when not listening
     if (phase !== 'listening') {
       ring1Scale.setValue(1); ring1Opacity.setValue(0);
       ring2Scale.setValue(1); ring2Opacity.setValue(0);
@@ -276,55 +249,55 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     if (phase !== 'thinking' && phase !== 'hiring' && phase !== 'executing') {
       Animated.spring(faceScale, { toValue: 1, useNativeDriver: true, speed: 14 }).start();
     }
-    if (phase !== 'idle') {
-      faceLift.stopAnimation();
+    if (phase === 'listening' || phase === 'idle') {
       Animated.spring(faceLift, { toValue: 0, useNativeDriver: true, speed: 14 }).start();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // ── Speaking mouth animation ─────────────────────────────────────────────────
+  // ── Speaking mouth ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    speechMouthLoopRef.current?.stop();
-    speechMouthLoopRef.current = null;
+    speechLoopRef.current?.stop();
+    speechLoopRef.current = null;
 
     if (isSpeaking) {
-      const mouthLoop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(mouthScaleX, { toValue: 52 / 28, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 22 / 28, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 44 / 28, duration: 140, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 18 / 28, duration: 180, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ]),
-      );
-      speechMouthLoopRef.current = mouthLoop;
-      mouthLoop.start();
-      Animated.timing(mouthOpacity, { toValue: 0.9, duration: 200, useNativeDriver: true }).start();
+      const loop = Animated.loop(Animated.sequence([
+        Animated.timing(mouthScaleX, { toValue: 1.9,  duration: 140, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(mouthScaleX, { toValue: 0.7,  duration: 150, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(mouthScaleX, { toValue: 1.55, duration: 130, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(mouthScaleX, { toValue: 0.55, duration: 160, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]));
+      speechLoopRef.current = loop;
+      loop.start();
+      Animated.timing(mouthOpacity, { toValue: 0.95, duration: 180, useNativeDriver: true }).start();
+
+      // Natural blink while speaking
+      Animated.loop(Animated.sequence([
+        Animated.delay(2600),
+        Animated.timing(eyeScaleY, { toValue: 0.08, duration: 75,  useNativeDriver: true }),
+        Animated.timing(eyeScaleY, { toValue: 1,    duration: 95,  useNativeDriver: true }),
+      ])).start();
     } else {
-      Animated.timing(mouthScaleX, {
-        toValue: baseMouthScaleForPhase(phase),
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-      Animated.timing(mouthOpacity, {
-        toValue: baseMouthOpacityForPhase(phase),
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
+      // Return to phase-appropriate mouth
+      const targetScale = phase === 'done' ? 1.8
+        : phase === 'listening' ? 1.2
+        : phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 0.75
+        : phase === 'error' ? 0.65
+        : 1;
+      Animated.timing(mouthScaleX, { toValue: targetScale, duration: 260, useNativeDriver: true }).start();
     }
 
     return () => {
-      speechMouthLoopRef.current?.stop();
-      speechMouthLoopRef.current = null;
+      speechLoopRef.current?.stop();
+      speechLoopRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpeaking, phase]);
 
-  // ── Interaction ──────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
 
-  const isInteractive = phase === 'idle' || phase === 'listening' || phase === 'thinking'
-    || phase === 'hiring' || phase === 'executing' || phase === 'confirming' || phase === 'error';
+  const isInteractive = !['done'].includes(phase) || phase === 'error';
 
   const handlePress = () => {
     if (disabled || !isInteractive) return;
@@ -332,63 +305,41 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     onPress?.();
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────────
-
-  const bodyColors = BODY_GRADIENT[phase];
-
   return (
     <View style={styles.container}>
-      {/* Outer glow halo */}
+      {/* Glow halo */}
       <Animated.View style={[styles.glow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]}>
-        <LinearGradient
-          colors={[glowColor, 'transparent']}
-          style={styles.glowGrad}
-        />
+        <LinearGradient colors={[glowColor, 'transparent']} style={styles.glowGrad} />
       </Animated.View>
 
-      {/* Listening pulse rings */}
+      {/* Listening rings */}
       <Animated.View style={[styles.ring, { transform: [{ scale: ring1Scale }], opacity: ring1Opacity, borderColor: glowColor }]} />
       <Animated.View style={[styles.ring, { transform: [{ scale: ring2Scale }], opacity: ring2Opacity, borderColor: glowColor }]} />
 
-      {/* Face body */}
+      {/* Face */}
       <Animated.View style={{ transform: [{ scale: faceScale }, { translateY: faceLift }] }}>
-        <Pressable onPress={handlePress} disabled={disabled || !isInteractive}>
-          <LinearGradient
-            colors={bodyColors}
-            style={[styles.face, { shadowColor: glowColor }]}
-          >
-            {/* Glass sheen */}
+        <Pressable onPress={handlePress} disabled={disabled}>
+          <LinearGradient colors={bodyColors} style={[styles.face, { shadowColor: glowColor }]}>
+            {/* Top-left sheen */}
             <LinearGradient
-              colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)']}
-              start={{ x: 0.18, y: 0 }}
-              end={{ x: 0.72, y: 0.5 }}
+              colors={[FACE_SHEEN, 'transparent']}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.7, y: 0.55 }}
               style={StyleSheet.absoluteFill}
             />
 
-            {/* Eyes */}
-            <View style={styles.eyeRow}>
-              <Animated.View
-                style={[
-                  styles.eye,
-                  {
-                    transform: [
-                      { scaleY: eyeScaleY },
-                      { translateX: eyeTranslateX },
-                    ],
-                  },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.eye,
-                  {
-                    transform: [
-                      { scaleY: eyeScaleY },
-                      { translateX: eyeTranslateX },
-                    ],
-                  },
-                ]}
-              />
+            {/* Left eye */}
+            <View style={[styles.eyeContainer, { left: FACE_W / 2 - EYE_SEP / 2 - EYE_W / 2, top: EYES_TOP }]}>
+              <Animated.View style={[styles.eyeWhite, { transform: [{ scaleY: eyeScaleY }] }]}>
+                <Animated.View style={[styles.pupil, { transform: [{ translateX: pupilX }, { translateY: pupilY }] }]} />
+              </Animated.View>
+            </View>
+
+            {/* Right eye */}
+            <View style={[styles.eyeContainer, { left: FACE_W / 2 + EYE_SEP / 2 - EYE_W / 2, top: EYES_TOP }]}>
+              <Animated.View style={[styles.eyeWhite, { transform: [{ scaleY: eyeScaleY }] }]}>
+                <Animated.View style={[styles.pupil, { transform: [{ translateX: pupilX }, { translateY: pupilY }] }]} />
+              </Animated.View>
             </View>
 
             {/* Mouth */}
@@ -396,6 +347,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
               style={[
                 styles.mouth,
                 {
+                  left: FACE_W / 2 - MOUTH_BASE_W / 2,
+                  top: MOUTH_TOP,
                   opacity: mouthOpacity,
                   transform: [{ scaleX: mouthScaleX }],
                 },
@@ -436,35 +389,45 @@ const styles = StyleSheet.create({
   face: {
     width: FACE_W,
     height: FACE_H,
-    borderRadius: FACE_W * 0.52,
-    borderWidth: 1.2,
-    borderColor: GLASS_RING,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: FACE_W * 0.5,   // tall oval
+    borderWidth: 1,
+    borderColor: FACE_BORDER,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 28,
+    shadowOpacity: 0.55,
+    shadowRadius: 26,
     elevation: 14,
     overflow: 'hidden',
   },
-  eyeRow: {
-    flexDirection: 'row',
-    gap: EYE_GAP - EYE_W,
+  eyeContainer: {
     position: 'absolute',
-    top: FACE_H / 2 + EYE_Y - EYE_H / 2,  // ~72px from top of face
+    width: EYE_W,
+    height: EYE_H,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  eye: {
+  eyeWhite: {
     width: EYE_W,
     height: EYE_H,
     borderRadius: EYE_H / 2,
-    backgroundColor: SILVER,
+    backgroundColor: EYE_WHITE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#c8e8ff',
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  pupil: {
+    width: PUPIL_W,
+    height: PUPIL_H,
+    borderRadius: PUPIL_W / 2,
+    backgroundColor: PUPIL_COLOR,
   },
   mouth: {
     position: 'absolute',
-    top: FACE_H / 2 + MOUTH_Y - MOUTH_H / 2,
-    width: 28,   // base width — scaleX animates relative to this
+    width: MOUTH_BASE_W,
     height: MOUTH_H,
     borderRadius: MOUTH_H / 2,
-    backgroundColor: SILVER,
+    backgroundColor: MOUTH_COLOR,
   },
 });

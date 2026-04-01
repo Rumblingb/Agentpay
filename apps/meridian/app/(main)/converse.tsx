@@ -1153,6 +1153,21 @@ export default function ConverseScreen() {
     void runIntentWithUiFallback(prefill);
   }, [prefill, agentId, logConverseEvent, runIntentWithUiFallback]);
 
+  // Always-on: auto-start listening 1.2s after mount once agentId is ready.
+  // Skipped if a prefill is pending (it will take priority) or a trip is active.
+  const alwaysOnFiredRef = useRef(false);
+  useEffect(() => {
+    if (alwaysOnFiredRef.current || !agentId || prefill) return;
+    alwaysOnFiredRef.current = true;
+    const timer = setTimeout(() => {
+      // Only start if we're still idle and the keyboard isn't up
+      if (phaseRef.current === 'idle' && !keyboardVisibleRef.current) {
+        void beginVoiceCaptureRef.current?.();
+      }
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [agentId, prefill]);
+
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
     if (!text) return;
