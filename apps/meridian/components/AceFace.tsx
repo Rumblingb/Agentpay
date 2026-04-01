@@ -1,16 +1,60 @@
 /**
- * AceFace - Ace's conversational avatar.
+ * AceFace — Ace's conversational avatar.
  *
- * Premium, code-native face that stays inside the existing conversation-object
- * footprint. It should feel like a live presence, not a cartoon and not a
- * humanoid character. AceMark remains the permanent brand symbol elsewhere.
+ * Rendered via react-native-svg for genuine vector quality:
+ *   - Multi-stop radial gradients on iris (deep blue-grey, jewel-like)
+ *   - Key-light + rim-light on face body (dark glass sculpture look)
+ *   - Bezier-curve mouth (smiles, compresses, speaks)
+ *   - Top-down eyelid via clipped Rect
+ *   - Corneal specular dot — single biggest "alive" signal
+ *
+ * All animation via react-native-reanimated useSharedValue /
+ * useAnimatedProps — UI thread, no JS jank.
  */
 
-import React, { useEffect, useMemo, useRef } from 'react';
-import { View, Animated, StyleSheet, Pressable, Easing } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect } from 'react';
+import { Pressable, View, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedProps,
+  withTiming,
+  withRepeat,
+  withSequence,
+  withDelay,
+  withSpring,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
+// react-native-svg v15 was typed against @types/react v18; cast to fix v19 incompatibility
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _svg = require('react-native-svg') as Record<string, React.ComponentType<any>>;
+const Svg           = _svg['default']        as React.ComponentType<any>;
+const Defs          = _svg['Defs']           as React.ComponentType<any>;
+const RadialGradient = _svg['RadialGradient'] as React.ComponentType<any>;
+const LinearGradient = _svg['LinearGradient'] as React.ComponentType<any>;
+const Stop          = _svg['Stop']           as React.ComponentType<any>;
+const ClipPath      = _svg['ClipPath']       as React.ComponentType<any>;
+const Ellipse       = _svg['Ellipse']        as React.ComponentType<any>;
+const Circle        = _svg['Circle']         as React.ComponentType<any>;
+const Rect          = _svg['Rect']           as React.ComponentType<any>;
+const Path          = _svg['Path']           as React.ComponentType<any>;
+const G             = _svg['G']              as React.ComponentType<any>;
+
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
+
+// ─── Animated SVG components ─────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _svgRaw = require('react-native-svg');
+// Cast to any: @types/react v19 broke createAnimatedComponent for SVG types (bigint in ReactNode)
+// Runtime is correct — Reanimated handles animatedProps transparently.
+const AnimatedG    = Animated.createAnimatedComponent(_svgRaw.G)    as unknown as React.ComponentType<any>;
+const AnimatedRect = Animated.createAnimatedComponent(_svgRaw.Rect) as unknown as React.ComponentType<any>;
+const AnimatedPath = Animated.createAnimatedComponent(_svgRaw.Path) as unknown as React.ComponentType<any>;
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
   phase: AppPhase;
@@ -19,426 +63,360 @@ interface Props {
   disabled?: boolean;
 }
 
-const FACE_BORDER = 'rgba(200, 225, 255, 0.55)';
-const FACE_INNER_BORDER = 'rgba(180, 220, 255, 0.12)';
-const FACE_SHEEN = 'rgba(255,255,255,0.08)';
-const EYE_WHITE = 'rgba(233, 245, 255, 0.96)';
-const IRIS_COLOR = 'rgba(80,120,180,0.35)';
-const PUPIL_COLOR = '#0e1a28';
-const PUPIL_HIGHLIGHT = 'rgba(255,255,255,0.92)';
-const MOUTH_COLOR = 'rgba(220, 240, 255, 0.86)';
+// ─── Layout constants ─────────────────────────────────────────────────────────
 
-const GLOW_COLOR: Record<AppPhase, string> = {
-  idle: '#7ab8e8',
-  listening: '#c7e7ff',
-  thinking: '#6aaee0',
-  confirming: '#d4b896',
-  hiring: '#6aaee0',
-  executing: '#7ab8e8',
-  done: '#8ecfa0',
-  error: '#e87a7a',
-};
+const CW = 270;
+const CH = 310;
+const CX = CW / 2;   // 135
+const CY = CH / 2;   // 155
 
-const FACE_GRADIENT: Record<AppPhase, [string, string]> = {
-  idle: ['#1a2535', '#0e1720'],
-  listening: ['#1d2e42', '#0f1e2e'],
-  thinking: ['#141e2e', '#0a1520'],
-  confirming: ['#28200f', '#1a150a'],
-  hiring: ['#141e2e', '#0a1520'],
-  executing: ['#1a2535', '#0e1720'],
-  done: ['#152418', '#0a1810'],
-  error: ['#2a0e0e', '#1a0808'],
-};
+// Face oval
+const FRX = 76;
+const FRY = 96;
 
-const FACE_W = 152;
-const FACE_H = 192;
-const GLOW_W = 270;
-const GLOW_H = 310;
-const RING_SIZE = 190;
+// Glow + rings
+const GLOW_R  = 128;
+const RING_R  = 92;
 
-const EYE_W = 32;
-const EYE_H = 18;
-const EYE_SEP = 54;
-const IRIS_W = 18;
-const IRIS_H = 16;
-const PUPIL_W = 10;
-const PUPIL_H = 12;
-const HIGHLIGHT_SIZE = 4;
-const LID_H = EYE_H + 10;
+// Eyes
+const EYE_RX  = 16;    // sclera half-width
+const EYE_RY  = 9;     // sclera half-height
+const EYE_SEP = 27;    // horizontal offset from face centre
+const EYE_Y_OFF = -18; // vertical offset from face centre (up)
+const LEX = CX - EYE_SEP;  // 108 — left eye cx
+const REX = CX + EYE_SEP;  // 162 — right eye cx
+const EYE_CY = CY + EYE_Y_OFF; // 137 — eye cy
 
-const MOUTH_BASE_W = 34;
-const MOUTH_H = 5;
+// Iris / pupil
+const IRIS_R  = 8.5;
+const PUP_R   = 5;
 
-const EYES_TOP = 72;
-const MOUTH_TOP = 122;
+// Corneal specular highlight — top-right within iris
+const SPEC_R  = 2.2;
+const SPEC_OX = 3.6;
+const SPEC_OY = -3.2;
 
-function lidTranslateForCover(coverPx: number): number {
-  return -LID_H + coverPx;
+// Eyelid: full travel in px when lid goes from fully open → fully closed
+const LID_TOP = EYE_CY - EYE_RY - 8; // top of lid rect (above eye)
+const LID_H_CLOSED = EYE_RY * 2 + 8; // height when fully closed
+
+// Mouth
+const MOUTH_CY = CY + 22;  // 177
+const MOUTH_HW = 19;        // half-width
+
+// ─── Phase helpers ────────────────────────────────────────────────────────────
+
+// lid 0 = fully open (lid height = 0 relative to eye top)
+// lid 1 = fully closed (lid covers entire eye)
+function baseLidForPhase(p: AppPhase): number {
+  if (p === 'listening')  return 0.0;
+  if (p === 'thinking' || p === 'hiring' || p === 'executing') return 0.46;
+  if (p === 'confirming') return 0.14;
+  if (p === 'done')       return 0.34;
+  if (p === 'error')      return 0.30;
+  return 0.06; // idle
 }
 
-function baseLidCoverForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.3;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 4.2;
-  if (phase === 'confirming') return 1.5;
-  if (phase === 'done') return 6.5;
-  if (phase === 'error') return 5;
-  return 0.8;
-}
-
-function baseGazeForPhase(phase: AppPhase): { x: number; y: number } {
-  if (phase === 'listening') return { x: 0, y: 0 };
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return { x: 0, y: -1.8 };
-  if (phase === 'done') return { x: 0, y: 1.6 };
-  if (phase === 'error') return { x: 0, y: 0.8 };
+function baseGazeForPhase(p: AppPhase): { x: number; y: number } {
+  if (p === 'thinking' || p === 'hiring' || p === 'executing') return { x: 0, y: -2 };
+  if (p === 'done')  return { x: 0, y: 1.8 };
+  if (p === 'error') return { x: 0, y: 0.6 };
   return { x: 0, y: 0 };
 }
 
-function basePupilScaleForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 1.06;
-  if (phase === 'error') return 0.9;
-  return 1;
+// positive = curves up (smile), negative = frown
+function baseMouthCurveForPhase(p: AppPhase): number {
+  if (p === 'done')      return 5.0;
+  if (p === 'listening') return 1.0;
+  if (p === 'thinking' || p === 'hiring' || p === 'executing') return -1.5;
+  if (p === 'error')     return -2.5;
+  return 0;
 }
 
-function baseMouthScaleForPhase(phase: AppPhase): number {
-  if (phase === 'done') return 1.78;
-  if (phase === 'listening') return 1.18;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.78;
-  if (phase === 'error') return 0.66;
-  if (phase === 'confirming') return 0.92;
-  return 1;
+function baseMouthOpacityForPhase(p: AppPhase): number {
+  if (p === 'done')       return 0.90;
+  if (p === 'listening')  return 0.72;
+  if (p === 'thinking' || p === 'hiring' || p === 'executing') return 0.32;
+  if (p === 'confirming') return 0.52;
+  if (p === 'error')      return 0.50;
+  return 0.52;
 }
 
-function baseMouthOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.75;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.35;
-  if (phase === 'confirming') return 0.55;
-  if (phase === 'done') return 0.9;
-  if (phase === 'error') return 0.55;
-  return 0.55;
-}
+// ─── Phase colour maps ────────────────────────────────────────────────────────
 
-function stopLoops(loops: Animated.CompositeAnimation[]) {
-  for (const loop of loops) {
-    loop.stop();
-  }
-}
+const GLOW_COLOR: Record<AppPhase, string> = {
+  idle: '#6aa8d8', listening: '#b8deff', thinking: '#5898cc',
+  confirming: '#c8a870', hiring: '#5898cc', executing: '#6aa8d8',
+  done: '#78c890', error: '#d86060',
+};
+const ACCENT: Record<AppPhase, string> = {
+  idle: '#8ec4e8', listening: '#c8e8ff', thinking: '#78b8e8',
+  confirming: '#e0c080', hiring: '#78b8e8', executing: '#8ec4e8',
+  done: '#90d8a8', error: '#e88080',
+};
+const FACE_TOP: Record<AppPhase, string> = {
+  idle: '#253448', listening: '#1e2e42', thinking: '#182036',
+  confirming: '#2a2010', hiring: '#182036', executing: '#253448',
+  done: '#182a1e', error: '#2a1010',
+};
+const FACE_BOT: Record<AppPhase, string> = {
+  idle: '#0a1420', listening: '#0c1828', thinking: '#080e1c',
+  confirming: '#14100a', hiring: '#080e1c', executing: '#0a1420',
+  done: '#081410', error: '#140808',
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
-  const glowScale = useRef(new Animated.Value(1)).current;
-  const glowOpacity = useRef(new Animated.Value(0.32)).current;
-  const ring1Scale = useRef(new Animated.Value(1)).current;
-  const ring1Opacity = useRef(new Animated.Value(0)).current;
-  const ring2Scale = useRef(new Animated.Value(1)).current;
-  const ring2Opacity = useRef(new Animated.Value(0)).current;
 
-  const leftLidY = useRef(new Animated.Value(lidTranslateForCover(baseLidCoverForPhase('idle')))).current;
-  const rightLidY = useRef(new Animated.Value(lidTranslateForCover(baseLidCoverForPhase('idle')))).current;
-  const gazeX = useRef(new Animated.Value(0)).current;
-  const gazeY = useRef(new Animated.Value(0)).current;
-  const speechGazeX = useRef(new Animated.Value(0)).current;
-  const speechGazeY = useRef(new Animated.Value(0)).current;
-  const pupilScale = useRef(new Animated.Value(1)).current;
+  // ── Shared values ────────────────────────────────────────────────────────
+  const lidL       = useSharedValue(baseLidForPhase('idle'));
+  const lidR       = useSharedValue(baseLidForPhase('idle'));
+  const gazeX      = useSharedValue(0);
+  const gazeY      = useSharedValue(0);
+  const speechGX   = useSharedValue(0);
+  const speechGY   = useSharedValue(0);
+  const faceS      = useSharedValue(1);
+  const faceLift   = useSharedValue(0);
+  const glowO      = useSharedValue(0.32);
+  const glowS      = useSharedValue(1);
+  const ring1S     = useSharedValue(1);
+  const ring1O     = useSharedValue(0);
+  const ring2S     = useSharedValue(1);
+  const ring2O     = useSharedValue(0);
+  const mouthCurve = useSharedValue(0);
+  const mouthO     = useSharedValue(0.52);
 
-  const faceScale = useRef(new Animated.Value(1)).current;
-  const faceLift = useRef(new Animated.Value(0)).current;
-  const mouthScaleX = useRef(new Animated.Value(1)).current;
-  const mouthOpacity = useRef(new Animated.Value(0.55)).current;
+  // ── Derived animated props ───────────────────────────────────────────────
 
-  const phaseLoopsRef = useRef<Animated.CompositeAnimation[]>([]);
-  const speechMouthLoopRef = useRef<Animated.CompositeAnimation | null>(null);
-  const speechGazeLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  // Face group transform: scale from centre + vertical lift
+  const faceProps = useAnimatedProps(() => ({
+    transform: [
+      { translateX: CX }, { translateY: CY + faceLift.value },
+      { scale: faceS.value },
+      { translateX: -CX }, { translateY: -CY },
+    ] as const,
+  }));
 
-  const glowColor = GLOW_COLOR[phase] ?? '#7ab8e8';
-  const bodyColors = FACE_GRADIENT[phase];
-  const lidColor = bodyColors[0];
-  const pupilRenderX = useMemo(() => Animated.add(gazeX, speechGazeX), [gazeX, speechGazeX]);
-  const pupilRenderY = useMemo(() => Animated.add(gazeY, speechGazeY), [gazeY, speechGazeY]);
+  // Glow halo
+  const glowProps = useAnimatedProps(() => ({
+    transform: [
+      { translateX: CX }, { translateY: CY },
+      { scale: glowS.value },
+      { translateX: -CX }, { translateY: -CY },
+    ] as const,
+    opacity: glowO.value,
+  }));
 
-  useEffect(() => {
-    stopLoops(phaseLoopsRef.current);
-    phaseLoopsRef.current = [];
+  // Listening rings
+  const ring1Props = useAnimatedProps(() => ({
+    transform: [
+      { translateX: CX }, { translateY: CY },
+      { scale: ring1S.value },
+      { translateX: -CX }, { translateY: -CY },
+    ] as const,
+    opacity: ring1O.value,
+  }));
+  const ring2Props = useAnimatedProps(() => ({
+    transform: [
+      { translateX: CX }, { translateY: CY },
+      { scale: ring2S.value },
+      { translateX: -CX }, { translateY: -CY },
+    ] as const,
+    opacity: ring2O.value,
+  }));
 
-    [
-      glowScale,
-      glowOpacity,
-      ring1Scale,
-      ring1Opacity,
-      ring2Scale,
-      ring2Opacity,
-      leftLidY,
-      rightLidY,
-      gazeX,
-      gazeY,
-      pupilScale,
-      faceScale,
-      faceLift,
-      mouthScaleX,
-      mouthOpacity,
-    ].forEach((value) => value.stopAnimation());
+  // Left eyelid height (0 = open, LID_H_CLOSED = fully shut)
+  const lidLProps = useAnimatedProps(() => ({
+    height: lidL.value * LID_H_CLOSED,
+  }));
+  const lidRProps = useAnimatedProps(() => ({
+    height: lidR.value * LID_H_CLOSED,
+  }));
 
-    const loops: Animated.CompositeAnimation[] = [];
-    const rememberLoop = (loop: Animated.CompositeAnimation) => {
-      loops.push(loop);
-      loop.start();
+  // Gaze translate for iris/pupil group
+  const gazeCompositeX = useDerivedValue(() => gazeX.value + speechGX.value);
+  const gazeCompositeY = useDerivedValue(() => gazeY.value + speechGY.value);
+
+  const gazeGroupPropsL = useAnimatedProps(() => ({
+    transform: [
+      { translateX: LEX + gazeCompositeX.value },
+      { translateY: EYE_CY + gazeCompositeY.value },
+    ] as const,
+  }));
+  const gazeGroupPropsR = useAnimatedProps(() => ({
+    transform: [
+      { translateX: REX + gazeCompositeX.value },
+      { translateY: EYE_CY + gazeCompositeY.value },
+    ] as const,
+  }));
+
+  // Mouth bezier path — computed in worklet
+  const mouthPathProps = useAnimatedProps(() => {
+    const c  = mouthCurve.value;
+    const x0 = CX - MOUTH_HW;
+    const x3 = CX + MOUTH_HW;
+    const y  = MOUTH_CY;
+    const cp = y - c;
+    return {
+      d: `M ${x0} ${y} C ${x0 + MOUTH_HW * 0.5} ${cp} ${x3 - MOUTH_HW * 0.5} ${cp} ${x3} ${y}`,
+      opacity: mouthO.value,
     };
-    const animate = (value: Animated.Value, toValue: number, duration: number) =>
-      Animated.timing(value, {
-        toValue,
-        duration,
-        easing: Easing.inOut(Easing.sin),
-        useNativeDriver: true,
-      });
+  });
 
-    const baseCover = baseLidCoverForPhase(phase);
-    const baseLidValue = lidTranslateForCover(baseCover);
-    const fullCloseValue = lidTranslateForCover(EYE_H + 4);
+  // ── Phase animation effect ────────────────────────────────────────────────
+  useEffect(() => {
+    [
+      lidL, lidR, gazeX, gazeY, faceS, faceLift,
+      glowO, glowS, ring1S, ring1O, ring2S, ring2O,
+      mouthCurve, mouthO,
+    ].forEach(cancelAnimation);
+
+    const T = (v: number, dur: number, ease = Easing.inOut(Easing.sin)) =>
+      withTiming(v, { duration: dur, easing: ease });
+
+    const baseLid  = baseLidForPhase(phase);
     const baseGaze = baseGazeForPhase(phase);
 
-    animate(leftLidY, baseLidValue, 240).start();
-    animate(rightLidY, baseLidValue, 240).start();
-    animate(gazeX, baseGaze.x, 260).start();
-    animate(gazeY, baseGaze.y, 260).start();
-    animate(pupilScale, basePupilScaleForPhase(phase), 220).start();
-    animate(mouthScaleX, baseMouthScaleForPhase(phase), 240).start();
-    animate(mouthOpacity, baseMouthOpacityForPhase(phase), 220).start();
+    lidL.value      = T(baseLid, 200);
+    lidR.value      = T(baseLid, 200);
+    gazeX.value     = T(baseGaze.x, 260);
+    gazeY.value     = T(baseGaze.y, 260);
+    mouthCurve.value = T(baseMouthCurveForPhase(phase), 240);
+    mouthO.value     = T(baseMouthOpacityForPhase(phase), 220);
+    ring1S.value = 1; ring1O.value = 0;
+    ring2S.value = 1; ring2O.value = 0;
 
-    ring1Scale.setValue(1);
-    ring1Opacity.setValue(0);
-    ring2Scale.setValue(1);
-    ring2Opacity.setValue(0);
-
+    // ── Idle ──────────────────────────────────────────────────────────────
     if (phase === 'idle') {
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(glowScale, 1.08, 3200),
-            animate(glowScale, 1, 3200),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(glowOpacity, 0.48, 3200),
-            animate(glowOpacity, 0.18, 3200),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(3600),
-            Animated.parallel([animate(leftLidY, fullCloseValue, 90), animate(rightLidY, fullCloseValue, 90)]),
-            Animated.parallel([animate(leftLidY, baseLidValue, 110), animate(rightLidY, baseLidValue, 110)]),
-            Animated.delay(150),
-            Animated.parallel([animate(leftLidY, fullCloseValue, 75), animate(rightLidY, fullCloseValue, 75)]),
-            Animated.parallel([animate(leftLidY, baseLidValue, 100), animate(rightLidY, baseLidValue, 100)]),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(gazeX, -4, 2600),
-            animate(gazeY, -1.8, 2200),
-            animate(gazeX, 3.5, 2800),
-            animate(gazeY, 1.5, 2200),
-            animate(gazeX, 0, 2200),
-            animate(gazeY, 0, 2200),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(faceLift, -3, 2600),
-            animate(faceLift, 0, 2600),
-          ]),
-        ),
-      );
+      glowO.value = withRepeat(withSequence(T(0.46, 3200), T(0.18, 3200)), -1, false);
+      glowS.value = withRepeat(withSequence(T(1.07, 3200), T(1, 3200)), -1, false);
+
+      // Double blink every ~4 seconds
+      const blink = withRepeat(withSequence(
+        withDelay(3600, T(1, 82, Easing.in(Easing.quad))),
+        T(baseLid, 110, Easing.out(Easing.quad)),
+        withDelay(140, T(1, 70, Easing.in(Easing.quad))),
+        T(baseLid, 100, Easing.out(Easing.quad)),
+      ), -1, false);
+      lidL.value = blink;
+      lidR.value = withRepeat(withSequence(
+        withDelay(3600, T(1, 82, Easing.in(Easing.quad))),
+        T(baseLid, 110, Easing.out(Easing.quad)),
+        withDelay(140, T(1, 70, Easing.in(Easing.quad))),
+        T(baseLid, 100, Easing.out(Easing.quad)),
+      ), -1, false);
+
+      // Gaze wanders to corners
+      gazeX.value = withRepeat(withSequence(
+        T(-4, 2600), T(3.5, 2800), T(0, 2200),
+      ), -1, false);
+      gazeY.value = withRepeat(withSequence(
+        T(-1.8, 2200), T(1.5, 2200), T(0, 2200),
+      ), -1, false);
+
+      faceLift.value = withRepeat(withSequence(T(-3, 2600), T(0, 2600)), -1, false);
     }
 
+    // ── Listening ─────────────────────────────────────────────────────────
     if (phase === 'listening') {
-      const ring1 = Animated.loop(
-        Animated.sequence([
-          Animated.parallel([
-            Animated.timing(ring1Scale, { toValue: 1.82, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-            Animated.timing(ring1Opacity, { toValue: 0, duration: 1800, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-          ]),
-          Animated.parallel([
-            Animated.timing(ring1Scale, { toValue: 1, duration: 0, useNativeDriver: true }),
-            Animated.timing(ring1Opacity, { toValue: 0.26, duration: 0, useNativeDriver: true }),
-          ]),
-        ]),
-      );
-      const ring2 = Animated.loop(
-        Animated.sequence([
-          Animated.delay(900),
-          Animated.parallel([
-            Animated.timing(ring2Scale, { toValue: 1.82, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-            Animated.timing(ring2Opacity, { toValue: 0, duration: 1800, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-          ]),
-          Animated.parallel([
-            Animated.timing(ring2Scale, { toValue: 1, duration: 0, useNativeDriver: true }),
-            Animated.timing(ring2Opacity, { toValue: 0.24, duration: 0, useNativeDriver: true }),
-          ]),
-        ]),
-      );
-      rememberLoop(ring1);
-      rememberLoop(ring2);
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(faceScale, 1.03, 1100),
-            animate(faceScale, 1, 1100),
-          ]),
-        ),
-      );
-      animate(glowOpacity, 0.64, 350).start();
+      glowO.value = T(0.66, 350);
+      // Ring 1
+      ring1O.value = withRepeat(withSequence(
+        T(0, 1800, Easing.in(Easing.quad)), T(0.28, 1, Easing.linear),
+      ), -1, false);
+      ring1S.value = withRepeat(withSequence(
+        T(1.82, 1800, Easing.out(Easing.quad)), T(1, 1, Easing.linear),
+      ), -1, false);
+      // Ring 2: 900ms offset
+      ring2O.value = withDelay(900, withRepeat(withSequence(
+        T(0.25, 1, Easing.linear), T(0, 1800, Easing.in(Easing.quad)),
+      ), -1, false));
+      ring2S.value = withDelay(900, withRepeat(withSequence(
+        T(1, 1, Easing.linear), T(1.82, 1800, Easing.out(Easing.quad)),
+      ), -1, false));
+      faceS.value = withRepeat(withSequence(T(1.028, 1100), T(1, 1100)), -1, false);
     }
 
+    // ── Thinking / hiring / executing ─────────────────────────────────────
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(2100),
-            Animated.stagger(45, [animate(leftLidY, fullCloseValue, 110), animate(rightLidY, fullCloseValue, 110)]),
-            Animated.stagger(35, [animate(leftLidY, baseLidValue, 145), animate(rightLidY, baseLidValue, 150)]),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(glowScale, 1.06, 1000),
-            animate(glowScale, 1, 1000),
-          ]),
-        ),
-      );
-      rememberLoop(
-        Animated.loop(
-          Animated.sequence([
-            animate(faceLift, -2, 900),
-            animate(faceLift, 0, 900),
-          ]),
-        ),
-      );
+      glowS.value = withRepeat(withSequence(T(1.05, 1000), T(1, 1000)), -1, false);
+      faceLift.value = withRepeat(withSequence(T(-2, 900), T(0, 900)), -1, false);
+      // Asymmetric stagger blink
+      lidL.value = withRepeat(withSequence(
+        withDelay(2100, T(1, 105, Easing.in(Easing.quad))),
+        T(baseLid, 145, Easing.out(Easing.quad)),
+      ), -1, false);
+      lidR.value = withRepeat(withSequence(
+        withDelay(2148, T(1, 112, Easing.in(Easing.quad))),
+        T(baseLid, 150, Easing.out(Easing.quad)),
+      ), -1, false);
     }
 
+    // ── Confirming ────────────────────────────────────────────────────────
     if (phase === 'confirming') {
-      animate(glowOpacity, 0.5, 380).start();
+      glowO.value = T(0.52, 380);
     }
 
+    // ── Done ──────────────────────────────────────────────────────────────
     if (phase === 'done') {
-      Animated.spring(faceScale, {
-        toValue: 1.05,
-        useNativeDriver: true,
-        speed: 22,
-        bounciness: 4,
-      }).start();
-      Animated.spring(faceLift, {
-        toValue: -4,
-        useNativeDriver: true,
-        speed: 18,
-        bounciness: 6,
-      }).start();
-      animate(glowOpacity, 0.65, 380).start();
+      faceS.value    = withSpring(1.05, { damping: 14, stiffness: 180 });
+      faceLift.value = withSpring(-4,   { damping: 12, stiffness: 150 });
+      glowO.value    = T(0.66, 380);
     }
 
+    // ── Error ─────────────────────────────────────────────────────────────
     if (phase === 'error') {
-      animate(glowOpacity, 0.56, 300).start();
+      glowO.value = T(0.54, 300);
     }
-
-    phaseLoopsRef.current = loops;
-    return () => {
-      stopLoops(loops);
-    };
   }, [
-    faceLift,
-    faceScale,
-    gazeX,
-    gazeY,
-    glowOpacity,
-    glowScale,
-    leftLidY,
-    mouthOpacity,
-    mouthScaleX,
-    phase,
-    pupilScale,
-    rightLidY,
-    ring1Opacity,
-    ring1Scale,
-    ring2Opacity,
-    ring2Scale,
+    faceLift, faceS, gazeX, gazeY, glowO, glowS,
+    lidL, lidR, mouthCurve, mouthO, phase,
+    ring1O, ring1S, ring2O, ring2S,
   ]);
 
+  // ── Speaking animation ───────────────────────────────────────────────────
   useEffect(() => {
-    speechMouthLoopRef.current?.stop();
-    speechMouthLoopRef.current = null;
-    speechGazeLoopRef.current?.stop();
-    speechGazeLoopRef.current = null;
+    [mouthCurve, speechGX, speechGY].forEach(cancelAnimation);
 
     if (isSpeaking) {
-      const mouthLoop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(mouthScaleX, { toValue: 1.85, duration: 140, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 0.8, duration: 150, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 1.52, duration: 130, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(mouthScaleX, { toValue: 0.62, duration: 165, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ]),
-      );
-      const gazeLoop = Animated.loop(
-        Animated.sequence([
-          Animated.parallel([
-            Animated.timing(speechGazeX, { toValue: -1, duration: 120, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-            Animated.timing(speechGazeY, { toValue: 0.4, duration: 120, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          ]),
-          Animated.parallel([
-            Animated.timing(speechGazeX, { toValue: 1, duration: 110, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-            Animated.timing(speechGazeY, { toValue: -0.4, duration: 110, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          ]),
-          Animated.parallel([
-            Animated.timing(speechGazeX, { toValue: 0, duration: 90, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-            Animated.timing(speechGazeY, { toValue: 0, duration: 90, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          ]),
-          Animated.delay(340),
-        ]),
-      );
-      speechMouthLoopRef.current = mouthLoop;
-      speechGazeLoopRef.current = gazeLoop;
-      mouthLoop.start();
-      gazeLoop.start();
-      Animated.timing(mouthOpacity, { toValue: 0.95, duration: 180, useNativeDriver: true }).start();
+      mouthCurve.value = withRepeat(withSequence(
+        withTiming(5.5,  { duration: 135, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0.8,  { duration: 145, easing: Easing.inOut(Easing.sin) }),
+        withTiming(4.2,  { duration: 125, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0.5,  { duration: 162, easing: Easing.inOut(Easing.sin) }),
+      ), -1, false);
+      mouthO.value = withTiming(0.96, { duration: 180 });
+
+      // Micro-saccades
+      speechGX.value = withRepeat(withSequence(
+        withTiming(-1.1, { duration: 118, easing: Easing.inOut(Easing.sin) }),
+        withTiming(1.0,  { duration: 108, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0,    { duration: 88,  easing: Easing.inOut(Easing.sin) }),
+        withDelay(320, withTiming(0, { duration: 10 })),
+      ), -1, false);
+      speechGY.value = withRepeat(withSequence(
+        withTiming(0.5,  { duration: 118, easing: Easing.inOut(Easing.sin) }),
+        withTiming(-0.4, { duration: 108, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0,    { duration: 88,  easing: Easing.inOut(Easing.sin) }),
+        withDelay(320, withTiming(0, { duration: 10 })),
+      ), -1, false);
     } else {
-      Animated.timing(mouthScaleX, {
-        toValue: baseMouthScaleForPhase(phase),
-        duration: 260,
-        useNativeDriver: true,
-      }).start();
-      Animated.timing(mouthOpacity, {
-        toValue: baseMouthOpacityForPhase(phase),
-        duration: 220,
-        useNativeDriver: true,
-      }).start();
-      Animated.timing(speechGazeX, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }).start();
-      Animated.timing(speechGazeY, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }).start();
+      mouthCurve.value = withTiming(baseMouthCurveForPhase(phase), { duration: 260 });
+      mouthO.value     = withTiming(baseMouthOpacityForPhase(phase), { duration: 220 });
+      speechGX.value   = withTiming(0, { duration: 140 });
+      speechGY.value   = withTiming(0, { duration: 140 });
     }
 
-    return () => {
-      speechMouthLoopRef.current?.stop();
-      speechMouthLoopRef.current = null;
-      speechGazeLoopRef.current?.stop();
-      speechGazeLoopRef.current = null;
-    };
-  }, [isSpeaking, mouthOpacity, mouthScaleX, phase, speechGazeX, speechGazeY]);
+    return () => { [mouthCurve, speechGX, speechGY].forEach(cancelAnimation); };
+  }, [isSpeaking, mouthCurve, mouthO, phase, speechGX, speechGY]);
+
+  // ── Colours ───────────────────────────────────────────────────────────────
+  const glowColor  = GLOW_COLOR[phase]  ?? '#6aa8d8';
+  const accentColor = ACCENT[phase]     ?? '#8ec4e8';
+  const faceTop    = FACE_TOP[phase]    ?? '#253448';
+  const faceBot    = FACE_BOT[phase]    ?? '#0a1420';
+  const lidColor   = faceTop;
 
   const isInteractive = phase !== 'done';
 
@@ -448,216 +426,158 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     onPress?.();
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.glow, { transform: [{ scale: glowScale }], opacity: glowOpacity }]}>
-        <LinearGradient colors={[glowColor, 'transparent']} style={styles.glowGrad} />
-      </Animated.View>
+      <Pressable onPress={handlePress} disabled={disabled || !isInteractive} style={StyleSheet.absoluteFill}>
+        <Svg width={CW} height={CH}>
+          <Defs>
+            {/* Face body gradient — top-left key light → bottom-right shadow */}
+            <LinearGradient id="faceGrad" x1="0.2" y1="0.1" x2="0.85" y2="0.9">
+              <Stop offset="0" stopColor={faceTop} stopOpacity="1" />
+              <Stop offset="1" stopColor={faceBot} stopOpacity="1" />
+            </LinearGradient>
 
-      <Animated.View
-        style={[
-          styles.ring,
-          { transform: [{ scale: ring1Scale }], opacity: ring1Opacity, borderColor: glowColor },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.ring,
-          { transform: [{ scale: ring2Scale }], opacity: ring2Opacity, borderColor: glowColor },
-        ]}
-      />
+            {/* Key light — top-left specular (3D material illusion) */}
+            <RadialGradient id="keyLight" cx="35%" cy="30%" r="55%">
+              <Stop offset="0" stopColor="rgba(255,255,255,1)" stopOpacity="0.078" />
+              <Stop offset="1" stopColor="rgba(255,255,255,0)" stopOpacity="0" />
+            </RadialGradient>
 
-      <Animated.View style={{ transform: [{ scale: faceScale }, { translateY: faceLift }] }}>
-        <Pressable onPress={handlePress} disabled={disabled}>
-          <LinearGradient colors={bodyColors} style={[styles.face, { shadowColor: glowColor }]}>
-            <LinearGradient
-              colors={[FACE_SHEEN, 'transparent']}
-              start={{ x: 0.1, y: 0 }}
-              end={{ x: 0.7, y: 0.55 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.innerBorder} />
+            {/* Rim/fill light — bottom-right scatter */}
+            <RadialGradient id="rimLight" cx="72%" cy="75%" r="48%">
+              <Stop offset="0" stopColor={glowColor} stopOpacity="0.14" />
+              <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
+            </RadialGradient>
 
-            <View style={[styles.eyeShell, { left: FACE_W / 2 - EYE_SEP / 2 - EYE_W / 2, top: EYES_TOP }]}>
-              <View style={styles.eyeWhite}>
-                <Animated.View
-                  style={[
-                    styles.gazeGroup,
-                    { transform: [{ translateX: pupilRenderX }, { translateY: pupilRenderY }] },
-                  ]}
-                >
-                  <View style={styles.iris} />
-                  <Animated.View
-                    style={[
-                      styles.pupil,
-                      { transform: [{ scaleX: pupilScale }, { scaleY: pupilScale }] },
-                    ]}
-                  >
-                    <View style={styles.pupilHighlight} />
-                  </Animated.View>
-                </Animated.View>
-              </View>
-              <Animated.View
-                style={[
-                  styles.lid,
-                  { backgroundColor: lidColor, transform: [{ translateY: leftLidY }] },
-                ]}
+            {/* Glow halo */}
+            <RadialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+              <Stop offset="0"    stopColor={glowColor} stopOpacity="0.55" />
+              <Stop offset="0.55" stopColor={glowColor} stopOpacity="0.18" />
+              <Stop offset="1"    stopColor={glowColor} stopOpacity="0" />
+            </RadialGradient>
+
+            {/* Sclera — white with limbal shadow ring */}
+            <RadialGradient id="scleraGrad" cx="48%" cy="42%" r="58%">
+              <Stop offset="0"    stopColor="rgba(240,250,255,0.98)" stopOpacity="1" />
+              <Stop offset="0.68" stopColor="rgba(205,230,252,0.95)" stopOpacity="1" />
+              <Stop offset="1"    stopColor="rgba(158,196,230,0.82)" stopOpacity="1" />
+            </RadialGradient>
+
+            {/* Iris — deep blue-grey jewel */}
+            <RadialGradient id="irisGrad" cx="42%" cy="38%" r="60%">
+              <Stop offset="0"    stopColor="#9ecce8" stopOpacity="1" />
+              <Stop offset="0.28" stopColor="#3d72a8" stopOpacity="1" />
+              <Stop offset="0.70" stopColor="#1c4070" stopOpacity="1" />
+              <Stop offset="1"    stopColor="#0c2244" stopOpacity="1" />
+            </RadialGradient>
+
+            {/* Face oval clip */}
+            <ClipPath id="faceClip">
+              <Ellipse cx={CX} cy={CY} rx={FRX - 0.5} ry={FRY - 0.5} />
+            </ClipPath>
+
+            {/* Eye clips */}
+            <ClipPath id="eyeClipL">
+              <Ellipse cx={LEX} cy={EYE_CY} rx={EYE_RX} ry={EYE_RY} />
+            </ClipPath>
+            <ClipPath id="eyeClipR">
+              <Ellipse cx={REX} cy={EYE_CY} rx={EYE_RX} ry={EYE_RY} />
+            </ClipPath>
+          </Defs>
+
+          {/* ── Glow halo ── */}
+          <AnimatedG animatedProps={glowProps as any}>
+            <Circle cx={CX} cy={CY} r={GLOW_R} fill="url(#glowGrad)" />
+          </AnimatedG>
+
+          {/* ── Listening rings ── */}
+          <AnimatedG animatedProps={ring1Props as any}>
+            <Circle cx={CX} cy={CY} r={RING_R}
+              fill="none" stroke={accentColor} strokeWidth={1.4} strokeOpacity={0.8} />
+          </AnimatedG>
+          <AnimatedG animatedProps={ring2Props as any}>
+            <Circle cx={CX} cy={CY} r={RING_R}
+              fill="none" stroke={accentColor} strokeWidth={1.1} strokeOpacity={0.6} />
+          </AnimatedG>
+
+          {/* ── Face body ── */}
+          <AnimatedG animatedProps={faceProps as any}>
+            {/* Base fill — dark glass */}
+            <Ellipse cx={CX} cy={CY} rx={FRX} ry={FRY} fill="url(#faceGrad)" />
+
+            {/* Key light overlay */}
+            <Ellipse cx={CX} cy={CY} rx={FRX} ry={FRY}
+              fill="url(#keyLight)" clipPath="url(#faceClip)" />
+
+            {/* Rim/fill light overlay */}
+            <Ellipse cx={CX} cy={CY} rx={FRX} ry={FRY}
+              fill="url(#rimLight)" clipPath="url(#faceClip)" />
+
+            {/* ── Left eye ── */}
+            <G clipPath="url(#eyeClipL)">
+              {/* Sclera */}
+              <Ellipse cx={LEX} cy={EYE_CY} rx={EYE_RX} ry={EYE_RY} fill="url(#scleraGrad)" />
+              {/* Iris + pupil + specular — animated with gaze */}
+              <AnimatedG animatedProps={gazeGroupPropsL as any}>
+                <Circle cx={0} cy={0} r={IRIS_R} fill="url(#irisGrad)" />
+                <Circle cx={0} cy={0} r={PUP_R} fill="#050d18" />
+                <Circle cx={SPEC_OX} cy={SPEC_OY} r={SPEC_R} fill="rgba(255,255,255,0.94)" />
+              </AnimatedG>
+              {/* Eyelid — slides from top */}
+              <AnimatedRect
+                x={LEX - EYE_RX - 2}
+                y={LID_TOP}
+                width={EYE_RX * 2 + 4}
+                fill={lidColor}
+                animatedProps={lidLProps as any}
               />
-            </View>
+            </G>
 
-            <View style={[styles.eyeShell, { left: FACE_W / 2 + EYE_SEP / 2 - EYE_W / 2, top: EYES_TOP }]}>
-              <View style={styles.eyeWhite}>
-                <Animated.View
-                  style={[
-                    styles.gazeGroup,
-                    { transform: [{ translateX: pupilRenderX }, { translateY: pupilRenderY }] },
-                  ]}
-                >
-                  <View style={styles.iris} />
-                  <Animated.View
-                    style={[
-                      styles.pupil,
-                      { transform: [{ scaleX: pupilScale }, { scaleY: pupilScale }] },
-                    ]}
-                  >
-                    <View style={styles.pupilHighlight} />
-                  </Animated.View>
-                </Animated.View>
-              </View>
-              <Animated.View
-                style={[
-                  styles.lid,
-                  { backgroundColor: lidColor, transform: [{ translateY: rightLidY }] },
-                ]}
+            {/* ── Right eye ── */}
+            <G clipPath="url(#eyeClipR)">
+              <Ellipse cx={REX} cy={EYE_CY} rx={EYE_RX} ry={EYE_RY} fill="url(#scleraGrad)" />
+              <AnimatedG animatedProps={gazeGroupPropsR as any}>
+                <Circle cx={0} cy={0} r={IRIS_R} fill="url(#irisGrad)" />
+                <Circle cx={0} cy={0} r={PUP_R} fill="#050d18" />
+                <Circle cx={SPEC_OX} cy={SPEC_OY} r={SPEC_R} fill="rgba(255,255,255,0.94)" />
+              </AnimatedG>
+              <AnimatedRect
+                x={REX - EYE_RX - 2}
+                y={LID_TOP}
+                width={EYE_RX * 2 + 4}
+                fill={lidColor}
+                animatedProps={lidRProps as any}
               />
-            </View>
+            </G>
 
-            <Animated.View
-              style={[
-                styles.mouth,
-                {
-                  left: FACE_W / 2 - MOUTH_BASE_W / 2,
-                  top: MOUTH_TOP,
-                  opacity: mouthOpacity,
-                  transform: [{ scaleX: mouthScaleX }],
-                },
-              ]}
+            {/* ── Mouth — cubic bezier ── */}
+            <AnimatedPath
+              fill="none"
+              stroke="rgba(218,238,255,0.88)"
+              strokeWidth={4.2}
+              strokeLinecap="round"
+              animatedProps={mouthPathProps as any}
             />
-          </LinearGradient>
-        </Pressable>
-      </Animated.View>
+
+            {/* Face border — thin glass rim */}
+            <Ellipse cx={CX} cy={CY} rx={FRX} ry={FRY}
+              fill="none" stroke="rgba(160,205,242,0.42)" strokeWidth={1} />
+            {/* Inner inset rim — depth */}
+            <Ellipse cx={CX} cy={CY} rx={FRX - 3} ry={FRY - 3}
+              fill="none" stroke="rgba(180,220,255,0.10)" strokeWidth={1} />
+          </AnimatedG>
+        </Svg>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    width: GLOW_W,
-    height: GLOW_H,
+    width: CW,
+    height: CH,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute',
-    width: GLOW_W,
-    height: GLOW_H,
-    borderRadius: GLOW_W / 2,
-    overflow: 'hidden',
-  },
-  glowGrad: {
-    flex: 1,
-    borderRadius: GLOW_W / 2,
-  },
-  ring: {
-    position: 'absolute',
-    width: RING_SIZE,
-    height: RING_SIZE,
-    borderRadius: RING_SIZE / 2,
-    borderWidth: 1.2,
-  },
-  face: {
-    width: FACE_W,
-    height: FACE_H,
-    borderRadius: FACE_W * 0.58,
-    borderWidth: 1,
-    borderColor: FACE_BORDER,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.55,
-    shadowRadius: 26,
-    elevation: 14,
-    overflow: 'hidden',
-  },
-  innerBorder: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    bottom: 3,
-    left: 3,
-    borderWidth: 1,
-    borderColor: FACE_INNER_BORDER,
-    borderRadius: FACE_W * 0.54,
-  },
-  eyeShell: {
-    position: 'absolute',
-    width: EYE_W,
-    height: EYE_H,
-    overflow: 'hidden',
-    borderRadius: EYE_H / 2,
-  },
-  eyeWhite: {
-    width: EYE_W,
-    height: EYE_H,
-    borderRadius: EYE_H / 2,
-    backgroundColor: EYE_WHITE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#c8e8ff',
-    shadowOpacity: 0.45,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  gazeGroup: {
-    width: IRIS_W,
-    height: IRIS_H,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iris: {
-    position: 'absolute',
-    width: IRIS_W,
-    height: IRIS_H,
-    borderRadius: IRIS_H / 2,
-    backgroundColor: IRIS_COLOR,
-  },
-  pupil: {
-    width: PUPIL_W,
-    height: PUPIL_H,
-    borderRadius: PUPIL_W / 2,
-    backgroundColor: PUPIL_COLOR,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-  },
-  pupilHighlight: {
-    width: HIGHLIGHT_SIZE,
-    height: HIGHLIGHT_SIZE,
-    borderRadius: HIGHLIGHT_SIZE / 2,
-    backgroundColor: PUPIL_HIGHLIGHT,
-    marginTop: 2,
-    marginRight: 1,
-  },
-  lid: {
-    position: 'absolute',
-    left: -2,
-    right: -2,
-    height: LID_H,
-    borderBottomLeftRadius: EYE_H,
-    borderBottomRightRadius: EYE_H,
-  },
-  mouth: {
-    position: 'absolute',
-    width: MOUTH_BASE_W,
-    height: MOUTH_H,
-    borderRadius: MOUTH_H / 2,
-    backgroundColor: MOUTH_COLOR,
   },
 });

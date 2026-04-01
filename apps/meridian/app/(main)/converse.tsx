@@ -909,13 +909,17 @@ export default function ConverseScreen() {
     };
   }, [phase, currencyCode]);
 
-  const speakIfEnabled = useCallback(async (text: string, restartListening = false) => {
+  const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
     if (!voiceEnabled) return;
     setIsSpeaking(true);
     await speakBro(sanitizeAceNarration(text));
     setIsSpeaking(false);
     if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
-      void beginVoiceCaptureRef.current?.();
+      const cur = phaseRef.current;
+      // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
+      if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
+        void beginVoiceCaptureRef.current?.();
+      }
     }
   }, [voiceEnabled]);
 
