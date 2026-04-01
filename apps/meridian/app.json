@@ -19,12 +19,12 @@
       "url": "https://u.expo.dev/17f2ea0c-cced-4664-bc42-36c0583bf021"
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "nativeVersion"
     },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "so.agentpay.meridian",
-      "buildNumber": "1",
+      "buildNumber": "5",
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyCollectedDataTypes": [],
@@ -87,7 +87,7 @@
         "backgroundColor": "#080808"
       },
       "package": "so.agentpay.meridian",
-      "versionCode": 1,
+      "versionCode": 5,
       "permissions": [
         "android.permission.USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",
