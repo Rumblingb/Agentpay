@@ -22,6 +22,7 @@ import {
   Pressable,
   SafeAreaView,
   TextInput,
+  Keyboard,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -220,11 +221,23 @@ function speechPreview(text: string): string | null {
 }
 
 function speakableNarration(text: string): string | null {
-  const trimmed = text.trim();
+  const trimmed = sanitizeAceNarration(text);
   if (!trimmed) return null;
-  if (trimmed.length <= 220) return trimmed;
+  if (trimmed.length <= 180) return trimmed;
   const lead = firstSentence(trimmed);
-  return lead.length <= 220 ? lead : null;
+  if (lead.length <= 180) return lead;
+  const shortened = trimmed.slice(0, 176).trim();
+  return shortened ? `${shortened}.` : null;
+}
+
+function sanitizeAceNarration(text: string): string {
+  const cleaned = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(tools?\s+down|my tools?|tool calls?|internal systems?|backend state|system prompt|prompt)\b/i.test(sentence))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || text.trim();
 }
 
 function shouldAutoSpeak(params: {
@@ -700,6 +713,9 @@ export default function ConverseScreen() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
+  const keyboardVisibleRef = useRef(false);
+  const textFallbackVisibleRef = useRef(false);
+  const phaseRef = useRef(phase);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
   const [routeMemory, setRouteMemory] = useState<RouteMemory | null>(null);
@@ -832,6 +848,34 @@ export default function ConverseScreen() {
   }, []);
 
   useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    textFallbackVisibleRef.current = textFallbackVisible;
+  }, [textFallbackVisible]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      keyboardVisibleRef.current = true;
+      cancelSpeech();
+      setIsSpeaking(false);
+      if (phaseRef.current === 'listening') {
+        void stopRecording().catch(() => null);
+        recordingActiveRef.current = false;
+        setPhase('idle');
+      }
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardVisibleRef.current = false;
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [setPhase]);
+
+  useEffect(() => {
     let active = true;
 
     if (phase !== 'confirming') {
@@ -868,20 +912,27 @@ export default function ConverseScreen() {
   const speakIfEnabled = useCallback(async (text: string, restartListening = false) => {
     if (!voiceEnabled) return;
     setIsSpeaking(true);
-    await speakBro(text);
+    await speakBro(sanitizeAceNarration(text));
     setIsSpeaking(false);
-    if (restartListening) {
+    if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
       void beginVoiceCaptureRef.current?.();
     }
   }, [voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
+    cancelSpeech();
+    setIsSpeaking(false);
+    if (phaseRef.current === 'listening') {
+      void stopRecording().catch(() => null);
+      recordingActiveRef.current = false;
+      setPhase('idle');
+    }
     setError(message);
     setTextFallbackVisible(true);
     if (seed != null) {
       setTextFallbackDraft(seed);
     }
-  }, [setError]);
+  }, [setError, setPhase]);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -965,23 +1016,24 @@ export default function ConverseScreen() {
       hirerId:      agentId,
       travelProfile,
     });
+    const narration = sanitizeAceNarration(response.narration);
 
     const meridianTurn = {
       role: 'meridian' as const,
-      text: response.narration,
+      text: narration,
       ts:   Date.now(),
     };
     addTurn(meridianTurn);
     await appendHistory(meridianTurn);
     if (shouldAutoSpeak({
-      narration: response.narration,
+      narration: narration,
       hasPlan: (response.plan?.length ?? 0) > 0,
       needsBiometric: response.needsBiometric,
       phase: 'plan',
     })) {
       // restartListening=true when Ace is asking a follow-up — user can reply immediately
-      const shouldRestart = narrationStillNeedsAnswer(response.narration);
-      await speakIfEnabled(speakableNarration(response.narration) ?? firstSentence(response.narration), shouldRestart);
+      const shouldRestart = narrationStillNeedsAnswer(narration);
+      await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration), shouldRestart);
     }
 
     // Persist detected currency to store (used everywhere in app)
@@ -993,11 +1045,11 @@ export default function ConverseScreen() {
       setUsualRoute(response.usualRoute);
     }
 
-    const waitingForFollowUp = narrationStillNeedsAnswer(response.narration);
+    const waitingForFollowUp = narrationStillNeedsAnswer(narration);
     if (waitingForFollowUp) {
       followUpContextRef.current = {
         originalRequest: followUpContext?.originalRequest ?? prepared.planningTranscript,
-        aceQuestion: response.narration,
+        aceQuestion: narration,
         plan: response.plan ?? [],
       };
     } else {
@@ -1140,16 +1192,17 @@ export default function ConverseScreen() {
         travelProfile: fullProfile,
         plan,
       });
+      const narration = sanitizeAceNarration(response.narration);
 
-      const meridianTurn = { role: 'meridian' as const, text: response.narration, ts: Date.now() };
+      const meridianTurn = { role: 'meridian' as const, text: narration, ts: Date.now() };
       addTurn(meridianTurn);
       await appendHistory(meridianTurn);
       if (shouldAutoSpeak({
-        narration: response.narration,
+        narration: narration,
         hasPlan: response.actions.length > 0,
         phase: 'execute',
       })) {
-        await speakIfEnabled(speakableNarration(response.narration) ?? firstSentence(response.narration));
+        await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration));
       }
 
       if (response.actions.length > 0) {
@@ -1225,7 +1278,7 @@ export default function ConverseScreen() {
             latencyMs: Date.now() - executeStartedAt,
           },
         });
-        setError(response.narration);
+        setError(narration);
         setPhase('error');
       }
     } catch (e: any) {
