@@ -144,51 +144,68 @@ function baseMouthOpacityForPhase(p: AppPhase): number {
   return 0.52;
 }
 
-// ─── Phase colour maps — hologram aesthetic (white/silver on dark) ────────────
+// ─── Phase colour maps — dark obsidian glass, lit from above-left ─────────────
+//
+// Material language: polished dark stone under directional light.
+// Like a black opal or a wet obsidian surface.
+// The face has mass and depth — not a ghost, not a hologram.
 
 const GLOW_COLOR: Record<AppPhase, string> = {
-  idle:       '#c8e2ff',  // cold silver-white
-  listening:  '#ffffff',  // pure white — alive
-  thinking:   '#b4d0f8',  // silver
-  confirming: '#f0ddb8',  // warm gold — premium warmth for confirmation
-  hiring:     '#b4d0f8',
-  executing:  '#c8e2ff',
-  done:       '#aae8c4',  // soft mint green — success
-  error:      '#f0b0b0',  // soft rose — error
+  idle:       '#7ab8e0',  // cool steel blue
+  listening:  '#a8d8f8',  // bright ice blue — attention
+  thinking:   '#5a9acc',  // deeper blue — processing
+  confirming: '#c8a060',  // warm amber — trust, payment
+  hiring:     '#5a9acc',
+  executing:  '#7ab8e0',
+  done:       '#72c890',  // emerald — success
+  error:      '#d06868',  // rose — gentle alert
 };
+
 const ACCENT: Record<AppPhase, string> = {
-  idle:       '#e4f2ff',
-  listening:  '#f8fbff',
-  thinking:   '#d0e8f8',
-  confirming: '#f4e8d0',
-  hiring:     '#d0e8f8',
-  executing:  '#e4f2ff',
-  done:       '#ccf0e0',
-  error:      '#f8e0e0',
+  idle:       '#a0cce8',
+  listening:  '#c4e8fc',
+  thinking:   '#84b8e0',
+  confirming: '#dcc080',
+  hiring:     '#84b8e0',
+  executing:  '#a0cce8',
+  done:       '#8ed8a8',
+  error:      '#e09090',
 };
-// Face fill — near-transparent holographic shell
+
+// Face body: rich dark gradient — top-left lit, bottom-right recedes into shadow.
+// These are solid, opaque colours. The face has genuine material presence.
 const FACE_TOP: Record<AppPhase, string> = {
-  idle:       'rgba(192,218,252,0.10)',
-  listening:  'rgba(216,236,255,0.16)',
-  thinking:   'rgba(176,206,248,0.08)',
-  confirming: 'rgba(244,222,180,0.10)',
-  hiring:     'rgba(176,206,248,0.08)',
-  executing:  'rgba(192,218,252,0.10)',
-  done:       'rgba(178,230,206,0.10)',
-  error:      'rgba(248,184,184,0.08)',
+  idle:       '#1e2f42',   // deep steel blue-grey
+  listening:  '#192840',   // slightly deeper, more focused
+  thinking:   '#131e32',   // near-midnight — concentration
+  confirming: '#28200e',   // dark amber — warmth of decision
+  hiring:     '#131e32',
+  executing:  '#1e2f42',
+  done:       '#132618',   // deep forest — satisfaction
+  error:      '#280e0e',   // deep crimson — alert
 };
 const FACE_BOT: Record<AppPhase, string> = {
-  idle:       'rgba(150,188,232,0.05)',
-  listening:  'rgba(168,206,254,0.09)',
-  thinking:   'rgba(130,168,218,0.04)',
-  confirming: 'rgba(218,190,140,0.06)',
-  hiring:     'rgba(130,168,218,0.04)',
-  executing:  'rgba(150,188,232,0.05)',
-  done:       'rgba(140,206,172,0.05)',
-  error:      'rgba(218,140,140,0.04)',
+  idle:       '#080f18',
+  listening:  '#081018',
+  thinking:   '#060b12',
+  confirming: '#110d06',
+  hiring:     '#060b12',
+  executing:  '#080f18',
+  done:       '#060e08',
+  error:      '#0e0606',
 };
-// Eyelid — matches app dark bg so it cleanly occludes the eye on close
-const LID_FILL = 'rgba(7, 10, 18, 0.97)';
+
+// Eyelid colour tracks face top — seamless, same material
+const LID_FILL_MAP: Record<AppPhase, string> = {
+  idle:       '#1e2f42',
+  listening:  '#192840',
+  thinking:   '#131e32',
+  confirming: '#28200e',
+  hiring:     '#131e32',
+  executing:  '#1e2f42',
+  done:       '#132618',
+  error:      '#280e0e',
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -315,7 +332,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     // ── Idle ──────────────────────────────────────────────────────────────
     if (phase === 'idle') {
       // Hologram breathes brighter — silver pulse
-      glowO.value = withRepeat(withSequence(T(0.58, 3200), T(0.24, 3200)), -1, false);
+      glowO.value = withRepeat(withSequence(T(0.44, 3200), T(0.16, 3200)), -1, false);
       glowS.value = withRepeat(withSequence(T(1.09, 3200), T(1, 3200)), -1, false);
 
       // Double blink every ~4 seconds
@@ -346,7 +363,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
     // ── Listening ─────────────────────────────────────────────────────────
     if (phase === 'listening') {
-      glowO.value = T(0.82, 300); // brighter pulse for hologram while listening
+      glowO.value = T(0.62, 300);
       // Ring 1
       ring1O.value = withRepeat(withSequence(
         T(0.28, 1, Easing.linear), T(0, 1800, Easing.in(Easing.quad)),
@@ -442,7 +459,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const accentColor = ACCENT[phase]     ?? '#e4f2ff';
   const faceTop     = FACE_TOP[phase]   ?? 'rgba(192,218,252,0.10)';
   const faceBot     = FACE_BOT[phase]   ?? 'rgba(150,188,232,0.05)';
-  const lidColor    = LID_FILL;
+  const lidColor    = LID_FILL_MAP[phase] ?? '#1e2f42';
 
   const isInteractive = phase !== 'done';
 
@@ -457,44 +474,45 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     <Pressable onPress={handlePress} disabled={disabled || !isInteractive} style={styles.container}>
       <Svg width={CW} height={CH}>
           <Defs>
-            {/* Face body gradient — near-transparent holographic shell */}
-            <LinearGradient id="faceGrad" x1="0.2" y1="0.1" x2="0.85" y2="0.9">
-              <Stop offset="0" stopColor={faceTop} stopOpacity="1" />
-              <Stop offset="1" stopColor={faceBot} stopOpacity="1" />
+            {/* Face body — opaque dark glass, lit from top-left */}
+            <LinearGradient id="faceGrad" x1="0.18" y1="0.08" x2="0.88" y2="0.92">
+              <Stop offset="0"   stopColor={faceTop} stopOpacity="1" />
+              <Stop offset="1"   stopColor={faceBot} stopOpacity="1" />
             </LinearGradient>
 
-            {/* Key light — top-left specular (hologram gleam) */}
-            <RadialGradient id="keyLight" cx="35%" cy="30%" r="55%">
-              <Stop offset="0" stopColor="rgba(255,255,255,1)" stopOpacity="0.22" />
-              <Stop offset="1" stopColor="rgba(255,255,255,0)" stopOpacity="0" />
+            {/* Key light — directional top-left specular (3D mass illusion) */}
+            <RadialGradient id="keyLight" cx="30%" cy="25%" r="52%">
+              <Stop offset="0"   stopColor="rgba(255,255,255,1)" stopOpacity="0.09" />
+              <Stop offset="0.6" stopColor="rgba(255,255,255,1)" stopOpacity="0.03" />
+              <Stop offset="1"   stopColor="rgba(255,255,255,0)" stopOpacity="0" />
             </RadialGradient>
 
-            {/* Rim/fill light — bottom-right hologram scatter */}
-            <RadialGradient id="rimLight" cx="72%" cy="75%" r="48%">
-              <Stop offset="0" stopColor={glowColor} stopOpacity="0.22" />
-              <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
+            {/* Secondary fill — bottom-right rim scatter (bounce light) */}
+            <RadialGradient id="rimLight" cx="76%" cy="80%" r="45%">
+              <Stop offset="0"   stopColor={glowColor} stopOpacity="0.12" />
+              <Stop offset="1"   stopColor={glowColor} stopOpacity="0" />
             </RadialGradient>
 
-            {/* Glow halo — brighter for hologram */}
+            {/* Glow halo — measured, not blown out */}
             <RadialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
-              <Stop offset="0"    stopColor={glowColor} stopOpacity="0.72" />
-              <Stop offset="0.55" stopColor={glowColor} stopOpacity="0.26" />
+              <Stop offset="0"    stopColor={glowColor} stopOpacity="0.52" />
+              <Stop offset="0.5"  stopColor={glowColor} stopOpacity="0.18" />
               <Stop offset="1"    stopColor={glowColor} stopOpacity="0" />
             </RadialGradient>
 
-            {/* Sclera — crisp white with subtle limbal ring */}
-            <RadialGradient id="scleraGrad" cx="48%" cy="42%" r="58%">
-              <Stop offset="0"    stopColor="rgba(248,252,255,0.99)" stopOpacity="1" />
-              <Stop offset="0.68" stopColor="rgba(215,236,254,0.97)" stopOpacity="1" />
-              <Stop offset="1"    stopColor="rgba(168,204,238,0.86)" stopOpacity="1" />
+            {/* Sclera — warm white, limbal shadow ring for depth */}
+            <RadialGradient id="scleraGrad" cx="46%" cy="40%" r="56%">
+              <Stop offset="0"    stopColor="rgba(238,248,255,0.97)" stopOpacity="1" />
+              <Stop offset="0.65" stopColor="rgba(200,228,252,0.93)" stopOpacity="1" />
+              <Stop offset="1"    stopColor="rgba(152,192,228,0.80)" stopOpacity="1" />
             </RadialGradient>
 
-            {/* Iris — silver/chrome hologram */}
-            <RadialGradient id="irisGrad" cx="42%" cy="38%" r="60%">
-              <Stop offset="0"    stopColor="rgba(232,248,255,0.98)" stopOpacity="1" />
-              <Stop offset="0.28" stopColor="#96b8d8" stopOpacity="1" />
-              <Stop offset="0.70" stopColor="#486880" stopOpacity="1" />
-              <Stop offset="1"    stopColor="#102030" stopOpacity="1" />
+            {/* Iris — deep blue-grey jewel: 4-stop for genuine depth */}
+            <RadialGradient id="irisGrad" cx="40%" cy="36%" r="62%">
+              <Stop offset="0"    stopColor="#a8d0f0" stopOpacity="1" />
+              <Stop offset="0.25" stopColor="#3a6ea8" stopOpacity="1" />
+              <Stop offset="0.68" stopColor="#1a3e70" stopOpacity="1" />
+              <Stop offset="1"    stopColor="#0a2040" stopOpacity="1" />
             </RadialGradient>
 
             {/* Face oval clip */}
@@ -576,21 +594,21 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
               />
             </G>
 
-            {/* ── Mouth — cubic bezier, bright white hologram line ── */}
+            {/* ── Mouth — cubic bezier, soft ice-blue stroke ── */}
             <AnimatedPath
               fill="none"
-              stroke="rgba(255,255,255,0.90)"
-              strokeWidth={4.5}
+              stroke="rgba(210,238,255,0.88)"
+              strokeWidth={4.2}
               strokeLinecap="round"
               animatedProps={mouthPathProps as any}
             />
 
-            {/* Face border — bright white hologram rim (THE defining hologram feature) */}
+            {/* Face border — fine blue-white rim, like polished glass edge */}
             <Ellipse cx={CX} cy={CY} rx={FRX} ry={FRY}
-              fill="none" stroke="rgba(248,252,255,0.86)" strokeWidth={1.2} />
-            {/* Inner inset rim — subtle hologram depth */}
+              fill="none" stroke="rgba(168,210,248,0.45)" strokeWidth={1} />
+            {/* Inner inset rim — glass depth, barely visible */}
             <Ellipse cx={CX} cy={CY} rx={FRX - 3} ry={FRY - 3}
-              fill="none" stroke="rgba(210,234,255,0.28)" strokeWidth={1} />
+              fill="none" stroke="rgba(180,220,255,0.10)" strokeWidth={1} />
           </AnimatedG>
         </Svg>
     </Pressable>
