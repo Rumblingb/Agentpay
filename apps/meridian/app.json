@@ -24,7 +24,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "so.agentpay.meridian",
-      "buildNumber": "8",
+      "buildNumber": "9",
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyCollectedDataTypes": [],
@@ -87,7 +87,7 @@
         "backgroundColor": "#080808"
       },
       "package": "so.agentpay.meridian",
-      "versionCode": 8,
+      "versionCode": 9,
       "permissions": [
         "android.permission.USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",
