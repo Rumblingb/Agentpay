@@ -21,6 +21,7 @@ import {
   ScrollView,
   Pressable,
   SafeAreaView,
+  Image,
   TextInput,
   Keyboard,
 } from 'react-native';
@@ -31,7 +32,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../../lib/theme';
 
-import { AceMark } from '../../components/AceMark';
 import { AceFace } from '../../components/AceFace';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
@@ -76,6 +76,7 @@ const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
 const ACE_GUIDANCE_SESSIONS_KEY = 'ace.guidanceSessions';
+const ACE_MARK_ASSET = require('../../assets/ace-mark.png');
 
 type BookingReadinessTone = 'ready' | 'warning';
 
@@ -1793,7 +1794,7 @@ export default function ConverseScreen() {
       <View style={styles.header}>
         <View style={styles.headerBrand}>
           <View style={styles.headerMarkWrap}>
-            <AceMark size={34} />
+            <Image source={ACE_MARK_ASSET} style={styles.headerMarkImage} resizeMode="contain" />
           </View>
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
@@ -1826,7 +1827,7 @@ export default function ConverseScreen() {
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
               </Text>
               <View style={styles.heroLogoWrap}>
-                <AceMark size={86} />
+                <Image source={ACE_MARK_ASSET} style={styles.heroLogoImage} resizeMode="contain" />
               </View>
               <Text style={styles.heroExample}>{heroExample}</Text>
               <Text style={styles.heroResponse}>{heroResponse}</Text>
@@ -2443,6 +2444,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerMarkImage: {
+    width: 34,
+    height: 34,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -2507,6 +2512,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 6,
     marginBottom: 4,
+  },
+  heroLogoImage: {
+    width: 92,
+    height: 92,
   },
   heroExample: {
     marginTop: 22,
