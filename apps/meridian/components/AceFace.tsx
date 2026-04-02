@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Image as RNImage, Pressable, StyleSheet } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -31,6 +31,7 @@ const Stop = _svg['Stop'] as React.ComponentType<any>;
 const ClipPath = _svg['ClipPath'] as React.ComponentType<any>;
 const Circle = _svg['Circle'] as React.ComponentType<any>;
 const Ellipse = _svg['Ellipse'] as React.ComponentType<any>;
+const SvgImage = _svg['Image'] as React.ComponentType<any>;
 const Path = _svg['Path'] as React.ComponentType<any>;
 const G = _svg['G'] as React.ComponentType<any>;
 
@@ -64,17 +65,13 @@ const FACE_PATH =
 const FACE_PATH_INNER =
   'M 135 52 C 168 55 194 92 191 146 C 188 198 168 238 135 251 C 102 238 82 198 79 146 C 76 92 102 55 135 52 Z';
 
-const BROW_PATH = 'M 101 113 C 114 101 156 101 169 113';
 const FOREHEAD_CROWN_PATH = 'M 98 96 C 108 71 162 71 172 96';
 const NOSE_RIDGE_PATH = 'M 135 93 C 132 128 132 162 135 205';
-const CHEEK_LEFT_PATH = 'M 114 126 C 98 150 94 182 105 219';
-const CHEEK_RIGHT_PATH = 'M 156 126 C 172 150 176 182 165 219';
-const TEMPLE_LEFT_PATH = 'M 103 100 C 90 126 87 160 98 191';
-const TEMPLE_RIGHT_PATH = 'M 167 100 C 180 126 183 160 172 191';
 const CHIN_PATH = 'M 114 225 C 124 236 146 236 156 225';
 const THROAT_LEFT_PATH = 'M 126 204 C 120 225 118 245 121 266';
 const THROAT_RIGHT_PATH = 'M 144 204 C 150 225 152 245 149 266';
 const CORE_SPINE_PATH = 'M 135 70 C 136 110 136 146 135 186 C 134 212 134 236 135 261';
+const FACE_RENDER_ASSET = RNImage.resolveAssetSource(require('../assets/ace-face-render.png'));
 
 function baseMouthCurveForPhase(phase: AppPhase): number {
   if (phase === 'done') return 4.2;
@@ -93,12 +90,12 @@ function baseMouthOpacityForPhase(phase: AppPhase): number {
 }
 
 function baseContourOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.76;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.86;
-  if (phase === 'confirming') return 0.7;
-  if (phase === 'done') return 0.8;
-  if (phase === 'error') return 0.54;
-  return 0.62;
+  if (phase === 'listening') return 0.62;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.7;
+  if (phase === 'confirming') return 0.58;
+  if (phase === 'done') return 0.64;
+  if (phase === 'error') return 0.42;
+  return 0.5;
 }
 
 function baseAuraOpacityForPhase(phase: AppPhase): number {
@@ -108,6 +105,15 @@ function baseAuraOpacityForPhase(phase: AppPhase): number {
   if (phase === 'done') return 0.4;
   if (phase === 'error') return 0.26;
   return 0.3;
+}
+
+function baseTextureOpacityForPhase(phase: AppPhase): number {
+  if (phase === 'listening') return 0.26;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.34;
+  if (phase === 'confirming') return 0.22;
+  if (phase === 'done') return 0.26;
+  if (phase === 'error') return 0.16;
+  return 0.2;
 }
 
 const GLOW_COLOR: Record<AppPhase, string> = {
@@ -143,6 +149,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const ring2Opacity = useSharedValue(0);
   const auraOpacity = useSharedValue(baseAuraOpacityForPhase('idle'));
   const contourOpacity = useSharedValue(baseContourOpacityForPhase('idle'));
+  const textureOpacity = useSharedValue(baseTextureOpacityForPhase('idle'));
   const mouthCurve = useSharedValue(baseMouthCurveForPhase('idle'));
   const mouthOpacity = useSharedValue(baseMouthOpacityForPhase('idle'));
 
@@ -173,6 +180,10 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     opacity: contourOpacity.value,
   }));
 
+  const textureProps = useAnimatedProps(() => ({
+    opacity: textureOpacity.value,
+  }));
+
   const mouthProps = useAnimatedProps(() => {
     const curve = mouthCurve.value;
     const x0 = CX - MOUTH_HW;
@@ -197,6 +208,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ring2Opacity,
       auraOpacity,
       contourOpacity,
+      textureOpacity,
       mouthCurve,
       mouthOpacity,
     ].forEach(cancelAnimation);
@@ -214,6 +226,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     ring2Opacity.value = 0;
     auraOpacity.value = t(baseAuraOpacityForPhase(phase), 240);
     contourOpacity.value = t(baseContourOpacityForPhase(phase), 240);
+    textureOpacity.value = t(baseTextureOpacityForPhase(phase), 240);
     mouthCurve.value = t(baseMouthCurveForPhase(phase), 220);
     mouthOpacity.value = t(baseMouthOpacityForPhase(phase), 220);
 
@@ -222,14 +235,16 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowScale.value = withRepeat(withSequence(t(1.08, 2600), t(1, 2600)), -1, false);
       faceLift.value = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.32, 2400), t(0.22, 2400)), -1, false);
-      contourOpacity.value = withRepeat(withSequence(t(0.66, 2400), t(0.56, 2400)), -1, false);
+      contourOpacity.value = withRepeat(withSequence(t(0.54, 2400), t(0.46, 2400)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.22, 2400), t(0.17, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
       glowOpacity.value = t(0.56, 280);
       faceScale.value = withRepeat(withSequence(t(1.026, 1050), t(1, 1050)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.46, 850), t(0.34, 850)), -1, false);
-      contourOpacity.value = t(0.78, 280);
+      contourOpacity.value = t(0.62, 280);
+      textureOpacity.value = withRepeat(withSequence(t(0.28, 900), t(0.22, 900)), -1, false);
       ring1Opacity.value = withRepeat(withSequence(
         t(0.26, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
@@ -253,27 +268,31 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowScale.value = withRepeat(withSequence(t(1.1, 900), t(1, 900)), -1, false);
       faceLift.value = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.56, 760), t(0.34, 760)), -1, false);
-      contourOpacity.value = withRepeat(withSequence(t(0.9, 760), t(0.7, 760)), -1, false);
+      contourOpacity.value = withRepeat(withSequence(t(0.72, 760), t(0.56, 760)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.38, 760), t(0.28, 760)), -1, false);
     }
 
     if (phase === 'confirming') {
       glowOpacity.value = t(0.42, 320);
       contourOpacity.value = t(0.72, 320);
       auraOpacity.value = t(0.36, 320);
+      textureOpacity.value = t(0.22, 320);
     }
 
     if (phase === 'done') {
       faceScale.value = withSpring(1.04, { damping: 14, stiffness: 180 });
       faceLift.value = withSpring(-4, { damping: 12, stiffness: 150 });
       glowOpacity.value = t(0.5, 320);
-      contourOpacity.value = t(0.82, 320);
+      contourOpacity.value = t(0.64, 320);
       auraOpacity.value = t(0.4, 320);
+      textureOpacity.value = t(0.28, 320);
     }
 
     if (phase === 'error') {
       glowOpacity.value = t(0.34, 260);
       contourOpacity.value = t(0.54, 260);
       auraOpacity.value = t(0.24, 260);
+      textureOpacity.value = t(0.16, 260);
     }
   }, [
     auraOpacity,
@@ -289,6 +308,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     ring1Scale,
     ring2Opacity,
     ring2Scale,
+    textureOpacity,
   ]);
 
   useEffect(() => {
@@ -402,6 +422,16 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
         <AnimatedG animatedProps={faceProps as any}>
           <Path d={FACE_PATH} fill="url(#shellGrad)" />
+          <AnimatedG animatedProps={textureProps as any} clipPath="url(#faceClip)">
+            <SvgImage
+              href={FACE_RENDER_ASSET.uri}
+              x={18}
+              y={20}
+              width={234}
+              height={266}
+              preserveAspectRatio="xMidYMid slice"
+            />
+          </AnimatedG>
           <Path d={FACE_PATH} fill="url(#keyLight)" clipPath="url(#faceClip)" />
           <Path d={FACE_PATH} fill="url(#rimLight)" clipPath="url(#faceClip)" />
           <Path d={FACE_PATH} fill="url(#innerShadow)" clipPath="url(#faceClip)" />
@@ -413,19 +443,14 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
           <AnimatedG animatedProps={contourProps as any} clipPath="url(#faceClip)">
             <Path d={FOREHEAD_CROWN_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.6} strokeLinecap="round" />
-            <Path d={BROW_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.35} strokeLinecap="round" />
             <Path d={CORE_SPINE_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.55} strokeLinecap="round" />
             <Path d={NOSE_RIDGE_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.2} strokeLinecap="round" />
-            <Path d={TEMPLE_LEFT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
-            <Path d={TEMPLE_RIGHT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
-            <Path d={CHEEK_LEFT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.1} strokeLinecap="round" />
-            <Path d={CHEEK_RIGHT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.1} strokeLinecap="round" />
             <Path d={THROAT_LEFT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
             <Path d={THROAT_RIGHT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
             <Path d={CHIN_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.25} strokeLinecap="round" />
             <Circle cx={CX} cy={95} r={2.2} fill="rgba(255,255,255,0.86)" />
-            <Circle cx={CX} cy={178} r={1.6} fill="rgba(247,250,255,0.62)" />
-            <Circle cx={CX} cy={236} r={1.8} fill="rgba(247,250,255,0.56)" />
+            <Circle cx={CX} cy={178} r={1.3} fill="rgba(247,250,255,0.52)" />
+            <Circle cx={CX} cy={236} r={1.6} fill="rgba(247,250,255,0.46)" />
           </AnimatedG>
 
           <AnimatedPath
