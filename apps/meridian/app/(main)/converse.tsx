@@ -1642,7 +1642,7 @@ export default function ConverseScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
       recordingActiveRef.current = false;
-      const message = 'Microphone access denied. You can enable it in Settings, or type the trip instead.';
+      const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or type the trip instead.';
       setError(message);
       setTextFallbackVisible(true);
       void trackClientEvent({
@@ -1702,7 +1702,7 @@ export default function ConverseScreen() {
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap Ace to interrupt.' :
     phase === 'done' ? 'Returning to standby.' :
     phase === 'error' ? 'Try again or type the trip below.' :
-    voiceEnabled ? 'No tap needed.' :
+    voiceEnabled ? 'Speak when you are ready.' :
     'Tap Ace to start.';
   const presenceTone =
     phase === 'listening' ? '#c8e8ff' :

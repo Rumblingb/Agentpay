@@ -64,7 +64,7 @@ const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 function missingBroKeyMessage(): string {
-  return 'This Ace build is missing its secure app key. Please install the latest beta build.';
+  return 'This Ace build needs an update before it can handle live trips. Please install the latest beta and try again.';
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
@@ -89,22 +89,22 @@ const MARKET_COPY: Record<Nationality, {
   setupTagline: string;
 }> = {
   uk: {
-    intro: 'I am Ace. A spoken travel concierge for UK rail.',
+    intro: "I'm Ace. Your spoken concierge for UK rail.",
     fallback: "Train to London? I'd find the best route, apply your railcard if you have one, quote the fare, and carry the booking through for you.",
     demoPrompt: 'book a train to London tomorrow',
-    setupTagline: 'This is not a normal booking app. The more you tell Ace up front, the more completely it can handle UK rail with the right railcard, route, and passenger details.',
+    setupTagline: 'Tell Ace enough once, and UK rail gets cleaner from there: the right railcard, the right route, and booking-ready details when it matters.',
   },
   india: {
-    intro: 'I am Ace. A spoken travel concierge for Indian rail.',
+    intro: "I'm Ace. Your spoken concierge for Indian rail.",
     fallback: "Need a train in India? I'd check the best option, use your IRCTC details if needed, quote the fare, and carry the booking through with you.",
     demoPrompt: 'book a train from Delhi to Agra tomorrow morning',
-    setupTagline: 'This is a more hands-off way to travel. The more you set up now, the faster Ace can move later with IRCTC details, class preferences, and payment-ready journeys.',
+    setupTagline: 'Tell Ace enough once, and Indian rail gets smoother from there: IRCTC details, class preferences, and payment-ready journeys when you need them.',
   },
   other: {
-    intro: 'I am Ace. A spoken concierge for movement.',
+    intro: "I'm Ace. Your spoken concierge for movement.",
     fallback: "Need to get somewhere? I'd find the best route, quote the fare, and line the journey up for you.",
     demoPrompt: 'new york to boston tomorrow morning',
-    setupTagline: 'Ace is building a new category of concierge travel. It works best when it knows enough to stop asking basics later: who is travelling, how to contact you, and what kind of trip you actually prefer.',
+    setupTagline: 'Ace works best when it knows enough to move cleanly later: who is travelling, how to reach you, and the kind of trip you prefer.',
   },
 };
 
@@ -347,7 +347,7 @@ export default function OnboardScreen() {
       },
     }).catch(() => {
       setNameListening(false);
-      setNameHint('Microphone access is needed. You can also type your name below.');
+      setNameHint('Ace needs microphone access to hear your name. You can type it below instead.');
     });
   }, [completeNameCapture, nameListening, nameThinking, step]);
 
@@ -461,7 +461,7 @@ export default function OnboardScreen() {
       }
     } catch (e: any) {
       // mic permission denied or recording failed
-      setVoiceFillHint('Microphone access needed — please type your details below.');
+      setVoiceFillHint('Ace needs microphone access for voice setup. Please type your details below.');
     } finally {
       setVoiceFilling(false);
     }
@@ -606,7 +606,7 @@ export default function OnboardScreen() {
                 <Text style={demoStyles.wordmark}>ace</Text>
 
                 <View style={demoStyles.marketWrap}>
-                  <Text style={demoStyles.marketLabel}>Choose the world Ace should learn first</Text>
+                  <Text style={demoStyles.marketLabel}>Choose your travel world</Text>
                   <View style={styles.chipRow}>
                     {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
                       <Pressable
