@@ -1138,17 +1138,6 @@ function PrimaryBtn({ onPress, label, disabled }: { onPress: () => void; label: 
   );
 }
 
-function Feature({ icon, text }: { icon: string; text: string }) {
-  return (
-    <View style={featStyles.row}>
-      <View style={featStyles.iconWrap}>
-        <Ionicons name={icon as any} size={18} color="#cbe8ff" />
-      </View>
-      <Text style={featStyles.text}>{text}</Text>
-    </View>
-  );
-}
-
 function PromiseRow({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={promiseStyles.row}>
@@ -1183,22 +1172,7 @@ function SectionLabel({ text }: { text: string }) {
   return <Text style={sectionStyles.label}>{text}</Text>;
 }
 
-function FieldLabel({ text, hint }: { text: string; hint?: string }) {
-  return (
-    <View style={{ marginBottom: 8 }}>
-      <Text style={fieldStyles.label}>{text}</Text>
-      {hint && <Text style={fieldStyles.hint}>{hint}</Text>}
-    </View>
-  );
-}
-
 // ── Styles ─────────────────────────────────────────────────────────────────
-
-const featStyles = StyleSheet.create({
-  row:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-  iconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#102031', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(122, 167, 214, 0.18)' },
-  text:     { flex: 1, fontSize: 15, color: '#d1d5db', lineHeight: 21 },
-});
 
 const promiseStyles = StyleSheet.create({
   row:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
@@ -1213,11 +1187,6 @@ const consentStyles = StyleSheet.create({
 
 const sectionStyles = StyleSheet.create({
   label: { fontSize: 11, fontWeight: '700', color: '#4b5563', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10, marginTop: 20 },
-});
-
-const fieldStyles = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '600', color: '#9ca3af', marginBottom: 4 },
-  hint:  { fontSize: 12, color: '#4b5563', lineHeight: 17 },
 });
 
 const styles = StyleSheet.create({
