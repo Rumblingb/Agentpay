@@ -122,7 +122,7 @@ export async function runFlightWatch(env: Env): Promise<void> {
           await sendExpoPush(
             pushToken,
             '✈️ Flight cancelled',
-            `${flightNum} to ${destination ?? 'your destination'} has been cancelled. Contact your airline or let Bro find alternatives.`,
+            `${flightNum} to ${destination ?? 'your destination'} has been cancelled. Contact your airline or let Ace find alternatives.`,
             {
               intentId: row.id,
               screen: 'receipt',
@@ -132,7 +132,7 @@ export async function runFlightWatch(env: Env): Promise<void> {
               disruptionRoute: route,
             },
           );
-          await fanOutToTripRoom(row.id, `✈️ ${flightNum} cancelled. Contact airline or ask Bro for alternatives.`, sql);
+          await fanOutToTripRoom(row.id, `✈️ ${flightNum} cancelled. Contact airline or ask Ace for alternatives.`, sql);
           metaUpdates.flightCancellationNotified = true;
           metaUpdates.flightWatchActive = 'false';
           needsUpdate = true;

@@ -518,7 +518,7 @@ router.post('/checkout-session', async (c) => {
   const currency    = (currencyCode ?? 'GBP').toLowerCase();
   // Stripe amounts are in smallest currency unit. INR and GBP both use 1/100.
   const amountSmall = Math.max(Math.round(amountFiat * 100), currency === 'inr' ? 5000 : 30);
-  const desc        = description ?? `Bro booking`;
+  const desc        = description ?? `Ace booking`;
 
   const successUrl = `${c.env.STRIPE_SUCCESS_URL ?? 'https://agentpay.so/payment/success'}?jobId=${encodeURIComponent(jobId)}`;
   const cancelUrl  = `${c.env.STRIPE_CANCEL_URL ?? 'https://agentpay.so/payment/cancel'}?jobId=${encodeURIComponent(jobId)}`;
@@ -599,7 +599,7 @@ router.post('/upi-payment-link', async (c) => {
 
   const result = await createHostedUpiPayment(c.env, {
       amountInr,
-      description: description ?? 'Bro booking',
+      description: description ?? 'Ace booking',
       receipt: jobId,
       referenceId: jobId,
       notes: { jobId, journeyId, source: 'bro_app' },

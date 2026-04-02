@@ -760,7 +760,7 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="refresh" content="30">
-  <title>Live trip · Bro</title>
+  <title>Live trip · Ace</title>
   <style>
     *{box-sizing:border-box}
     body{background:#080808;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:20px;margin:0;max-width:420px;margin:0 auto}
@@ -808,7 +808,7 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
   </style>
 </head>
 <body>
-  <div class="header"><div class="dot"></div><div class="brand">bro</div></div>
+  <div class="header"><div class="dot"></div><div class="brand">ace</div></div>
 
   ${(ref && legs.length <= 1 && !flight) ? `<div class="ref"><div class="ref-label">Booking ref</div><div class="ref-val">${ref}</div></div>` : ''}
 
@@ -822,7 +822,7 @@ function tripRoomHtml({ token, train, flight, hotel, status, ref, memberCount, l
   </div>
 
   <div class="footer">
-    Managed by <a href="https://bro.app">Bro</a> · Live trip view
+    Managed by <a href="https://agentpay.so">Ace</a> · Live trip view
   </div>
   <div class="refresh">Refreshes automatically every 30 seconds</div>
   ${countdownScript}

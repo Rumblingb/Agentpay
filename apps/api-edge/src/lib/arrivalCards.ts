@@ -78,9 +78,9 @@ export function buildArrivalCards(ctx: ArrivalContext): ProactiveCard[] {
       id:       'arrival-time',
       kind:     'arrival_tip',
       title:    `Arriving at ${arrivalTime}`,
-      body:     exitTip ?? `Arriving at ${destination} at ${arrivalTime}. Ask Bro what to do next.`,
+      body:     exitTip ?? `Arriving at ${destination} at ${arrivalTime}. Ask Ace what to do next.`,
       severity: 'info',
-      ctaLabel: 'Ask Bro',
+      ctaLabel: 'Ask Ace',
     });
   } else {
     // Fallback if no arrival time known
@@ -128,16 +128,16 @@ export function buildArrivalCards(ctx: ArrivalContext): ProactiveCard[] {
     });
   }
 
-  // ── Generic "ask Bro" discovery card ─────────────────────────────────────
+  // ── Generic "ask Ace" discovery card ─────────────────────────────────────
   // Only add if we have fewer than 2 cards already (avoid noise)
   if (cards.length < 2) {
     cards.push({
       id:       'discover-destination',
       kind:     'destination_suggestion',
       title:    `What's near ${destination}?`,
-      body:     `Ask Bro for coffee, food, transport, or anything else when you arrive.`,
+      body:     `Ask Ace for coffee, food, transport, or anything else when you arrive.`,
       severity: 'info',
-      ctaLabel: 'Ask Bro',
+      ctaLabel: 'Ask Ace',
     });
   }
 

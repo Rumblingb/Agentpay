@@ -42,6 +42,7 @@ import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
 import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
+import { askSonar, formatSonarForClaude } from '../lib/perplexity';
 import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
 import { withBookingState } from '../lib/bookingState';
 import { recordMobileTelemetry, shouldAlertOnMobileTelemetry } from '../lib/mobileTelemetry';
@@ -548,7 +549,7 @@ conciergeRouter.post('/intent', async (c) => {
       })()
     : '';
 
-  const systemPrompt = `You are Bro — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
+  const systemPrompt = `You are Ace — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -582,6 +583,7 @@ ROUTING RULES:
 - Use navigate for "navigate me to...", "how do I walk to...", "directions to...", "how far is...". Confirm first: "Walking to [place], 12 min. Ready?" then give steps. Darwin stays source of truth for UK rail. TfL stays for London transit. Google Routes only for non-London final legs and explicit walking navigation.
 - Use book_restaurant to find dining options near a location or after an event booking: "Table near the venue at 19:00 for 2?" Returns best options with ratings and addresses. Ops team handles reservations.
 - Use get_weather for any weather question: "will it rain in Leeds?", "what's the weather in Mumbai tomorrow?", "do I need a coat?", "what's it like in Edinburgh on Friday?". Returns a single speakable sentence. No payment, no booking.
+- Use research for live travel intelligence that needs current web-grounded facts: opening hours, baggage rules, visa requirements, travel advisories, strikes, and "is this place open right now?". Keep it factual, short, and specific. No payment, no booking.
 - If GPS unavailable and location ambiguous, ask once: "Where are you now?"
 - If nationality is "india" and user says "train" without specifying country, assume India.
 - If ambiguous, ask one question: "UK or India?"
@@ -651,9 +653,9 @@ PHASE 1 RESPONSE FORMAT:
 - If you cannot help, say so in one sentence and suggest what you can do instead
 
 PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
-- Exactly one sentence. State the Bro reference and that the ticket is being secured. Nothing else.
+- Exactly one sentence. State the booking reference and that the ticket is being secured. Nothing else.
 - Format: "[Ref] — securing your ticket. Details by email."
-- Example: "BRO-A1B2C3 — securing your ticket. Details by email."
+- Example: "ACE-A1B2C3 — securing your ticket. Details by email."
 - Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
@@ -1001,8 +1003,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               ? ` Then: ${item.trainDetails.finalLegSummary}.`
               : '';
             const confirmLine = isIndia
-              ? `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.trainName} at ${item.trainDetails.departureTime}. Ticket details within 15 minutes.`
-              : `Request in. BRO ref: ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator}. Ticket details within 15 minutes.`;
+              ? `Request in. Reference ${broRef}. Securing your ${item.trainDetails.trainName} at ${item.trainDetails.departureTime}. Ticket details within 15 minutes.`
+              : `Request in. Reference ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator}. Ticket details within 15 minutes.`;
 
             toolResults.push({
               type:        'tool_result',
@@ -1754,6 +1756,34 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         }
         broLog('weather_result', { traceId, location: locationStr, date: weatherDate });
 
+      } else if (toolCall.name === 'research') {
+        const query = String(input.query ?? '').trim();
+        const location = String(input.location ?? '').trim();
+        const format = input.format === 'detailed' ? 'detailed' : 'brief';
+        const travelIntelQuestion = [
+          query,
+          location ? `Location context: ${location}.` : '',
+          typeof travelProfile?.nationality === 'string' && travelProfile.nationality
+            ? `Traveler nationality: ${travelProfile.nationality}.`
+            : '',
+        ].filter(Boolean).join('\n');
+
+        const sonarResult = await askSonar(
+          travelIntelQuestion || query,
+          c.env.PERPLEXITY_API_KEY ?? '',
+          { maxTokens: format === 'detailed' ? 360 : 220 },
+        );
+
+        toolResultContent = formatSonarForClaude(sonarResult, query || 'travel intel');
+        broLog('research_result', {
+          traceId,
+          query,
+          location: location || null,
+          format,
+          hasLiveIntel: !!sonarResult,
+          citations: sonarResult?.citations.length ?? 0,
+        });
+
       } else {
         // Non-train skills: tell Claude the agent is available
         const agentName = agent?.name ?? skill.displayName;
@@ -1865,7 +1895,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   }
 
   // Info-only tools return content with no payment or biometric required
-  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant', 'get_weather']);
+  const INFO_ONLY_TOOLS = new Set(['plan_metro', 'discover_events', 'discover_nearby', 'navigate', 'book_restaurant', 'get_weather', 'research']);
   const isInfoOnly = planItems.every(p => INFO_ONLY_TOOLS.has(p.toolName));
 
   broLog('plan_built', {
@@ -1879,7 +1909,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   // ── Second Claude call with real data → natural narration ─────────────────
 
-  let narration = buildFallbackNarration(planItems);
+  let narration = buildFallbackNarration(planItems, toolResultsForClaude);
   try {
     const narrationCall = await callClaude(anthropicKey, {
       system: systemPrompt,
@@ -2435,9 +2465,25 @@ function generateIndianPNR(): string {
   return pnr;
 }
 
-function buildFallbackNarration(planItems: PlanItem[]): string {
+function buildFallbackNarration(
+  planItems: PlanItem[],
+  toolResults: Array<{ content: string }> = [],
+): string {
   if (planItems.length === 1) {
     const p = planItems[0];
+    const infoOnlyFallbacks: Record<string, string> = {
+      research: 'Here’s the latest on that.',
+      get_weather: 'Here’s the weather.',
+      discover_nearby: 'Here’s what’s nearby.',
+      discover_events: 'Here’s what’s on.',
+      navigate: 'Here’s the route.',
+      book_restaurant: 'Here are the best options nearby.',
+      plan_metro: 'Here’s the best metro route.',
+    };
+    if (infoOnlyFallbacks[p.toolName]) {
+      const toolText = toolResults[0]?.content?.split('\nSources:')[0]?.trim();
+      return toolText || infoOnlyFallbacks[p.toolName];
+    }
     if (p.trainDetails) {
       if (p.trainDetails.country === 'india') {
         return `${p.trainDetails.trainName} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated ₹${p.trainDetails.fareInr}. Fingerprint to confirm.`;
@@ -2445,6 +2491,12 @@ function buildFallbackNarration(planItems: PlanItem[]): string {
       return `${p.trainDetails.operator} at ${p.trainDetails.departureTime}, ${p.trainDetails.origin} to ${p.trainDetails.destination} — estimated £${p.trainDetails.estimatedFareGbp}. Fingerprint to confirm.`;
     }
     return `I can ${p.displayName.toLowerCase()} for approximately $${p.estimatedPriceUsdc.toFixed(2)}. Fingerprint to confirm.`;
+  }
+  if (planItems.every((item) => ['research', 'get_weather', 'discover_nearby', 'discover_events', 'navigate', 'book_restaurant', 'plan_metro'].includes(item.toolName))) {
+    return toolResults
+      .map((result) => result.content.split('\nSources:')[0]?.trim())
+      .filter(Boolean)
+      .join(' ');
   }
   const total = planItems.reduce((s, p) => s + p.estimatedPriceUsdc, 0);
   return `I can arrange ${planItems.map(p => p.displayName).join(' + ')} — approximately $${total.toFixed(2)} total. Fingerprint to confirm.`;
@@ -2606,13 +2658,13 @@ async function sendTicketConfirmedEmail(
             <td style="padding:8px 0">${proof.classCode ?? '3A'}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Fare</td>
             <td style="padding:8px 0">${fareDisplay}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">BRO ref</td>
+        <tr><td style="padding:8px 0;color:#666">Reference</td>
             <td style="padding:8px 0;font-family:monospace;color:#999">${broRef}</td></tr>
       </table>
       <p style="background:#fff7ed;border-left:3px solid #f97316;padding:12px;font-size:13px;color:#92400e">
         Keep your PNR <strong>${realTicketRef}</strong> safe. You'll need it at the station.
       </p>
-      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
+      <p style="color:#666;font-size:13px">Ace · AgentPay</p>
     </div>
   ` : `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
@@ -2631,12 +2683,12 @@ async function sendTicketConfirmedEmail(
             <td style="padding:8px 0">${proof.operator}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Fare</td>
             <td style="padding:8px 0">${fareDisplay}</td></tr>
-        <tr><td style="padding:8px 0;color:#666">BRO ref</td>
+        <tr><td style="padding:8px 0;color:#666">Reference</td>
             <td style="padding:8px 0;font-family:monospace;color:#999">${broRef}</td></tr>
       </table>
-      <p style="color:#666;font-size:13px">Bro · AgentPay</p>
+      <p style="color:#666;font-size:13px">Ace · AgentPay</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-      <p style="font-size:12px;color:#9ca3af">Booked by your Bro concierge via AgentPay.</p>
+      <p style="font-size:12px;color:#9ca3af">Booked by your Ace concierge via AgentPay.</p>
     </div>
   `;
 
@@ -2648,7 +2700,7 @@ async function sendTicketConfirmedEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from:    'Bro <bookings@agentpay.gg>',
+        from:    'Ace <bookings@agentpay.gg>',
         to:      [to],
         subject: isIndia
           ? `Ticket confirmed — PNR ${realTicketRef}`
@@ -2726,7 +2778,7 @@ async function sendAdminAlert(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from:    'Bro Ops <ops@agentpay.gg>',
+        from:    'Ace Ops <ops@agentpay.gg>',
         to:      [adminEmail],
         subject: `🚂 NEW BOOKING — ${params.broRef} | ${params.origin} → ${params.destination} | ${params.estimatedFare}`,
         html: `
@@ -2879,7 +2931,7 @@ async function sendBookingWhatsApp(
   if (ADMIN_WHATSAPP_NUMBER) {
     const adminMsg = isIndia
       ? [
-          '🚂 *New Bro Booking*',
+          '🚂 *New Ace Booking*',
           `Ref: ${proof.bookingRef}`,
           `Route: ${proof.fromStation} → ${proof.toStation}`,
           `Train: ${proof.trainNumber ?? ''} ${proof.operator}`,
@@ -2891,7 +2943,7 @@ async function sendBookingWhatsApp(
           'Book on IRCTC then update the sheet.',
         ].filter(Boolean).join('\n')
       : [
-          '🚂 *New Bro Booking*',
+          '🚂 *New Ace Booking*',
           `Ref: ${proof.bookingRef}`,
           `Route: ${proof.fromStation} → ${proof.toStation}`,
           `Time: ${proof.departureTime} · ${proof.operator}`,
@@ -2911,7 +2963,7 @@ async function sendBookingWhatsApp(
 
   const userMsg = isIndia
     ? [
-        'Bro 🚂',
+        'Ace 🚂',
         '',
         `Hi ${name}, your journey is confirmed.`,
         '',
@@ -2925,7 +2977,7 @@ async function sendBookingWhatsApp(
         'Reply HELP if you need anything.',
       ].filter(Boolean).join('\n')
     : [
-        'Bro 🚂',
+        'Ace 🚂',
         '',
         `Hi ${name}, your journey is confirmed.`,
         '',

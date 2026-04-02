@@ -560,7 +560,7 @@ const researchSkill: SkillDefinition = {
   toolName: 'research',
   category: 'research',
   displayName: 'ResearchAgent',
-  description: 'Research and summarise information — venue details, opening hours, directions, local knowledge, event information.',
+  description: 'Research and summarise current travel information — opening hours, baggage rules, visa requirements, venue details, travel advisories, directions, and local knowledge. Uses live web search when available.',
   requiredProfileFields: [],
   inputSchema: {
     type: 'object',
@@ -572,14 +572,22 @@ const researchSkill: SkillDefinition = {
     },
   },
   skillDoc: `# ResearchAgent
-Researches and summarises information to support booking decisions.
+Researches and summarises information to support booking decisions and live trip questions.
 
 ## Handles
 - Venue details and opening hours
+- Baggage allowances and airline policy questions
+- Visa requirements and travel advisories
 - Local transport and directions
 - Event information and schedules
 - Restaurant and attraction research
 - Price comparisons
+
+## Use proactively
+- "Is the cafe by Paddington open on Sunday?"
+- "What's the baggage allowance for BA to Delhi?"
+- "Do I need a visa for Vietnam with an Indian passport?"
+- "Is there a strike in Paris this weekend?"
 
 ## Cannot handle
 - Real-time flight or train availability (use FlightAgent/TrainAgent)
@@ -587,7 +595,7 @@ Researches and summarises information to support booking decisions.
 - Personal data lookup
 
 ## Output
-Returns a concise summary with key facts, relevant links, and recommendations.`,
+Returns a concise, current answer with key facts and cited sources when available.`,
 };
 
 // ── Metro planning ────────────────────────────────────────────────────────────
@@ -632,7 +640,7 @@ Plans metro journeys in Bengaluru and Pune.
 - No booking, no ticket reservation. Just quote route + time + fare.
 
 ## Output
-Route with line(s), stops, journey time, fare in INR. For Bro's narration: keep it to one sentence — "Green Line to Kempegowda, switch to Purple, 8 stops to Indiranagar — 22 min, ₹30."`,
+Route with line(s), stops, journey time, fare in INR. For Ace's narration: keep it to one sentence — "Green Line to Kempegowda, switch to Purple, 8 stops to Indiranagar — 22 min, ₹30."`,
 };
 
 // ── Event discovery ───────────────────────────────────────────────────────────
@@ -739,7 +747,7 @@ This agent handles non-London and non-UK-transit navigation.
 
 ## Flow
 1. User: "Navigate to the Colosseum"
-2. Bro: "Walking to the Colosseum — 12 min (900 m). Ready?"
+2. Ace: "Walking to the Colosseum — 12 min (900 m). Ready?"
 3. On confirm: return full step-by-step for map screen
 
 ## Output
