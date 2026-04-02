@@ -76,6 +76,44 @@ function patchEXJavaScriptRuntime(runtimePath) {
   console.log('[withExpoModulesPatch] OK Patched EXJavaScriptRuntime.mm for RN 0.76+');
 }
 
+function patchIosPodfileCppStandard(projectRoot) {
+  const podfilePath = path.join(projectRoot, 'ios', 'Podfile');
+  if (!fs.existsSync(podfilePath)) {
+    console.log('[withExpoModulesPatch] INFO Podfile not found for iOS C++ patch');
+    return;
+  }
+
+  let content = fs.readFileSync(podfilePath, 'utf8');
+  const marker = "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'";
+  if (content.includes(marker)) {
+    console.log('[withExpoModulesPatch] OK Podfile already forces gnu++17');
+    return;
+  }
+
+  const snippet = `    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      end
+    end
+`;
+
+  if (content.includes('react_native_post_install(')) {
+    content = content.replace(
+      /(react_native_post_install\([\s\S]*?\)\n)/,
+      `$1${snippet}`,
+    );
+  } else if (content.includes('post_install do |installer|')) {
+    content = content.replace('post_install do |installer|\n', `post_install do |installer|\n${snippet}`);
+  } else {
+    console.log('[withExpoModulesPatch] INFO Podfile post_install block not found');
+    return;
+  }
+
+  fs.writeFileSync(podfilePath, content);
+  console.log('[withExpoModulesPatch] OK Patched Podfile to force gnu++17 for Pods');
+}
+
 const withExpoModulesPatchAndroid = (config) =>
   withDangerousMod(config, [
     'android',
@@ -167,6 +205,7 @@ const withExpoModulesPatchIOS = (config) =>
       patchEXJavaScriptRuntime(
         path.join(expoModulesCoreRoot, 'ios', 'JSI', 'EXJavaScriptRuntime.mm'),
       );
+      patchIosPodfileCppStandard(projectRoot);
 
       return config;
     },
