@@ -1,35 +1,65 @@
 /**
- * Converts icon.svg to icon.png, adaptive-icon.png, and ace-mark.png
+ * Rebuilds the iOS icon from the Ace mark master without distorting it into a square.
  * Run: node convert-icon.js
  */
-const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Install sharp if not present
 try {
   require.resolve('sharp');
 } catch {
   console.log('Installing sharp...');
-  execSync('npm install sharp --save-dev', { stdio: 'inherit', cwd: path.join(__dirname, '../../..') });
+  execSync('npm install sharp --save-dev', {
+    stdio: 'inherit',
+    cwd: path.join(__dirname, '../../..'),
+  });
 }
 
 const sharp = require('sharp');
-const svgBuffer = fs.readFileSync(path.join(__dirname, 'icon.svg'));
 
-async function convert() {
-  console.log('Converting icon.svg...');
+const masterMarkPath = path.join(__dirname, 'ace-mark.png');
+const iosIconPath = path.join(__dirname, 'icon.png');
 
-  await sharp(svgBuffer).resize(1024, 1024).png().toFile(path.join(__dirname, 'icon.png'));
-  console.log('✓ icon.png (1024×1024)');
+async function buildIosIcon() {
+  const metadata = await sharp(masterMarkPath).metadata();
+  const side = Math.max(metadata.width ?? 1024, metadata.height ?? 1024);
 
-  await sharp(svgBuffer).resize(432, 432).png().toFile(path.join(__dirname, 'adaptive-icon.png'));
-  console.log('✓ adaptive-icon.png (432×432)');
+  const background = await sharp(masterMarkPath)
+    .resize(side, side, {
+      fit: 'cover',
+      position: 'centre',
+    })
+    .blur(28)
+    .toBuffer();
 
-  await sharp(svgBuffer).resize(300, 360).png().toFile(path.join(__dirname, 'ace-mark.png'));
-  console.log('✓ ace-mark.png (300×360)');
+  const foreground = await sharp(masterMarkPath)
+    .resize(Math.round(side * 0.93), Math.round(side * 0.93), {
+      fit: 'contain',
+      position: 'centre',
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .toBuffer();
 
-  console.log('\nDone. Commit and push to sync to Mac.');
+  await sharp(background)
+    .composite([
+      {
+        input: foreground,
+        gravity: 'centre',
+      },
+    ])
+    .resize(1024, 1024)
+    .png()
+    .toFile(iosIconPath);
 }
 
-convert().catch(console.error);
+async function main() {
+  console.log('Rebuilding Ace iOS icon from ace-mark.png...');
+  await buildIosIcon();
+  console.log('✓ icon.png (1024×1024)');
+  console.log('Adaptive icon and splash remain source-controlled separately.');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
