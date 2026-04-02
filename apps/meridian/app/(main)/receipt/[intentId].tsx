@@ -27,7 +27,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
+import { getConciergeExecution, getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
 import { loadActiveTrip, loadJourneySession, patchJourneySession, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory, type JourneySession } from '../../../lib/storage';
@@ -292,6 +292,13 @@ export default function ReceiptScreen() {
     rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
     rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
     rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+    rerouteOfferActionLabel: journeySession?.rerouteOfferActionLabel ?? null,
+    executionStatus: journeySession?.executionStatus ?? null,
+    recoveryBucket: journeySession?.recoveryBucket ?? null,
+    recoveryAction: journeySession?.recoveryAction ?? null,
+    recoveryReason: journeySession?.recoveryReason ?? null,
+    executionSummary: journeySession?.executionSummary ?? null,
+    manualReviewRequired: journeySession?.manualReviewRequired ?? null,
     supportState: journeySession?.supportState ?? 'none',
     supportRequestedAt: journeySession?.supportRequestedAt ?? null,
     supportSummary: journeySession?.supportSummary ?? null,
@@ -301,6 +308,11 @@ export default function ReceiptScreen() {
   };
   const recoveryState = journeyRecovery(liveJourneySession);
   const receiptStatusLabel = recoveryState.statusLabel;
+  const liveReroutePrompt =
+    liveJourneySession.rerouteOfferTranscript
+    || transcript
+    || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
+  const liveRerouteActionLabel = liveJourneySession.rerouteOfferActionLabel ?? 'Find alternatives';
 
   useEffect(() => {
     if (!walletPassUrl || walletTelemetryTrackedRef.current) return;
@@ -550,6 +562,13 @@ export default function ReceiptScreen() {
       rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
       rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
       rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+      rerouteOfferActionLabel: journeySession?.rerouteOfferActionLabel ?? null,
+      executionStatus: journeySession?.executionStatus ?? null,
+      recoveryBucket: journeySession?.recoveryBucket ?? null,
+      recoveryAction: journeySession?.recoveryAction ?? null,
+      recoveryReason: journeySession?.recoveryReason ?? null,
+      executionSummary: journeySession?.executionSummary ?? null,
+      manualReviewRequired: journeySession?.manualReviewRequired ?? null,
       supportState: journeySession?.supportState ?? 'none',
       supportRequestedAt: journeySession?.supportRequestedAt ?? null,
       supportSummary: journeySession?.supportSummary ?? null,
@@ -649,12 +668,18 @@ export default function ReceiptScreen() {
       : isDelayed || tripContext?.watchState?.delayRisk
       ? 'Timing shifted. Ace can line up the next strongest option before this becomes a scramble.'
       : 'The onward connection is getting tight. Ace can line up a cleaner route now.';
+    const offerActionLabel = hasPlatformChanged || hasGateUpdated
+      ? 'Find alternatives'
+      : tripContext?.watchState?.connectionRisk
+      ? 'Protect connection'
+      : 'Find alternatives';
 
     void (async () => {
       await patchJourneySession(intentId, {
         rerouteOfferTitle: offerTitle,
         rerouteOfferBody: offerBody,
         rerouteOfferTranscript: transcriptForRecovery,
+        rerouteOfferActionLabel: offerActionLabel,
         lastEventKey: 'reroute_offer',
         lastEventAt: new Date().toISOString(),
       }).catch(() => null);
@@ -674,6 +699,7 @@ export default function ReceiptScreen() {
         shareToken,
         offerTitle,
         offerBody,
+        offerActionLabel,
       });
     })();
   }, [
@@ -782,17 +808,24 @@ export default function ReceiptScreen() {
       return;
     }
 
-    if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) {
-      const routePrompt =
-        transcript
-        || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
-      if (routePrompt) {
-        logReceiptEvent({
-          event: 'reroute_offer_accepted',
-          metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      if (['delay_risk', 'connection_risk'].includes(card.kind)) {
+        const routePrompt = liveReroutePrompt;
+        if (routePrompt) {
+          logReceiptEvent({
+            event: 'reroute_offer_accepted',
+            metadata: { intentId, source: 'receipt', cardKind: card.kind },
         });
         router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
       }
+      return;
+    }
+
+    if (['platform_changed', 'gate_changed'].includes(card.kind)) {
+      logReceiptEvent({
+        event: 'journey_signal_acknowledged',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
+      return;
     }
   };
 
@@ -836,7 +869,10 @@ export default function ReceiptScreen() {
     if (!intentId || paymentCheckLoading) return;
     setPaymentCheckLoading(true);
     try {
-      const status = await getIntentStatus(intentId);
+      const [status, execution] = await Promise.all([
+        getIntentStatus(intentId),
+        getConciergeExecution(intentId).catch(() => null),
+      ]);
       const nextQuoteExpiresAt = status.metadata?.quoteExpiresAt ?? status.metadata?.expiresAt ?? null;
       const nextPaymentConfirmedAt = status.metadata?.paymentConfirmedAt ?? null;
       const nextDispatchStartedAt = status.metadata?.openclawDispatchedAt ?? null;
@@ -855,6 +891,16 @@ export default function ReceiptScreen() {
         openclawDispatchedAt: nextDispatchStartedAt ?? current.openclawDispatchedAt ?? null,
         pendingFulfilment: nextPendingFulfilment ?? current.pendingFulfilment ?? null,
         fulfilmentFailed: nextFulfilmentFailed ? true : current.fulfilmentFailed ?? null,
+        executionStatus: execution?.status ?? current.executionStatus ?? null,
+        recoveryBucket: execution?.recoveryBucket ?? current.recoveryBucket ?? null,
+        recoveryAction: execution?.recommendedAction ?? current.recoveryAction ?? null,
+        recoveryReason: execution?.recoveryReason ?? current.recoveryReason ?? null,
+        executionSummary: execution?.summary ?? current.executionSummary ?? null,
+        manualReviewRequired:
+          typeof execution?.manualReviewRequired === 'boolean'
+            ? execution.manualReviewRequired
+            : current.manualReviewRequired ?? null,
+        rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? current.rerouteOfferActionLabel ?? null,
         tripContext: serverTrip ?? current.tripContext ?? null,
         updatedAt: new Date().toISOString(),
       } : current);
@@ -864,6 +910,13 @@ export default function ReceiptScreen() {
         paymentConfirmedAt: nextPaymentConfirmedAt,
         openclawDispatchedAt: nextDispatchStartedAt,
         pendingFulfilment: nextPendingFulfilment,
+        ...(execution?.status ? { executionStatus: execution.status } : {}),
+        ...(execution?.recoveryBucket ? { recoveryBucket: execution.recoveryBucket } : {}),
+        ...(execution?.recommendedAction ? { recoveryAction: execution.recommendedAction } : {}),
+        ...(execution?.recoveryReason ? { recoveryReason: execution.recoveryReason } : {}),
+        ...(execution?.summary ? { executionSummary: execution.summary } : {}),
+        ...(typeof execution?.manualReviewRequired === 'boolean' ? { manualReviewRequired: execution.manualReviewRequired } : {}),
+        ...(execution?.rerouteOfferActionLabel ? { rerouteOfferActionLabel: execution.rerouteOfferActionLabel } : {}),
         ...(nextFulfilmentFailed ? { fulfilmentFailed: true } : {}),
         ...(serverTrip ? { tripContext: serverTrip } : {}),
         updatedAt: new Date().toISOString(),
@@ -953,11 +1006,11 @@ export default function ReceiptScreen() {
             <Pressable
               style={styles.cancelBannerBtn}
               onPress={() => {
-                const query = transcript || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : undefined);
+                const query = liveReroutePrompt ?? undefined;
                 router.replace({ pathname: '/(main)/converse', params: query ? { prefill: query } : undefined } as any);
               }}
             >
-              <Text style={styles.cancelBannerBtnText}>Ask Ace</Text>
+              <Text style={styles.cancelBannerBtnText}>{liveRerouteActionLabel}</Text>
             </Pressable>
           </View>
         )}
@@ -1114,7 +1167,12 @@ export default function ReceiptScreen() {
             {cards.length > 0 && (
               <View style={styles.proactiveWrap}>
                 {cards.slice(0, 2).map((card) => (
-                  <ProactiveReceiptCard key={card.id} card={card} onPress={() => { void handleProactiveCardPress(card); }} />
+                  <ProactiveReceiptCard
+                    key={card.id}
+                    card={card}
+                    actionLabel={proactiveCardActionLabel(card, liveJourneySession.rerouteOfferActionLabel)}
+                    onPress={() => { void handleProactiveCardPress(card); }}
+                  />
                 ))}
               </View>
             )}
@@ -1353,7 +1411,13 @@ export default function ReceiptScreen() {
 
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
               <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
-              <Text style={styles.issueBtnText}>Report an issue</Text>
+              <Text style={styles.issueBtnText}>
+                {liveJourneySession.supportState === 'requested'
+                  ? 'Update support'
+                  : liveJourneySession.manualReviewRequired
+                  ? 'Add detail'
+                  : 'Report an issue'}
+              </Text>
             </Pressable>
 
             <Pressable onPress={handleDone} style={styles.doneBtn}>
@@ -1425,7 +1489,9 @@ export default function ReceiptScreen() {
           <View style={issueStyles.handle} />
           <Text style={issueStyles.title}>Something wrong?</Text>
           <Text style={issueStyles.subtitle}>
-            Tell us what happened. We already have your trip details.
+            {liveJourneySession.manualReviewRequired
+              ? 'Ace already attached the live trip. Add any extra detail support should see.'
+              : 'Tell us what happened. We already have your trip details.'}
           </Text>
           {issueSent ? (
             <View style={issueStyles.sentBox}>
@@ -1654,13 +1720,14 @@ const rowStyles = StyleSheet.create({
   pillText: { fontSize: 12, color: '#4ade80', fontWeight: '600' },
 });
 
-function proactiveCardActionLabel(card: ProactiveCard): string | null {
+function proactiveCardActionLabel(card: ProactiveCard, rerouteActionLabel?: string | null): string | null {
   switch (card.kind) {
     case 'delay_risk':
     case 'connection_risk':
+      return rerouteActionLabel ?? 'Find alternatives';
     case 'platform_changed':
     case 'gate_changed':
-      return 'Ask Ace to reroute';
+      return 'Got it';
     case 'destination_suggestion':
       return 'Open map';
     case 'leave_now':
@@ -1670,9 +1737,16 @@ function proactiveCardActionLabel(card: ProactiveCard): string | null {
   }
 }
 
-function ProactiveReceiptCard({ card, onPress }: { card: ProactiveCard; onPress?: () => void }) {
+function ProactiveReceiptCard({
+  card,
+  actionLabel,
+  onPress,
+}: {
+  card: ProactiveCard;
+  actionLabel?: string | null;
+  onPress?: () => void;
+}) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
-  const actionLabel = proactiveCardActionLabel(card);
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
       <View style={[styles.proactiveDot, { backgroundColor: accent }]} />

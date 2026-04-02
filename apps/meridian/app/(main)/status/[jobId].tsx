@@ -24,7 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
-import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
+import { getConciergeExecution, getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
 import { patchJourneySession, saveActiveTrip, saveJourneySession } from '../../../lib/storage';
 import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
@@ -95,6 +95,14 @@ export default function StatusScreen() {
   const [dispatchStartedAt, setDispatchStartedAt] = useState<string | null>(null);
   const [pendingFulfilment, setPendingFulfilment] = useState<boolean | null>(null);
   const [fulfilmentFailed, setFulfilmentFailed] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<'queued' | 'payment_pending' | 'fulfilment_pending' | 'confirmed' | 'failed' | 'rolled_back' | 'attention_required' | null>(null);
+  const [recoveryBucket, setRecoveryBucket] = useState<string | null>(null);
+  const [recoveryAction, setRecoveryAction] = useState<'none' | 'retry_dispatch' | 'escalate_manual' | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState<string | null>(null);
+  const [executionSummary, setExecutionSummary] = useState<string | null>(null);
+  const [manualReviewRequired, setManualReviewRequired] = useState(false);
+  const [rerouteOfferTranscript, setRerouteOfferTranscript] = useState<string | null>(null);
+  const [rerouteOfferActionLabel, setRerouteOfferActionLabel] = useState<string | null>(null);
   const [showIssueModal, setShowIssueModal]   = useState(false);
   const [issueCategory, setIssueCategory]     = useState<'payment' | 'delay' | 'ticket' | 'other'>('payment');
   const [issueText, setIssueText]             = useState('');
@@ -170,19 +178,46 @@ export default function StatusScreen() {
       openclawDispatchedAt: dispatchStartedAt,
       pendingFulfilment,
       fulfilmentFailed,
-      updatedAt: new Date().toISOString(),
-    });
-  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
+      executionStatus,
+      recoveryBucket,
+        recoveryAction,
+        recoveryReason,
+        executionSummary,
+        manualReviewRequired,
+        rerouteOfferTranscript,
+        rerouteOfferActionLabel,
+        updatedAt: new Date().toISOString(),
+      });
+  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed, executionStatus, recoveryBucket, recoveryAction, recoveryReason, executionSummary, manualReviewRequired, rerouteOfferTranscript, rerouteOfferActionLabel]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
 
     const t = setInterval(async () => {
       try {
-        const data = await getIntentStatus(jobId);
+        const [data, execution] = await Promise.all([
+          getIntentStatus(jobId),
+          getConciergeExecution(jobId).catch(() => null),
+        ]);
         if (data.intentId && data.intentId !== resolvedIntentId) {
           setResolvedIntentId(data.intentId);
         }
+          if (execution) {
+            setExecutionStatus(execution.status);
+            setRecoveryBucket(execution.recoveryBucket);
+            setRecoveryAction(execution.recommendedAction);
+            setRecoveryReason(execution.recoveryReason);
+            setExecutionSummary(execution.summary);
+            setManualReviewRequired(execution.manualReviewRequired);
+            setRerouteOfferActionLabel(execution.rerouteOfferActionLabel);
+          }
+          const nextRerouteTranscript =
+            typeof data.metadata?.rerouteOfferTranscript === 'string'
+              ? data.metadata.rerouteOfferTranscript
+              : null;
+          if (nextRerouteTranscript) {
+            setRerouteOfferTranscript(nextRerouteTranscript);
+          }
         const s = data.status;
         setIntentStatusValue(s);
         if (typeof data.metadata?.quoteExpiresAt === 'string' || typeof data.metadata?.expiresAt === 'string') {
@@ -322,8 +357,16 @@ export default function StatusScreen() {
                   ? data.metadata.pendingFulfilment
                   : pendingFulfilment,
               fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
-              updatedAt: new Date().toISOString(),
-            });
+              executionStatus: execution?.status ?? executionStatus,
+              recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+                recoveryAction: execution?.recommendedAction ?? recoveryAction,
+                recoveryReason: execution?.recoveryReason ?? recoveryReason,
+                executionSummary: execution?.summary ?? executionSummary,
+                manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+                rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+                rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
+                updatedAt: new Date().toISOString(),
+              });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
               ? `Securing your ticket. Ace reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
@@ -400,6 +443,14 @@ export default function StatusScreen() {
                 ? data.metadata.pendingFulfilment
                 : pendingFulfilment,
             fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
+            executionStatus: execution?.status ?? executionStatus,
+            recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+            recoveryAction: execution?.recommendedAction ?? recoveryAction,
+            recoveryReason: execution?.recoveryReason ?? recoveryReason,
+            executionSummary: execution?.summary ?? executionSummary,
+            manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+            rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+            rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
@@ -462,6 +513,14 @@ export default function StatusScreen() {
             openclawDispatchedAt: dispatchStartedAt,
             pendingFulfilment,
             fulfilmentFailed,
+            executionStatus: execution?.status ?? executionStatus,
+            recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+            recoveryAction: execution?.recommendedAction ?? recoveryAction,
+            recoveryReason: execution?.recoveryReason ?? recoveryReason,
+            executionSummary: execution?.summary ?? executionSummary,
+            manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+            rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+            rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
             updatedAt: new Date().toISOString(),
           });
           await speak('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
@@ -472,7 +531,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, currentIntentId, resolvedIntentId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, departureDatetime, platform, operator, finalLegSummary, bookingRef, tripContext, paymentRequired, shareToken, paramJourneyId]);
+  }, [statusPhase, jobId, currentIntentId, resolvedIntentId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, departureDatetime, platform, operator, finalLegSummary, bookingRef, tripContext, paymentRequired, shareToken, paramJourneyId, dispatchStartedAt, executionStatus, executionSummary, fulfilmentFailed, manualReviewRequired, paymentConfirmedAt, pendingFulfilment, quoteExpiresAt, recoveryAction, recoveryBucket, recoveryReason, rerouteOfferTranscript, rerouteOfferActionLabel]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -585,9 +644,13 @@ export default function StatusScreen() {
       pendingFulfilment,
       fulfilmentFailed,
       fiatAmount: paymentAmount || null,
+      manualReviewRequired,
+      recoveryAction,
+      executionSummary,
+      recoveryReason,
     }).voiceLine;
     speak(statusNarration(currentAgent, elapsed, voiceLine));
-  }, [elapsed, statusPhase, currentAgent, fiatAmount, paymentConfirmed, tripContext, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
+  }, [elapsed, statusPhase, currentAgent, fiatAmount, paymentConfirmed, tripContext, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed, manualReviewRequired, recoveryAction, executionSummary, recoveryReason]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -618,6 +681,10 @@ export default function StatusScreen() {
     pendingFulfilment,
     fulfilmentFailed,
     fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+    manualReviewRequired,
+    recoveryAction,
+    executionSummary,
+    recoveryReason,
   });
   const conciergeSteps = journeySteps({
     intentId: currentIntentId,
@@ -637,6 +704,11 @@ export default function StatusScreen() {
     bookingRef,
     reason: recoveryState.bucket === 'awaiting_payment' ? 'payment' : recoveryState.shouldEscalate || isError ? 'problem' : 'delay',
   });
+  const liveReroutePrompt =
+    rerouteOfferTranscript
+    || ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ')
+      ? `${[fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ')} next available`
+      : null);
 
   const openIssueModal = (category: 'payment' | 'delay' | 'ticket' | 'other') => {
     setIssueCategory(category);
@@ -791,12 +863,16 @@ export default function StatusScreen() {
       : statusPhase === 'error'
       ? 'This booking hit friction. Ace kept the route context intact and can shape a cleaner alternative.'
       : 'Timing shifted on this trip. Ace can line up the next best option before the delay gets expensive.';
+    const offerActionLabel = tripContext?.watchState?.connectionRisk
+      ? 'Protect connection'
+      : 'Find alternatives';
 
     void (async () => {
       await patchJourneySession(currentIntentId, {
         rerouteOfferTitle: offerTitle,
         rerouteOfferBody: offerBody,
         rerouteOfferTranscript: transcriptForRecovery,
+        rerouteOfferActionLabel: offerActionLabel,
         lastEventKey: 'reroute_offer',
         lastEventAt: new Date().toISOString(),
       }).catch(() => null);
@@ -814,6 +890,7 @@ export default function StatusScreen() {
         shareToken,
         offerTitle,
         offerBody,
+        offerActionLabel,
       });
     })();
   }, [
@@ -829,9 +906,11 @@ export default function StatusScreen() {
   ]);
 
   const handleProactiveCardPress = async (card: ProactiveCard) => {
-    const route = [fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ');
-    if (['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind) && route) {
-      router.replace({ pathname: '/(main)/converse', params: { prefill: `${route} next available` } } as any);
+    if (['delay_risk', 'connection_risk'].includes(card.kind) && liveReroutePrompt) {
+      router.replace({ pathname: '/(main)/converse', params: { prefill: liveReroutePrompt } } as any);
+      return;
+    }
+    if (['platform_changed', 'gate_changed'].includes(card.kind)) {
       return;
     }
     if ((card.kind === 'leave_now' || card.kind === 'destination_suggestion') && (toStation || tripContext?.destination)) {
@@ -901,7 +980,7 @@ export default function StatusScreen() {
             ? recoveryState.trustLine
             : isError
             ? (errorMsg ?? recoveryState.trustLine)
-            : `${currentAgent?.name ?? 'Ace'} is lining everything up | ${elapsed}s`}
+            : executionSummary ?? `${currentAgent?.name ?? 'Ace'} is lining everything up | ${elapsed}s`}
         </Text>
         <View style={styles.conciergeCard}>
           <View style={styles.conciergeHeader}>
@@ -1070,9 +1149,14 @@ export default function StatusScreen() {
 
         {/* Payment button — shown until Stripe payment confirmed */}
         {cards.length > 0 && (
-          <View style={styles.proactiveWrap}>
-            {cards.slice(0, 2).map((card) => (
-              <ProactiveStatusCard key={card.id} card={card} onPress={() => { void handleProactiveCardPress(card); }} />
+            <View style={styles.proactiveWrap}>
+              {cards.slice(0, 2).map((card) => (
+              <ProactiveStatusCard
+                key={card.id}
+                card={card}
+                actionLabel={proactiveCardActionLabel(card, rerouteOfferActionLabel)}
+                onPress={() => { void handleProactiveCardPress(card); }}
+              />
             ))}
           </View>
         )}
@@ -1341,13 +1425,14 @@ const statusStyles = StyleSheet.create({
   },
 });
 
-function proactiveCardActionLabel(card: ProactiveCard): string | null {
+function proactiveCardActionLabel(card: ProactiveCard, rerouteActionLabel?: string | null): string | null {
   switch (card.kind) {
     case 'delay_risk':
     case 'connection_risk':
+      return rerouteActionLabel ?? 'Find alternatives';
     case 'platform_changed':
     case 'gate_changed':
-      return 'Ask Ace to reroute';
+      return 'Got it';
     case 'leave_now':
       return 'Navigate';
     case 'destination_suggestion':
@@ -1357,9 +1442,16 @@ function proactiveCardActionLabel(card: ProactiveCard): string | null {
   }
 }
 
-function ProactiveStatusCard({ card, onPress }: { card: ProactiveCard; onPress?: () => void }) {
+function ProactiveStatusCard({
+  card,
+  actionLabel,
+  onPress,
+}: {
+  card: ProactiveCard;
+  actionLabel?: string | null;
+  onPress?: () => void;
+}) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
-  const actionLabel = proactiveCardActionLabel(card);
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
       <View style={[styles.proactiveDot, { backgroundColor: accent }]} />

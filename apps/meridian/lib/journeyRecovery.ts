@@ -76,6 +76,10 @@ export function journeyRecovery(
     | 'pendingFulfilment'
     | 'fulfilmentFailed'
     | 'fiatAmount'
+    | 'manualReviewRequired'
+    | 'recoveryAction'
+    | 'executionSummary'
+    | 'recoveryReason'
   >,
 ): JourneyRecovery {
   const bookingState = inferBookingState(session);
@@ -83,6 +87,48 @@ export function journeyRecovery(
   const holdExpired = session.quoteExpiresAt ? Date.parse(session.quoteExpiresAt) <= Date.now() : false;
   const paymentConfirmedMins = minutesSince(session.paymentConfirmedAt);
   const dispatchedMins = minutesSince(session.openclawDispatchedAt);
+
+  if (session.manualReviewRequired) {
+    const summary = session.executionSummary ?? 'Ace flagged this journey for human review before anything else drifted.';
+    return {
+      bookingState,
+      bucket: 'failed',
+      shouldEscalate: true,
+      statusLabel: 'Under review',
+      headline: 'Ace already flagged this for human review',
+      trustLine: 'You do not need to start over. The live route and booking state are already attached for support.',
+      etaLine: 'Ace kept the trip intact and raised it before the recovery window went dark.',
+      insightTitle: 'A human now has the live trip context',
+      insightBody: summary,
+      supportBody: session.recoveryReason
+        ? `${session.recoveryReason} Support can continue from this exact trip state.`
+        : 'Support can continue from this exact trip state without you re-explaining anything.',
+      priceLabel: 'Price',
+      holdLabel: null,
+      holdValue: null,
+      voiceLine: 'Ace flagged this journey for human review and kept the trip intact.',
+    };
+  }
+
+  if (session.recoveryAction === 'retry_dispatch') {
+    const summary = session.executionSummary ?? 'Ace is retrying the booking handoff in the background now.';
+    return {
+      bookingState,
+      bucket: 'ready_for_dispatch',
+      shouldEscalate: false,
+      statusLabel: 'Retrying',
+      headline: 'Ace is retrying the booking handoff',
+      trustLine: 'The trip is still held here while Ace re-runs the dispatch path.',
+      etaLine: 'You can close the app and come back. Ace keeps carrying the recovery attempt from here.',
+      insightTitle: 'Recovery is already running',
+      insightBody: summary,
+      supportBody: 'If the retry still does not settle, support can step in with the live journey already attached.',
+      priceLabel: 'Price',
+      holdLabel: null,
+      holdValue: null,
+      voiceLine: 'Ace is retrying the booking handoff now.',
+    };
+  }
 
   if (session.intentStatus === 'refunded' || bookingState === 'refunded') {
     return {

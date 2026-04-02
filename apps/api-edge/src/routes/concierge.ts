@@ -47,6 +47,7 @@ import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, t
 import { withBookingState } from '../lib/bookingState';
 import { recordMobileTelemetry, shouldAlertOnMobileTelemetry } from '../lib/mobileTelemetry';
 import { createSignedWalletPassUrl } from '../lib/walletPass';
+import { buildConciergeExecutionSnapshot } from '../lib/conciergeExecution';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -173,6 +174,53 @@ conciergeRouter.post('/telemetry', async (c) => {
   }
 
   return c.json({ ok: true });
+});
+
+conciergeRouter.get('/executions/:jobId', async (c) => {
+  if (c.env.BRO_CLIENT_KEY) {
+    const clientKey = c.req.header('x-bro-key') ?? '';
+    if (clientKey !== c.env.BRO_CLIENT_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+  }
+
+  const jobId = c.req.param('jobId');
+  if (!jobId) {
+    return c.json({ error: 'jobId required' }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<{
+      id: string;
+      status: string;
+      metadata: Record<string, unknown> | null;
+      updatedAt: string | null;
+    }[]>`
+      SELECT
+        id,
+        status,
+        metadata,
+        updated_at::text AS "updatedAt"
+      FROM payment_intents
+      WHERE id = ${jobId}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return c.json({ error: 'Job not found' }, 404);
+    }
+
+    const row = rows[0];
+    return c.json(buildConciergeExecutionSnapshot({
+      jobId: row.id,
+      intentStatus: row.status,
+      metadata: row.metadata ?? {},
+      updatedAt: row.updatedAt,
+    }));
+  } finally {
+    await sql.end().catch(() => {});
+  }
 });
 
 // ── GET /api/admin/bro-jobs ───────────────────────────────────────────────────
@@ -2143,6 +2191,26 @@ conciergeRouter.post('/confirm', async (c) => {
       WHERE id = ${hireResult.jobId}
     `;
 
+    const generatedShareToken = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 6)}`;
+    const roomExpiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    await sql`
+      INSERT INTO trip_rooms (job_id, share_token, members, expires_at, created_at)
+      VALUES (${hireResult.jobId}, ${generatedShareToken}, '[]'::jsonb, ${roomExpiresAt}, NOW())
+      ON CONFLICT (job_id) DO NOTHING
+    `.catch(() => null);
+    const roomRows = await sql<{ shareToken: string | null }[]>`
+      SELECT share_token AS "shareToken"
+      FROM trip_rooms
+      WHERE job_id = ${hireResult.jobId}
+      LIMIT 1
+    `.catch(() => []);
+    const shareToken = roomRows[0]?.shareToken ?? generatedShareToken;
+    await sql`
+      UPDATE payment_intents
+      SET metadata = metadata || ${JSON.stringify({ shareToken })}::jsonb
+      WHERE id = ${hireResult.jobId}
+    `.catch(() => null);
+
     c.executionCtx.waitUntil(
       Promise.all([
         sendBookingRequestEmail(c.env.RESEND_API_KEY, {
@@ -2209,9 +2277,11 @@ conciergeRouter.post('/confirm', async (c) => {
         status: 'hired',
         trainDetails: item.trainDetails,
         tripContext: executingTripContext,
+        shareToken,
         journeyId: (item as any).journeyId ?? undefined,
         legIndex: 0,
       }],
+      shareToken,
       journeyId: (item as any).journeyId ?? undefined,
       tripContext: executingTripContext,
     });

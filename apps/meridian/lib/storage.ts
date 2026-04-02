@@ -101,6 +101,13 @@ export interface JourneySession {
   rerouteOfferTitle?: string | null;
   rerouteOfferBody?: string | null;
   rerouteOfferTranscript?: string | null;
+  rerouteOfferActionLabel?: string | null;
+  executionStatus?: 'queued' | 'payment_pending' | 'fulfilment_pending' | 'confirmed' | 'failed' | 'rolled_back' | 'attention_required' | null;
+  recoveryBucket?: string | null;
+  recoveryAction?: 'none' | 'retry_dispatch' | 'escalate_manual' | null;
+  recoveryReason?: string | null;
+  executionSummary?: string | null;
+  manualReviewRequired?: boolean | null;
   supportState?: 'none' | 'available' | 'requested';
   supportRequestedAt?: string | null;
   supportSummary?: string | null;
@@ -277,6 +284,13 @@ function journeySessionFromActiveTrip(trip: ActiveTrip): JourneySession {
     rerouteOfferTitle: null,
     rerouteOfferBody: null,
     rerouteOfferTranscript: null,
+    rerouteOfferActionLabel: null,
+    executionStatus: null,
+    recoveryBucket: null,
+    recoveryAction: null,
+    recoveryReason: null,
+    executionSummary: null,
+    manualReviewRequired: null,
     supportState: 'none',
     supportRequestedAt: null,
     supportSummary: null,

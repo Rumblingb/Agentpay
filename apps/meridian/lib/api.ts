@@ -287,6 +287,33 @@ export async function getIntentStatus(intentId: string): Promise<{
   return apiFetch(`/api/v1/payment-intents/${intentId}`);
 }
 
+export interface ConciergeExecutionSnapshot {
+  jobId: string;
+  intentId: string;
+  status: 'queued' | 'payment_pending' | 'fulfilment_pending' | 'confirmed' | 'failed' | 'rolled_back' | 'attention_required';
+  bookingState: 'planned' | 'priced' | 'payment_pending' | 'payment_confirmed' | 'securing' | 'issued' | 'failed' | 'refunded';
+  recoveryBucket: 'healthy' | 'awaiting_payment' | 'ready_for_dispatch' | 'stuck_securing' | 'fulfilment_failed' | 'issued' | 'refunded' | 'failed';
+  summary: string;
+  shouldEscalate: boolean;
+  recommendedAction: 'none' | 'retry_dispatch' | 'escalate_manual';
+  recoveryReason: string;
+  manualReviewRequired: boolean;
+  asyncExecution: boolean;
+  pendingFulfilment: boolean;
+  paymentConfirmed: boolean;
+  fulfilmentFailed: boolean;
+  retryCount: number;
+  quoteExpiresAt: string | null;
+  paymentConfirmedAt: string | null;
+  dispatchStartedAt: string | null;
+  rerouteOfferActionLabel: string | null;
+  updatedAt: string | null;
+}
+
+export async function getConciergeExecution(jobId: string): Promise<ConciergeExecutionSnapshot> {
+  return apiFetch(`/api/concierge/executions/${jobId}`);
+}
+
 /** Discover agents (text search) */
 export async function discoverAgents(params: {
   q?: string;

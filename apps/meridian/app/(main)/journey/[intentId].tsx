@@ -3,9 +3,10 @@ import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { createCheckoutSession, createUpiPaymentLink, getIntentStatus, reportIssue } from '../../../lib/api';
+import { createCheckoutSession, createUpiPaymentLink, getConciergeExecution, getIntentStatus, reportIssue } from '../../../lib/api';
 import { AceMark } from '../../../components/AceMark';
 import {
+  journeyAskAceLabel,
   journeyDisplayRoute,
   journeyEtaLine,
   journeyInsights,
@@ -59,11 +60,12 @@ function timelineLegs(trip: TripContext | null | undefined) {
 }
 
 export default function JourneyScreen() {
-  const { intentId, rerouteTitle, rerouteBody, rerouteTranscript } = useLocalSearchParams<{
+  const { intentId, rerouteTitle, rerouteBody, rerouteTranscript, rerouteActionLabel } = useLocalSearchParams<{
     intentId: string;
     rerouteTitle?: string;
     rerouteBody?: string;
     rerouteTranscript?: string;
+    rerouteActionLabel?: string;
   }>();
   const [session, setSession] = useState<JourneySession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,7 +101,10 @@ export default function JourneyScreen() {
     const lookupId = statusLookupId(currentSession);
     if (!lookupId) return currentSession;
 
-    const data = await getIntentStatus(lookupId);
+    const [data, execution] = await Promise.all([
+      getIntentStatus(lookupId),
+      getConciergeExecution(lookupId).catch(() => null),
+    ]);
     const proof = data.metadata?.completionProof ?? {};
     const serverTrip = parseTripContext(data.metadata?.tripContext) ?? currentSession.tripContext ?? null;
     const paymentConfirmed = paymentConfirmedFromMetadata(data.metadata);
@@ -171,6 +176,20 @@ export default function JourneyScreen() {
       rerouteOfferTitle: data.metadata?.rerouteOfferTitle ?? currentSession.rerouteOfferTitle ?? null,
       rerouteOfferBody: data.metadata?.rerouteOfferBody ?? currentSession.rerouteOfferBody ?? null,
       rerouteOfferTranscript: data.metadata?.rerouteOfferTranscript ?? currentSession.rerouteOfferTranscript ?? null,
+      rerouteOfferActionLabel:
+        execution?.rerouteOfferActionLabel
+        ?? (typeof data.metadata?.rerouteOfferActionLabel === 'string' ? data.metadata.rerouteOfferActionLabel : null)
+        ?? currentSession.rerouteOfferActionLabel
+        ?? null,
+      executionStatus: execution?.status ?? currentSession.executionStatus ?? null,
+      recoveryBucket: execution?.recoveryBucket ?? currentSession.recoveryBucket ?? null,
+      recoveryAction: execution?.recommendedAction ?? currentSession.recoveryAction ?? null,
+      recoveryReason: execution?.recoveryReason ?? currentSession.recoveryReason ?? null,
+      executionSummary: execution?.summary ?? currentSession.executionSummary ?? null,
+      manualReviewRequired:
+        typeof execution?.manualReviewRequired === 'boolean'
+          ? execution.manualReviewRequired
+          : currentSession.manualReviewRequired ?? null,
       updatedAt: new Date().toISOString(),
     };
 
@@ -304,10 +323,12 @@ export default function JourneyScreen() {
     const nextTitle = rerouteTitle?.trim() || null;
     const nextBody = rerouteBody?.trim() || null;
     const nextTranscript = rerouteTranscript?.trim() || null;
-    const changed =
+      const nextActionLabel = rerouteActionLabel?.trim() || null;
+      const changed =
       (nextTitle && nextTitle !== session.rerouteOfferTitle)
       || (nextBody && nextBody !== session.rerouteOfferBody)
-      || (nextTranscript && nextTranscript !== session.rerouteOfferTranscript);
+      || (nextTranscript && nextTranscript !== session.rerouteOfferTranscript)
+      || (nextActionLabel && nextActionLabel !== session.rerouteOfferActionLabel);
     if (!changed) return;
 
     const nextSession: JourneySession = {
@@ -315,6 +336,7 @@ export default function JourneyScreen() {
       rerouteOfferTitle: nextTitle ?? session.rerouteOfferTitle ?? null,
       rerouteOfferBody: nextBody ?? session.rerouteOfferBody ?? null,
       rerouteOfferTranscript: nextTranscript ?? session.rerouteOfferTranscript ?? null,
+      rerouteOfferActionLabel: nextActionLabel ?? session.rerouteOfferActionLabel ?? null,
       lastEventKey: 'reroute_offer',
       lastEventAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -325,7 +347,7 @@ export default function JourneyScreen() {
       event: 'reroute_offer_viewed',
       metadata: { intentId },
     });
-  }, [intentId, logJourneyEvent, rerouteBody, rerouteTitle, rerouteTranscript, session]);
+  }, [intentId, logJourneyEvent, rerouteActionLabel, rerouteBody, rerouteTitle, rerouteTranscript, session]);
 
 
   useEffect(() => {
@@ -889,18 +911,32 @@ export default function JourneyScreen() {
             <Text style={styles.sectionEyebrow}>Support</Text>
             <View style={styles.supportCard}>
               <Text style={styles.supportTitle}>
-                {session.supportState === 'requested' ? 'Support is already on this trip' : 'Need a human on this journey?'}
+                {session.supportState === 'requested'
+                  ? 'Support is already on this trip'
+                  : session.manualReviewRequired
+                  ? 'Ace already flagged this for review'
+                  : 'Need a human on this journey?'}
               </Text>
               <Text style={styles.supportBody}>
                 {session.supportState === 'requested'
                   ? (session.supportSummary
                     ? `Latest note sent: ${session.supportSummary}`
                     : 'Ace support already has the route, booking, and live journey context attached.')
+                  : session.manualReviewRequired
+                  ? (session.executionSummary
+                    ? `${session.executionSummary} Add anything useful below and support will see it on the live trip.`
+                    : 'Ace already flagged this journey for review with the live route and booking state attached.')
                   : recovery?.supportBody ?? 'Ace can hand this straight to support with the live trip context, booking state, and latest changes attached.'}
               </Text>
               <View style={styles.supportActions}>
                 <Pressable onPress={() => openIssueModal()} style={styles.supportPrimaryBtn}>
-                  <Text style={styles.supportPrimaryText}>{session.supportState === 'requested' ? 'Update support' : 'Get help'}</Text>
+                  <Text style={styles.supportPrimaryText}>
+                    {session.supportState === 'requested'
+                      ? 'Update support'
+                      : session.manualReviewRequired
+                      ? 'Add detail'
+                      : 'Get help'}
+                  </Text>
                 </Pressable>
                 {recovery?.bucket === 'awaiting_payment' ? (
                   <Pressable onPress={() => { void checkPaymentNow(); }} style={styles.supportSecondaryBtn}>
@@ -962,7 +998,7 @@ export default function JourneyScreen() {
 
             <Pressable onPress={askAce} style={styles.secondaryBtn}>
               <Ionicons name="sparkles-outline" size={16} color="#cbe8ff" />
-              <Text style={styles.secondaryBtnText}>Ask Ace</Text>
+              <Text style={styles.secondaryBtnText}>{journeyAskAceLabel(session)}</Text>
             </Pressable>
           </View>
         </View>

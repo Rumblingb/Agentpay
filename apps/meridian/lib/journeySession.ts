@@ -49,6 +49,12 @@ export function journeyProactiveActionLabel(card: ProactiveCard): string | null 
   }
 }
 
+export function journeyAskAceLabel(session: Pick<JourneySession, 'rerouteOfferActionLabel' | 'rerouteOfferTranscript'>): string {
+  if (session.rerouteOfferActionLabel) return session.rerouteOfferActionLabel;
+  if (session.rerouteOfferTranscript) return 'Find alternatives';
+  return 'Ask Ace';
+}
+
 export function inferJourneyWalletUrl(tripContext: TripContext | null | undefined, fallback?: string | null): string | null {
   if (fallback) return fallback;
   const context = tripContext as any;
@@ -115,7 +121,9 @@ export function journeyInsights(session: JourneySession): JourneyInsight[] {
     insights.unshift({
       key: 'reroute-offer',
       title: session.rerouteOfferTitle,
-      body: session.rerouteOfferBody,
+      body: session.rerouteOfferActionLabel
+        ? `${session.rerouteOfferBody} ${session.rerouteOfferActionLabel}.`
+        : session.rerouteOfferBody,
       tone: 'warning',
     });
   }

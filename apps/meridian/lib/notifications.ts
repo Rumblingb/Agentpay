@@ -270,6 +270,7 @@ export async function scheduleProactiveRerouteReminder(params: {
   shareToken?: string | null;
   offerTitle?: string | null;
   offerBody?: string | null;
+  offerActionLabel?: string | null;
 }): Promise<void> {
   const triggerAt = new Date(Date.now() + 12_000);
   const trigger = scheduleAt(triggerAt);
@@ -289,6 +290,7 @@ export async function scheduleProactiveRerouteReminder(params: {
         shareToken: params.shareToken ?? undefined,
         rerouteTitle: params.offerTitle ?? undefined,
         rerouteBody: params.offerBody ?? undefined,
+        rerouteActionLabel: params.offerActionLabel ?? undefined,
       },
     },
     trigger,

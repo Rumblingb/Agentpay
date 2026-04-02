@@ -168,6 +168,9 @@ export async function runPlatformWatch(env: Env): Promise<void> {
           const rerouteBody = altService
             ? `I found the ${(altService as any).departureTime}${(altService as any).estimatedFareGbp ? ` · £${(altService as any).estimatedFareGbp}` : ''}. Tap to switch.`
             : undefined;
+          const rerouteActionLabel = altService
+            ? `Switch to ${(altService as any).departureTime}`
+            : undefined;
 
           const pushAction = altService ? 'proactive_reroute' : 'cancelled';
           const pushBody = rerouteBody
@@ -186,6 +189,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
               transcript,
               rerouteTitle:  rerouteTitle ?? undefined,
               rerouteBody:   rerouteBody ?? undefined,
+              rerouteActionLabel: rerouteActionLabel ?? undefined,
               destination:   destination ?? origin,
               disruptionRoute: route,
             },
@@ -198,6 +202,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
               metaUpdates.rerouteOfferTitle      = rerouteTitle;
               metaUpdates.rerouteOfferBody       = rerouteBody;
               metaUpdates.rerouteOfferTranscript = transcript;
+              metaUpdates.rerouteOfferActionLabel = rerouteActionLabel ?? null;
             }
             metaUpdates.cancellationNotified = true;
             // Deactivate watch — journey is cancelled
@@ -273,6 +278,12 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             ? `${status.delayMinutes} min delay on your ${departureDatetime?.slice(11, 16) ?? 'train'}`
             : undefined;
           const delayRerouteBody  = hasDelayAlt ? delayAltText.trim() : undefined;
+          const delayRerouteActionLabel = hasDelayAlt
+            ? (() => {
+                const match = delayAltText.match(/The (\d{1,2}:\d{2})/);
+                return match?.[1] ? `Switch to ${match[1]}` : 'Find alternatives';
+              })()
+            : undefined;
           const delayAction       = hasDelayAlt ? 'proactive_reroute' : 'delay';
           const delayBody         = delayRerouteBody
             ?? `${route} running ${status.delayMinutes} min late. Check app for alternatives.`;
@@ -289,6 +300,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
               transcript:    delayAltTranscript ?? undefined,
               rerouteTitle:  delayRerouteTitle  ?? undefined,
               rerouteBody:   delayRerouteBody   ?? undefined,
+              rerouteActionLabel: delayRerouteActionLabel ?? undefined,
               disruptionRoute: route,
             },
           );
@@ -300,6 +312,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
               metaUpdates.rerouteOfferTitle      = delayRerouteTitle;
               metaUpdates.rerouteOfferBody       = delayRerouteBody;
               metaUpdates.rerouteOfferTranscript = delayAltTranscript ?? undefined;
+              metaUpdates.rerouteOfferActionLabel = delayRerouteActionLabel ?? null;
             }
             metaUpdates.delayNotified = true;
             needsUpdate = true;

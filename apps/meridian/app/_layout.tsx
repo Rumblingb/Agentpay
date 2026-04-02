@@ -38,6 +38,7 @@ export default function RootLayout() {
             rerouteTranscript: data?.transcript ? String(data.transcript) : undefined,
             rerouteTitle: data?.rerouteTitle ? String(data.rerouteTitle) : undefined,
             rerouteBody: data?.rerouteBody ? String(data.rerouteBody) : undefined,
+            rerouteActionLabel: data?.rerouteActionLabel ? String(data.rerouteActionLabel) : undefined,
           },
         });
       } else if (data?.action === 'proactive_reroute' && (data?.transcript || data?.route)) {
