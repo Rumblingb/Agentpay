@@ -33,7 +33,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../../lib/theme';
 
-import { AceFace } from '../../components/AceFace';
+import { AceFaceSkia } from '../../components/AceFaceSkia';
+import { useSharedValue } from 'react-native-reanimated';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech } from '../../lib/tts';
@@ -714,8 +715,8 @@ export default function ConverseScreen() {
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [inputLevel, setInputLevel] = useState(0);
-  const [outputLevel, setOutputLevel] = useState(0);
+  const micAmplitude = useSharedValue(0);
+  const ttsAmplitude = useSharedValue(0);
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
   const nextSilenceMsRef = useRef(2800);
   const keyboardVisibleRef = useRef(false);
@@ -866,11 +867,11 @@ export default function ConverseScreen() {
       keyboardVisibleRef.current = true;
       cancelSpeech();
       setIsSpeaking(false);
-      setOutputLevel(0);
+      ttsAmplitude.value = 0;
       if (phaseRef.current === 'listening') {
         void stopRecording().catch(() => null);
         recordingActiveRef.current = false;
-        setInputLevel(0);
+        micAmplitude.value = 0;
         setPhase('idle');
       }
     });
@@ -941,11 +942,11 @@ export default function ConverseScreen() {
           speakingStarted = true;
           setIsSpeaking(true);
         },
-        onMeter: setOutputLevel,
+        onMeter: (v: number) => { ttsAmplitude.value = v; },
       });
     } finally {
       setIsSpeaking(false);
-      setOutputLevel(0);
+      ttsAmplitude.value = 0;
     }
     if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
       const cur = phaseRef.current;
@@ -959,11 +960,11 @@ export default function ConverseScreen() {
   const openTextFallback = useCallback((message: string, seed?: string) => {
     cancelSpeech();
     setIsSpeaking(false);
-    setOutputLevel(0);
+    ttsAmplitude.value = 0;
     if (phaseRef.current === 'listening') {
       void stopRecording().catch(() => null);
       recordingActiveRef.current = false;
-      setInputLevel(0);
+      micAmplitude.value = 0;
       setPhase('idle');
     }
     setError(message);
@@ -1498,7 +1499,7 @@ export default function ConverseScreen() {
   const finishVoiceCapture = useCallback(async () => {
     if (finishingRecordingRef.current) return;
     finishingRecordingRef.current = true;
-    setInputLevel(0);
+    micAmplitude.value = 0;
     setPhase('thinking');
 
     try {
@@ -1585,7 +1586,7 @@ export default function ConverseScreen() {
       await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
-      setInputLevel(0);
+      micAmplitude.value = 0;
       const msg = (e.message ?? '').toLowerCase();
       const rawMessage = e.message ?? 'Voice capture failed.';
       void trackClientEvent({
@@ -1646,7 +1647,7 @@ export default function ConverseScreen() {
         autoStopOnSilence: true,
         silenceMs,
         maxDurationMs: 12000,
-        onMeter: setInputLevel,
+        onMeter: (v: number) => { micAmplitude.value = v; },
         onSilence: () => {
           void finishVoiceCapture();
         },
@@ -1655,7 +1656,7 @@ export default function ConverseScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
       recordingActiveRef.current = false;
-      setInputLevel(0);
+      micAmplitude.value = 0;
       const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or type the trip instead.';
       setError(message);
       setTextFallbackVisible(true);
@@ -1679,7 +1680,7 @@ export default function ConverseScreen() {
     if (phase === 'thinking' || phase === 'executing' || phase === 'hiring') {
       // Tap during processing = interrupt and return to idle
       cancelSpeech();
-      setOutputLevel(0);
+      ttsAmplitude.value = 0;
       setPhase('idle');
       return;
     }
@@ -2369,11 +2370,11 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <AceFace
+        <AceFaceSkia
           phase={phase}
           isSpeaking={isSpeaking}
-          inputLevel={inputLevel}
-          outputLevel={outputLevel}
+          micAmplitude={micAmplitude}
+          ttsAmplitude={ttsAmplitude}
           onPress={handleOrbTap}
           disabled={isConfirming}
         />

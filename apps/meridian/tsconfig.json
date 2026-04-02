@@ -4,7 +4,8 @@
     "skipLibCheck": true,
     "paths": {
       "react": ["../../node_modules/react"],
-      "react-native": ["./node_modules/react-native"]
+      "react-native": ["./node_modules/react-native"],
+      "@shopify/react-native-skia": ["../../node_modules/@shopify/react-native-skia"]
     }
   },
   "extends": "expo/tsconfig.base"

@@ -100,6 +100,7 @@
       ]
     },
     "plugins": [
+      "@shopify/react-native-skia",
       "./plugins/withExpoModulesPatch",
       "expo-router",
       "expo-av",
