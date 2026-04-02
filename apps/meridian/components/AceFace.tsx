@@ -233,38 +233,22 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
   // Face group transform: scale from centre + vertical lift
   const faceProps = useAnimatedProps(() => ({
-    transform: [
-      { translateX: CX }, { translateY: CY + faceLift.value },
-      { scale: faceS.value },
-      { translateX: -CX }, { translateY: -CY },
-    ] as const,
+    transform: `translate(${CX} ${CY + faceLift.value}) scale(${faceS.value}) translate(${-CX} ${-CY})`,
   }));
 
   // Glow halo
   const glowProps = useAnimatedProps(() => ({
-    transform: [
-      { translateX: CX }, { translateY: CY },
-      { scale: glowS.value },
-      { translateX: -CX }, { translateY: -CY },
-    ] as const,
+    transform: `translate(${CX} ${CY}) scale(${glowS.value}) translate(${-CX} ${-CY})`,
     opacity: glowO.value,
   }));
 
   // Listening rings
   const ring1Props = useAnimatedProps(() => ({
-    transform: [
-      { translateX: CX }, { translateY: CY },
-      { scale: ring1S.value },
-      { translateX: -CX }, { translateY: -CY },
-    ] as const,
+    transform: `translate(${CX} ${CY}) scale(${ring1S.value}) translate(${-CX} ${-CY})`,
     opacity: ring1O.value,
   }));
   const ring2Props = useAnimatedProps(() => ({
-    transform: [
-      { translateX: CX }, { translateY: CY },
-      { scale: ring2S.value },
-      { translateX: -CX }, { translateY: -CY },
-    ] as const,
+    transform: `translate(${CX} ${CY}) scale(${ring2S.value}) translate(${-CX} ${-CY})`,
     opacity: ring2O.value,
   }));
 
@@ -281,16 +265,10 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const gazeCompositeY = useDerivedValue(() => gazeY.value + speechGY.value);
 
   const gazeGroupPropsL = useAnimatedProps(() => ({
-    transform: [
-      { translateX: LEX + gazeCompositeX.value },
-      { translateY: EYE_CY + gazeCompositeY.value },
-    ] as const,
+    transform: `translate(${LEX + gazeCompositeX.value} ${EYE_CY + gazeCompositeY.value})`,
   }));
   const gazeGroupPropsR = useAnimatedProps(() => ({
-    transform: [
-      { translateX: REX + gazeCompositeX.value },
-      { translateY: EYE_CY + gazeCompositeY.value },
-    ] as const,
+    transform: `translate(${REX + gazeCompositeX.value} ${EYE_CY + gazeCompositeY.value})`,
   }));
 
   // Mouth bezier path — computed in worklet
@@ -472,7 +450,12 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Pressable onPress={handlePress} disabled={disabled || !isInteractive} style={styles.container}>
-      <Svg width={CW} height={CH}>
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${CW} ${CH}`}
+        preserveAspectRatio="xMidYMid meet"
+      >
           <Defs>
             {/* Face body — opaque dark glass, lit from top-left */}
             <LinearGradient id="faceGrad" x1="0.18" y1="0.08" x2="0.88" y2="0.92">
@@ -620,5 +603,8 @@ const styles = StyleSheet.create({
     width: CW,
     height: CH,
     alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
   },
 });
