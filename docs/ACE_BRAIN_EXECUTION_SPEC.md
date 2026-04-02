@@ -45,8 +45,8 @@ What we have:
 What is still missing:
 - one shared Ace brain entry point with a safe fallback
 - onboarding alignment with the main brain
-- real micro-morphs beyond corona and opacity
-- volumetric feel beyond a static bust plus effects
+- deeper sculptural micro-morphs beyond the first speech/focus pass
+- stronger volumetric feel beyond the first tilt/parallax pass
 - a final art-source ceiling that is worthy of the brand
 
 ## P0 - Foundation and Product Coherence
@@ -192,10 +192,16 @@ Turn the brain into the base of the Ace empire.
 
 ### P1 Next
 
-- [ ] Real speech-driven mouth opening
-- [ ] Processing micro-morphs
-- [ ] Device-motion parallax
-- [ ] Shared visual language tuning across states
+- [x] Real speech-driven mouth opening
+- [x] Processing micro-morphs
+- [x] Device-motion parallax
+- [x] Shared visual language tuning across states
+
+### P1.5 Next
+
+- [ ] Tune Skia face on real devices, especially older iPhones and Android
+- [ ] Decide whether the bust art source is good enough to keep or should be replaced
+- [ ] Tighten onboarding intensity so it teaches the same language with calmer motion
 
 ### P2 Later
 

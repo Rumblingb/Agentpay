@@ -10,12 +10,14 @@
  *   2. Listening pulse rings   — expand outward on listening
  *   3. Dark glass oval base    — opaque dark ground for the sculpture
  *   4. 3D sculpted bust PNG    — dominant opacity, clipped to oval
- *   5. Key light               — top-left white radial, fixed
- *   6. Rim light               — bottom-right, phase-tinted
- *   7. Inner shadow            — bottom depth
- *   8. Mouth bezier            — GPU-computed path, speaking only
- *   9. Ghost oval rim          — ultra-thin separation
- *  10. Audio-reactive corona   — ring responding to real mic/TTS amplitude
+ *   5. Focus field             — subtle cognition around crown/temples
+ *   6. Key light               — top-left white radial, tilt-reactive
+ *   7. Rim light               — bottom-right, phase-tinted
+ *   8. Inner shadow            — bottom depth
+ *   9. Lower-face tension      — reacts to speech/focus
+ *  10. Mouth cavity + lip line — GPU-computed from real TTS energy
+ *  11. Ghost oval rim          — ultra-thin separation
+ *  12. Audio-reactive corona   — ring responding to real mic/TTS amplitude
  *
  * Type note: @shopify/react-native-skia 1.x ships types that conflict with
  * @types/react v19 (bigint not assignable to ReactNode). We use the same
@@ -57,10 +59,13 @@ import {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
+import { useAceMotion } from '../lib/aceMotion';
+import type { AceBrainMode } from './AceBrain';
 
 interface Props {
   phase: AppPhase;
   isSpeaking: boolean;
+  mode?: AceBrainMode;
   /** Normalised mic amplitude 0–1, updated at ~120 ms intervals while recording. */
   micAmplitude?: SharedValue<number>;
   /** Normalised TTS amplitude 0–1, from real audio sample frames. */
@@ -112,6 +117,27 @@ function baseTextureOpacity(phase: AppPhase): number {
   return 0.78;
 }
 
+function baseFocusOpacity(phase: AppPhase): number {
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.22;
+  if (phase === 'confirming') return 0.14;
+  if (phase === 'listening') return 0.1;
+  if (phase === 'done') return 0.08;
+  if (phase === 'error') return 0.12;
+  return 0.06;
+}
+
+function baseFocusScale(phase: AppPhase): number {
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 1.04;
+  if (phase === 'confirming') return 1.02;
+  return 1;
+}
+
+function baseFocusLift(phase: AppPhase): number {
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -2;
+  if (phase === 'listening' || phase === 'confirming') return -1;
+  return 0;
+}
+
 const GLOW_COLOR: Record<AppPhase, string> = {
   idle:       '#eef4ff',
   listening:  '#ffffff',
@@ -139,6 +165,7 @@ const ACCENT_COLOR: Record<AppPhase, string> = {
 export function AceFaceSkia({
   phase,
   isSpeaking,
+  mode = 'conversation',
   micAmplitude,
   ttsAmplitude,
   onPress,
@@ -147,6 +174,9 @@ export function AceFaceSkia({
   const bustImage = useImage(require('../assets/ace-face-render.png'));
   const markImage = useImage(require('../assets/ace-mark.png'));
   const facePath  = useMemo(() => Skia.Path.MakeFromSVGString(FACE_PATH_SVG), []);
+  const { tiltX, tiltY } = useAceMotion(!disabled);
+  const motionFactor = mode === 'onboarding' ? 0.45 : 1;
+  const energyFactor = mode === 'onboarding' ? 0.78 : 1;
 
   // ─── Animation state ──────────────────────────────────────────────────────
 
@@ -159,6 +189,9 @@ export function AceFaceSkia({
   const ring2Scale   = useSharedValue(1);
   const ring2Opacity = useSharedValue(0);
   const textureOp    = useSharedValue(baseTextureOpacity('idle'));
+  const focusOpacity = useSharedValue(baseFocusOpacity('idle'));
+  const focusScale   = useSharedValue(baseFocusScale('idle'));
+  const focusLift    = useSharedValue(baseFocusLift('idle'));
   const mouthCurve   = useSharedValue(baseMouthCurve('idle'));
   const mouthOp      = useSharedValue(0);
   const coronaActive = useSharedValue(0); // 0–1, drives corona visibility
@@ -169,35 +202,79 @@ export function AceFaceSkia({
   // ─── Derived transforms (UI thread) ──────────────────────────────────────
 
   const glowTransform = useDerivedValue(() => [
-    { translateX: CX }, { translateY: CY },
+    { translateX: CX + tiltX.value * 6 * motionFactor }, { translateY: CY - tiltY.value * 6 * motionFactor },
     { scale: glowScale.value },
     { translateX: -CX }, { translateY: -CY },
   ]);
 
   const faceTransform = useDerivedValue(() => [
-    { translateX: CX }, { translateY: CY + faceLift.value },
+    { translateX: CX + tiltX.value * 7 * motionFactor }, { translateY: CY + faceLift.value - tiltY.value * 7 * motionFactor },
     { scale: faceScale.value },
     { translateX: -CX }, { translateY: -CY },
   ]);
 
   const ring1Transform = useDerivedValue(() => [
-    { translateX: CX }, { translateY: CY },
+    { translateX: CX + tiltX.value * 4 * motionFactor }, { translateY: CY - tiltY.value * 4 * motionFactor },
     { scale: ring1Scale.value },
     { translateX: -CX }, { translateY: -CY },
   ]);
 
   const ring2Transform = useDerivedValue(() => [
-    { translateX: CX }, { translateY: CY },
+    { translateX: CX + tiltX.value * 4 * motionFactor }, { translateY: CY - tiltY.value * 4 * motionFactor },
     { scale: ring2Scale.value },
     { translateX: -CX }, { translateY: -CY },
   ]);
 
+  const bustTransform = useDerivedValue(() => [
+    { translateX: tiltX.value * 10 * motionFactor },
+    { translateY: -tiltY.value * 8 * motionFactor + focusLift.value * 0.2 },
+  ]);
+
+  const keyLightTransform = useDerivedValue(() => [
+    { translateX: -tiltX.value * 12 * motionFactor },
+    { translateY: -tiltY.value * 10 * motionFactor - focusLift.value * 0.3 },
+  ]);
+
+  const rimLightTransform = useDerivedValue(() => [
+    { translateX: tiltX.value * 14 * motionFactor },
+    { translateY: tiltY.value * 12 * motionFactor + focusLift.value * 0.3 },
+  ]);
+
+  const focusTransform = useDerivedValue(() => {
+    const anchorY = CY - 52;
+    return [
+      { translateX: CX + tiltX.value * 5 },
+      { translateY: anchorY + focusLift.value - tiltY.value * 5 },
+      { scale: focusScale.value },
+      { translateX: -CX },
+      { translateY: -anchorY },
+    ];
+  });
+
+  const lowerFaceTransform = useDerivedValue(() => {
+    const anchorY = CY + 58;
+    return [
+      { translateX: CX + tiltX.value * 3 },
+      { translateY: anchorY - tiltY.value * 2 },
+      { scale: 1 + focusOpacity.value * 0.1 },
+      { translateX: -CX },
+      { translateY: -anchorY },
+    ];
+  });
+
   // ─── Audio-reactive corona (UI thread, every frame) ───────────────────────
+
+  const speechEnergy = useDerivedValue(() => {
+    const level = ttsAmplitude?.value ?? 0;
+    const floor = isSpeaking ? 0.12 : 0;
+    return Math.max(floor, Math.min(1, level));
+  });
 
   const coronaRadius = useDerivedValue(() => {
     const mic = micAmplitude?.value ?? 0;
     const tts = ttsAmplitude?.value ?? 0;
-    return 108 + Math.max(mic, tts) * 18;
+    const phaseBoost = phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 4 : 0;
+    return 108 + Math.max(mic, tts) * 18 + phaseBoost;
   });
 
   const coronaOpacity = useDerivedValue(() => {
@@ -206,15 +283,42 @@ export function AceFaceSkia({
     return coronaActive.value * (0.08 + Math.max(mic, tts) * 0.54);
   });
 
+  const coronaVisualOpacity = useDerivedValue(() => coronaOpacity.value * energyFactor);
+
   // ─── GPU-computed mouth path (UI thread) ─────────────────────────────────
 
-  const mouthPath = useDerivedValue(() => {
-    const curve = mouthCurve.value;
-    const path  = Skia.Path.Make();
-    const x0 = CX - MOUTH_HW;
-    const x3 = CX + MOUTH_HW;
-    const y  = MOUTH_Y;
-    const cp = y - curve;
+  const mouthFillPath = useDerivedValue(() => {
+    const energy = speechEnergy.value;
+    const widthBoost = 1 + energy * 0.16;
+    const open = mouthOp.value * (energy * 9.5 + (isSpeaking ? 2.3 : 0.5));
+    const x0 = CX - MOUTH_HW * widthBoost;
+    const x3 = CX + MOUTH_HW * widthBoost;
+    const y = MOUTH_Y;
+    const topY = y - mouthCurve.value * 0.62 - open * 0.12;
+    const bottomY = y + open;
+    const path = Skia.Path.Make();
+    path.moveTo(x0, y);
+    path.cubicTo(
+      x0 + MOUTH_HW * 0.56 * widthBoost, topY,
+      x3 - MOUTH_HW * 0.56 * widthBoost, topY,
+      x3, y,
+    );
+    path.cubicTo(
+      x3 - MOUTH_HW * 0.52 * widthBoost, bottomY,
+      x0 + MOUTH_HW * 0.52 * widthBoost, bottomY,
+      x0, y,
+    );
+    path.close();
+    return path;
+  });
+
+  const mouthLinePath = useDerivedValue(() => {
+    const energy = speechEnergy.value;
+    const path = Skia.Path.Make();
+    const x0 = CX - MOUTH_HW * (1 + energy * 0.12);
+    const x3 = CX + MOUTH_HW * (1 + energy * 0.12);
+    const y = MOUTH_Y;
+    const cp = y - mouthCurve.value - energy * 0.45;
     path.moveTo(x0, y);
     path.cubicTo(
       x0 + MOUTH_HW * 0.52, cp,
@@ -224,17 +328,34 @@ export function AceFaceSkia({
     return path;
   });
 
+  const focusVisualOpacity = useDerivedValue(() =>
+    focusOpacity.value * (isSpeaking ? 0.28 : 1),
+  );
+
+  const lowerFaceShadowOpacity = useDerivedValue(() => {
+    const processingBoost =
+      phase === 'thinking' || phase === 'hiring' || phase === 'executing'
+        ? 0.1
+        : phase === 'confirming'
+          ? 0.05
+          : 0;
+    return 0.08 + focusOpacity.value * 0.22 + speechEnergy.value * 0.18 + processingBoost;
+  });
+
   // ─── Phase animation ──────────────────────────────────────────────────────
 
   useEffect(() => {
     [
       faceScale, faceLift, glowOpacity, glowScale,
       ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-      textureOp, mouthCurve, mouthOp, coronaActive,
+      textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp, coronaActive,
     ].forEach(cancelAnimation);
 
     const t = (val: number, ms: number, easing = Easing.inOut(Easing.sin)) =>
       withTiming(val, { duration: ms, easing });
+
+    const ringExpand = mode === 'onboarding' ? 1.56 : 1.72;
+    const secondaryRingOpacity = mode === 'onboarding' ? 0.1 : 0.14;
 
     faceScale.value    = t(1, 220);
     faceLift.value     = t(0, 220);
@@ -245,6 +366,9 @@ export function AceFaceSkia({
     ring2Scale.value   = 1;
     ring2Opacity.value = 0;
     textureOp.value    = t(baseTextureOpacity(phase), 240);
+    focusOpacity.value = t(baseFocusOpacity(phase), 220);
+    focusScale.value   = t(baseFocusScale(phase), 220);
+    focusLift.value    = t(baseFocusLift(phase), 220);
     mouthCurve.value   = t(baseMouthCurve(phase), 220);
     mouthOp.value      = t(baseMouthOpacity(phase), 220);
     coronaActive.value = t(phase === 'listening' ? 1 : 0, 200);
@@ -254,27 +378,30 @@ export function AceFaceSkia({
       glowScale.value   = withRepeat(withSequence(t(1.07, 2600), t(1, 2600)), -1, false);
       faceLift.value    = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
       textureOp.value   = withRepeat(withSequence(t(0.84, 2400), t(0.72, 2400)), -1, false);
+      focusOpacity.value = withRepeat(withSequence(t(0.08, 2400), t(0.04, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
       glowOpacity.value  = t(0.52, 280);
       faceScale.value    = withRepeat(withSequence(t(1.022, 1050), t(1, 1050)), -1, false);
       textureOp.value    = withRepeat(withSequence(t(0.90, 900), t(0.80, 900)), -1, false);
+      focusOpacity.value = withRepeat(withSequence(t(0.14, 1200), t(0.08, 1200)), -1, false);
+      focusScale.value   = withRepeat(withSequence(t(1.02, 1200), t(1, 1200)), -1, false);
       ring1Opacity.value = withRepeat(withSequence(
         t(0.22, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false);
       ring1Scale.value = withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.72, 1800, Easing.out(Easing.quad)),
+        t(ringExpand, 1800, Easing.out(Easing.quad)),
       ), -1, false);
       ring2Opacity.value = withDelay(900, withRepeat(withSequence(
-        t(0.14, 1, Easing.linear),
+        t(secondaryRingOpacity, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false));
       ring2Scale.value = withDelay(900, withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.72, 1800, Easing.out(Easing.quad)),
+        t(ringExpand, 1800, Easing.out(Easing.quad)),
       ), -1, false));
     }
 
@@ -283,11 +410,17 @@ export function AceFaceSkia({
       glowScale.value   = withRepeat(withSequence(t(1.09, 900), t(1, 900)), -1, false);
       faceLift.value    = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
       textureOp.value   = withRepeat(withSequence(t(0.92, 760), t(0.82, 760)), -1, false);
+      focusOpacity.value = withRepeat(withSequence(t(0.26, 820), t(0.14, 820)), -1, false);
+      focusScale.value   = withRepeat(withSequence(t(1.07, 820), t(1.02, 820)), -1, false);
+      focusLift.value    = withRepeat(withSequence(t(-4, 820), t(-1, 820)), -1, false);
     }
 
     if (phase === 'confirming') {
       glowOpacity.value = t(0.38, 320);
       textureOp.value   = t(0.78, 320);
+      focusOpacity.value = t(0.16, 320);
+      focusScale.value   = t(1.03, 320);
+      focusLift.value    = t(-1, 320);
     }
 
     if (phase === 'done') {
@@ -295,17 +428,22 @@ export function AceFaceSkia({
       faceLift.value    = withSpring(-4,   { damping: 12, stiffness: 150 });
       glowOpacity.value = t(0.44, 320);
       textureOp.value   = t(0.82, 320);
+      focusOpacity.value = t(0.08, 320);
+      focusScale.value   = t(1, 320);
+      focusLift.value    = t(-1, 320);
     }
 
     if (phase === 'error') {
       glowOpacity.value = t(0.28, 260);
       textureOp.value   = t(0.66, 260);
+      focusOpacity.value = t(0.12, 260);
+      focusScale.value   = t(1.01, 260);
     }
   }, [
     phase,
     faceScale, faceLift, glowOpacity, glowScale,
     ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-    textureOp, mouthCurve, mouthOp, coronaActive,
+    textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp, coronaActive,
   ]);
 
   // ─── Speaking animation ───────────────────────────────────────────────────
@@ -318,9 +456,9 @@ export function AceFaceSkia({
 
     if (isSpeaking) {
       mouthCurve.value   = withRepeat(withSequence(
-        t(4.8, 130), t(0.8, 145), t(4.0, 120), t(0.2, 150),
+        t(3.1, 150), t(0.9, 160), t(2.6, 140), t(0.4, 165),
       ), -1, false);
-      mouthOp.value      = t(0.96, 120);
+      mouthOp.value      = t(0.92, 120);
       coronaActive.value = t(1, 180);
     } else {
       mouthCurve.value   = t(baseMouthCurve(phase), 220);
@@ -388,12 +526,14 @@ export function AceFaceSkia({
           {/* ④ 3D sculptural bust (dominant) */}
           <SkiaGroup opacity={textureOp} clip={facePath}>
             {bustImage !== null && (
-              <SkiaImage
-                image={bustImage}
-                x={-6} y={4}
-                width={282} height={298}
-                fit="contain"
-              />
+              <SkiaGroup transform={bustTransform}>
+                <SkiaImage
+                  image={bustImage}
+                  x={-6} y={4}
+                  width={282} height={298}
+                  fit="contain"
+                />
+              </SkiaGroup>
             )}
             {bustImage === null && markImage !== null && (
               <SkiaImage
@@ -416,8 +556,30 @@ export function AceFaceSkia({
             )}
           </SkiaGroup>
 
+          {/* ⑤ Processing field — subtle cognition around crown and temples */}
+          <SkiaGroup clip={facePath} opacity={focusVisualOpacity} transform={focusTransform}>
+            <SkiaCircle cx={90} cy={108} r={44}>
+              <RadialGradient
+                c={vec(90, 108)} r={44}
+                colors={[accentColor, 'transparent']}
+              />
+            </SkiaCircle>
+            <SkiaCircle cx={180} cy={108} r={44}>
+              <RadialGradient
+                c={vec(180, 108)} r={44}
+                colors={[accentColor, 'transparent']}
+              />
+            </SkiaCircle>
+            <SkiaCircle cx={135} cy={84} r={62}>
+              <RadialGradient
+                c={vec(135, 84)} r={62}
+                colors={['rgba(242,247,255,0.42)', 'transparent']}
+              />
+            </SkiaCircle>
+          </SkiaGroup>
+
           {/* ⑤ Key light — top-left directional */}
-          <SkiaGroup clip={facePath}>
+          <SkiaGroup clip={facePath} transform={keyLightTransform}>
             <SkiaCircle cx={82} cy={76} r={156}>
               <RadialGradient
                 c={vec(82, 76)} r={156}
@@ -427,7 +589,7 @@ export function AceFaceSkia({
           </SkiaGroup>
 
           {/* ⑥ Rim light — bottom-right, phase-tinted */}
-          <SkiaGroup clip={facePath}>
+          <SkiaGroup clip={facePath} transform={rimLightTransform}>
             <SkiaCircle cx={200} cy={250} r={128}>
               <RadialGradient
                 c={vec(200, 250)} r={128}
@@ -446,17 +608,32 @@ export function AceFaceSkia({
             </SkiaCircle>
           </SkiaGroup>
 
-          {/* ⑧ Mouth — GPU-computed bezier, animated on speaking */}
+          {/* ⑧ Lower-face tension — reacts to speech energy and focus */}
+          <SkiaGroup clip={facePath} opacity={lowerFaceShadowOpacity} transform={lowerFaceTransform}>
+            <SkiaCircle cx={135} cy={238} r={64}>
+              <RadialGradient
+                c={vec(135, 238)} r={64}
+                colors={['rgba(18,24,36,0.42)', 'transparent']}
+              />
+            </SkiaCircle>
+          </SkiaGroup>
+
+          {/* ⑨ Mouth — speech-driven cavity + lip line */}
           <SkiaPath
-            path={mouthPath}
+            path={mouthFillPath}
+            color="rgba(34,42,58,0.72)"
+            opacity={mouthOp}
+          />
+          <SkiaPath
+            path={mouthLinePath}
             style="stroke"
-            strokeWidth={2.8}
+            strokeWidth={2.4}
             strokeCap="round"
             color="rgba(230,244,255,0.98)"
             opacity={mouthOp}
           />
 
-          {/* ⑨ Ghost oval rim — minimal separation from background */}
+          {/* ⑩ Ghost oval rim — minimal separation from background */}
           <SkiaPath
             path={facePath}
             style="stroke"
@@ -466,14 +643,14 @@ export function AceFaceSkia({
 
         </SkiaGroup>
 
-        {/* ⑩ Audio-reactive corona — reacts every frame to real amplitude */}
+        {/* ⑪ Audio-reactive corona — reacts every frame to real amplitude */}
         <SkiaCircle
           cx={CX} cy={CY}
           r={coronaRadius}
           style="stroke"
           strokeWidth={2}
           color={accentColor}
-          opacity={coronaOpacity}
+          opacity={coronaVisualOpacity}
         />
 
       </Canvas>

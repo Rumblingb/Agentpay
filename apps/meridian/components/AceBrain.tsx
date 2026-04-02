@@ -3,9 +3,12 @@ import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { AppPhase } from '../lib/store';
 import { AceFace } from './AceFace';
 
+export type AceBrainMode = 'conversation' | 'onboarding';
+
 type AceFaceSkiaComponent = React.ComponentType<{
   phase: AppPhase;
   isSpeaking: boolean;
+  mode?: AceBrainMode;
   micAmplitude?: SharedValue<number>;
   ttsAmplitude?: SharedValue<number>;
   onPress?: () => void;
@@ -24,6 +27,7 @@ try {
 interface Props {
   phase: AppPhase;
   isSpeaking?: boolean;
+  mode?: AceBrainMode;
   micAmplitude?: SharedValue<number>;
   ttsAmplitude?: SharedValue<number>;
   onPress?: () => void;
@@ -33,6 +37,7 @@ interface Props {
 export function AceBrain({
   phase,
   isSpeaking = false,
+  mode = 'conversation',
   micAmplitude,
   ttsAmplitude,
   onPress,
@@ -46,6 +51,7 @@ export function AceBrain({
       <AceFaceSkiaImpl
         phase={phase}
         isSpeaking={isSpeaking}
+        mode={mode}
         micAmplitude={micAmplitude ?? silentMic}
         ttsAmplitude={ttsAmplitude ?? silentTts}
         onPress={onPress}

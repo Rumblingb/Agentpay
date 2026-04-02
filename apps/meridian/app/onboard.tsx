@@ -627,6 +627,7 @@ export default function OnboardScreen() {
                 <View style={demoStyles.orbArea}>
                   <AceBrain
                     phase={demoPhaseTo(demoPhase)}
+                    mode="onboarding"
                     onPress={handleDemoPress}
                     disabled={demoPhase === 'intro' || demoPhase === 'thinking'}
                   />
@@ -675,6 +676,7 @@ export default function OnboardScreen() {
                 <View style={nameStyles.orbWrap}>
                   <AceBrain
                     phase={nameThinking ? 'thinking' : nameListening ? 'listening' : nameHeard ? 'done' : 'idle'}
+                    mode="onboarding"
                     onPress={handleNameOrbPress}
                   />
                 </View>
