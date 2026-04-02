@@ -740,7 +740,7 @@ export default function JourneyScreen() {
               <Text style={styles.heroTitle}>{session.finalLegSummary || recovery?.etaLine || journeyEtaLine(session)}</Text>
             </View>
             <View style={styles.heroMarkWrap}>
-              <AceMark size={54} ringColor="#dcecff" glowColor="#cbe8ff" backgroundColor="transparent" iconColor="#f5fbff" />
+              <AceMark size={54} ringColor="#dcecff" glowColor="#cbe8ff" backgroundColor="transparent" />
             </View>
           </View>
 

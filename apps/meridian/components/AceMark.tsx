@@ -6,8 +6,6 @@ interface AceMarkProps {
   ringColor?: string;
   glowColor?: string;
   backgroundColor?: string;
-  iconColor?: string;
-  headingDeg?: number;
 }
 
 const ACE_MARK_ASSET = require('../assets/ace-mark.png');

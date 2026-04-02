@@ -108,12 +108,12 @@ function baseAuraOpacityForPhase(phase: AppPhase): number {
 }
 
 function baseTextureOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.44;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.56;
-  if (phase === 'confirming') return 0.34;
-  if (phase === 'done') return 0.46;
-  if (phase === 'error') return 0.26;
-  return 0.38;
+  if (phase === 'listening') return 0.72;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.76;
+  if (phase === 'confirming') return 0.62;
+  if (phase === 'done') return 0.68;
+  if (phase === 'error') return 0.52;
+  return 0.62;
 }
 
 const GLOW_COLOR: Record<AppPhase, string> = {
@@ -236,7 +236,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceLift.value = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.18, 2400), t(0.1, 2400)), -1, false);
       contourOpacity.value = withRepeat(withSequence(t(0.18, 2400), t(0.1, 2400)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.42, 2400), t(0.34, 2400)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.68, 2400), t(0.56, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
@@ -244,7 +244,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceScale.value = withRepeat(withSequence(t(1.026, 1050), t(1, 1050)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.28, 850), t(0.18, 850)), -1, false);
       contourOpacity.value = t(0.18, 280);
-      textureOpacity.value = withRepeat(withSequence(t(0.48, 900), t(0.38, 900)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.78, 900), t(0.66, 900)), -1, false);
       ring1Opacity.value = withRepeat(withSequence(
         t(0.18, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
@@ -269,14 +269,14 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceLift.value = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.38, 760), t(0.24, 760)), -1, false);
       contourOpacity.value = withRepeat(withSequence(t(0.52, 760), t(0.36, 760)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.62, 760), t(0.46, 760)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.82, 760), t(0.68, 760)), -1, false);
     }
 
     if (phase === 'confirming') {
       glowOpacity.value = t(0.42, 320);
       contourOpacity.value = t(0.34, 320);
       auraOpacity.value = t(0.24, 320);
-      textureOpacity.value = t(0.36, 320);
+      textureOpacity.value = t(0.62, 320);
     }
 
     if (phase === 'done') {
@@ -285,14 +285,14 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowOpacity.value = t(0.5, 320);
       contourOpacity.value = t(0.18, 320);
       auraOpacity.value = t(0.22, 320);
-      textureOpacity.value = t(0.5, 320);
+      textureOpacity.value = t(0.72, 320);
     }
 
     if (phase === 'error') {
       glowOpacity.value = t(0.34, 260);
       contourOpacity.value = t(0.18, 260);
       auraOpacity.value = t(0.16, 260);
-      textureOpacity.value = t(0.24, 260);
+      textureOpacity.value = t(0.52, 260);
     }
   }, [
     auraOpacity,
@@ -312,7 +312,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   ]);
 
   useEffect(() => {
-    [mouthCurve, mouthOpacity].forEach(cancelAnimation);
+    [mouthCurve, mouthOpacity, contourOpacity, auraOpacity].forEach(cancelAnimation);
 
     if (isSpeaking) {
       mouthCurve.value = withRepeat(withSequence(
@@ -322,15 +322,19 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
         withTiming(0.2, { duration: 140, easing: Easing.inOut(Easing.sin) }),
       ), -1, false);
       mouthOpacity.value = withTiming(0.96, { duration: 120 });
+      contourOpacity.value = withTiming(0.04, { duration: 200 });
+      auraOpacity.value = withTiming(0.08, { duration: 200 });
     } else {
       mouthCurve.value = withTiming(baseMouthCurveForPhase(phase), { duration: 220 });
       mouthOpacity.value = withTiming(baseMouthOpacityForPhase(phase), { duration: 200 });
+      contourOpacity.value = withTiming(baseContourOpacityForPhase(phase), { duration: 260 });
+      auraOpacity.value = withTiming(baseAuraOpacityForPhase(phase), { duration: 260 });
     }
 
     return () => {
-      [mouthCurve, mouthOpacity].forEach(cancelAnimation);
+      [mouthCurve, mouthOpacity, contourOpacity, auraOpacity].forEach(cancelAnimation);
     };
-  }, [isSpeaking, mouthCurve, mouthOpacity, phase]);
+  }, [auraOpacity, contourOpacity, isSpeaking, mouthCurve, mouthOpacity, phase]);
 
   const glowColor = GLOW_COLOR[phase] ?? '#eef4ff';
   const accentColor = ACCENT_COLOR[phase] ?? '#dbe6f6';
