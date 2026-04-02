@@ -1433,7 +1433,7 @@ export default function ConverseScreen() {
     }
 
     await executePhase2(pending, 'biometric');
-  }, [agentId, executePhase2, logConverseEvent, speakIfEnabled]);
+  }, [executePhase2, logConverseEvent]);
 
   // ── Cancel confirmation ───────────────────────────────────────────────────
 
@@ -1570,8 +1570,7 @@ export default function ConverseScreen() {
         message: rawMessage,
         metadata: { phase: 'capture' },
       });
-      let nextMessage = 'Something went wrong — tap to try again.';
-      nextMessage = 'Ace missed that. Touch and say it again, or type the trip below.';
+      let nextMessage = 'Ace missed that. Touch and say it again, or type the trip below.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -1721,7 +1720,7 @@ export default function ConverseScreen() {
     ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
     : 'Where to? I\'ll find you the best option.';
   const primarySuggestion = idleSuggestions[0] ?? null;
-  const showIdleGuidance = guidanceSessions > 0 && guidanceSessions <= 3;
+
   const memorySuggestion = routeMemory
     ? `${routeMemory.origin} to ${routeMemory.destination}`
     : null;
@@ -1785,9 +1784,6 @@ export default function ConverseScreen() {
     : null;
 
   // Last route suggestion — "Same route as last time?"
-  const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
-    ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
-    : null;
   const recentTurns = turns.filter((turn) => turn.role === 'meridian').slice(-4);
   return (
     <SafeAreaView style={styles.safe}>
@@ -1875,12 +1871,12 @@ export default function ConverseScreen() {
             </View>
               {activeTrip && (
                 <Pressable
-                onPress={() => {
-                  router.push({
-                    pathname: '/(main)/journey/[intentId]',
-                    params: { intentId: activeTrip.intentId },
-                  });
-                }}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/(main)/journey/[intentId]',
+                      params: { intentId: activeTrip.intentId },
+                    });
+                  }}
                   style={styles.activeTripCard}
                 >
                   {(() => {
@@ -1954,7 +1950,7 @@ export default function ConverseScreen() {
                   </Text>
                 </View>
                 <Text style={styles.sharedUnitBody}>
-                  Ace can plan around this shared unit when you say `for us`, `for the family`, or ask it to get everyone moving together.
+                  Ace can plan around this shared unit when you say "for us" or "for the family", or ask it to get everyone moving together.
                 </Text>
                 <View style={styles.sharedUnitActions}>
                   <Pressable
@@ -2150,6 +2146,8 @@ export default function ConverseScreen() {
           const decisionLine = isIndia
             ? 'Ace has the route. You just need to say yes before UPI opens.'
             : 'Ace has the route. You just need to say yes.';
+          const brief = buildRecommendationBrief({ plan, sourceLabel, familyRailcardReady });
+          const assurance = buildAssuranceItems({ plan, fiatAmount: fiat, hasCards: false });
           // Hotel details — single hotel booking
           return (
             <View style={styles.confirmCard}>
@@ -2160,6 +2158,15 @@ export default function ConverseScreen() {
               {confirmMeta ? (
                 <Text style={styles.confirmMeta}>{confirmMeta}</Text>
               ) : null}
+              {brief && brief.cues.length > 0 && (
+                <View style={styles.confirmCueRow}>
+                  {brief.cues.map((cue, idx) => (
+                    <View key={idx} style={styles.confirmCuePill}>
+                      <Text style={styles.confirmCuePillText}>{cue}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
               )}
@@ -2181,6 +2188,16 @@ export default function ConverseScreen() {
                 <View style={styles.confirmRetryCard}>
                   <Ionicons name="refresh-outline" size={14} color="#e5c995" />
                   <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
+                </View>
+              )}
+              {assurance.length > 0 && (
+                <View style={styles.confirmAssuranceRow}>
+                  {assurance.map((item, idx) => (
+                    <View key={idx} style={styles.confirmAssuranceItem}>
+                      <Ionicons name="checkmark-circle" size={11} color="#4ade80" />
+                      <Text style={styles.confirmAssuranceText}>{item}</Text>
+                    </View>
+                  ))}
                 </View>
               )}
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
@@ -2514,6 +2531,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(122, 167, 214, 0.16)',
     backgroundColor: 'rgba(8, 14, 22, 0.72)',
     padding: 16,
+    marginTop: 18,
     marginBottom: 18,
   },
   modeHeader: {
@@ -2861,6 +2879,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#fef3c7',
     lineHeight: 18,
+  },
+  confirmAssuranceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 4,
+  },
+  confirmAssuranceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  confirmAssuranceText: {
+    fontSize: 11,
+    color: '#6b8a78',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  confirmCueRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  confirmCuePill: {
+    backgroundColor: 'rgba(15, 25, 40, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 140, 180, 0.22)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  confirmCuePillText: {
+    fontSize: 11,
+    color: '#a8c4d8',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   confirmBtn: {
     borderRadius: 18,
