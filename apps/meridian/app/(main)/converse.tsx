@@ -2252,6 +2252,22 @@ export default function ConverseScreen() {
       {/* Orb + label */}
       {!isConfirming && (
       <View style={styles.orbArea}>
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(3,7,15,0)', 'rgba(3,7,15,0.44)', 'rgba(3,7,15,0.82)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.orbAreaShade}
+        />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(185, 216, 242, 0.16)', 'rgba(115, 156, 255, 0.04)', 'rgba(3,7,15,0)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.orbAreaGlow}
+        />
+        <View pointerEvents="none" style={styles.orbAreaHalo} />
+
         {nearestStation && (homeStation || workStation) && (isIdle || isError) && (
           <View style={styles.shortcutRow}>
             {homeStation && (
@@ -2988,14 +3004,37 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingBottom: 50,
-    paddingTop: 18,
-    backgroundColor: 'rgba(3,7,15,0.92)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(148, 163, 184, 0.16)',
+    paddingHorizontal: 20,
+    paddingBottom: 46,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+    overflow: 'visible',
+  },
+  orbAreaShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: -120,
+  },
+  orbAreaGlow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 240,
+    bottom: -24,
+  },
+  orbAreaHalo: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 440,
+    height: 250,
+    bottom: -132,
+    borderRadius: 999,
+    backgroundColor: 'rgba(133, 184, 255, 0.06)',
   },
   presenceLine: {
-    marginTop: 12,
+    marginTop: 10,
     alignItems: 'center',
     gap: 4,
   },

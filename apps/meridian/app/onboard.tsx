@@ -164,6 +164,9 @@ export default function OnboardScreen() {
   const [demoPhase,    setDemoPhase]    = useState<DemoPhase>('intro');
   const [demoResponse, setDemoResponse] = useState('');
   const demoIntroPlayedRef = useRef(false);
+  const demoCompletingRef = useRef(false);
+  const nameAutoStartedRef = useRef(false);
+  const nameCompletingRef = useRef(false);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const marketCopy = MARKET_COPY[nationality];
@@ -233,24 +236,11 @@ export default function OnboardScreen() {
     return () => clearTimeout(t);
   }, [marketCopy.intro, step]);
 
-  const handleDemoPressIn = React.useCallback(async () => {
-    if (demoPhase !== 'ready') return;
-    await stopSpeaking();
-    setDemoPhase('listening');
-    await startRecording().catch(async () => {
-      // Mic denied — show scripted demo so user still gets the wow moment
-      const fallback = marketCopy.fallback;
-      setDemoResponse(fallback);
-      setDemoPhase('done');
-      await speak(fallback);
-    });
-  }, [demoPhase, marketCopy.fallback]);
-
-  const handleDemoPressOut = React.useCallback(async () => {
-    if (demoPhase !== 'listening') return;
+  const completeDemoCapture = React.useCallback(async (uri?: string | null) => {
+    if (demoCompletingRef.current) return;
+    demoCompletingRef.current = true;
     setDemoPhase('thinking');
     try {
-      const uri = await stopRecording();
       let transcript = '';
       if (uri) transcript = await transcribeAudio(uri).catch(() => '');
       if (!transcript) transcript = marketCopy.demoPrompt;
@@ -267,8 +257,134 @@ export default function OnboardScreen() {
       setDemoResponse(fallback);
       setDemoPhase('done');
       await speak(fallback);
+    } finally {
+      demoCompletingRef.current = false;
     }
-  }, [demoPhase, marketCopy.demoPrompt, marketCopy.fallback, nationality]);
+  }, [marketCopy.demoPrompt, marketCopy.fallback, nationality]);
+
+  const handleDemoPress = React.useCallback(async () => {
+    if (demoPhase === 'ready') {
+      await stopSpeaking();
+      setDemoPhase('listening');
+      await startRecording({
+        autoStopOnSilence: true,
+        silenceMs: 2400,
+        maxDurationMs: 9000,
+        onSilence: () => {
+          void stopRecording()
+            .then((uri) => completeDemoCapture(uri))
+            .catch(() => completeDemoCapture(null));
+        },
+      }).catch(async () => {
+        // Mic denied — show scripted demo so user still gets the wow moment
+        const fallback = marketCopy.fallback;
+        setDemoResponse(fallback);
+        setDemoPhase('done');
+        await speak(fallback);
+      });
+      return;
+    }
+
+    if (demoPhase === 'listening') {
+      const uri = await stopRecording().catch(() => null);
+      await completeDemoCapture(uri);
+    }
+  }, [completeDemoCapture, demoPhase, marketCopy.fallback]);
+
+  const normalizeCapturedName = React.useCallback((rawTranscript: string) => (
+    rawTranscript
+      .trim()
+      .replace(/^(my name is|i'm|i am|call me)\s+/i, '')
+      .replace(/[.,!?]+$/, '')
+      .trim()
+  ), []);
+
+  const completeNameCapture = React.useCallback(async (uri?: string | null) => {
+    if (nameCompletingRef.current) return;
+    nameCompletingRef.current = true;
+    setNameListening(false);
+    setNameThinking(true);
+    setNameHint('Working it through…');
+
+    try {
+      if (uri) {
+        const transcript = await transcribeAudio(uri).catch(() => '');
+        const name = normalizeCapturedName(transcript);
+        if (name) {
+          setNameHeard(name);
+          setUserName(name);
+          setNameHint('Got it.');
+        } else {
+          setNameHint('Ace did not catch that. Try once more or type your name below.');
+        }
+      } else {
+        setNameHint('Ace did not catch enough audio. Try once more or type your name below.');
+      }
+    } catch {
+      setNameHint('Voice is unavailable right now. You can type your name below.');
+    } finally {
+      setNameThinking(false);
+      nameCompletingRef.current = false;
+    }
+  }, [normalizeCapturedName]);
+
+  const beginNameCapture = React.useCallback(async () => {
+    if (step !== 'name' || nameListening || nameThinking) return;
+
+    await stopSpeaking().catch(() => null);
+    setNameListening(true);
+    setNameHint('Ace is listening for your name…');
+    setNameHeard('');
+
+    await startRecording({
+      autoStopOnSilence: true,
+      silenceMs: 2600,
+      maxDurationMs: 8000,
+      onSilence: () => {
+        void stopRecording()
+          .then((uri) => completeNameCapture(uri))
+          .catch(() => completeNameCapture(null));
+      },
+    }).catch(() => {
+      setNameListening(false);
+      setNameHint('Microphone access is needed. You can also type your name below.');
+    });
+  }, [completeNameCapture, nameListening, nameThinking, step]);
+
+  const handleNameOrbPress = React.useCallback(async () => {
+    if (nameThinking) return;
+    if (!nameListening) {
+      await beginNameCapture();
+      return;
+    }
+
+    const uri = await stopRecording().catch(() => null);
+    await completeNameCapture(uri);
+  }, [beginNameCapture, completeNameCapture, nameListening, nameThinking]);
+
+  React.useEffect(() => {
+    if (step !== 'name') {
+      nameAutoStartedRef.current = false;
+      return;
+    }
+    if (
+      nameAutoStartedRef.current ||
+      nameListening ||
+      nameThinking ||
+      Boolean(nameHeard.trim()) ||
+      Boolean(userName.trim())
+    ) {
+      return;
+    }
+
+    setNameHint('Ace will catch it after a short pause.');
+    const timer = setTimeout(() => {
+      nameAutoStartedRef.current = true;
+      void beginNameCapture();
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [beginNameCapture, nameHeard, nameListening, nameThinking, step, userName]);
 
   const handleVoiceFill = async () => {
     setVoiceFilling(true);
@@ -507,12 +623,11 @@ export default function OnboardScreen() {
                   <Text style={demoStyles.marketHint}>{marketCopy.setupTagline}</Text>
                 </View>
 
-                {/* Orb — passive during intro, interactive when ready */}
+                {/* Ace demo — calm during intro, voice-first when ready */}
                 <View style={demoStyles.orbArea}>
                   <OrbAnimation
                     phase={demoPhaseTo(demoPhase)}
-                    onPressIn={handleDemoPressIn}
-                    onPressOut={handleDemoPressOut}
+                    onPress={handleDemoPress}
                     disabled={demoPhase === 'intro' || demoPhase === 'thinking'}
                   />
                 </View>
@@ -520,8 +635,8 @@ export default function OnboardScreen() {
                 {/* Dynamic label */}
                 <Text style={demoStyles.label}>
                   {demoPhase === 'intro'     ? '' :
-                   demoPhase === 'ready'     ? 'Touch Ace and speak naturally' :
-                   demoPhase === 'listening' ? 'Listening…' :
+                   demoPhase === 'ready'     ? 'Say a trip naturally. No holding needed.' :
+                   demoPhase === 'listening' ? 'Ace is listening…' :
                    demoPhase === 'thinking'  ? 'On it…' :
                    demoResponse}
                 </Text>
@@ -548,83 +663,21 @@ export default function OnboardScreen() {
               <View style={styles.stepWrap}>
                 <Text style={styles.stepTitle}>What should I call you?</Text>
                 <Text style={styles.stepSub}>
-                  {nameHeard ? `I heard "${nameHeard}" — is that right?` : 'Touch Ace, then say your name.'}
+                  {nameHeard
+                    ? `I heard "${nameHeard}" — is that right?`
+                    : nameListening
+                      ? 'Ace is listening for your name.'
+                      : 'Say your name naturally. No holding needed.'}
                 </Text>
                 {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
                 {/* Voice object */}
-                <Pressable
-                  onPress={async () => {
-                    if (nameThinking) return;
-                    if (!nameListening) {
-                      setNameListening(true);
-                      setNameHint('Listening…');
-                      setNameHeard('');
-                      await startRecording({
-                        autoStopOnSilence: true,
-                        silenceMs: 2200,
-                        maxDurationMs: 8000,
-                        onSilence: () => {
-                          void stopRecording().then(async (uri) => {
-                            setNameListening(false);
-                            setNameThinking(true);
-                            setNameHint('Listening…');
-                            try {
-                              if (uri) {
-                                const t = await transcribeAudio(uri).catch(() => '');
-                                const name = t.trim().replace(/^(my name is|i'm|i am|call me)\s+/i, '').replace(/[.,!?]+$/, '').trim();
-                                if (name) {
-                                  setNameHeard(name);
-                                  setUserName(name);
-                                  setNameHint('Got it.');
-                                } else {
-                                  setNameHint('Ace did not catch that. Try once more or type your name below.');
-                                }
-                              } else {
-                                setNameHint('Ace did not catch enough audio. Try once more or type your name below.');
-                              }
-                            } catch {
-                              setNameHint('Voice is unavailable right now. You can type your name below.');
-                            }
-                            setNameThinking(false);
-                          });
-                        },
-                      }).catch(() => {
-                        setNameListening(false);
-                        setNameHint('Microphone access is needed. You can also type your name below.');
-                      });
-                      return;
-                    }
-
-                    setNameListening(false);
-                    setNameThinking(true);
-                    setNameHint('Listening…');
-                    try {
-                      const uri = await stopRecording();
-                      if (uri) {
-                        const t = await transcribeAudio(uri).catch(() => '');
-                        const name = t.trim().replace(/^(my name is|i'm|i am|call me)\s+/i, '').replace(/[.,!?]+$/, '').trim();
-                        if (name) {
-                          setNameHeard(name);
-                          setUserName(name);
-                          setNameHint('Got it.');
-                        } else {
-                          setNameHint('Ace did not catch that. Try once more or type your name below.');
-                        }
-                      } else {
-                        setNameHint('Ace did not catch enough audio. Try once more or type your name below.');
-                      }
-                    } catch {
-                      setNameHint('Voice is unavailable right now. You can type your name below.');
-                    }
-                    setNameThinking(false);
-                  }}
-                  style={nameStyles.orbWrap}
-                >
+                <View style={nameStyles.orbWrap}>
                   <OrbAnimation
                     phase={nameThinking ? 'thinking' : nameListening ? 'listening' : nameHeard ? 'done' : 'idle'}
+                    onPress={handleNameOrbPress}
                   />
-                </Pressable>
+                </View>
 
                 {/* Text fallback */}
                 <TextInput
@@ -715,10 +768,10 @@ export default function OnboardScreen() {
                   <Ionicons
                     name={voiceFilling ? 'mic' : 'mic-outline'}
                     size={18}
-                    color={voiceFilling ? '#818cf8' : '#6b7280'}
+                    color={voiceFilling ? '#a7d5ff' : '#6b7280'}
                   />
-                  <Text style={profileStyles.voiceBtnText}>
-                    {voiceFilling ? 'Listening…' : 'Fill in by voice'}
+                  <Text style={[profileStyles.voiceBtnText, voiceFilling && profileStyles.voiceBtnTextActive]}>
+                    {voiceFilling ? 'Ace is listening…' : 'Fill in by voice'}
                   </Text>
                 </Pressable>
                 {voiceFillHint && (
@@ -1409,7 +1462,8 @@ const profileStyles = StyleSheet.create({
     marginBottom: 8,
   },
   voiceBtnText: { fontSize: 14, color: '#6b7280' },
-  voiceHint:    { fontSize: 12, color: '#818cf8', marginBottom: 16, textAlign: 'center' },
+  voiceBtnTextActive: { color: '#cfe5f7' },
+  voiceHint:    { fontSize: 12, color: '#a7d5ff', marginBottom: 16, textAlign: 'center' },
   docsToggle: {
     flexDirection: 'row',
     alignItems: 'center',
