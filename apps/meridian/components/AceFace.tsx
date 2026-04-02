@@ -26,14 +26,11 @@ const _svg = require('react-native-svg') as Record<string, React.ComponentType<a
 const Svg = _svg['default'] as React.ComponentType<any>;
 const Defs = _svg['Defs'] as React.ComponentType<any>;
 const RadialGradient = _svg['RadialGradient'] as React.ComponentType<any>;
-const LinearGradient = _svg['LinearGradient'] as React.ComponentType<any>;
 const Stop = _svg['Stop'] as React.ComponentType<any>;
 const ClipPath = _svg['ClipPath'] as React.ComponentType<any>;
 const Circle = _svg['Circle'] as React.ComponentType<any>;
-const Ellipse = _svg['Ellipse'] as React.ComponentType<any>;
 const SvgImage = _svg['Image'] as React.ComponentType<any>;
 const Path = _svg['Path'] as React.ComponentType<any>;
-const G = _svg['G'] as React.ComponentType<any>;
 
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
@@ -55,61 +52,36 @@ const CH = 310;
 const CX = CW / 2;
 const CY = CH / 2;
 const GLOW_R = 132;
-const RING_R = 94;
-const MOUTH_Y = 174;
-const MOUTH_HW = 14;
+const RING_R = 116;
+const MOUTH_Y = 166;
+const MOUTH_HW = 15;
 
 const FACE_PATH =
   'M 135 38 C 181 42 211 87 208 152 C 206 204 185 247 159 266 C 148 274 122 274 111 266 C 85 247 64 204 62 152 C 59 87 89 42 135 38 Z';
 
-const FACE_PATH_INNER =
-  'M 135 49 C 171 52 194 90 192 148 C 190 193 173 231 152 247 C 144 253 126 253 118 247 C 97 231 80 193 78 148 C 76 90 99 52 135 49 Z';
-
-const BRAIN_CROWN_OUTER_PATH = 'M 96 94 C 107 75 163 75 174 94';
-const BRAIN_CROWN_INNER_PATH = 'M 104 108 C 114 92 156 92 166 108';
-const BRAIN_TEMPLE_LEFT_PATH = 'M 97 128 C 110 119 123 115 134 114';
-const BRAIN_TEMPLE_RIGHT_PATH = 'M 136 114 C 147 115 160 119 173 128';
-const BRAIN_CORE_LEFT_PATH = 'M 112 150 C 120 144 128 141 135 141';
-const BRAIN_CORE_RIGHT_PATH = 'M 135 141 C 142 141 150 144 158 150';
 const FACE_RENDER_ASSET = RNImage.resolveAssetSource(require('../assets/ace-face-render.png'));
 
 function baseMouthCurveForPhase(phase: AppPhase): number {
-  if (phase === 'done') return 4.2;
-  if (phase === 'listening') return 1.1;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -0.6;
-  if (phase === 'error') return -1.6;
-  return 0.8;
+  if (phase === 'done') return 3.2;
+  if (phase === 'listening') return 0.9;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -0.4;
+  if (phase === 'error') return -1.1;
+  return 0.4;
 }
 
 function baseMouthOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'done') return 0.16;
+  if (phase === 'done') return 0.14;
   if (phase === 'error') return 0.08;
   return 0;
-}
-
-function baseContourOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.3;
-  if (phase === 'confirming') return 0.08;
-  if (phase === 'error') return 0.08;
-  return 0;
-}
-
-function baseAuraOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.16;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.24;
-  if (phase === 'confirming') return 0.14;
-  if (phase === 'done') return 0.12;
-  if (phase === 'error') return 0.1;
-  return 0.08;
 }
 
 function baseTextureOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.78;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.84;
-  if (phase === 'confirming') return 0.76;
-  if (phase === 'done') return 0.8;
-  if (phase === 'error') return 0.68;
-  return 0.74;
+  if (phase === 'listening') return 0.86;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.88;
+  if (phase === 'confirming') return 0.78;
+  if (phase === 'done') return 0.82;
+  if (phase === 'error') return 0.66;
+  return 0.78;
 }
 
 const GLOW_COLOR: Record<AppPhase, string> = {
@@ -143,8 +115,6 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const ring1Opacity = useSharedValue(0);
   const ring2Scale = useSharedValue(1);
   const ring2Opacity = useSharedValue(0);
-  const auraOpacity = useSharedValue(baseAuraOpacityForPhase('idle'));
-  const contourOpacity = useSharedValue(baseContourOpacityForPhase('idle'));
   const textureOpacity = useSharedValue(baseTextureOpacityForPhase('idle'));
   const mouthCurve = useSharedValue(baseMouthCurveForPhase('idle'));
   const mouthOpacity = useSharedValue(baseMouthOpacityForPhase('idle'));
@@ -168,14 +138,6 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     opacity: ring2Opacity.value,
   }));
 
-  const auraProps = useAnimatedProps(() => ({
-    opacity: auraOpacity.value,
-  }));
-
-  const contourProps = useAnimatedProps(() => ({
-    opacity: contourOpacity.value,
-  }));
-
   const textureProps = useAnimatedProps(() => ({
     opacity: textureOpacity.value,
   }));
@@ -184,10 +146,10 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     const curve = mouthCurve.value;
     const x0 = CX - MOUTH_HW;
     const x3 = CX + MOUTH_HW;
-    const y = MOUTH_Y;
-    const cp = y - curve;
+    const cp = MOUTH_Y - curve;
+
     return {
-      d: `M ${x0} ${y} C ${x0 + MOUTH_HW * 0.52} ${cp} ${x3 - MOUTH_HW * 0.52} ${cp} ${x3} ${y}`,
+      d: `M ${x0} ${MOUTH_Y} C ${x0 + MOUTH_HW * 0.52} ${cp} ${x3 - MOUTH_HW * 0.52} ${cp} ${x3} ${MOUTH_Y}`,
       opacity: mouthOpacity.value,
     };
   });
@@ -202,8 +164,6 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ring1Opacity,
       ring2Scale,
       ring2Opacity,
-      auraOpacity,
-      contourOpacity,
       textureOpacity,
       mouthCurve,
       mouthOpacity,
@@ -220,8 +180,6 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     ring1Opacity.value = 0;
     ring2Scale.value = 1;
     ring2Opacity.value = 0;
-    auraOpacity.value = t(baseAuraOpacityForPhase(phase), 240);
-    contourOpacity.value = t(baseContourOpacityForPhase(phase), 240);
     textureOpacity.value = t(baseTextureOpacityForPhase(phase), 240);
     mouthCurve.value = t(baseMouthCurveForPhase(phase), 220);
     mouthOpacity.value = t(baseMouthOpacityForPhase(phase), 220);
@@ -230,68 +188,55 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowOpacity.value = withRepeat(withSequence(t(0.36, 2600), t(0.18, 2600)), -1, false);
       glowScale.value = withRepeat(withSequence(t(1.08, 2600), t(1, 2600)), -1, false);
       faceLift.value = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
-      auraOpacity.value = withRepeat(withSequence(t(0.12, 2400), t(0.06, 2400)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.78, 2400), t(0.7, 2400)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.84, 2400), t(0.72, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
       glowOpacity.value = t(0.56, 280);
       faceScale.value = withRepeat(withSequence(t(1.026, 1050), t(1, 1050)), -1, false);
-      auraOpacity.value = withRepeat(withSequence(t(0.2, 850), t(0.12, 850)), -1, false);
-      contourOpacity.value = t(0, 280);
-      textureOpacity.value = withRepeat(withSequence(t(0.84, 900), t(0.74, 900)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.9, 900), t(0.8, 900)), -1, false);
       ring1Opacity.value = withRepeat(withSequence(
-        t(0.12, 1, Easing.linear),
+        t(0.08, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false);
       ring1Scale.value = withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.54, 1800, Easing.out(Easing.quad)),
+        t(1.42, 1800, Easing.out(Easing.quad)),
       ), -1, false);
       ring2Opacity.value = withDelay(900, withRepeat(withSequence(
-        t(0.08, 1, Easing.linear),
+        t(0.05, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false));
       ring2Scale.value = withDelay(900, withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.54, 1800, Easing.out(Easing.quad)),
+        t(1.42, 1800, Easing.out(Easing.quad)),
       ), -1, false));
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
-      glowOpacity.value = withRepeat(withSequence(t(0.54, 900), t(0.30, 900)), -1, false);
+      glowOpacity.value = withRepeat(withSequence(t(0.54, 900), t(0.3, 900)), -1, false);
       glowScale.value = withRepeat(withSequence(t(1.1, 900), t(1, 900)), -1, false);
       faceLift.value = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
-      auraOpacity.value = withRepeat(withSequence(t(0.28, 760), t(0.18, 760)), -1, false);
-      contourOpacity.value = withRepeat(withSequence(t(0.38, 760), t(0.24, 760)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.88, 760), t(0.78, 760)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.92, 760), t(0.82, 760)), -1, false);
     }
 
     if (phase === 'confirming') {
       glowOpacity.value = t(0.42, 320);
-      contourOpacity.value = t(0.34, 320);
-      auraOpacity.value = t(0.24, 320);
-      textureOpacity.value = t(0.62, 320);
+      textureOpacity.value = t(0.78, 320);
     }
 
     if (phase === 'done') {
       faceScale.value = withSpring(1.04, { damping: 14, stiffness: 180 });
       faceLift.value = withSpring(-4, { damping: 12, stiffness: 150 });
       glowOpacity.value = t(0.5, 320);
-      contourOpacity.value = t(0, 320);
-      auraOpacity.value = t(0.14, 320);
-      textureOpacity.value = t(0.84, 320);
+      textureOpacity.value = t(0.82, 320);
     }
 
     if (phase === 'error') {
       glowOpacity.value = t(0.34, 260);
-      contourOpacity.value = t(0.08, 260);
-      auraOpacity.value = t(0.1, 260);
-      textureOpacity.value = t(0.68, 260);
+      textureOpacity.value = t(0.66, 260);
     }
   }, [
-    auraOpacity,
-    contourOpacity,
     faceLift,
     faceScale,
     glowOpacity,
@@ -307,35 +252,29 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   ]);
 
   useEffect(() => {
-    [mouthCurve, mouthOpacity, contourOpacity, auraOpacity].forEach(cancelAnimation);
+    [mouthCurve, mouthOpacity].forEach(cancelAnimation);
 
     if (isSpeaking) {
       mouthCurve.value = withRepeat(withSequence(
-        withTiming(2.3, { duration: 120, easing: Easing.inOut(Easing.sin) }),
+        withTiming(2.1, { duration: 120, easing: Easing.inOut(Easing.sin) }),
         withTiming(0.2, { duration: 135, easing: Easing.inOut(Easing.sin) }),
-        withTiming(1.8, { duration: 110, easing: Easing.inOut(Easing.sin) }),
+        withTiming(1.7, { duration: 110, easing: Easing.inOut(Easing.sin) }),
         withTiming(0.1, { duration: 140, easing: Easing.inOut(Easing.sin) }),
       ), -1, false);
-      mouthOpacity.value = withTiming(0.64, { duration: 120 });
-      contourOpacity.value = withTiming(0.02, { duration: 200 });
-      auraOpacity.value = withTiming(0.06, { duration: 200 });
+      mouthOpacity.value = withTiming(0.62, { duration: 120 });
     } else {
       mouthCurve.value = withTiming(baseMouthCurveForPhase(phase), { duration: 220 });
       mouthOpacity.value = withTiming(baseMouthOpacityForPhase(phase), { duration: 200 });
-      contourOpacity.value = withTiming(baseContourOpacityForPhase(phase), { duration: 260 });
-      auraOpacity.value = withTiming(baseAuraOpacityForPhase(phase), { duration: 260 });
     }
 
     return () => {
-      [mouthCurve, mouthOpacity, contourOpacity, auraOpacity].forEach(cancelAnimation);
+      [mouthCurve, mouthOpacity].forEach(cancelAnimation);
     };
-  }, [auraOpacity, contourOpacity, isSpeaking, mouthCurve, mouthOpacity, phase]);
+  }, [isSpeaking, mouthCurve, mouthOpacity, phase]);
 
   const glowColor = GLOW_COLOR[phase] ?? '#eef4ff';
   const accentColor = ACCENT_COLOR[phase] ?? '#dbe6f6';
   const isInteractive = phase !== 'done';
-  const showTechnicalContours =
-    !isSpeaking && (phase === 'thinking' || phase === 'hiring' || phase === 'executing');
 
   const handlePress = () => {
     if (disabled || !isInteractive) return;
@@ -347,47 +286,11 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     <Pressable onPress={handlePress} disabled={disabled || !isInteractive} style={styles.container}>
       <Svg width="100%" height="100%" viewBox={`0 0 ${CW} ${CH}`} preserveAspectRatio="xMidYMid meet">
         <Defs>
-          <LinearGradient id="shellGrad" x1="0.2" y1="0.08" x2="0.82" y2="0.92">
-            <Stop offset="0" stopColor="#fcfdff" stopOpacity="0.96" />
-            <Stop offset="0.32" stopColor="#eef1f6" stopOpacity="0.9" />
-            <Stop offset="0.72" stopColor="#b7bdc8" stopOpacity="0.92" />
-            <Stop offset="1" stopColor="#757d89" stopOpacity="0.96" />
-          </LinearGradient>
-
-          <RadialGradient id="keyLight" cx="30%" cy="24%" r="54%">
-            <Stop offset="0" stopColor="rgba(255,255,255,1)" stopOpacity="0.28" />
-            <Stop offset="0.55" stopColor="rgba(255,255,255,1)" stopOpacity="0.08" />
-            <Stop offset="1" stopColor="rgba(255,255,255,0)" stopOpacity="0" />
-          </RadialGradient>
-
-          <RadialGradient id="rimLight" cx="78%" cy="82%" r="46%">
-            <Stop offset="0" stopColor={glowColor} stopOpacity="0.14" />
-            <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
-          </RadialGradient>
-
-          <RadialGradient id="innerShadow" cx="53%" cy="76%" r="56%">
-            <Stop offset="0" stopColor="rgba(18,24,36,1)" stopOpacity="0.22" />
-            <Stop offset="0.56" stopColor="rgba(18,24,36,1)" stopOpacity="0.08" />
-            <Stop offset="1" stopColor="rgba(18,24,36,0)" stopOpacity="0" />
-          </RadialGradient>
-
           <RadialGradient id="haloGrad" cx="50%" cy="50%" r="50%">
             <Stop offset="0" stopColor={glowColor} stopOpacity="0.56" />
             <Stop offset="0.48" stopColor={glowColor} stopOpacity="0.18" />
             <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
           </RadialGradient>
-
-          <RadialGradient id="coreGrad" cx="50%" cy="34%" r="54%">
-            <Stop offset="0" stopColor="rgba(255,255,255,1)" stopOpacity="0.34" />
-            <Stop offset="0.42" stopColor="rgba(234,239,248,1)" stopOpacity="0.16" />
-            <Stop offset="1" stopColor="rgba(234,239,248,0)" stopOpacity="0" />
-          </RadialGradient>
-
-          <LinearGradient id="contourGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0" stopColor="rgba(255,255,255,0.96)" stopOpacity="0.92" />
-            <Stop offset="0.48" stopColor="rgba(231,237,246,0.96)" stopOpacity="0.84" />
-            <Stop offset="1" stopColor={accentColor} stopOpacity="0.56" />
-          </LinearGradient>
 
           <ClipPath id="faceClip">
             <Path d={FACE_PATH} />
@@ -422,41 +325,22 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
         </AnimatedG>
 
         <AnimatedG animatedProps={faceProps as any}>
-          <Path d={FACE_PATH} fill="url(#shellGrad)" />
+          <Path d={FACE_PATH} fill="rgba(8,16,28,0.92)" />
           <AnimatedG animatedProps={textureProps as any} clipPath="url(#faceClip)">
             <SvgImage
               href={FACE_RENDER_ASSET.uri}
-              x={-2}
-              y={2}
-              width={274}
-              height={302}
+              x={5}
+              y={8}
+              width={260}
+              height={288}
               preserveAspectRatio="xMidYMid meet"
             />
           </AnimatedG>
-          <Path d={FACE_PATH} fill="url(#keyLight)" clipPath="url(#faceClip)" />
-          <Path d={FACE_PATH} fill="url(#rimLight)" clipPath="url(#faceClip)" />
-          <Path d={FACE_PATH} fill="url(#innerShadow)" clipPath="url(#faceClip)" />
-
-          <AnimatedG animatedProps={auraProps as any} clipPath="url(#faceClip)">
-            <Ellipse cx={CX} cy={CY - 36} rx={52} ry={70} fill="url(#coreGrad)" />
-            <Ellipse cx={CX} cy={CY + 2} rx={34} ry={48} fill="url(#coreGrad)" opacity={0.34} />
-          </AnimatedG>
-
-          {showTechnicalContours ? (
-            <AnimatedG animatedProps={contourProps as any} clipPath="url(#faceClip)">
-              <Path d={BRAIN_CROWN_OUTER_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.35} strokeLinecap="round" />
-              <Path d={BRAIN_CROWN_INNER_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.05} strokeLinecap="round" />
-              <Path d={BRAIN_TEMPLE_LEFT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.0} strokeLinecap="round" />
-              <Path d={BRAIN_TEMPLE_RIGHT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={1.0} strokeLinecap="round" />
-              <Path d={BRAIN_CORE_LEFT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
-              <Path d={BRAIN_CORE_RIGHT_PATH} fill="none" stroke="url(#contourGrad)" strokeWidth={0.95} strokeLinecap="round" />
-            </AnimatedG>
-          ) : null}
 
           <AnimatedPath
             fill="none"
-            stroke="rgba(238,248,255,0.82)"
-            strokeWidth={1.8}
+            stroke="rgba(238,248,255,0.7)"
+            strokeWidth={1.4}
             strokeLinecap="round"
             animatedProps={mouthProps as any}
           />
@@ -464,14 +348,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
           <Path
             d={FACE_PATH}
             fill="none"
-            stroke="rgba(250,252,255,0.78)"
-            strokeWidth={1.08}
-          />
-          <Path
-            d={FACE_PATH_INNER}
-            fill="none"
-            stroke="rgba(236,242,250,0.20)"
-            strokeWidth={0.95}
+            stroke="rgba(200,225,255,0.07)"
+            strokeWidth={1}
           />
         </AnimatedG>
       </Svg>
