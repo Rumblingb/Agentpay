@@ -84,15 +84,25 @@ function patchIosPodfileCppStandard(projectRoot) {
   }
 
   let content = fs.readFileSync(podfilePath, 'utf8');
-  const marker = "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'";
-  if (content.includes(marker)) {
-    console.log('[withExpoModulesPatch] OK Podfile already forces gnu++17');
+  const targetMarker = "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'";
+  if (content.includes(targetMarker)) {
+    console.log('[withExpoModulesPatch] OK Podfile already forces gnu++20');
+    return;
+  }
+
+  if (content.includes("config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'")) {
+    content = content.replaceAll(
+      "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'",
+      "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'",
+    );
+    fs.writeFileSync(podfilePath, content);
+    console.log('[withExpoModulesPatch] OK Upgraded Podfile from gnu++17 to gnu++20 for Pods');
     return;
   }
 
   const snippet = `    installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
-        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
         config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
       end
     end
@@ -111,7 +121,7 @@ function patchIosPodfileCppStandard(projectRoot) {
   }
 
   fs.writeFileSync(podfilePath, content);
-  console.log('[withExpoModulesPatch] OK Patched Podfile to force gnu++17 for Pods');
+  console.log('[withExpoModulesPatch] OK Patched Podfile to force gnu++20 for Pods');
 }
 
 const withExpoModulesPatchAndroid = (config) =>
