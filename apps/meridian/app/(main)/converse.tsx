@@ -24,6 +24,7 @@ import {
   Image,
   TextInput,
   Keyboard,
+  Animated,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -729,6 +730,7 @@ export default function ConverseScreen() {
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
   const [guidanceSessions, setGuidanceSessions] = useState(0);
   const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
+  const presencePulse = useRef(new Animated.Value(0.84)).current;
 
   const logConverseEvent = useCallback((params: {
     event: string;
@@ -1681,11 +1683,38 @@ export default function ConverseScreen() {
     await runIntentWithUiFallback(text);
   }, [nearestStation, runIntentWithUiFallback]);
 
+  useEffect(() => {
+    presencePulse.stopAnimation();
+
+    if (isSpeaking || phase === 'listening') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(presencePulse, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(presencePulse, {
+            toValue: 0.7,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+      return;
+    }
+
+    Animated.timing(presencePulse, {
+      toValue: 0.84,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [isSpeaking, phase, presencePulse]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const isIdle     = phase === 'idle';
   const isError    = phase === 'error';
-  const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
   const presenceLabel =
     isSpeaking ? 'Ace is speaking' :
@@ -1697,7 +1726,7 @@ export default function ConverseScreen() {
     voiceEnabled ? 'Ace is ready' :
     'Voice paused';
   const presenceHint =
-    isSpeaking ? 'You can just listen.' :
+    isSpeaking ? 'Ace has this.' :
     phase === 'listening' ? 'Speak naturally.' :
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap Ace to interrupt.' :
     phase === 'done' ? 'Returning to standby.' :
@@ -2060,7 +2089,7 @@ export default function ConverseScreen() {
               >
                 {turn.role === 'meridian' && (
                   <View style={styles.bubbleAvatar}>
-                    <View style={styles.avatarDot} />
+                    <Image source={ACE_MARK_ASSET} style={styles.avatarMark} resizeMode="contain" />
                   </View>
                 )}
                 <Text style={[
@@ -2336,7 +2365,16 @@ export default function ConverseScreen() {
 
         {!textFallbackVisible && (
           <View style={styles.presenceLine}>
-            <View style={[styles.presenceDot, { backgroundColor: presenceTone }]} />
+            <Animated.View
+              style={[
+                styles.presenceDot,
+                {
+                  backgroundColor: presenceTone,
+                  opacity: presencePulse,
+                  transform: [{ scale: presencePulse }],
+                },
+              ]}
+            />
             <Text style={styles.presenceLabel}>{presenceLabel}</Text>
             <Text style={styles.presenceHint}>{presenceHint}</Text>
           </View>
@@ -2773,11 +2811,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(169, 220, 255, 0.28)',
   },
-  avatarDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#dcecff',
+  avatarMark: {
+    width: 15,
+    height: 15,
   },
   bubbleText: {
     fontSize: 15,
