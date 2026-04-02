@@ -1,11 +1,9 @@
 /**
- * AceFace - sculptural silver presence for the live Ace conversation surface.
+ * AceFace - temporary Path 2 presence.
  *
- * Design goals:
- * - Stay entirely within the existing mic footprint
- * - Read as premium, serene, and more "Ace brain" than literal avatar
- * - Let the bust lead, with code only supporting the art direction
- * - Feel like a luminous intelligence rather than a mic, orb, or emoji face
+ * This is intentionally not a humanoid face. The Ace sigil is the object,
+ * and the surrounding field responds to real mic / TTS energy so Ace feels
+ * attentive, reactive, and alive.
  */
 
 import React, { useEffect } from 'react';
@@ -27,10 +25,9 @@ const Svg = _svg['default'] as React.ComponentType<any>;
 const Defs = _svg['Defs'] as React.ComponentType<any>;
 const RadialGradient = _svg['RadialGradient'] as React.ComponentType<any>;
 const Stop = _svg['Stop'] as React.ComponentType<any>;
-const ClipPath = _svg['ClipPath'] as React.ComponentType<any>;
 const Circle = _svg['Circle'] as React.ComponentType<any>;
+const Ellipse = _svg['Ellipse'] as React.ComponentType<any>;
 const SvgImage = _svg['Image'] as React.ComponentType<any>;
-const Path = _svg['Path'] as React.ComponentType<any>;
 
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
@@ -38,95 +35,126 @@ import type { AppPhase } from '../lib/store';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const _svgRaw = require('react-native-svg');
 const AnimatedG = Animated.createAnimatedComponent(_svgRaw.G) as unknown as React.ComponentType<any>;
-const AnimatedPath = Animated.createAnimatedComponent(_svgRaw.Path) as unknown as React.ComponentType<any>;
 
 interface Props {
   phase: AppPhase;
   isSpeaking: boolean;
+  inputLevel?: number;
+  outputLevel?: number;
   onPress?: () => void;
   disabled?: boolean;
 }
 
+const MARK_ASSET = RNImage.resolveAssetSource(require('../assets/ace-mark.png'));
+
 const CW = 270;
 const CH = 310;
 const CX = CW / 2;
-const CY = CH / 2;
+const CY = CH / 2 + 8;
 const GLOW_R = 132;
 const RING_R = 116;
-const MOUTH_Y = 166;
-const MOUTH_HW = 15;
-
-const FACE_PATH =
-  'M 135 38 C 181 42 211 87 208 152 C 206 204 185 247 159 266 C 148 274 122 274 111 266 C 85 247 64 204 62 152 C 59 87 89 42 135 38 Z';
-
-const FACE_RENDER_ASSET = RNImage.resolveAssetSource(require('../assets/ace-face-render.png'));
-
-function baseMouthCurveForPhase(phase: AppPhase): number {
-  if (phase === 'done') return 3.2;
-  if (phase === 'listening') return 0.9;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -0.4;
-  if (phase === 'error') return -1.1;
-  return 0.4;
-}
-
-function baseMouthOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'done') return 0.14;
-  if (phase === 'error') return 0.08;
-  return 0;
-}
-
-function baseTextureOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.86;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.88;
-  if (phase === 'confirming') return 0.78;
-  if (phase === 'done') return 0.82;
-  if (phase === 'error') return 0.66;
-  return 0.78;
-}
 
 const GLOW_COLOR: Record<AppPhase, string> = {
-  idle: '#eef4ff',
-  listening: '#ffffff',
-  thinking: '#f3f7ff',
-  confirming: '#fff2dc',
-  hiring: '#f3f7ff',
-  executing: '#f2f7ff',
-  done: '#effff5',
-  error: '#ffe8ef',
+  idle: '#dfeeff',
+  listening: '#f7fbff',
+  thinking: '#cfe5ff',
+  confirming: '#f4e7ca',
+  hiring: '#cfe5ff',
+  executing: '#d8ecff',
+  done: '#dcf5e3',
+  error: '#f5dce2',
 };
 
-const ACCENT_COLOR: Record<AppPhase, string> = {
-  idle: '#dbe6f6',
-  listening: '#f8fbff',
-  thinking: '#e8f0fd',
-  confirming: '#f7ead0',
-  hiring: '#e8f0fd',
-  executing: '#edf3ff',
-  done: '#e6f6ea',
-  error: '#f7dde4',
+const CORE_COLOR: Record<AppPhase, string> = {
+  idle: '#b8d6ff',
+  listening: '#e9f4ff',
+  thinking: '#9fcfff',
+  confirming: '#f1d6a6',
+  hiring: '#9fcfff',
+  executing: '#b7d9ff',
+  done: '#cdecd4',
+  error: '#f0c0c9',
 };
 
-export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
-  const faceScale = useSharedValue(1);
-  const faceLift = useSharedValue(0);
-  const glowOpacity = useSharedValue(0.28);
-  const glowScale = useSharedValue(1);
+const ORBIT_COLOR: Record<AppPhase, string> = {
+  idle: '#9fb9d9',
+  listening: '#c8e7ff',
+  thinking: '#8abce8',
+  confirming: '#d8bc8f',
+  hiring: '#8abce8',
+  executing: '#9fc7eb',
+  done: '#9ed0aa',
+  error: '#dba0ab',
+};
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+export function AceFace({
+  phase,
+  isSpeaking,
+  inputLevel = 0,
+  outputLevel = 0,
+  onPress,
+  disabled,
+}: Props) {
+  const liveLevel = phase === 'listening'
+    ? inputLevel
+    : isSpeaking
+    ? outputLevel
+    : 0;
+
+  const fieldScale = useSharedValue(1);
+  const fieldLift = useSharedValue(0);
+  const haloOpacity = useSharedValue(0.22);
+  const haloScale = useSharedValue(1);
+  const coreOpacity = useSharedValue(0.26);
+  const orbitOpacity = useSharedValue(0.08);
+  const markScale = useSharedValue(1);
+  const markOpacity = useSharedValue(0.96);
   const ring1Scale = useSharedValue(1);
   const ring1Opacity = useSharedValue(0);
   const ring2Scale = useSharedValue(1);
   const ring2Opacity = useSharedValue(0);
-  const textureOpacity = useSharedValue(baseTextureOpacityForPhase('idle'));
-  const mouthCurve = useSharedValue(baseMouthCurveForPhase('idle'));
-  const mouthOpacity = useSharedValue(baseMouthOpacityForPhase('idle'));
+  const reactiveLevel = useSharedValue(0);
+  const speakingBoost = useSharedValue(0);
 
-  const faceProps = useAnimatedProps(() => ({
-    transform: `translate(${CX} ${CY + faceLift.value}) scale(${faceScale.value}) translate(${-CX} ${-CY})`,
+  const haloProps = useAnimatedProps(() => {
+    const reactiveBoost = reactiveLevel.value * 0.16 + speakingBoost.value * 0.08;
+    return {
+      transform: `translate(${CX} ${CY}) scale(${haloScale.value + reactiveBoost}) translate(${-CX} ${-CY})`,
+      opacity: clamp01(haloOpacity.value + reactiveLevel.value * 0.22 + speakingBoost.value * 0.1),
+    };
+  });
+
+  const fieldProps = useAnimatedProps(() => {
+    const reactiveScale = reactiveLevel.value * 0.1 + speakingBoost.value * 0.04;
+    return {
+      transform: `translate(${CX} ${CY + fieldLift.value}) scale(${fieldScale.value + reactiveScale}) translate(${-CX} ${-CY})`,
+      opacity: 1,
+    };
+  });
+
+  const coreProps = useAnimatedProps(() => {
+    const reactiveScale = 1 + reactiveLevel.value * 0.14 + speakingBoost.value * 0.06;
+    return {
+      transform: `translate(${CX} ${CY}) scale(${reactiveScale}) translate(${-CX} ${-CY})`,
+      opacity: clamp01(coreOpacity.value + reactiveLevel.value * 0.36 + speakingBoost.value * 0.12),
+    };
+  });
+
+  const orbitProps = useAnimatedProps(() => ({
+    opacity: clamp01(orbitOpacity.value + reactiveLevel.value * 0.14),
   }));
 
-  const glowProps = useAnimatedProps(() => ({
-    transform: `translate(${CX} ${CY}) scale(${glowScale.value}) translate(${-CX} ${-CY})`,
-    opacity: glowOpacity.value,
-  }));
+  const markProps = useAnimatedProps(() => {
+    const reactiveScale = reactiveLevel.value * 0.06 + speakingBoost.value * 0.03;
+    return {
+      transform: `translate(${CX} ${CY}) scale(${markScale.value + reactiveScale}) translate(${-CX} ${-CY})`,
+      opacity: clamp01(markOpacity.value + reactiveLevel.value * 0.08),
+    };
+  });
 
   const ring1Props = useAnimatedProps(() => ({
     transform: `translate(${CX} ${CY}) scale(${ring1Scale.value}) translate(${-CX} ${-CY})`,
@@ -138,142 +166,139 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     opacity: ring2Opacity.value,
   }));
 
-  const textureProps = useAnimatedProps(() => ({
-    opacity: textureOpacity.value,
-  }));
+  useEffect(() => {
+    reactiveLevel.value = withTiming(clamp01(liveLevel), {
+      duration: 90,
+      easing: Easing.out(Easing.quad),
+    });
+  }, [liveLevel, reactiveLevel]);
 
-  const mouthProps = useAnimatedProps(() => {
-    const curve = mouthCurve.value;
-    const x0 = CX - MOUTH_HW;
-    const x3 = CX + MOUTH_HW;
-    const cp = MOUTH_Y - curve;
-
-    return {
-      d: `M ${x0} ${MOUTH_Y} C ${x0 + MOUTH_HW * 0.52} ${cp} ${x3 - MOUTH_HW * 0.52} ${cp} ${x3} ${MOUTH_Y}`,
-      opacity: mouthOpacity.value,
-    };
-  });
+  useEffect(() => {
+    speakingBoost.value = withTiming(isSpeaking ? 0.18 : 0, {
+      duration: isSpeaking ? 120 : 180,
+      easing: Easing.inOut(Easing.quad),
+    });
+  }, [isSpeaking, speakingBoost]);
 
   useEffect(() => {
     [
-      faceScale,
-      faceLift,
-      glowOpacity,
-      glowScale,
+      fieldScale,
+      fieldLift,
+      haloOpacity,
+      haloScale,
+      coreOpacity,
+      orbitOpacity,
+      markScale,
+      markOpacity,
       ring1Scale,
       ring1Opacity,
       ring2Scale,
       ring2Opacity,
-      textureOpacity,
-      mouthCurve,
-      mouthOpacity,
     ].forEach(cancelAnimation);
 
     const t = (value: number, duration: number, easing = Easing.inOut(Easing.sin)) =>
       withTiming(value, { duration, easing });
 
-    glowScale.value = t(1, 220);
-    glowOpacity.value = t(0.28, 220);
-    faceScale.value = t(1, 220);
-    faceLift.value = t(0, 220);
+    fieldScale.value = t(1, 220);
+    fieldLift.value = t(0, 220);
+    haloOpacity.value = t(0.22, 220);
+    haloScale.value = t(1, 220);
+    coreOpacity.value = t(0.26, 220);
+    orbitOpacity.value = t(0.08, 220);
+    markScale.value = t(1, 220);
+    markOpacity.value = t(0.96, 220);
     ring1Scale.value = 1;
     ring1Opacity.value = 0;
     ring2Scale.value = 1;
     ring2Opacity.value = 0;
-    textureOpacity.value = t(baseTextureOpacityForPhase(phase), 240);
-    mouthCurve.value = t(baseMouthCurveForPhase(phase), 220);
-    mouthOpacity.value = t(baseMouthOpacityForPhase(phase), 220);
 
     if (phase === 'idle') {
-      glowOpacity.value = withRepeat(withSequence(t(0.36, 2600), t(0.18, 2600)), -1, false);
-      glowScale.value = withRepeat(withSequence(t(1.08, 2600), t(1, 2600)), -1, false);
-      faceLift.value = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.84, 2400), t(0.72, 2400)), -1, false);
+      haloOpacity.value = withRepeat(withSequence(t(0.3, 2600), t(0.18, 2600)), -1, false);
+      haloScale.value = withRepeat(withSequence(t(1.06, 2600), t(1, 2600)), -1, false);
+      fieldScale.value = withRepeat(withSequence(t(1.03, 2400), t(1, 2400)), -1, false);
+      fieldLift.value = withRepeat(withSequence(t(-2, 2400), t(0, 2400)), -1, false);
+      coreOpacity.value = withRepeat(withSequence(t(0.32, 2400), t(0.22, 2400)), -1, false);
+      orbitOpacity.value = withRepeat(withSequence(t(0.12, 2400), t(0.06, 2400)), -1, false);
+      markScale.value = withRepeat(withSequence(t(1.012, 2400), t(1, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
-      glowOpacity.value = t(0.56, 280);
-      faceScale.value = withRepeat(withSequence(t(1.026, 1050), t(1, 1050)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.9, 900), t(0.8, 900)), -1, false);
+      haloOpacity.value = t(0.42, 260);
+      coreOpacity.value = withRepeat(withSequence(t(0.5, 920), t(0.34, 920)), -1, false);
+      fieldScale.value = withRepeat(withSequence(t(1.04, 1100), t(1.01, 1100)), -1, false);
+      markScale.value = withRepeat(withSequence(t(1.02, 1100), t(1, 1100)), -1, false);
+      orbitOpacity.value = t(0.14, 240);
+
       ring1Opacity.value = withRepeat(withSequence(
-        t(0.08, 1, Easing.linear),
+        t(0.1, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false);
       ring1Scale.value = withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.42, 1800, Easing.out(Easing.quad)),
+        t(1.38, 1800, Easing.out(Easing.quad)),
       ), -1, false);
       ring2Opacity.value = withDelay(900, withRepeat(withSequence(
-        t(0.05, 1, Easing.linear),
+        t(0.06, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
       ), -1, false));
       ring2Scale.value = withDelay(900, withRepeat(withSequence(
         t(1, 1, Easing.linear),
-        t(1.42, 1800, Easing.out(Easing.quad)),
+        t(1.38, 1800, Easing.out(Easing.quad)),
       ), -1, false));
     }
 
     if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
-      glowOpacity.value = withRepeat(withSequence(t(0.54, 900), t(0.3, 900)), -1, false);
-      glowScale.value = withRepeat(withSequence(t(1.1, 900), t(1, 900)), -1, false);
-      faceLift.value = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.92, 760), t(0.82, 760)), -1, false);
+      haloOpacity.value = withRepeat(withSequence(t(0.44, 900), t(0.24, 900)), -1, false);
+      haloScale.value = withRepeat(withSequence(t(1.08, 900), t(1.01, 900)), -1, false);
+      fieldScale.value = withRepeat(withSequence(t(1.05, 900), t(1.01, 900)), -1, false);
+      fieldLift.value = withRepeat(withSequence(t(-3, 900), t(0, 900)), -1, false);
+      coreOpacity.value = withRepeat(withSequence(t(0.58, 820), t(0.34, 820)), -1, false);
+      orbitOpacity.value = withRepeat(withSequence(t(0.2, 820), t(0.1, 820)), -1, false);
+      markScale.value = withRepeat(withSequence(t(1.016, 900), t(1, 900)), -1, false);
     }
 
     if (phase === 'confirming') {
-      glowOpacity.value = t(0.42, 320);
-      textureOpacity.value = t(0.78, 320);
+      haloOpacity.value = t(0.3, 280);
+      fieldScale.value = t(1.02, 280);
+      coreOpacity.value = t(0.36, 280);
+      orbitOpacity.value = t(0.1, 280);
+      markOpacity.value = t(0.98, 280);
     }
 
     if (phase === 'done') {
-      faceScale.value = withSpring(1.04, { damping: 14, stiffness: 180 });
-      faceLift.value = withSpring(-4, { damping: 12, stiffness: 150 });
-      glowOpacity.value = t(0.5, 320);
-      textureOpacity.value = t(0.82, 320);
+      fieldScale.value = withSpring(1.06, { damping: 14, stiffness: 180 });
+      fieldLift.value = withSpring(-4, { damping: 12, stiffness: 150 });
+      haloOpacity.value = t(0.34, 320);
+      coreOpacity.value = t(0.42, 320);
+      orbitOpacity.value = t(0.12, 320);
+      markScale.value = withSpring(1.03, { damping: 14, stiffness: 180 });
     }
 
     if (phase === 'error') {
-      glowOpacity.value = t(0.34, 260);
-      textureOpacity.value = t(0.66, 260);
+      haloOpacity.value = t(0.18, 260);
+      coreOpacity.value = t(0.2, 260);
+      orbitOpacity.value = t(0.04, 260);
+      markOpacity.value = t(0.92, 260);
     }
   }, [
-    faceLift,
-    faceScale,
-    glowOpacity,
-    glowScale,
-    mouthCurve,
-    mouthOpacity,
+    coreOpacity,
+    fieldLift,
+    fieldScale,
+    haloOpacity,
+    haloScale,
+    markOpacity,
+    markScale,
+    orbitOpacity,
     phase,
     ring1Opacity,
     ring1Scale,
     ring2Opacity,
     ring2Scale,
-    textureOpacity,
   ]);
 
-  useEffect(() => {
-    [mouthCurve, mouthOpacity].forEach(cancelAnimation);
-
-    if (isSpeaking) {
-      mouthCurve.value = withRepeat(withSequence(
-        withTiming(2.1, { duration: 120, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0.2, { duration: 135, easing: Easing.inOut(Easing.sin) }),
-        withTiming(1.7, { duration: 110, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0.1, { duration: 140, easing: Easing.inOut(Easing.sin) }),
-      ), -1, false);
-      mouthOpacity.value = withTiming(0.62, { duration: 120 });
-    } else {
-      mouthCurve.value = withTiming(baseMouthCurveForPhase(phase), { duration: 220 });
-      mouthOpacity.value = withTiming(baseMouthOpacityForPhase(phase), { duration: 200 });
-    }
-
-    return () => {
-      [mouthCurve, mouthOpacity].forEach(cancelAnimation);
-    };
-  }, [isSpeaking, mouthCurve, mouthOpacity, phase]);
-
-  const glowColor = GLOW_COLOR[phase] ?? '#eef4ff';
-  const accentColor = ACCENT_COLOR[phase] ?? '#dbe6f6';
+  const glowColor = GLOW_COLOR[phase] ?? '#dfeeff';
+  const coreColor = CORE_COLOR[phase] ?? '#b8d6ff';
+  const orbitColor = ORBIT_COLOR[phase] ?? '#9fb9d9';
   const isInteractive = phase !== 'done';
 
   const handlePress = () => {
@@ -288,16 +313,30 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
         <Defs>
           <RadialGradient id="haloGrad" cx="50%" cy="50%" r="50%">
             <Stop offset="0" stopColor={glowColor} stopOpacity="0.56" />
-            <Stop offset="0.48" stopColor={glowColor} stopOpacity="0.18" />
+            <Stop offset="0.5" stopColor={glowColor} stopOpacity="0.18" />
             <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
           </RadialGradient>
 
-          <ClipPath id="faceClip">
-            <Path d={FACE_PATH} />
-          </ClipPath>
+          <RadialGradient id="fieldGrad" cx="50%" cy="38%" r="62%">
+            <Stop offset="0" stopColor="rgba(31, 52, 82, 0.92)" stopOpacity="0.88" />
+            <Stop offset="0.46" stopColor="rgba(18, 28, 46, 0.72)" stopOpacity="0.56" />
+            <Stop offset="1" stopColor="rgba(8, 14, 24, 0)" stopOpacity="0" />
+          </RadialGradient>
+
+          <RadialGradient id="coreGrad" cx="50%" cy="42%" r="54%">
+            <Stop offset="0" stopColor={coreColor} stopOpacity="0.72" />
+            <Stop offset="0.48" stopColor={coreColor} stopOpacity="0.24" />
+            <Stop offset="1" stopColor={coreColor} stopOpacity="0" />
+          </RadialGradient>
+
+          <RadialGradient id="streamGrad" cx="50%" cy="30%" r="74%">
+            <Stop offset="0" stopColor="rgba(226, 242, 255, 0.92)" stopOpacity="0.18" />
+            <Stop offset="0.42" stopColor={glowColor} stopOpacity="0.12" />
+            <Stop offset="1" stopColor={glowColor} stopOpacity="0" />
+          </RadialGradient>
         </Defs>
 
-        <AnimatedG animatedProps={glowProps as any}>
+        <AnimatedG animatedProps={haloProps as any}>
           <Circle cx={CX} cy={CY} r={GLOW_R} fill="url(#haloGrad)" />
         </AnimatedG>
 
@@ -307,9 +346,9 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
             cy={CY}
             r={RING_R}
             fill="none"
-            stroke={accentColor}
+            stroke={orbitColor}
             strokeWidth={1.4}
-            strokeOpacity={0.44}
+            strokeOpacity={0.4}
           />
         </AnimatedG>
         <AnimatedG animatedProps={ring2Props as any}>
@@ -318,39 +357,59 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
             cy={CY}
             r={RING_R}
             fill="none"
-            stroke={accentColor}
-            strokeWidth={1.1}
-            strokeOpacity={0.28}
+            stroke={orbitColor}
+            strokeWidth={1}
+            strokeOpacity={0.24}
           />
         </AnimatedG>
 
-        <AnimatedG animatedProps={faceProps as any}>
-          <Path d={FACE_PATH} fill="rgba(8,16,28,0.92)" />
-          <AnimatedG animatedProps={textureProps as any} clipPath="url(#faceClip)">
+        <AnimatedG animatedProps={fieldProps as any}>
+          <Ellipse cx={CX} cy={CY + 8} rx={86} ry={112} fill="rgba(8,16,28,0.2)" />
+          <Ellipse cx={CX} cy={CY + 2} rx={84} ry={108} fill="url(#fieldGrad)" />
+          <AnimatedG animatedProps={orbitProps as any}>
+            <Ellipse
+              cx={CX}
+              cy={CY + 4}
+              rx={74}
+              ry={100}
+              fill="none"
+              stroke={orbitColor}
+              strokeWidth={1}
+              strokeOpacity={0.3}
+              rotation="-18"
+              originX={CX}
+              originY={CY}
+            />
+            <Ellipse
+              cx={CX}
+              cy={CY + 6}
+              rx={66}
+              ry={92}
+              fill="none"
+              stroke={orbitColor}
+              strokeWidth={0.8}
+              strokeOpacity={0.2}
+              rotation="20"
+              originX={CX}
+              originY={CY}
+            />
+          </AnimatedG>
+          <AnimatedG animatedProps={coreProps as any}>
+            <Ellipse cx={CX} cy={CY - 10} rx={52} ry={72} fill="url(#coreGrad)" />
+            <Ellipse cx={CX - 24} cy={CY + 18} rx={26} ry={54} fill="url(#streamGrad)" />
+            <Ellipse cx={CX + 24} cy={CY + 18} rx={26} ry={54} fill="url(#streamGrad)" />
+            <Ellipse cx={CX} cy={CY + 42} rx={34} ry={48} fill="url(#streamGrad)" opacity={0.82} />
+          </AnimatedG>
+          <AnimatedG animatedProps={markProps as any}>
             <SvgImage
-              href={FACE_RENDER_ASSET.uri}
-              x={5}
-              y={8}
-              width={260}
-              height={288}
+              href={MARK_ASSET.uri}
+              x={81}
+              y={78}
+              width={108}
+              height={142}
               preserveAspectRatio="xMidYMid meet"
             />
           </AnimatedG>
-
-          <AnimatedPath
-            fill="none"
-            stroke="rgba(238,248,255,0.7)"
-            strokeWidth={1.4}
-            strokeLinecap="round"
-            animatedProps={mouthProps as any}
-          />
-
-          <Path
-            d={FACE_PATH}
-            fill="none"
-            stroke="rgba(200,225,255,0.07)"
-            strokeWidth={1}
-          />
         </AnimatedG>
       </Svg>
     </Pressable>

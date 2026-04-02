@@ -13,6 +13,30 @@ const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 
 interface SpeakBroOptions {
   onStart?: () => void;
+  onMeter?: (level: number) => void;
+}
+
+type PlaybackAudioSample = {
+  channels: Array<{ frames: number[] }>;
+};
+
+function normalizeAudioSample(sample: PlaybackAudioSample): number {
+  let sum = 0;
+  let count = 0;
+
+  for (const channel of sample.channels) {
+    for (let index = 0; index < channel.frames.length; index += 4) {
+      const frame = channel.frames[index] ?? 0;
+      sum += frame * frame;
+      count += 1;
+    }
+  }
+
+  if (!count) return 0;
+
+  const rms = Math.sqrt(sum / count);
+  const normalized = Math.max(0, Math.min(1, rms * 4.2));
+  return Math.pow(normalized, 0.9);
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
@@ -109,9 +133,19 @@ async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise
 
   await new Promise<void>((resolve) => {
     let settled = false;
+    let pulseUp = false;
+    const pulseInterval = options?.onMeter
+      ? setInterval(() => {
+          pulseUp = !pulseUp;
+          options.onMeter?.(pulseUp ? 0.42 : 0.16);
+        }, 140)
+      : null;
+
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (pulseInterval) clearInterval(pulseInterval);
+      options?.onMeter?.(0);
       if (activeSpeechResolver === finish) {
         activeSpeechResolver = null;
       }
@@ -134,6 +168,7 @@ async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise
 export async function speakBro(text: string, options?: SpeakBroOptions): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) {
+    options?.onMeter?.(0);
     return;
   }
 
@@ -184,6 +219,14 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
     activeSound = sound;
     let playbackStarted = false;
 
+    try {
+      sound.setOnAudioSampleReceived((sample) => {
+        options?.onMeter?.(normalizeAudioSample(sample as PlaybackAudioSample));
+      });
+    } catch {
+      options?.onMeter?.(0);
+    }
+
     await new Promise<void>((resolve) => {
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.isPlaying && !playbackStarted) {
@@ -192,6 +235,10 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
         }
         // Resolve on natural finish OR when unloaded by cancelSpeech() interrupt.
         if ((status.isLoaded && status.didJustFinish) || !status.isLoaded) {
+          try {
+            sound.setOnAudioSampleReceived(null);
+          } catch {}
+          options?.onMeter?.(0);
           void stopActivePlayback().finally(resolve);
         }
       });
@@ -206,6 +253,7 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       },
     });
   } catch (error: any) {
+    options?.onMeter?.(0);
     await stopActivePlayback();
     void trackClientEvent({
       event: 'tts_failed',

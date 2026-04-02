@@ -47,7 +47,16 @@ type StartRecordingOptions = {
   onSilence?: () => void;
   silenceMs?: number;
   maxDurationMs?: number;
+  onMeter?: (level: number) => void;
 };
+
+let recordingLevelCallback: ((level: number) => void) | null = null;
+
+function normalizeRecordingMetering(metering: number | null): number {
+  if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0;
+  const normalized = Math.max(0, Math.min(1, (metering + 55) / 55));
+  return Math.pow(normalized, 1.35);
+}
 
 function clearRecordingTimers() {
   if (silenceTimer) {
@@ -68,6 +77,8 @@ async function resetRecordingMode(): Promise<void> {
 export async function startRecording(options?: StartRecordingOptions): Promise<void> {
   startCancelled = false;
   clearRecordingTimers();
+  recordingLevelCallback = options?.onMeter ?? null;
+  recordingLevelCallback?.(0);
 
   const { granted } = await Audio.requestPermissionsAsync();
   if (!granted) throw new Error('Microphone permission denied.');
@@ -101,13 +112,15 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
       linearPCMIsFloat: false,
     },
     web: { mimeType: 'audio/webm', bitsPerSecond: 32000 },
-    isMeteringEnabled: !!options?.autoStopOnSilence,
+    isMeteringEnabled: !!options?.autoStopOnSilence || !!options?.onMeter,
   });
 
   if (startCancelled) {
     try {
       await created.recording.stopAndUnloadAsync();
     } finally {
+      recordingLevelCallback?.(0);
+      recordingLevelCallback = null;
       await resetRecordingMode().catch(() => {});
     }
     return;
@@ -115,14 +128,15 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
 
   recording = created.recording;
 
-  if (options?.autoStopOnSilence) {
+  if (options?.autoStopOnSilence || options?.onMeter) {
     const silenceMs = options.silenceMs ?? 1700;
     const maxDurationMs = options.maxDurationMs ?? 12000;
     let heardSpeech = false;
-    created.recording.setProgressUpdateInterval(250);
+    created.recording.setProgressUpdateInterval(options?.onMeter ? 120 : 250);
     created.recording.setOnRecordingStatusUpdate((status) => {
       if (!status.isRecording || silenceCallbackFired) return;
       const metering = typeof status.metering === 'number' ? status.metering : null;
+      recordingLevelCallback?.(normalizeRecordingMetering(metering));
       if (metering != null && metering > -38) {
         heardSpeech = true;
         if (silenceTimer) {
@@ -174,9 +188,13 @@ export async function stopRecording(): Promise<string | null> {
   }
 
   if (cleanupError) {
+    recordingLevelCallback?.(0);
+    recordingLevelCallback = null;
     throw new Error(`Could not finish recording cleanly. ${cleanupError.message}`);
   }
 
+  recordingLevelCallback?.(0);
+  recordingLevelCallback = null;
   return uri ?? null;
 }
 
