@@ -603,10 +603,10 @@ export default function OnboardScreen() {
                 <LinearGradient colors={['#0c0a1e', '#080808']} style={StyleSheet.absoluteFill} />
 
                 {/* Wordmark */}
-                <Text style={demoStyles.wordmark}>ace</Text>
+                <Text style={demoStyles.wordmark}>ACE</Text>
 
                 <View style={demoStyles.marketWrap}>
-                  <Text style={demoStyles.marketLabel}>Choose your travel world</Text>
+                  <Text style={demoStyles.marketLabel}>Where should Ace start?</Text>
                   <View style={styles.chipRow}>
                     {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
                       <Pressable
@@ -615,7 +615,7 @@ export default function OnboardScreen() {
                         style={[styles.chip, nationality === nat && styles.chipActive, demoStyles.marketChip]}
                       >
                         <Text style={[styles.chipText, nationality === nat && styles.chipTextActive]}>
-                          {nat === 'uk' ? '🇬🇧 UK' : nat === 'india' ? '🇮🇳 India' : '🌍 Other'}
+                          {nat === 'uk' ? 'United Kingdom' : nat === 'india' ? 'India' : 'Global'}
                         </Text>
                       </Pressable>
                     ))}
@@ -636,16 +636,16 @@ export default function OnboardScreen() {
                 {/* Dynamic label */}
                 <Text style={demoStyles.label}>
                   {demoPhase === 'intro'     ? '' :
-                   demoPhase === 'ready'     ? 'Say a trip naturally. No holding needed.' :
-                   demoPhase === 'listening' ? 'Ace is listening…' :
-                   demoPhase === 'thinking'  ? 'On it…' :
+                   demoPhase === 'ready'     ? 'Tell Ace where you need to go.' :
+                   demoPhase === 'listening' ? 'Ace is listening.' :
+                   demoPhase === 'thinking'  ? 'Working it through…' :
                    demoResponse}
                 </Text>
 
                 {/* CTA — appears after demo */}
                 {demoPhase === 'done' && (
                   <View style={demoStyles.ctaArea}>
-                    <Text style={demoStyles.demoTagline}>That is how Ace should feel every time.</Text>
+                    <Text style={demoStyles.demoTagline}>This is how travel should feel.</Text>
                     <PrimaryBtn onPress={() => fadeToNext('name')} label="Let's get you set up" />
                   </View>
                 )}
@@ -668,7 +668,7 @@ export default function OnboardScreen() {
                     ? `I heard "${nameHeard}" — is that right?`
                     : nameListening
                       ? 'Ace is listening for your name.'
-                      : 'Say your name naturally. No holding needed.'}
+                      : 'Say your name. Ace will catch it.'}
                 </Text>
                 {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
@@ -826,7 +826,7 @@ export default function OnboardScreen() {
                       style={[styles.chip, nationality === nat && styles.chipActive]}
                     >
                       <Text style={[styles.chipText, nationality === nat && styles.chipTextActive]}>
-                        {nat === 'uk' ? '🇬🇧 UK' : nat === 'india' ? '🇮🇳 India' : '🌍 Other'}
+                        {nat === 'uk' ? 'United Kingdom' : nat === 'india' ? 'India' : 'Global'}
                       </Text>
                     </Pressable>
                   ))}

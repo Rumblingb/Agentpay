@@ -1741,8 +1741,8 @@ export default function ConverseScreen() {
     'Voice paused';
   const presenceHint =
     isSpeaking ? 'Ace has this.' :
-    phase === 'listening' ? 'Speak naturally.' :
-    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap Ace to interrupt.' :
+    phase === 'listening' ? 'Just speak naturally.' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap if you need to step in.' :
     phase === 'done' ? 'Returning to standby.' :
     phase === 'error' ? 'Try again or type the trip below.' :
     voiceEnabled ? 'Speak when you are ready.' :
@@ -1783,7 +1783,11 @@ export default function ConverseScreen() {
 
   const heroResponse = bookingMode === 'shared'
     ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
-    : 'Where to? I\'ll find you the best option.';
+    : routeMemory
+    ? `I can line up ${routeMemory.origin} to ${routeMemory.destination} again, or take you somewhere new.`
+    : nearestStation
+    ? `You are nearest to ${nearestStation.name}. Tell me where to line you up.`
+    : 'Tell me where you are going. I\'ll line up the best way through.';
   const primarySuggestion = idleSuggestions[0] ?? null;
 
   const memorySuggestion = routeMemory
@@ -1862,7 +1866,7 @@ export default function ConverseScreen() {
           </View>
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
-            <Text style={styles.headerSubtitle}>Travel, handled</Text>
+            <Text style={styles.headerSubtitle}>Travel, handled.</Text>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -2088,7 +2092,7 @@ export default function ConverseScreen() {
         {recentTurns.length > 0 && (
           <View style={styles.recentTurnsCard}>
             <View style={styles.recentTurnsHeader}>
-              <Text style={styles.recentTurnsEyebrow}>Recent from Ace</Text>
+              <Text style={styles.recentTurnsEyebrow}>Recent with Ace</Text>
               {recentTurns.length > 1 && (
                 <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
               )}
@@ -2319,7 +2323,7 @@ export default function ConverseScreen() {
                 onPress={() => { void handleShortcutIntent(homeStation, 'home'); }}
               >
                 <Ionicons name="home-outline" size={13} color="#94a3b8" />
-                <Text style={styles.shortcutBtnText}>Get me home</Text>
+                <Text style={styles.shortcutBtnText}>Take me home</Text>
               </Pressable>
             )}
             {workStation && (
@@ -2328,7 +2332,7 @@ export default function ConverseScreen() {
                 onPress={() => { void handleShortcutIntent(workStation, 'work'); }}
               >
                 <Ionicons name="business-outline" size={13} color="#94a3b8" />
-                <Text style={styles.shortcutBtnText}>Get to work</Text>
+                <Text style={styles.shortcutBtnText}>Take me to work</Text>
               </Pressable>
             )}
           </View>
@@ -2338,7 +2342,7 @@ export default function ConverseScreen() {
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
               <Ionicons name="create-outline" size={14} color="#cbe8ff" />
-              <Text style={styles.textFallbackTitle}>Type the trip instead</Text>
+              <Text style={styles.textFallbackTitle}>Type it instead</Text>
             </View>
             <Text style={styles.textFallbackBody}>
               Keep it short. Ace will still handle the rest.
@@ -2398,7 +2402,7 @@ export default function ConverseScreen() {
 
         {(isIdle || isError) && turns.length > 0 && (
           <Pressable onPress={() => reset()} style={styles.clearBtn} hitSlop={12}>
-            <Text style={styles.clearBtnText}>Clear</Text>
+            <Text style={styles.clearBtnText}>Start fresh</Text>
           </Pressable>
         )}
       </View>
