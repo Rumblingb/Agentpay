@@ -108,12 +108,12 @@ function baseAuraOpacityForPhase(phase: AppPhase): number {
 }
 
 function baseTextureOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.26;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.34;
-  if (phase === 'confirming') return 0.22;
-  if (phase === 'done') return 0.26;
-  if (phase === 'error') return 0.16;
-  return 0.2;
+  if (phase === 'listening') return 0.44;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.56;
+  if (phase === 'confirming') return 0.34;
+  if (phase === 'done') return 0.46;
+  if (phase === 'error') return 0.26;
+  return 0.38;
 }
 
 const GLOW_COLOR: Record<AppPhase, string> = {
@@ -236,7 +236,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceLift.value = withRepeat(withSequence(t(-3, 2400), t(0, 2400)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.32, 2400), t(0.22, 2400)), -1, false);
       contourOpacity.value = withRepeat(withSequence(t(0.54, 2400), t(0.46, 2400)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.22, 2400), t(0.17, 2400)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.42, 2400), t(0.34, 2400)), -1, false);
     }
 
     if (phase === 'listening') {
@@ -244,7 +244,7 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceScale.value = withRepeat(withSequence(t(1.026, 1050), t(1, 1050)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.46, 850), t(0.34, 850)), -1, false);
       contourOpacity.value = t(0.62, 280);
-      textureOpacity.value = withRepeat(withSequence(t(0.28, 900), t(0.22, 900)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.48, 900), t(0.38, 900)), -1, false);
       ring1Opacity.value = withRepeat(withSequence(
         t(0.26, 1, Easing.linear),
         t(0, 1800, Easing.in(Easing.quad)),
@@ -269,14 +269,14 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceLift.value = withRepeat(withSequence(t(-2, 900), t(0, 900)), -1, false);
       auraOpacity.value = withRepeat(withSequence(t(0.56, 760), t(0.34, 760)), -1, false);
       contourOpacity.value = withRepeat(withSequence(t(0.72, 760), t(0.56, 760)), -1, false);
-      textureOpacity.value = withRepeat(withSequence(t(0.38, 760), t(0.28, 760)), -1, false);
+      textureOpacity.value = withRepeat(withSequence(t(0.62, 760), t(0.46, 760)), -1, false);
     }
 
     if (phase === 'confirming') {
       glowOpacity.value = t(0.42, 320);
       contourOpacity.value = t(0.72, 320);
       auraOpacity.value = t(0.36, 320);
-      textureOpacity.value = t(0.22, 320);
+      textureOpacity.value = t(0.36, 320);
     }
 
     if (phase === 'done') {
@@ -285,14 +285,14 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowOpacity.value = t(0.5, 320);
       contourOpacity.value = t(0.64, 320);
       auraOpacity.value = t(0.4, 320);
-      textureOpacity.value = t(0.28, 320);
+      textureOpacity.value = t(0.5, 320);
     }
 
     if (phase === 'error') {
       glowOpacity.value = t(0.34, 260);
       contourOpacity.value = t(0.54, 260);
       auraOpacity.value = t(0.24, 260);
-      textureOpacity.value = t(0.16, 260);
+      textureOpacity.value = t(0.24, 260);
     }
   }, [
     auraOpacity,
@@ -425,10 +425,10 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
           <AnimatedG animatedProps={textureProps as any} clipPath="url(#faceClip)">
             <SvgImage
               href={FACE_RENDER_ASSET.uri}
-              x={18}
-              y={20}
-              width={234}
-              height={266}
+              x={12}
+              y={12}
+              width={246}
+              height={282}
               preserveAspectRatio="xMidYMid slice"
             />
           </AnimatedG>
