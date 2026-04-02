@@ -182,10 +182,14 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       { shouldPlay: true, volume: 1.0 },
     );
     activeSound = sound;
-    options?.onStart?.();
+    let playbackStarted = false;
 
     await new Promise<void>((resolve) => {
       sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.isPlaying && !playbackStarted) {
+          playbackStarted = true;
+          options?.onStart?.();
+        }
         // Resolve on natural finish OR when unloaded by cancelSpeech() interrupt.
         if ((status.isLoaded && status.didJustFinish) || !status.isLoaded) {
           void stopActivePlayback().finally(resolve);
