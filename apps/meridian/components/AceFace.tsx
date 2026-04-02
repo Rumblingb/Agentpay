@@ -172,8 +172,8 @@ const ACCENT: Record<AppPhase, string> = {
   error:      '#fff3f5',
 };
 
-// Face body: rich dark gradient — top-left lit, bottom-right recedes into shadow.
-// These are solid, opaque colours. The face has genuine material presence.
+// Face shell: luminous silver gradient — top-left lit, bottom-right deepens for mass.
+// The phase tint lives at the edges, but the dominant read should stay pearl-white/silver.
 const FACE_TOP: Record<AppPhase, string> = {
   idle:       '#f5f9ff',
   listening:  '#ffffff',
@@ -195,16 +195,16 @@ const FACE_BOT: Record<AppPhase, string> = {
   error:      '#c9a7af',
 };
 
-// Eyelid colour tracks face top — seamless, same material
+// Eyelids fade into the true app background so they read as a lid, not a slab.
 const LID_FILL_MAP: Record<AppPhase, string> = {
-  idle:       '#b2c0d3',
-  listening:  '#c0cede',
-  thinking:   '#a8b7ca',
-  confirming: '#cabda8',
-  hiring:     '#a8b7ca',
-  executing:  '#b8c6d8',
-  done:       '#aacaba',
-  error:      '#cfb2b9',
+  idle:       '#080808',
+  listening:  '#080808',
+  thinking:   '#080808',
+  confirming: '#080808',
+  hiring:     '#080808',
+  executing:  '#080808',
+  done:       '#080808',
+  error:      '#080808',
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -227,8 +227,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
   const ring2S     = useSharedValue(1);
   const ring2O     = useSharedValue(0);
   const fieldS     = useSharedValue(1);
-  const fieldO     = useSharedValue(0.18);
-  const filamentO  = useSharedValue(0.1);
+  const fieldO     = useSharedValue(0.32);
+  const filamentO  = useSharedValue(0.24);
   const mouthCurve = useSharedValue(0);
   const mouthO     = useSharedValue(0.52);
 
@@ -319,8 +319,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     ring1S.value = 1; ring1O.value = 0;
     ring2S.value = 1; ring2O.value = 0;
     fieldS.value = T(1, 220);
-    fieldO.value = T(0.18, 220);
-    filamentO.value = T(0.1, 220);
+    fieldO.value = T(0.32, 220);
+    filamentO.value = T(0.24, 220);
 
     // ── Idle ──────────────────────────────────────────────────────────────
     if (phase === 'idle') {
@@ -352,8 +352,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ), -1, false);
 
       faceLift.value = withRepeat(withSequence(T(-3, 2600), T(0, 2600)), -1, false);
-      fieldO.value = withRepeat(withSequence(T(0.18, 2800), T(0.12, 2800)), -1, false);
-      filamentO.value = withRepeat(withSequence(T(0.12, 2800), T(0.06, 2800)), -1, false);
+      fieldO.value = withRepeat(withSequence(T(0.32, 2800), T(0.26, 2800)), -1, false);
+      filamentO.value = withRepeat(withSequence(T(0.24, 2800), T(0.18, 2800)), -1, false);
     }
 
     // ── Listening ─────────────────────────────────────────────────────────
@@ -375,8 +375,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       ), -1, false));
       faceS.value = withRepeat(withSequence(T(1.028, 1100), T(1, 1100)), -1, false);
       fieldS.value = withRepeat(withSequence(T(1.018, 1100), T(1, 1100)), -1, false);
-      fieldO.value = T(0.24, 280);
-      filamentO.value = withRepeat(withSequence(T(0.18, 820), T(0.1, 820)), -1, false);
+      fieldO.value = T(0.38, 280);
+      filamentO.value = withRepeat(withSequence(T(0.30, 820), T(0.24, 820)), -1, false);
     }
 
     // ── Thinking / hiring / executing ─────────────────────────────────────
@@ -384,8 +384,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       glowS.value = withRepeat(withSequence(T(1.05, 1000), T(1, 1000)), -1, false);
       faceLift.value = withRepeat(withSequence(T(-2, 900), T(0, 900)), -1, false);
       fieldS.value = withRepeat(withSequence(T(1.024, 900), T(1, 900)), -1, false);
-      fieldO.value = withRepeat(withSequence(T(0.3, 900), T(0.16, 900)), -1, false);
-      filamentO.value = withRepeat(withSequence(T(0.28, 760), T(0.12, 760)), -1, false);
+      fieldO.value = withRepeat(withSequence(T(0.45, 900), T(0.34, 900)), -1, false);
+      filamentO.value = withRepeat(withSequence(T(0.38, 760), T(0.26, 760)), -1, false);
       // Asymmetric stagger blink
       lidL.value = withRepeat(withSequence(
         withDelay(2100, T(1, 105, Easing.in(Easing.quad))),
@@ -400,8 +400,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
     // ── Confirming ────────────────────────────────────────────────────────
     if (phase === 'confirming') {
       glowO.value = T(0.52, 380);
-      fieldO.value = T(0.2, 320);
-      filamentO.value = T(0.11, 320);
+      fieldO.value = T(0.28, 320);
+      filamentO.value = T(0.18, 320);
     }
 
     // ── Done ──────────────────────────────────────────────────────────────
@@ -409,15 +409,15 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
       faceS.value    = withSpring(1.05, { damping: 14, stiffness: 180 });
       faceLift.value = withSpring(-4,   { damping: 12, stiffness: 150 });
       glowO.value    = T(0.66, 380);
-      fieldO.value   = T(0.22, 320);
-      filamentO.value = T(0.13, 320);
+      fieldO.value   = T(0.30, 320);
+      filamentO.value = T(0.20, 320);
     }
 
     // ── Error ─────────────────────────────────────────────────────────────
     if (phase === 'error') {
       glowO.value = T(0.54, 300);
-      fieldO.value = T(0.14, 260);
-      filamentO.value = T(0.08, 260);
+      fieldO.value = T(0.22, 260);
+      filamentO.value = T(0.16, 260);
     }
   }, [
     faceLift, faceS, gazeX, gazeY, glowO, glowS,
@@ -486,11 +486,11 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
         preserveAspectRatio="xMidYMid meet"
       >
           <Defs>
-            {/* Face body — opaque dark glass, lit from top-left */}
+            {/* Face shell — silver hologram with enough density to register on black */}
             <LinearGradient id="faceGrad" x1="0.18" y1="0.08" x2="0.88" y2="0.92">
-              <Stop offset="0"    stopColor={faceTop} stopOpacity="0.26" />
-              <Stop offset="0.52" stopColor={accentColor} stopOpacity="0.10" />
-              <Stop offset="1"    stopColor={faceBot} stopOpacity="0.20" />
+              <Stop offset="0"    stopColor={faceTop} stopOpacity="0.58" />
+              <Stop offset="0.52" stopColor={accentColor} stopOpacity="0.18" />
+              <Stop offset="1"    stopColor={faceBot} stopOpacity="0.30" />
             </LinearGradient>
 
             {/* Key light — directional top-left specular (3D mass illusion) */}
