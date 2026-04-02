@@ -1797,7 +1797,7 @@ export default function ConverseScreen() {
       <View style={styles.header}>
         <View style={styles.headerBrand}>
           <View style={styles.headerMarkWrap}>
-            <AceMark size={26} />
+            <AceMark size={34} />
           </View>
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
@@ -1829,7 +1829,9 @@ export default function ConverseScreen() {
               <Text style={styles.emptyGreeting}>
                 {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
               </Text>
-              <AceMark size={94} />
+              <View style={styles.heroLogoWrap}>
+                <AceMark size={86} />
+              </View>
               <Text style={styles.heroExample}>{heroExample}</Text>
               <Text style={styles.heroResponse}>{heroResponse}</Text>
               {preferredTravelUnit && (
@@ -2419,8 +2421,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerMarkWrap: {
-    width: 28,
-    height: 28,
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2483,6 +2485,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     letterSpacing: -1.0,
     lineHeight: 44,
+  },
+  heroLogoWrap: {
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 4,
   },
   heroExample: {
     marginTop: 22,
