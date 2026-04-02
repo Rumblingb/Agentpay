@@ -33,7 +33,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../../lib/theme';
 
-import { AceFaceSkia } from '../../components/AceFaceSkia';
+import { AceBrain } from '../../components/AceBrain';
 import { useSharedValue } from 'react-native-reanimated';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
@@ -2370,7 +2370,7 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <AceFaceSkia
+        <AceBrain
           phase={phase}
           isSpeaking={isSpeaking}
           micAmplitude={micAmplitude}

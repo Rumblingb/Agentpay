@@ -145,6 +145,7 @@ export function AceFaceSkia({
   disabled,
 }: Props) {
   const bustImage = useImage(require('../assets/ace-face-render.png'));
+  const markImage = useImage(require('../assets/ace-mark.png'));
   const facePath  = useMemo(() => Skia.Path.MakeFromSVGString(FACE_PATH_SVG), []);
 
   // ─── Animation state ──────────────────────────────────────────────────────
@@ -393,6 +394,25 @@ export function AceFaceSkia({
                 width={282} height={298}
                 fit="contain"
               />
+            )}
+            {bustImage === null && markImage !== null && (
+              <SkiaImage
+                image={markImage}
+                x={83}
+                y={82}
+                width={104}
+                height={136}
+                fit="contain"
+                opacity={0.92}
+              />
+            )}
+            {bustImage === null && (
+              <SkiaCircle cx={CX} cy={CY - 4} r={58}>
+                <RadialGradient
+                  c={vec(CX, CY - 4)} r={58}
+                  colors={['rgba(231,241,255,0.28)', 'transparent']}
+                />
+              </SkiaCircle>
             )}
           </SkiaGroup>
 

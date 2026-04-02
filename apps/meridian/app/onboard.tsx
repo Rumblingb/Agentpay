@@ -57,7 +57,7 @@ import { getBiometricLabel } from '../lib/biometric';
 import { requestNotificationPermission } from '../lib/notifications';
 import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
 import { speak, stopSpeaking } from '../lib/tts';
-import { OrbAnimation } from '../components/OrbAnimation';
+import { AceBrain } from '../components/AceBrain';
 import type { AppPhase } from '../lib/store';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
@@ -625,7 +625,7 @@ export default function OnboardScreen() {
 
                 {/* Ace demo — calm during intro, voice-first when ready */}
                 <View style={demoStyles.orbArea}>
-                  <OrbAnimation
+                  <AceBrain
                     phase={demoPhaseTo(demoPhase)}
                     onPress={handleDemoPress}
                     disabled={demoPhase === 'intro' || demoPhase === 'thinking'}
@@ -673,7 +673,7 @@ export default function OnboardScreen() {
 
                 {/* Voice object */}
                 <View style={nameStyles.orbWrap}>
-                  <OrbAnimation
+                  <AceBrain
                     phase={nameThinking ? 'thinking' : nameListening ? 'listening' : nameHeard ? 'done' : 'idle'}
                     onPress={handleNameOrbPress}
                   />
@@ -1137,7 +1137,7 @@ export default function OnboardScreen() {
 
 // ── Demo helpers ──────────────────────────────────────────────────────────
 
-/** Map demo-only phase names to AppPhase for OrbAnimation */
+/** Map demo-only phase names to AppPhase for the shared Ace brain. */
 function demoPhaseTo(dp: string): AppPhase {
   if (dp === 'listening') return 'listening';
   if (dp === 'thinking')  return 'thinking';
