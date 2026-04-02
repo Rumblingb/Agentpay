@@ -911,6 +911,20 @@ export default function ConverseScreen() {
     };
   }, [phase, currencyCode]);
 
+  const armHandsFreeListen = useCallback((silenceMs: number) => {
+    if (!voiceEnabled) return;
+    if (keyboardVisibleRef.current || textFallbackVisibleRef.current) return;
+    if (activeTrip && shouldTreatTripAsLive(activeTrip)) return;
+    phaseRef.current = 'idle';
+    setPhase('idle');
+    nextSilenceMsRef.current = silenceMs;
+    setTimeout(() => {
+      if (!keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+        void beginVoiceCaptureRef.current?.();
+      }
+    }, 80);
+  }, [activeTrip, setPhase, voiceEnabled]);
+
   const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
     if (!voiceEnabled) return;
     setIsSpeaking(true);
@@ -923,11 +937,10 @@ export default function ConverseScreen() {
       const cur = phaseRef.current;
       // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
       if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
-        nextSilenceMsRef.current = 1600;
-        void beginVoiceCaptureRef.current?.();
+        armHandsFreeListen(1600);
       }
     }
-  }, [voiceEnabled]);
+  }, [armHandsFreeListen, voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
     cancelSpeech();
@@ -1591,20 +1604,22 @@ export default function ConverseScreen() {
 
   const beginVoiceCapture = useCallback(async () => {
     if (!voiceEnabled) return;
-    if (phase !== 'idle' && phase !== 'error') return;
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== 'idle' && currentPhase !== 'error') return;
     cancelSpeech();
-    if (phase === 'error') reset();
+    if (currentPhase === 'error') reset();
     setTextFallbackVisible(false);
     setError(null);
     setPhase('listening');
+    phaseRef.current = 'listening';
     voiceCaptureStartedAtRef.current = Date.now();
     logConverseEvent({
       event: 'voice_capture_started',
-      metadata: { fromPhase: phase },
+      metadata: { fromPhase: currentPhase },
     });
     logConverseEvent({
       event: 'voice_session_start',
-      metadata: { fromPhase: phase },
+      metadata: { fromPhase: currentPhase },
     });
     try {
       const silenceMs = nextSilenceMsRef.current;
@@ -1631,7 +1646,7 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [finishVoiceCapture, logConverseEvent, phase, reset, setError, voiceEnabled]);
+  }, [finishVoiceCapture, logConverseEvent, reset, setError, voiceEnabled]);
 
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;

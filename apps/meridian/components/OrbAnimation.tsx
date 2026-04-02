@@ -227,7 +227,7 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
             <Animated.View style={[styles.markStage, { shadowColor, transform: [{ rotate: heading }] }]}>
               <Image
                 // eslint-disable-next-line @typescript-eslint/no-require-imports
-                source={require('../assets/ace-mark.png')}
+                source={require('../assets/adaptive-icon.png')}
                 style={styles.markImage}
                 resizeMode="contain"
               />
