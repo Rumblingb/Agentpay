@@ -90,21 +90,21 @@ function baseMouthOpacityForPhase(phase: AppPhase): number {
 }
 
 function baseContourOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.62;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.7;
-  if (phase === 'confirming') return 0.58;
-  if (phase === 'done') return 0.64;
-  if (phase === 'error') return 0.42;
-  return 0.5;
+  if (phase === 'listening') return 0.48;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.56;
+  if (phase === 'confirming') return 0.46;
+  if (phase === 'done') return 0.52;
+  if (phase === 'error') return 0.34;
+  return 0.38;
 }
 
 function baseAuraOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.42;
-  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.5;
-  if (phase === 'confirming') return 0.34;
-  if (phase === 'done') return 0.4;
-  if (phase === 'error') return 0.26;
-  return 0.3;
+  if (phase === 'listening') return 0.34;
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.4;
+  if (phase === 'confirming') return 0.28;
+  if (phase === 'done') return 0.32;
+  if (phase === 'error') return 0.2;
+  return 0.22;
 }
 
 function baseTextureOpacityForPhase(phase: AppPhase): number {
