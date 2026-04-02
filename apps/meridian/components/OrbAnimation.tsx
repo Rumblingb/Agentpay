@@ -219,26 +219,27 @@ export function OrbAnimation({ phase, onPress, onPressIn, onPressOut, disabled }
           onPressOut={!onPress ? handlePressOut : undefined}
           disabled={disabled || !isInteractive}
         >
-          <LinearGradient colors={colors} style={[styles.orb, { shadowColor }]}>
-            {phase === 'done' || phase === 'error' ? (
+          {phase === 'done' || phase === 'error' ? (
+            <LinearGradient colors={colors} style={[styles.stateOrb, { shadowColor }]}>
               <Ionicons name={iconName as any} size={iconSize} color={iconColor} />
-            ) : (
-              <Animated.View style={{ transform: [{ rotate: heading }] }}>
-                <Image
-                  // eslint-disable-next-line @typescript-eslint/no-require-imports
-                  source={require('../assets/ace-mark.png')}
-                  style={{ width: 72, height: 88, resizeMode: 'contain' }}
-                />
-              </Animated.View>
-            )}
-          </LinearGradient>
+            </LinearGradient>
+          ) : (
+            <Animated.View style={[styles.markStage, { shadowColor, transform: [{ rotate: heading }] }]}>
+              <Image
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                source={require('../assets/ace-mark.png')}
+                style={styles.markImage}
+                resizeMode="contain"
+              />
+            </Animated.View>
+          )}
         </Pressable>
       </Animated.View>
     </View>
   );
 }
 
-const ORB_SIZE = 120;
+const STATE_ORB_SIZE = 120;
 const GLOW_SIZE = 220;
 const RING_SIZE = 140;
 
@@ -268,10 +269,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     borderColor: 'rgba(220, 236, 255, 0.9)',
   },
-  orb: {
-    width: ORB_SIZE,
-    height: ORB_SIZE,
-    borderRadius: ORB_SIZE / 2,
+  stateOrb: {
+    width: STATE_ORB_SIZE,
+    height: STATE_ORB_SIZE,
+    borderRadius: STATE_ORB_SIZE / 2,
     borderWidth: 1,
     borderColor: 'rgba(235, 244, 255, 0.14)',
     alignItems: 'center',
@@ -280,5 +281,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.55,
     shadowRadius: 30,
     elevation: 15,
+  },
+  markStage: {
+    width: 126,
+    height: 126,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 26,
+    elevation: 12,
+  },
+  markImage: {
+    width: 118,
+    height: 118,
   },
 });

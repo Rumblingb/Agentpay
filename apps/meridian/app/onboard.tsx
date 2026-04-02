@@ -1061,7 +1061,7 @@ export default function OnboardScreen() {
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <>
-                        <Ionicons name="mic" size={20} color="#fff" />
+                        <Ionicons name="sparkles-outline" size={20} color="#fff" />
                         <Text style={styles.btnText}>Start with Ace</Text>
                       </>
                     )}
