@@ -11,6 +11,10 @@ let activeUri: string | null = null;
 let activeSpeechResolver: (() => void) | null = null;
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
+interface SpeakBroOptions {
+  onStart?: () => void;
+}
+
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -96,7 +100,7 @@ async function requestVoiceAudio(text: string): Promise<string | null> {
   return arrayBuffer ? arrayBufferToBase64(arrayBuffer) : null;
 }
 
-async function playSystemVoice(text: string): Promise<void> {
+async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise<void> {
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: false,
     playsInSilentModeIOS: true,
@@ -115,6 +119,7 @@ async function playSystemVoice(text: string): Promise<void> {
     };
 
     activeSpeechResolver = finish;
+    options?.onStart?.();
     Speech.speak(text, {
       language: 'en-GB',
       pitch: 0.96,
@@ -126,7 +131,7 @@ async function playSystemVoice(text: string): Promise<void> {
   });
 }
 
-export async function speakBro(text: string): Promise<void> {
+export async function speakBro(text: string, options?: SpeakBroOptions): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) {
     return;
@@ -147,7 +152,7 @@ export async function speakBro(text: string): Promise<void> {
           textLength: trimmed.length,
         },
       });
-      await playSystemVoice(trimmed);
+      await playSystemVoice(trimmed, options);
       void trackClientEvent({
         event: 'tts_played',
         screen: 'voice',
@@ -177,6 +182,7 @@ export async function speakBro(text: string): Promise<void> {
       { shouldPlay: true, volume: 1.0 },
     );
     activeSound = sound;
+    options?.onStart?.();
 
     await new Promise<void>((resolve) => {
       sound.setOnPlaybackStatusUpdate((status) => {
@@ -208,7 +214,7 @@ export async function speakBro(text: string): Promise<void> {
       },
     });
     try {
-      await playSystemVoice(trimmed);
+      await playSystemVoice(trimmed, options);
       void trackClientEvent({
         event: 'tts_played',
         screen: 'voice',

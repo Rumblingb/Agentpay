@@ -56,8 +56,8 @@ const CX = CW / 2;
 const CY = CH / 2;
 const GLOW_R = 132;
 const RING_R = 94;
-const MOUTH_Y = 216;
-const MOUTH_HW = 23;
+const MOUTH_Y = 189;
+const MOUTH_HW = 18;
 
 const FACE_PATH =
   'M 135 44 C 174 47 205 88 202 148 C 199 205 176 252 135 268 C 94 252 71 205 68 148 C 65 88 96 47 135 44 Z';
@@ -82,11 +82,11 @@ function baseMouthCurveForPhase(phase: AppPhase): number {
 }
 
 function baseMouthOpacityForPhase(phase: AppPhase): number {
-  if (phase === 'listening') return 0.56;
+  if (phase === 'listening') return 0.3;
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.36;
   if (phase === 'done') return 0.82;
   if (phase === 'error') return 0.48;
-  return 0.52;
+  return 0.28;
 }
 
 function baseContourOpacityForPhase(phase: AppPhase): number {
@@ -316,12 +316,12 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
     if (isSpeaking) {
       mouthCurve.value = withRepeat(withSequence(
-        withTiming(4.6, { duration: 130, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0.8, { duration: 145, easing: Easing.inOut(Easing.sin) }),
-        withTiming(3.8, { duration: 120, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0.4, { duration: 150, easing: Easing.inOut(Easing.sin) }),
+        withTiming(3.6, { duration: 120, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0.3, { duration: 135, easing: Easing.inOut(Easing.sin) }),
+        withTiming(3.0, { duration: 110, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0.2, { duration: 140, easing: Easing.inOut(Easing.sin) }),
       ), -1, false);
-      mouthOpacity.value = withTiming(0.92, { duration: 180 });
+      mouthOpacity.value = withTiming(0.96, { duration: 120 });
     } else {
       mouthCurve.value = withTiming(baseMouthCurveForPhase(phase), { duration: 220 });
       mouthOpacity.value = withTiming(baseMouthOpacityForPhase(phase), { duration: 200 });
@@ -425,11 +425,11 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
           <AnimatedG animatedProps={textureProps as any} clipPath="url(#faceClip)">
             <SvgImage
               href={FACE_RENDER_ASSET.uri}
-              x={12}
-              y={12}
-              width={246}
-              height={282}
-              preserveAspectRatio="xMidYMid slice"
+              x={-2}
+              y={8}
+              width={274}
+              height={290}
+              preserveAspectRatio="xMidYMid meet"
             />
           </AnimatedG>
           <Path d={FACE_PATH} fill="url(#keyLight)" clipPath="url(#faceClip)" />
@@ -455,8 +455,8 @@ export function AceFace({ phase, isSpeaking, onPress, disabled }: Props) {
 
           <AnimatedPath
             fill="none"
-            stroke="rgba(244,248,255,0.92)"
-            strokeWidth={3.8}
+            stroke="rgba(230,244,255,0.98)"
+            strokeWidth={2.8}
             strokeLinecap="round"
             animatedProps={mouthProps as any}
           />

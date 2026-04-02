@@ -927,9 +927,15 @@ export default function ConverseScreen() {
 
   const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
     if (!voiceEnabled) return;
-    setIsSpeaking(true);
+    let speakingStarted = false;
     try {
-      await speakBro(sanitizeAceNarration(text));
+      await speakBro(sanitizeAceNarration(text), {
+        onStart: () => {
+          if (speakingStarted) return;
+          speakingStarted = true;
+          setIsSpeaking(true);
+        },
+      });
     } finally {
       setIsSpeaking(false);
     }
