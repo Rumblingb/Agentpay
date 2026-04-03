@@ -142,10 +142,19 @@ Make Ace feel attentive and alive, not phase-switched.
 Goal:
 Turn the brain into the base of the Ace empire.
 
+Reference:
+- `docs/ACE_BRAIN_RENDER_PACK_SPEC.md`
+
 ### P2 Tasks
 
 1. Final bust master
-   - Replace the interim render with a higher-end sculptural source
+   - Replace the interim render with a full render pack, not just one PNG
+   - Required pack:
+     - beauty
+     - alpha
+     - depth
+     - mouth mask
+     - focus mask
    - Keep dimensions and fit aligned with the shipping component
 
 2. Final sigil master
@@ -202,10 +211,11 @@ Turn the brain into the base of the Ace empire.
 - [ ] Tune Skia face on real devices, especially older iPhones and Android
 - [ ] Decide whether the bust art source is good enough to keep or should be replaced
 - [ ] Tighten onboarding intensity so it teaches the same language with calmer motion
+- [ ] Prepare the render-pack drop-in path so the next art upgrade is surgical, not architectural
 
 ### P2 Later
 
-- [ ] Final bust art source
+- [ ] Final bust render pack
 - [ ] Final sigil art source
 - [ ] Cross-app Ace brain contract
 - [ ] Full mobile QA sweep

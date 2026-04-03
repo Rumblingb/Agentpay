@@ -60,6 +60,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import type { AppPhase } from '../lib/store';
 import { useAceMotion } from '../lib/aceMotion';
+import { ACE_BRAIN_RENDER_PACK } from '../lib/aceBrainRenderPack';
 import type { AceBrainMode } from './AceBrain';
 
 interface Props {
@@ -171,8 +172,8 @@ export function AceFaceSkia({
   onPress,
   disabled,
 }: Props) {
-  const bustImage = useImage(require('../assets/ace-face-render.png'));
-  const markImage = useImage(require('../assets/ace-mark.png'));
+  const bustImage = useImage(ACE_BRAIN_RENDER_PACK.beauty);
+  const markImage = useImage(ACE_BRAIN_RENDER_PACK.sigilFallback);
   const facePath  = useMemo(() => Skia.Path.MakeFromSVGString(FACE_PATH_SVG), []);
   const { tiltX, tiltY } = useAceMotion(!disabled);
   const motionFactor = mode === 'onboarding' ? 0.45 : 1;
