@@ -6,6 +6,7 @@ import type { AppPhase } from '../lib/store';
 import { AceFace } from './AceFace';
 
 export type AceBrainMode = 'conversation' | 'onboarding';
+const ACE_3D_RUNTIME_ENABLED = false;
 const MIN_ACE_3D_NATIVE_BUILD = 10;
 
 type AceFaceRuntimeComponent = React.ComponentType<{
@@ -34,8 +35,8 @@ function getNativeBuildNumber(): number | null {
   return Number.isFinite(parsedBuild) ? parsedBuild : null;
 }
 
-function hasGLViewSupport(): boolean {
-  if (Platform.OS === 'web') {
+function hasGLViewSupport(mode: AceBrainMode): boolean {
+  if (!ACE_3D_RUNTIME_ENABLED || mode !== 'conversation' || Platform.OS === 'web') {
     return false;
   }
 
@@ -47,8 +48,8 @@ function hasGLViewSupport(): boolean {
   return UIManager.getViewManagerConfig?.('ExponentGLView') != null;
 }
 
-function getAceFace3DImpl(): AceFaceRuntimeComponent | null {
-  if (!hasGLViewSupport()) {
+function getAceFace3DImpl(mode: AceBrainMode): AceFaceRuntimeComponent | null {
+  if (!hasGLViewSupport(mode)) {
     return null;
   }
 
@@ -123,7 +124,7 @@ export function AceBrain({
 }: Props) {
   const silentMic = useSharedValue(0);
   const silentTts = useSharedValue(0);
-  const AceFace3DRuntime = getAceFace3DImpl();
+  const AceFace3DRuntime = getAceFace3DImpl(mode);
   const legacyFace = (
     <AceFace
       phase={phase}
