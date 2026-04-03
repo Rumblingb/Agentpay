@@ -1,11 +1,12 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { AppPhase } from '../lib/store';
 import { AceFace } from './AceFace';
 
 export type AceBrainMode = 'conversation' | 'onboarding';
 
-type AceFaceSkiaComponent = React.ComponentType<{
+type AceFaceRuntimeComponent = React.ComponentType<{
   phase: AppPhase;
   isSpeaking: boolean;
   mode?: AceBrainMode;
@@ -15,13 +16,57 @@ type AceFaceSkiaComponent = React.ComponentType<{
   disabled?: boolean;
 }>;
 
-let AceFaceSkiaImpl: AceFaceSkiaComponent | null = null;
+let AceFace3DImpl: AceFaceRuntimeComponent | null = null;
+let AceFaceSkiaImpl: AceFaceRuntimeComponent | null = null;
 
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  AceFaceSkiaImpl = require('./AceFaceSkia').AceFaceSkia as AceFaceSkiaComponent;
+  AceFace3DImpl = require('./AceFace3D').AceFace3D as AceFaceRuntimeComponent;
+} catch {
+  AceFace3DImpl = null;
+}
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  AceFaceSkiaImpl = require('./AceFaceSkia').AceFaceSkia as AceFaceRuntimeComponent;
 } catch {
   AceFaceSkiaImpl = null;
+}
+
+function shouldUse3D(mode: AceBrainMode): boolean {
+  return mode === 'conversation' && Platform.OS !== 'web' && AceFace3DImpl !== null;
+}
+
+interface RuntimeFallbackBoundaryProps {
+  fallback: React.ReactNode;
+  children: React.ReactNode;
+}
+
+interface RuntimeFallbackBoundaryState {
+  hasError: boolean;
+}
+
+class RuntimeFallbackBoundary extends React.Component<
+  RuntimeFallbackBoundaryProps,
+  RuntimeFallbackBoundaryState
+> {
+  state: RuntimeFallbackBoundaryState = {
+    hasError: false,
+  };
+
+  static getDerivedStateFromError(): RuntimeFallbackBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch() {}
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+
+    return this.props.children;
+  }
 }
 
 interface Props {
@@ -45,22 +90,7 @@ export function AceBrain({
 }: Props) {
   const silentMic = useSharedValue(0);
   const silentTts = useSharedValue(0);
-
-  if (AceFaceSkiaImpl) {
-    return (
-      <AceFaceSkiaImpl
-        phase={phase}
-        isSpeaking={isSpeaking}
-        mode={mode}
-        micAmplitude={micAmplitude ?? silentMic}
-        ttsAmplitude={ttsAmplitude ?? silentTts}
-        onPress={onPress}
-        disabled={disabled}
-      />
-    );
-  }
-
-  return (
+  const legacyFace = (
     <AceFace
       phase={phase}
       isSpeaking={isSpeaking}
@@ -70,4 +100,24 @@ export function AceBrain({
       disabled={disabled}
     />
   );
+  const runtimeProps = {
+    phase,
+    isSpeaking,
+    mode,
+    micAmplitude: micAmplitude ?? silentMic,
+    ttsAmplitude: ttsAmplitude ?? silentTts,
+    onPress,
+    disabled,
+  };
+  const fallbackFace = AceFaceSkiaImpl ? <AceFaceSkiaImpl {...runtimeProps} /> : legacyFace;
+
+  if (shouldUse3D(mode) && AceFace3DImpl) {
+    return (
+      <RuntimeFallbackBoundary fallback={fallbackFace}>
+        <AceFace3DImpl {...runtimeProps} />
+      </RuntimeFallbackBoundary>
+    );
+  }
+
+  return fallbackFace;
 }
