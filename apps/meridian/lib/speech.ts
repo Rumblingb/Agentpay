@@ -20,7 +20,7 @@ const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 function missingBroKeyMessage(): string {
-  return 'This Ace build needs an update before it can handle live trips. Please install the latest beta and try again.';
+  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {

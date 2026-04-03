@@ -29,20 +29,20 @@ export type AceBrainRenderPack = {
 export const ACE_BRAIN_RENDER_PACK: AceBrainRenderPack = {
   beauty: require('../assets/ace-face-render.png'),
   sigilFallback: require('../assets/ace-mark.png'),
-  alpha: null,
-  depth: null,
-  mouthMask: null,
-  focusMask: null,
-  specular: null,
+  alpha: require('../assets/ace-face-alpha.png'),
+  depth: require('../assets/ace-face-depth.png'),
+  mouthMask: require('../assets/ace-face-mouth-mask.png'),
+  focusMask: require('../assets/ace-face-focus-mask.png'),
+  specular: require('../assets/ace-face-specular.png'),
 };
 
 export const ACE_BRAIN_RENDER_PACK_STATUS = {
   hasBeauty: true,
-  hasAlpha: false,
-  hasDepth: false,
-  hasMouthMask: false,
-  hasFocusMask: false,
-  hasSpecular: false,
+  hasAlpha: true,
+  hasDepth: true,
+  hasMouthMask: true,
+  hasFocusMask: true,
+  hasSpecular: true,
 } as const;
 
 export function hasAceBrainDeformationPack(): boolean {

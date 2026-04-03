@@ -64,7 +64,7 @@ const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 
 function missingBroKeyMessage(): string {
-  return 'This Ace build needs an update before it can handle live trips. Please install the latest beta and try again.';
+  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
@@ -347,7 +347,7 @@ export default function OnboardScreen() {
       },
     }).catch(() => {
       setNameListening(false);
-      setNameHint('Ace needs microphone access to hear your name. You can type it below instead.');
+      setNameHint('Ace needs microphone access to hear you. You can enter your name below instead.');
     });
   }, [completeNameCapture, nameListening, nameThinking, step]);
 
@@ -461,7 +461,7 @@ export default function OnboardScreen() {
       }
     } catch (e: any) {
       // mic permission denied or recording failed
-      setVoiceFillHint('Ace needs microphone access for voice setup. Please type your details below.');
+      setVoiceFillHint('Ace needs microphone access for voice setup. You can enter your details below instead.');
     } finally {
       setVoiceFilling(false);
     }
@@ -668,7 +668,7 @@ export default function OnboardScreen() {
                     ? `I heard "${nameHeard}" — is that right?`
                     : nameListening
                       ? 'Ace is listening for your name.'
-                      : 'Say your name. Ace will catch it.'}
+                      : 'Say your name once. Ace will catch it.'}
                 </Text>
                 {nameHint ? <Text style={profileStyles.voiceHint}>{nameHint}</Text> : null}
 
@@ -686,7 +686,7 @@ export default function OnboardScreen() {
                   style={[styles.input, { marginTop: 16 }]}
                   value={userName}
                   onChangeText={(t) => { setUserName(t); setNameHeard(t); }}
-                  placeholder="Or type your name"
+                  placeholder="Enter your name instead"
                   placeholderTextColor="#374151"
                   autoCapitalize="words"
                   returnKeyType="next"

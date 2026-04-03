@@ -18,7 +18,7 @@ function requiresBroKey(path: string): boolean {
 }
 
 function missingBroKeyMessage(): string {
-  return 'This Ace build needs an update before it can handle live trips. Please install the latest beta and try again.';
+  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<Response> {

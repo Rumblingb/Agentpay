@@ -86,6 +86,10 @@ const GLOW_R  = 144;
 const RING_R  = 122;  // Starts clearly outside the face oval edge — no mic-button shape
 const MOUTH_Y = 234;  // Anatomically correct lower-lip (was 193 = nose bridge)
 const MOUTH_HW = 20;
+const BUST_X = -6;
+const BUST_Y = 4;
+const BUST_W = 282;
+const BUST_H = 298;
 
 // Egg-shaped oval
 const FACE_PATH_SVG =
@@ -139,6 +143,15 @@ function baseFocusLift(phase: AppPhase): number {
   return 0;
 }
 
+function baseGazeVoidOpacity(phase: AppPhase): number {
+  if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.34;
+  if (phase === 'listening') return 0.3;
+  if (phase === 'confirming') return 0.26;
+  if (phase === 'done') return 0.24;
+  if (phase === 'error') return 0.28;
+  return 0.22;
+}
+
 const GLOW_COLOR: Record<AppPhase, string> = {
   idle:       '#eef4ff',
   listening:  '#ffffff',
@@ -173,11 +186,22 @@ export function AceFaceSkia({
   disabled,
 }: Props) {
   const bustImage = useImage(ACE_BRAIN_RENDER_PACK.beauty);
+  const alphaImage = useImage(ACE_BRAIN_RENDER_PACK.alpha);
+  const depthImage = useImage(ACE_BRAIN_RENDER_PACK.depth);
+  const mouthMaskImage = useImage(ACE_BRAIN_RENDER_PACK.mouthMask);
+  const focusMaskImage = useImage(ACE_BRAIN_RENDER_PACK.focusMask);
   const markImage = useImage(ACE_BRAIN_RENDER_PACK.sigilFallback);
+  const specularImage = useImage(ACE_BRAIN_RENDER_PACK.specular);
   const facePath  = useMemo(() => Skia.Path.MakeFromSVGString(FACE_PATH_SVG), []);
   const { tiltX, tiltY } = useAceMotion(!disabled);
   const motionFactor = mode === 'onboarding' ? 0.45 : 1;
   const energyFactor = mode === 'onboarding' ? 0.78 : 1;
+  const hasDeformationPack =
+    alphaImage !== null &&
+    depthImage !== null &&
+    mouthMaskImage !== null &&
+    focusMaskImage !== null &&
+    specularImage !== null;
 
   // ─── Animation state ──────────────────────────────────────────────────────
 
@@ -252,6 +276,27 @@ export function AceFaceSkia({
     ];
   });
 
+  const gazeVoidTransform = useDerivedValue(() => {
+    const anchorY = CY - 44;
+    return [
+      { translateX: CX + tiltX.value * 4 * motionFactor },
+      { translateY: anchorY - tiltY.value * 4 * motionFactor + focusLift.value * 0.18 },
+      { scale: 1 + focusOpacity.value * 0.06 },
+      { translateX: -CX },
+      { translateY: -anchorY },
+    ];
+  });
+
+  const deformationDepthTransform = useDerivedValue(() => [
+    { translateX: tiltX.value * 4 * motionFactor },
+    { translateY: -tiltY.value * 5 * motionFactor + focusLift.value * 0.18 },
+  ]);
+
+  const deformationSpecularTransform = useDerivedValue(() => [
+    { translateX: -tiltX.value * 11 * motionFactor },
+    { translateY: -tiltY.value * 9 * motionFactor - focusLift.value * 0.24 },
+  ]);
+
   const lowerFaceTransform = useDerivedValue(() => {
     const anchorY = CY + 58;
     return [
@@ -266,9 +311,9 @@ export function AceFaceSkia({
   // ─── Audio-reactive corona (UI thread, every frame) ───────────────────────
 
   const speechEnergy = useDerivedValue(() => {
-    const level = ttsAmplitude?.value ?? 0;
-    const floor = isSpeaking ? 0.12 : 0;
-    return Math.max(floor, Math.min(1, level));
+    const level = Math.max(0, Math.min(1, ttsAmplitude?.value ?? 0));
+    const floor = isSpeaking ? 0.08 : 0;
+    return Math.min(1, Math.pow(Math.max(level, floor), 0.82));
   });
 
   const coronaRadius = useDerivedValue(() => {
@@ -286,17 +331,83 @@ export function AceFaceSkia({
 
   const coronaVisualOpacity = useDerivedValue(() => coronaOpacity.value * energyFactor);
 
+  const gazeVoidOpacity = useDerivedValue(() => {
+    const phaseBase = baseGazeVoidOpacity(phase);
+    return Math.min(0.58, phaseBase + speechEnergy.value * 0.08 + focusOpacity.value * 0.16);
+  });
+
+  const liveMouthCurve = useDerivedValue(() => {
+    if (!isSpeaking) return mouthCurve.value;
+    const energy = speechEnergy.value * energyFactor;
+    return 0.9 + energy * 6.4;
+  });
+
+  const liveMouthOpacity = useDerivedValue(() => {
+    if (!isSpeaking) return mouthOp.value;
+    const energy = speechEnergy.value * energyFactor;
+    return Math.min(0.96, 0.58 + energy * 0.34);
+  });
+
+  const deformationMouthTransform = useDerivedValue(() => {
+    const anchorY = MOUTH_Y;
+    const energy = speechEnergy.value * energyFactor;
+    const scaleX = 1 + energy * 0.05;
+    const scaleY = 1 + energy * 0.12;
+    return [
+      { translateX: CX + tiltX.value * 2 * motionFactor },
+      { translateY: anchorY + energy * 0.8 },
+      { scaleX },
+      { scaleY },
+      { translateX: -CX },
+      { translateY: -anchorY },
+    ];
+  });
+
+  const alphaAuraOpacity = useDerivedValue(() =>
+    hasDeformationPack ? (0.03 + glowOpacity.value * 0.08) : 0,
+  );
+
+  const depthVisualOpacity = useDerivedValue(() =>
+    hasDeformationPack ? (0.12 + focusOpacity.value * 0.24 + speechEnergy.value * energyFactor * 0.06) : 0,
+  );
+
+  const focusMaskOpacity = useDerivedValue(() => {
+    if (!hasDeformationPack) return 0;
+    const processingBoost =
+      phase === 'thinking' || phase === 'hiring' || phase === 'executing'
+        ? 0.16
+        : phase === 'listening'
+          ? 0.08
+          : 0.04;
+    return Math.min(0.46, focusOpacity.value * 0.9 + processingBoost);
+  });
+
+  const mouthMaskOpacity = useDerivedValue(() =>
+    hasDeformationPack ? liveMouthOpacity.value * (0.18 + speechEnergy.value * energyFactor * 0.28) : 0,
+  );
+
+  const specularVisualOpacity = useDerivedValue(() => {
+    if (!hasDeformationPack) return 0;
+    const phaseBoost =
+      phase === 'thinking' || phase === 'hiring' || phase === 'executing'
+        ? 0.12
+        : phase === 'listening'
+          ? 0.08
+          : 0.04;
+    return Math.min(0.34, 0.06 + phaseBoost + speechEnergy.value * energyFactor * 0.08);
+  });
+
   // ─── GPU-computed mouth path (UI thread) ─────────────────────────────────
 
   const mouthFillPath = useDerivedValue(() => {
     const energy = speechEnergy.value * energyFactor;
-    const widthBoost = 1 + energy * 0.16;
-    const open = mouthOp.value * (energy * 9.5 + (isSpeaking ? 2.3 : 0.5));
+    const widthBoost = isSpeaking ? 1 + energy * 0.22 : 1 + energy * 0.16;
+    const open = liveMouthOpacity.value * (isSpeaking ? 1.4 + energy * 10.8 : energy * 9.5 + 0.5);
     const x0 = CX - MOUTH_HW * widthBoost;
     const x3 = CX + MOUTH_HW * widthBoost;
     const y = MOUTH_Y;
-    const topY = y - mouthCurve.value * 0.62 - open * 0.12;
-    const bottomY = y + open;
+    const topY = y - liveMouthCurve.value * 0.68 - open * 0.1;
+    const bottomY = y + open + (isSpeaking ? energy * 1.4 : energy * 0.7);
     const path = Skia.Path.Make();
     path.moveTo(x0, y);
     path.cubicTo(
@@ -316,14 +427,14 @@ export function AceFaceSkia({
   const mouthLinePath = useDerivedValue(() => {
     const energy = speechEnergy.value * energyFactor;
     const path = Skia.Path.Make();
-    const x0 = CX - MOUTH_HW * (1 + energy * 0.12);
-    const x3 = CX + MOUTH_HW * (1 + energy * 0.12);
+    const x0 = CX - MOUTH_HW * (isSpeaking ? 1 + energy * 0.18 : 1 + energy * 0.12);
+    const x3 = CX + MOUTH_HW * (isSpeaking ? 1 + energy * 0.18 : 1 + energy * 0.12);
     const y = MOUTH_Y;
-    const cp = y - mouthCurve.value - energy * 0.45;
+    const cp = y - liveMouthCurve.value - energy * (isSpeaking ? 0.9 : 0.45);
     path.moveTo(x0, y);
     path.cubicTo(
-      x0 + MOUTH_HW * 0.52, cp,
-      x3 - MOUTH_HW * 0.52, cp,
+      x0 + MOUTH_HW * 0.52 * (1 + energy * 0.08), cp,
+      x3 - MOUTH_HW * 0.52 * (1 + energy * 0.08), cp,
       x3, y,
     );
     return path;
@@ -456,10 +567,8 @@ export function AceFaceSkia({
       withTiming(val, { duration: ms, easing: Easing.inOut(Easing.sin) });
 
     if (isSpeaking) {
-      mouthCurve.value   = withRepeat(withSequence(
-        t(3.1, 150), t(0.9, 160), t(2.6, 140), t(0.4, 165),
-      ), -1, false);
-      mouthOp.value      = t(0.92, 120);
+      mouthCurve.value   = t(1.4, 120);
+      mouthOp.value      = t(0.78, 120);
       coronaActive.value = t(1, 180);
     } else {
       mouthCurve.value   = t(baseMouthCurve(phase), 220);
@@ -530,8 +639,38 @@ export function AceFaceSkia({
               <SkiaGroup transform={bustTransform}>
                 <SkiaImage
                   image={bustImage}
-                  x={-6} y={4}
-                  width={282} height={298}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasDeformationPack && alphaImage !== null && (
+              <SkiaGroup opacity={alphaAuraOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={alphaImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasDeformationPack && depthImage !== null && (
+              <SkiaGroup opacity={depthVisualOpacity} transform={deformationDepthTransform}>
+                <SkiaImage
+                  image={depthImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasDeformationPack && specularImage !== null && (
+              <SkiaGroup opacity={specularVisualOpacity} transform={deformationSpecularTransform}>
+                <SkiaImage
+                  image={specularImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
                   fit="contain"
                 />
               </SkiaGroup>
@@ -559,22 +698,33 @@ export function AceFaceSkia({
 
           {/* ⑤ Processing field — subtle cognition around crown and temples */}
           <SkiaGroup clip={facePath} opacity={focusVisualOpacity} transform={focusTransform}>
-            <SkiaCircle cx={90} cy={108} r={44}>
+            {hasDeformationPack && focusMaskImage !== null && (
+              <SkiaImage
+                image={focusMaskImage}
+                x={BUST_X}
+                y={BUST_Y}
+                width={BUST_W}
+                height={BUST_H}
+                fit="contain"
+                opacity={focusMaskOpacity}
+              />
+            )}
+            <SkiaCircle cx={78} cy={104} r={38}>
               <RadialGradient
-                c={vec(90, 108)} r={44}
-                colors={[accentColor, 'transparent']}
+                c={vec(78, 104)} r={38}
+                colors={['rgba(226,236,248,0.22)', 'transparent']}
               />
             </SkiaCircle>
-            <SkiaCircle cx={180} cy={108} r={44}>
+            <SkiaCircle cx={192} cy={104} r={38}>
               <RadialGradient
-                c={vec(180, 108)} r={44}
-                colors={[accentColor, 'transparent']}
+                c={vec(192, 104)} r={38}
+                colors={['rgba(226,236,248,0.22)', 'transparent']}
               />
             </SkiaCircle>
-            <SkiaCircle cx={135} cy={84} r={62}>
+            <SkiaCircle cx={135} cy={80} r={58}>
               <RadialGradient
-                c={vec(135, 84)} r={62}
-                colors={['rgba(242,247,255,0.42)', 'transparent']}
+                c={vec(135, 80)} r={58}
+                colors={['rgba(242,247,255,0.34)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
@@ -600,6 +750,29 @@ export function AceFaceSkia({
           </SkiaGroup>
 
           {/* ⑦ Inner shadow — bottom depth */}
+          {/* Oracle gaze void — the sockets stay deeper than the surrounding face */}
+          <SkiaGroup clip={facePath} opacity={gazeVoidOpacity} transform={gazeVoidTransform}>
+            <SkiaCircle cx={98} cy={114} r={28}>
+              <RadialGradient
+                c={vec(98, 114)} r={28}
+                colors={['rgba(3,6,12,0.92)', 'transparent']}
+              />
+            </SkiaCircle>
+            <SkiaCircle cx={172} cy={114} r={28}>
+              <RadialGradient
+                c={vec(172, 114)} r={28}
+                colors={['rgba(3,6,12,0.92)', 'transparent']}
+              />
+            </SkiaCircle>
+            <SkiaCircle cx={135} cy={124} r={34}>
+              <RadialGradient
+                c={vec(135, 124)} r={34}
+                colors={['rgba(6,10,18,0.4)', 'transparent']}
+              />
+            </SkiaCircle>
+          </SkiaGroup>
+
+          {/* Inner shadow — bottom depth */}
           <SkiaGroup clip={facePath}>
             <SkiaCircle cx={142} cy={235} r={158}>
               <RadialGradient
@@ -620,10 +793,22 @@ export function AceFaceSkia({
           </SkiaGroup>
 
           {/* ⑨ Mouth — speech-driven cavity + lip line */}
+          {hasDeformationPack && mouthMaskImage !== null && (
+            <SkiaGroup clip={facePath} opacity={mouthMaskOpacity} transform={deformationMouthTransform}>
+              <SkiaImage
+                image={mouthMaskImage}
+                x={BUST_X}
+                y={BUST_Y}
+                width={BUST_W}
+                height={BUST_H}
+                fit="contain"
+              />
+            </SkiaGroup>
+          )}
           <SkiaPath
             path={mouthFillPath}
             color="rgba(34,42,58,0.72)"
-            opacity={mouthOp}
+            opacity={liveMouthOpacity}
           />
           <SkiaPath
             path={mouthLinePath}
@@ -631,7 +816,7 @@ export function AceFaceSkia({
             strokeWidth={2.4}
             strokeCap="round"
             color="rgba(230,244,255,0.98)"
-            opacity={mouthOp}
+            opacity={liveMouthOpacity}
           />
 
           {/* ⑩ Ghost oval rim — minimal separation from background */}

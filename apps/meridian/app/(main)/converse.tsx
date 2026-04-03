@@ -1657,7 +1657,7 @@ export default function ConverseScreen() {
     } catch {
       recordingActiveRef.current = false;
       micAmplitude.value = 0;
-      const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or type the trip instead.';
+      const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or continue by typing the trip below.';
       setError(message);
       setTextFallbackVisible(true);
       void trackClientEvent({
@@ -1734,19 +1734,19 @@ export default function ConverseScreen() {
     isSpeaking ? 'Ace is speaking' :
     phase === 'listening' ? 'Ace is listening' :
     phase === 'thinking' ? 'Ace is thinking' :
-    phase === 'hiring' || phase === 'executing' ? 'Ace is securing the trip' :
+    phase === 'hiring' || phase === 'executing' ? 'Ace is securing your trip' :
     phase === 'done' ? 'Trip secured' :
     phase === 'error' ? 'Ace is waiting' :
     voiceEnabled ? 'Ace is ready' :
     'Voice paused';
   const presenceHint =
-    isSpeaking ? 'Ace has this.' :
-    phase === 'listening' ? 'Just speak naturally.' :
-    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Tap if you need to step in.' :
-    phase === 'done' ? 'Returning to standby.' :
-    phase === 'error' ? 'Try again or type the trip below.' :
-    voiceEnabled ? 'Speak when you are ready.' :
-    'Tap Ace to start.';
+    isSpeaking ? 'Stay with me. Ace is guiding the next move.' :
+    phase === 'listening' ? 'Say the trip once, naturally.' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Ace is working the route, timing, and booking.' :
+    phase === 'done' ? 'Trip secured. Ace will stay with it.' :
+    phase === 'error' ? 'Say it again or continue in text below.' :
+    voiceEnabled ? 'Say the trip when you are ready.' :
+    'Tap Ace to resume voice.';
   const presenceTone =
     phase === 'listening' ? '#c8e8ff' :
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? '#8ec4e8' :
@@ -2342,7 +2342,7 @@ export default function ConverseScreen() {
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
               <Ionicons name="create-outline" size={14} color="#cbe8ff" />
-              <Text style={styles.textFallbackTitle}>Type it instead</Text>
+              <Text style={styles.textFallbackTitle}>Continue in text</Text>
             </View>
             <Text style={styles.textFallbackBody}>
               Keep it short. Ace will still handle the rest.
