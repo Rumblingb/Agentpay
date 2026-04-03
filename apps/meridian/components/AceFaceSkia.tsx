@@ -460,7 +460,7 @@ export function AceFaceSkia({
     [
       faceScale, faceLift, glowOpacity, glowScale,
       ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-      textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp, coronaActive,
+      textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp,
     ].forEach(cancelAnimation);
 
     const t = (val: number, ms: number, easing = Easing.inOut(Easing.sin)) =>
@@ -483,7 +483,6 @@ export function AceFaceSkia({
     focusLift.value    = t(baseFocusLift(phase), 220);
     mouthCurve.value   = t(baseMouthCurve(phase), 220);
     mouthOp.value      = t(baseMouthOpacity(phase), 220);
-    coronaActive.value = t(phase === 'listening' ? 1 : 0, 200);
 
     if (phase === 'idle') {
       glowOpacity.value = withRepeat(withSequence(t(0.32, 2600), t(0.14, 2600)), -1, false);
@@ -555,7 +554,7 @@ export function AceFaceSkia({
     phase,
     faceScale, faceLift, glowOpacity, glowScale,
     ring1Scale, ring1Opacity, ring2Scale, ring2Opacity,
-    textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp, coronaActive,
+    textureOp, focusOpacity, focusScale, focusLift, mouthCurve, mouthOp,
   ]);
 
   // ─── Speaking animation ───────────────────────────────────────────────────
@@ -569,12 +568,11 @@ export function AceFaceSkia({
     if (isSpeaking) {
       mouthCurve.value   = t(1.4, 120);
       mouthOp.value      = t(0.78, 120);
-      coronaActive.value = t(1, 180);
     } else {
       mouthCurve.value   = t(baseMouthCurve(phase), 220);
       mouthOp.value      = t(baseMouthOpacity(phase), 200);
-      coronaActive.value = t(phase === 'listening' ? 1 : 0, 240);
     }
+    coronaActive.value = t(isSpeaking || phase === 'listening' ? 1 : 0, isSpeaking ? 180 : 220);
 
     return () => {
       [mouthCurve, mouthOp, coronaActive].forEach(cancelAnimation);

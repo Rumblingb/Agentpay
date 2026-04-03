@@ -210,9 +210,9 @@ export async function transcribeAudio(uri: string): Promise<string> {
     throw new Error(`Audio file check failed: ${e.message}`);
   }
 
-  if (!info.exists) throw new Error('Audio file missing - try holding longer.');
+  if (!info.exists) throw new Error('Audio file missing - try speaking again.');
   if ((info as FileSystem.FileInfo & { size?: number }).size === 0) {
-    throw new Error('Audio file empty - try holding longer.');
+    throw new Error('Audio file empty - try speaking again.');
   }
 
   let base64Audio: string;

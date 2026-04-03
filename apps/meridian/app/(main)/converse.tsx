@@ -718,6 +718,7 @@ export default function ConverseScreen() {
   const micAmplitude = useSharedValue(0);
   const ttsAmplitude = useSharedValue(0);
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
+  const handsFreeListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextSilenceMsRef = useRef(2800);
   const keyboardVisibleRef = useRef(false);
   const textFallbackVisibleRef = useRef(false);
@@ -858,6 +859,17 @@ export default function ConverseScreen() {
     phaseRef.current = phase;
   }, [phase]);
 
+  const clearHandsFreeListenTimer = useCallback(() => {
+    if (handsFreeListenTimerRef.current) {
+      clearTimeout(handsFreeListenTimerRef.current);
+      handsFreeListenTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    clearHandsFreeListenTimer();
+  }, [clearHandsFreeListenTimer]);
+
   useEffect(() => {
     textFallbackVisibleRef.current = textFallbackVisible;
   }, [textFallbackVisible]);
@@ -865,13 +877,16 @@ export default function ConverseScreen() {
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => {
       keyboardVisibleRef.current = true;
+      clearHandsFreeListenTimer();
       cancelSpeech();
       setIsSpeaking(false);
       ttsAmplitude.value = 0;
       if (phaseRef.current === 'listening') {
         void stopRecording().catch(() => null);
         recordingActiveRef.current = false;
+        startingRecordingRef.current = false;
         micAmplitude.value = 0;
+        phaseRef.current = 'idle';
         setPhase('idle');
       }
     });
@@ -882,7 +897,7 @@ export default function ConverseScreen() {
       showSub.remove();
       hideSub.remove();
     };
-  }, [setPhase]);
+  }, [clearHandsFreeListenTimer, setPhase]);
 
   useEffect(() => {
     let active = true;
@@ -920,20 +935,30 @@ export default function ConverseScreen() {
 
   const armHandsFreeListen = useCallback((silenceMs: number) => {
     if (!voiceEnabled) return;
+    if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
     if (keyboardVisibleRef.current || textFallbackVisibleRef.current) return;
     if (activeTrip && shouldTreatTripAsLive(activeTrip)) return;
+    clearHandsFreeListenTimer();
     phaseRef.current = 'idle';
     setPhase('idle');
     nextSilenceMsRef.current = silenceMs;
-    setTimeout(() => {
-      if (!keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+    handsFreeListenTimerRef.current = setTimeout(() => {
+      handsFreeListenTimerRef.current = null;
+      if (
+        !keyboardVisibleRef.current &&
+        !textFallbackVisibleRef.current &&
+        !recordingActiveRef.current &&
+        !startingRecordingRef.current &&
+        !finishingRecordingRef.current
+      ) {
         void beginVoiceCaptureRef.current?.();
       }
     }, 80);
-  }, [activeTrip, setPhase, voiceEnabled]);
+  }, [activeTrip, clearHandsFreeListenTimer, setPhase, voiceEnabled]);
 
   const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
     if (!voiceEnabled) return;
+    clearHandsFreeListenTimer();
     let speakingStarted = false;
     try {
       await speakBro(sanitizeAceNarration(text), {
@@ -955,16 +980,19 @@ export default function ConverseScreen() {
         armHandsFreeListen(1600);
       }
     }
-  }, [armHandsFreeListen, voiceEnabled]);
+  }, [armHandsFreeListen, clearHandsFreeListenTimer, voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
+    clearHandsFreeListenTimer();
     cancelSpeech();
     setIsSpeaking(false);
     ttsAmplitude.value = 0;
     if (phaseRef.current === 'listening') {
       void stopRecording().catch(() => null);
       recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
       micAmplitude.value = 0;
+      phaseRef.current = 'idle';
       setPhase('idle');
     }
     setError(message);
@@ -972,7 +1000,7 @@ export default function ConverseScreen() {
     if (seed != null) {
       setTextFallbackDraft(seed);
     }
-  }, [setError, setPhase]);
+  }, [clearHandsFreeListenTimer, setError, setPhase]);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -1489,23 +1517,42 @@ export default function ConverseScreen() {
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
 
-  // ── Hold-to-talk (press = start recording, release = send) ──────────────
-  // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
-  // recordingReadyRef guards the race where user releases before startRecording() completes.
-
+  // Ace opens the mic, waits for natural silence, then sends the transcript.
+  // These refs guard warm-up, live capture, and finish races so re-arming stays stable.
   const recordingActiveRef = useRef(false);
+  const startingRecordingRef = useRef(false);
   const finishingRecordingRef = useRef(false);
 
   const finishVoiceCapture = useCallback(async () => {
     if (finishingRecordingRef.current) return;
+    clearHandsFreeListenTimer();
+    if (startingRecordingRef.current && !recordingActiveRef.current) {
+      void stopRecording().catch(() => null);
+      startingRecordingRef.current = false;
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
+    if (!recordingActiveRef.current) {
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
     finishingRecordingRef.current = true;
     micAmplitude.value = 0;
+    phaseRef.current = 'thinking';
     setPhase('thinking');
 
     try {
       const uri = await stopRecording();
       recordingActiveRef.current = false;
-      if (!uri) { setPhase('idle'); return; }
+      if (!uri) {
+        phaseRef.current = 'idle';
+        setPhase('idle');
+        return;
+      }
 
       let text = '';
       const transcribeStartedAt = Date.now();
@@ -1546,6 +1593,8 @@ export default function ConverseScreen() {
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
           nextMessage = 'Voice service had trouble with that request. You can type the trip below.';
         }
+        phaseRef.current = 'error';
+        setPhase('error');
         if (shouldOfferTextFallback(nextMessage)) {
           openTextFallback(nextMessage);
         } else {
@@ -1556,6 +1605,8 @@ export default function ConverseScreen() {
 
       if (!text.trim()) {
         const message = 'Ace did not catch that clearly. Try again, spell it out, or type the trip below.';
+        phaseRef.current = 'error';
+        setPhase('error');
         openTextFallback(message);
         void trackClientEvent({
           event: 'stt_empty_transcript',
@@ -1586,6 +1637,7 @@ export default function ConverseScreen() {
       await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
       micAmplitude.value = 0;
       const msg = (e.message ?? '').toLowerCase();
       const rawMessage = e.message ?? 'Voice capture failed.';
@@ -1603,7 +1655,7 @@ export default function ConverseScreen() {
         message: rawMessage,
         metadata: { phase: 'capture' },
       });
-      let nextMessage = 'Ace missed that. Touch and say it again, or type the trip below.';
+      let nextMessage = 'Ace missed that. Say it again, or type the trip below.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -1611,20 +1663,26 @@ export default function ConverseScreen() {
       } else if (msg.includes('offline')) {
         nextMessage = 'Service is offline right now. You can type the trip below.';
       }
+      phaseRef.current = 'error';
+      setPhase('error');
       if (shouldOfferTextFallback(nextMessage)) {
         openTextFallback(nextMessage);
       } else {
         setError(nextMessage);
       }
     } finally {
+      recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
       finishingRecordingRef.current = false;
     }
-  }, [logConverseEvent, openTextFallback, runIntentWithUiFallback, setError]);
+  }, [clearHandsFreeListenTimer, logConverseEvent, openTextFallback, runIntentWithUiFallback, setError, setPhase]);
 
   const beginVoiceCapture = useCallback(async () => {
     if (!voiceEnabled) return;
+    if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
     const currentPhase = phaseRef.current;
     if (currentPhase !== 'idle' && currentPhase !== 'error') return;
+    clearHandsFreeListenTimer();
     cancelSpeech();
     if (currentPhase === 'error') reset();
     setTextFallbackVisible(false);
@@ -1640,6 +1698,7 @@ export default function ConverseScreen() {
       event: 'voice_session_start',
       metadata: { fromPhase: currentPhase },
     });
+    startingRecordingRef.current = true;
     try {
       const silenceMs = nextSilenceMsRef.current;
       nextSilenceMsRef.current = 2800;
@@ -1652,11 +1711,19 @@ export default function ConverseScreen() {
           void finishVoiceCapture();
         },
       });
+      if (phaseRef.current !== 'listening') {
+        startingRecordingRef.current = false;
+        return;
+      }
+      startingRecordingRef.current = false;
       recordingActiveRef.current = true;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
+      startingRecordingRef.current = false;
       recordingActiveRef.current = false;
       micAmplitude.value = 0;
+      phaseRef.current = 'error';
+      setPhase('error');
       const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or continue by typing the trip below.';
       setError(message);
       setTextFallbackVisible(true);
@@ -1667,12 +1734,13 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [finishVoiceCapture, logConverseEvent, reset, setError, voiceEnabled]);
+  }, [clearHandsFreeListenTimer, finishVoiceCapture, logConverseEvent, reset, setError, setPhase, voiceEnabled]);
 
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;
 
   const handleOrbTap = useCallback(async () => {
+    clearHandsFreeListenTimer();
     if (phase === 'listening') {
       await finishVoiceCapture();
       return;
@@ -1681,12 +1749,13 @@ export default function ConverseScreen() {
       // Tap during processing = interrupt and return to idle
       cancelSpeech();
       ttsAmplitude.value = 0;
+      phaseRef.current = 'idle';
       setPhase('idle');
       return;
     }
     nextSilenceMsRef.current = 2800;
     await beginVoiceCapture();
-  }, [beginVoiceCapture, finishVoiceCapture, phase]);
+  }, [beginVoiceCapture, clearHandsFreeListenTimer, finishVoiceCapture, phase]);
 
   const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
     if (!nearestStation) return;

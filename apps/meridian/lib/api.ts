@@ -51,7 +51,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }, 30_000);
   } catch (e: any) {
     if (e.name === 'AbortError' || e.name === 'TimeoutError') {
-      throw new Error('Request timed out — hold to try again.');
+      throw new Error('Request timed out. Ask Ace again in a moment.');
     }
     throw new Error('Ace cannot reach the network right now. Try again in a moment.');
   }

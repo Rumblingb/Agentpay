@@ -14,17 +14,11 @@ export type AceBrainRenderPack = {
  * Central contract for the Ace brain art source.
  *
  * Today:
- * - we only ship the beauty bust and sigil fallback
+ * - Meridian ships a six-pass render pack behind one stable contract
  *
- * Next render-pack upgrade:
- * - alpha
- * - depth
- * - mouthMask
- * - focusMask
- * - specular
- *
- * Keeping this contract in one place makes the final art upgrade a drop-in
- * replacement instead of another round of component-local asset wiring.
+ * Remaining ceiling:
+ * - the source renders still need a coordinated high-resolution art refresh
+ *   rather than another round of component-local rewiring
  */
 export const ACE_BRAIN_RENDER_PACK: AceBrainRenderPack = {
   beauty: require('../assets/ace-face-render.png'),
@@ -50,6 +44,7 @@ export function hasAceBrainDeformationPack(): boolean {
     ACE_BRAIN_RENDER_PACK.alpha &&
     ACE_BRAIN_RENDER_PACK.depth &&
     ACE_BRAIN_RENDER_PACK.mouthMask &&
-    ACE_BRAIN_RENDER_PACK.focusMask
+    ACE_BRAIN_RENDER_PACK.focusMask &&
+    ACE_BRAIN_RENDER_PACK.specular
   );
 }

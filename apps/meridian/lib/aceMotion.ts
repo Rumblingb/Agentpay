@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { DeviceMotion } from 'expo-sensors';
+import { Accelerometer } from 'expo-sensors';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
 
 function clamp(value: number, min: number, max: number): number {
@@ -12,7 +12,7 @@ export function useAceMotion(enabled = true) {
 
   useEffect(() => {
     let active = true;
-    let subscription: ReturnType<typeof DeviceMotion.addListener> | null = null;
+    let subscription: ReturnType<typeof Accelerometer.addListener> | null = null;
 
     const reset = () => {
       tiltX.value = withTiming(0, { duration: 180 });
@@ -25,22 +25,19 @@ export function useAceMotion(enabled = true) {
     }
 
     (async () => {
-      const available = await DeviceMotion.isAvailableAsync().catch(() => false);
+      const available = await Accelerometer.isAvailableAsync().catch(() => false);
       if (!active || !available) {
         reset();
         return;
       }
 
-      DeviceMotion.setUpdateInterval(120);
-      subscription = DeviceMotion.addListener((event) => {
-        const gravity = event.accelerationIncludingGravity;
-        if (!gravity) return;
+      Accelerometer.setUpdateInterval(60);
+      subscription = Accelerometer.addListener((event) => {
+        const nextX = clamp(event.x ?? 0, -0.85, 0.85);
+        const nextY = clamp(event.y ?? 0, -0.85, 0.85);
 
-        const nextX = clamp((gravity.x ?? 0) / 9.80665, -0.85, 0.85);
-        const nextY = clamp((gravity.y ?? 0) / 9.80665, -0.85, 0.85);
-
-        tiltX.value = withTiming(nextX, { duration: 140 });
-        tiltY.value = withTiming(nextY, { duration: 140 });
+        tiltX.value = withTiming(nextX, { duration: 110 });
+        tiltY.value = withTiming(nextY, { duration: 110 });
       });
     })();
 
