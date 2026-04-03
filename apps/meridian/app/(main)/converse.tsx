@@ -2370,14 +2370,14 @@ export default function ConverseScreen() {
       <View style={styles.orbArea}>
         <LinearGradient
           pointerEvents="none"
-          colors={['rgba(3,7,15,0)', 'rgba(3,7,15,0.44)', 'rgba(3,7,15,0.82)']}
+          colors={['rgba(3,7,15,0)', 'rgba(3,7,15,0.18)', 'rgba(3,7,15,0.42)']}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={styles.orbAreaShade}
         />
         <LinearGradient
           pointerEvents="none"
-          colors={['rgba(185, 216, 242, 0.16)', 'rgba(115, 156, 255, 0.04)', 'rgba(3,7,15,0)']}
+          colors={['rgba(232, 240, 250, 0.1)', 'rgba(154, 190, 245, 0.03)', 'rgba(3,7,15,0)']}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={styles.orbAreaGlow}
@@ -3130,8 +3130,8 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 46,
-    paddingTop: 8,
+    paddingBottom: 34,
+    paddingTop: 0,
     backgroundColor: 'transparent',
     overflow: 'visible',
   },
@@ -3140,23 +3140,23 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    top: -120,
+    top: -90,
   },
   orbAreaGlow: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 240,
-    bottom: -24,
+    height: 210,
+    bottom: 8,
   },
   orbAreaHalo: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 440,
-    height: 250,
-    bottom: -132,
+    width: 360,
+    height: 190,
+    bottom: -146,
     borderRadius: 999,
-    backgroundColor: 'rgba(133, 184, 255, 0.06)',
+    backgroundColor: 'rgba(196, 220, 248, 0.028)',
   },
   presenceLine: {
     marginTop: 10,

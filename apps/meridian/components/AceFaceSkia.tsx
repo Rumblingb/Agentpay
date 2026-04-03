@@ -84,7 +84,7 @@ const CY = CH / 2;   // 155
 
 const GLOW_R  = 144;
 const RING_R  = 122;  // Starts clearly outside the face oval edge — no mic-button shape
-const MOUTH_Y = 234;  // Anatomically correct lower-lip (was 193 = nose bridge)
+const MOUTH_Y = 204;  // Align synthetic support path to Ace's actual rendered mouth
 const MOUTH_HW = 20;
 const BUST_X = -6;
 const BUST_Y = 4;
@@ -316,6 +316,7 @@ export function AceFaceSkia({
     { translateY: -tiltY.value * 9 * motionFactor - focusLift.value * 0.24 },
   ]);
 
+
   const lowerFaceTransform = useDerivedValue(() => {
     const anchorY = CY + 58;
     return [
@@ -383,7 +384,7 @@ export function AceFaceSkia({
   });
 
   const alphaAuraOpacity = useDerivedValue(() =>
-    hasDeformationPack ? (0.03 + glowOpacity.value * 0.08) : 0,
+    hasDeformationPack ? (0.08 + glowOpacity.value * 0.1 + focusOpacity.value * 0.08) : 0,
   );
 
   const depthVisualOpacity = useDerivedValue(() =>
@@ -423,16 +424,16 @@ export function AceFaceSkia({
         : phase === 'listening'
           ? 0.03
           : 0.015;
-    return Math.min(0.26, 0.04 + glowOpacity.value * 0.18 + focusOpacity.value * 0.14 + phaseBoost);
+    return Math.min(0.22, 0.03 + glowOpacity.value * 0.12 + focusOpacity.value * 0.1 + phaseBoost);
   });
 
   const sculpturalVignetteOpacity = useDerivedValue(() => {
-    const phaseBoost = phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 0.05 : 0.02;
-    return Math.min(0.22, 0.06 + phaseBoost + focusOpacity.value * 0.12);
+    const phaseBoost = phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 0.03 : 0.01;
+    return Math.min(0.1, 0.02 + phaseBoost + focusOpacity.value * 0.05);
   });
 
   const silhouetteRimOpacity = useDerivedValue(() =>
-    Math.min(0.22, 0.08 + focusOpacity.value * 0.24 + speechEnergy.value * energyFactor * 0.08),
+    Math.min(0.08, 0.015 + focusOpacity.value * 0.06 + speechEnergy.value * energyFactor * 0.03),
   );
 
   const speechJawOpacity = useDerivedValue(() => {
@@ -443,7 +444,7 @@ export function AceFaceSkia({
   const speechOoOpacity = useDerivedValue(() => {
     if (!hasSpeechRenderPack || !isSpeaking) return 0;
     const roundedBias = Math.max(0, 0.42 - speechEnergy.value);
-    return Math.min(0.1, liveMouthOpacity.value * (0.02 + roundedBias * 0.18));
+    return Math.min(0.3, liveMouthOpacity.value * (0.06 + roundedBias * 0.42));
   });
 
   const speechEeOpacity = useDerivedValue(() => {
@@ -469,11 +470,11 @@ export function AceFaceSkia({
   });
 
   const mouthFillVisualOpacity = useDerivedValue(() =>
-    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.42 : liveMouthOpacity.value,
+    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.12 : liveMouthOpacity.value * 0.78,
   );
 
   const mouthLineVisualOpacity = useDerivedValue(() =>
-    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.58 : liveMouthOpacity.value,
+    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.16 : liveMouthOpacity.value * 0.8,
   );
 
   // ─── GPU-computed mouth path (UI thread) ─────────────────────────────────
@@ -526,11 +527,11 @@ export function AceFaceSkia({
   const lowerFaceShadowOpacity = useDerivedValue(() => {
     const processingBoost =
       phase === 'thinking' || phase === 'hiring' || phase === 'executing'
-        ? 0.1
+        ? 0.05
         : phase === 'confirming'
-          ? 0.05
+          ? 0.03
           : 0;
-    return 0.07 + focusOpacity.value * 0.18 + speechEnergy.value * energyFactor * 0.16 + processingBoost;
+    return 0.025 + focusOpacity.value * 0.08 + speechEnergy.value * energyFactor * 0.06 + processingBoost;
   });
 
   // ─── Phase animation ──────────────────────────────────────────────────────
@@ -708,10 +709,9 @@ export function AceFaceSkia({
         <SkiaGroup transform={faceTransform}>
 
           {/* ③ Dark glass oval base — sculpture reads against dark ground */}
-          <SkiaPath path={facePath} color="rgba(8,16,28,0.92)" />
 
           {/* ④ 3D sculptural bust (dominant) */}
-          <SkiaGroup opacity={textureOp} clip={facePath}>
+          <SkiaGroup opacity={textureOp}>
             {bustImage !== null && (
               <SkiaGroup transform={bustTransform}>
                 <SkiaImage
@@ -824,7 +824,7 @@ export function AceFaceSkia({
           </SkiaGroup>
 
           {/* ⑤ Processing field — subtle cognition around crown and temples */}
-          <SkiaGroup clip={facePath} opacity={focusVisualOpacity} transform={focusTransform}>
+          <SkiaGroup opacity={focusVisualOpacity} transform={focusTransform}>
             {hasDeformationPack && focusMaskImage !== null && (
               <SkiaImage
                 image={focusMaskImage}
@@ -839,115 +839,115 @@ export function AceFaceSkia({
             <SkiaCircle cx={78} cy={104} r={38}>
               <RadialGradient
                 c={vec(78, 104)} r={38}
-                colors={['rgba(226,236,248,0.22)', 'transparent']}
+                colors={['rgba(232,239,248,0.16)', 'transparent']}
               />
             </SkiaCircle>
             <SkiaCircle cx={192} cy={104} r={38}>
               <RadialGradient
                 c={vec(192, 104)} r={38}
-                colors={['rgba(226,236,248,0.22)', 'transparent']}
+                colors={['rgba(232,239,248,0.16)', 'transparent']}
               />
             </SkiaCircle>
             <SkiaCircle cx={135} cy={80} r={58}>
               <RadialGradient
                 c={vec(135, 80)} r={58}
-                colors={['rgba(242,247,255,0.34)', 'transparent']}
+                colors={['rgba(246,249,255,0.26)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* ⑤ Key light — top-left directional */}
-          <SkiaGroup clip={facePath} transform={keyLightTransform}>
+          <SkiaGroup transform={keyLightTransform}>
             <SkiaCircle cx={82} cy={76} r={156}>
               <RadialGradient
                 c={vec(82, 76)} r={156}
-                colors={['rgba(255,255,255,0.26)', 'transparent']}
+                colors={['rgba(255,255,255,0.18)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* ⑥ Rim light — bottom-right, phase-tinted */}
-          <SkiaGroup clip={facePath} transform={rimLightTransform}>
+          <SkiaGroup transform={rimLightTransform}>
             <SkiaCircle cx={200} cy={250} r={128}>
               <RadialGradient
                 c={vec(200, 250)} r={128}
-                colors={[glowColor, 'transparent']}
+                colors={['rgba(226,238,252,0.18)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* Sculptural crown sheen — premium top-plane read without adding clutter */}
-          <SkiaGroup clip={facePath} opacity={crownSheenOpacity} transform={keyLightTransform}>
+          <SkiaGroup opacity={crownSheenOpacity} transform={keyLightTransform}>
             <SkiaCircle cx={126} cy={58} r={96}>
               <RadialGradient
                 c={vec(126, 58)} r={96}
-                colors={['rgba(246,250,255,0.28)', 'transparent']}
+                colors={['rgba(250,252,255,0.22)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* ⑦ Inner shadow — bottom depth */}
           {/* Oracle gaze void — the sockets stay deeper than the surrounding face */}
-          <SkiaGroup clip={facePath} opacity={gazeVoidOpacity} transform={gazeVoidTransform}>
+          <SkiaGroup opacity={gazeVoidOpacity} transform={gazeVoidTransform}>
             <SkiaCircle cx={98} cy={114} r={28}>
               <RadialGradient
                 c={vec(98, 114)} r={28}
-                colors={['rgba(3,6,12,0.92)', 'transparent']}
+                colors={['rgba(6,10,18,0.72)', 'transparent']}
               />
             </SkiaCircle>
             <SkiaCircle cx={172} cy={114} r={28}>
               <RadialGradient
                 c={vec(172, 114)} r={28}
-                colors={['rgba(3,6,12,0.92)', 'transparent']}
+                colors={['rgba(6,10,18,0.72)', 'transparent']}
               />
             </SkiaCircle>
             <SkiaCircle cx={135} cy={124} r={34}>
               <RadialGradient
                 c={vec(135, 124)} r={34}
-                colors={['rgba(6,10,18,0.4)', 'transparent']}
+                colors={['rgba(10,14,22,0.24)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* Inner shadow — bottom depth */}
-          <SkiaGroup clip={facePath}>
-            <SkiaCircle cx={142} cy={235} r={158}>
+          <SkiaGroup>
+            <SkiaCircle cx={142} cy={224} r={146}>
               <RadialGradient
                 c={vec(142, 235)} r={158}
-                colors={['rgba(18,24,36,0.32)', 'transparent']}
+                colors={['rgba(20,26,38,0.16)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* Sculptural side falloff — keeps the bust expensive instead of flat */}
-          <SkiaGroup clip={facePath} opacity={sculpturalVignetteOpacity}>
+          <SkiaGroup opacity={sculpturalVignetteOpacity}>
             <SkiaCircle cx={58} cy={156} r={108}>
               <RadialGradient
                 c={vec(58, 156)} r={108}
-                colors={['rgba(8,14,24,0.42)', 'transparent']}
+                colors={['rgba(12,18,28,0.18)', 'transparent']}
               />
             </SkiaCircle>
             <SkiaCircle cx={212} cy={162} r={104}>
               <RadialGradient
                 c={vec(212, 162)} r={104}
-                colors={['rgba(8,14,24,0.28)', 'transparent']}
+                colors={['rgba(12,18,28,0.14)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* ⑧ Lower-face tension — reacts to speech energy and focus */}
-          <SkiaGroup clip={facePath} opacity={lowerFaceShadowOpacity} transform={lowerFaceTransform}>
-            <SkiaCircle cx={135} cy={238} r={64}>
+          <SkiaGroup opacity={lowerFaceShadowOpacity} transform={lowerFaceTransform}>
+            <SkiaCircle cx={135} cy={222} r={56}>
               <RadialGradient
                 c={vec(135, 238)} r={64}
-                colors={['rgba(18,24,36,0.42)', 'transparent']}
+                colors={['rgba(18,24,36,0.24)', 'transparent']}
               />
             </SkiaCircle>
           </SkiaGroup>
 
           {/* ⑨ Mouth — speech-driven cavity + lip line */}
           {hasDeformationPack && mouthMaskImage !== null && (
-            <SkiaGroup clip={facePath} opacity={mouthMaskOpacity} transform={deformationMouthTransform}>
+            <SkiaGroup opacity={mouthMaskOpacity} transform={deformationMouthTransform}>
               <SkiaImage
                 image={mouthMaskImage}
                 x={BUST_X}
@@ -960,26 +960,28 @@ export function AceFaceSkia({
           )}
           <SkiaPath
             path={mouthFillPath}
-            color="rgba(34,42,58,0.72)"
+            color="rgba(38,44,56,0.46)"
             opacity={mouthFillVisualOpacity}
           />
           <SkiaPath
             path={mouthLinePath}
             style="stroke"
-            strokeWidth={2.4}
+            strokeWidth={1.1}
             strokeCap="round"
-            color="rgba(230,244,255,0.98)"
+            color="rgba(236,242,250,0.2)"
             opacity={mouthLineVisualOpacity}
           />
 
           {/* ⑩ Ghost oval rim — minimal separation from background */}
-          <SkiaPath
-            path={facePath}
-            style="stroke"
-            strokeWidth={1.1}
-            color="rgba(208,226,246,0.14)"
-            opacity={silhouetteRimOpacity}
-          />
+          {alphaImage === null && (
+            <SkiaPath
+              path={facePath}
+              style="stroke"
+              strokeWidth={0.9}
+              color="rgba(224,236,248,0.08)"
+              opacity={silhouetteRimOpacity}
+            />
+          )}
 
         </SkiaGroup>
 
