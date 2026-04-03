@@ -5,19 +5,18 @@
  * Animation:  react-native-reanimated 3 SharedValues (UI thread)
  * Audio:      micAmplitude + ttsAmplitude SharedValues drive corona in real-time
  *
- * Layer order (bottom → top):
- *   1. Atmospheric halo        — phase-colored radial, slow breath
- *   2. Listening pulse rings   — expand outward on listening
- *   3. Dark glass oval base    — opaque dark ground for the sculpture
- *   4. 3D sculpted bust PNG    — dominant opacity, clipped to oval
- *   5. Focus field             — subtle cognition around crown/temples
- *   6. Key light               — top-left white radial, tilt-reactive
- *   7. Rim light               — bottom-right, phase-tinted
- *   8. Inner shadow            — bottom depth
- *   9. Lower-face tension      — reacts to speech/focus
- *  10. Mouth cavity + lip line — GPU-computed from real TTS energy
- *  11. Ghost oval rim          — ultra-thin separation
- *  12. Audio-reactive corona   — ring responding to real mic/TTS amplitude
+ * Layer order (bottom -> top):
+ *   1. Atmospheric halo        - phase-colored radial, slow breath
+ *   2. Listening pulse rings   - expand outward on listening
+ *   3. 3D sculpted bust PNG    - dominant opacity with alpha silhouette
+ *   4. Focus field             - subtle cognition around crown/temples
+ *   5. Key light               - top-left white radial, tilt-reactive
+ *   6. Rim light               - bottom-right, phase-tinted
+ *   7. Inner shadow            - bottom depth
+ *   8. Lower-face tension      - reacts to speech/focus
+ *   9. Mouth cavity + lip line - GPU-computed from real TTS energy
+ *  10. Ghost oval rim          - ultra-thin fallback separation
+ *  11. Audio-reactive corona   - ring responding to real mic/TTS amplitude
  *
  * Type note: @shopify/react-native-skia 1.x ships types that conflict with
  * @types/react v19 (bigint not assignable to ReactNode). We use the same
@@ -354,6 +353,16 @@ export function AceFaceSkia({
   const gazeVoidOpacity = useDerivedValue(() => {
     const phaseBase = baseGazeVoidOpacity(phase);
     return Math.min(0.58, phaseBase + speechEnergy.value * 0.08 + focusOpacity.value * 0.16);
+  });
+
+  const eyeMystiqueOpacity = useDerivedValue(() => {
+    const phaseBoost =
+      phase === 'thinking' || phase === 'hiring' || phase === 'executing'
+        ? 0.06
+        : phase === 'listening'
+          ? 0.04
+          : 0.02;
+    return Math.min(0.18, 0.02 + phaseBoost + focusOpacity.value * 0.12 + speechEnergy.value * energyFactor * 0.03);
   });
 
   const liveMouthCurve = useDerivedValue(() => {
@@ -907,6 +916,18 @@ export function AceFaceSkia({
                 colors={['rgba(10,14,22,0.24)', 'transparent']}
               />
             </SkiaCircle>
+            <SkiaCircle cx={98} cy={110} r={12} opacity={eyeMystiqueOpacity}>
+              <RadialGradient
+                c={vec(98, 110)} r={12}
+                colors={['rgba(174, 212, 255, 0.5)', 'rgba(70, 112, 196, 0.12)', 'transparent']}
+              />
+            </SkiaCircle>
+            <SkiaCircle cx={172} cy={110} r={12} opacity={eyeMystiqueOpacity}>
+              <RadialGradient
+                c={vec(172, 110)} r={12}
+                colors={['rgba(174, 212, 255, 0.5)', 'rgba(70, 112, 196, 0.12)', 'transparent']}
+              />
+            </SkiaCircle>
           </SkiaGroup>
 
           {/* Inner shadow — bottom depth */}
@@ -958,19 +979,21 @@ export function AceFaceSkia({
               />
             </SkiaGroup>
           )}
-          <SkiaPath
-            path={mouthFillPath}
-            color="rgba(38,44,56,0.46)"
-            opacity={mouthFillVisualOpacity}
-          />
-          <SkiaPath
-            path={mouthLinePath}
-            style="stroke"
-            strokeWidth={1.1}
-            strokeCap="round"
-            color="rgba(236,242,250,0.2)"
-            opacity={mouthLineVisualOpacity}
-          />
+          <SkiaGroup transform={deformationMouthTransform}>
+            <SkiaPath
+              path={mouthFillPath}
+              color="rgba(38,44,56,0.46)"
+              opacity={mouthFillVisualOpacity}
+            />
+            <SkiaPath
+              path={mouthLinePath}
+              style="stroke"
+              strokeWidth={1.1}
+              strokeCap="round"
+              color="rgba(236,242,250,0.2)"
+              opacity={mouthLineVisualOpacity}
+            />
+          </SkiaGroup>
 
           {/* ⑩ Ghost oval rim — minimal separation from background */}
           {alphaImage === null && (

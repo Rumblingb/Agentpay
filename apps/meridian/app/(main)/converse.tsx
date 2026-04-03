@@ -1,16 +1,16 @@
 /**
- * Converse — the Ace concierge screen
+ * Converse - the Ace concierge screen
  *
  * Flow:
- *   Hold to talk → Whisper STT → Phase 1 (plan, no hire)
- *   → Ace speaks price → fingerprint gate
- *   → Phase 2 (execute hire) → receipt
+ *   Voice / text request -> Whisper STT -> Phase 1 (plan, no hire)
+ *   -> Ace speaks price -> fingerprint gate
+ *   -> Phase 2 (execute hire) -> receipt
  *
  * Two biometric moments:
- *   1. Profile release — before sending profile to server (silent, in background)
- *   2. Payment confirm — after price announced, before hire fires
+ *   1. Profile release - before sending profile to server (silent, in background)
+ *   2. Payment confirm - after price announced, before hire fires
  *
- * Phases: idle → listening → thinking → confirming → done | error
+ * Phases: idle -> listening -> thinking -> confirming -> done | error
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -294,7 +294,7 @@ function hasExplicitOrigin(text: string): boolean {
 
 function looksLikeDestinationLedTrip(text: string): boolean {
   const normalized = text.trim().toLowerCase();
-  if (!normalized || hasExplicitOrigin(normalized)) return false;
+  if (!normalized || hasExplicitOrigin(normalized) || hasInlineOriginDestination(normalized)) return false;
   return [
     /\btickets?\s+(to|for)\b/,
     /\b(train|bus|coach|rail)\s+(to|for)\b/,
@@ -303,12 +303,65 @@ function looksLikeDestinationLedTrip(text: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+function hasInlineOriginDestination(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/^ace[,\s]+/, '');
+  if (!normalized.includes(' to ')) return false;
+  const match = normalized.match(/^(.+?)\s+to\s+(.+)$/);
+  if (!match) return false;
+
+  const origin = match[1].trim();
+  if (!origin || origin.split(/\s+/).length > 5) return false;
+
+  return ![
+    /\bbook\b/,
+    /\bfind\b/,
+    /\bget me\b/,
+    /\btake me\b/,
+    /\bneed\b/,
+    /\bshow me\b/,
+    /\bbest\b/,
+    /\bcheapest\b/,
+    /\bfastest\b/,
+    /\broute\b/,
+    /\btrip\b/,
+    /\btickets?\b/,
+    /\btrain\b/,
+    /\bflight\b/,
+    /\bbus\b/,
+    /\bcoach\b/,
+    /\bhotel\b/,
+    /\btomorrow\b/,
+    /\btoday\b/,
+    /\btonight\b/,
+    /\bnow\b/,
+  ].some((pattern) => pattern.test(origin));
+}
+
 function prepareIntentRequest(params: {
   text: string;
   nearestStation: StationGeo | null;
 }): { displayText: string; planningTranscript: string; assumptionNote: string | null } {
   const displayText = params.text.trim();
-  if (!displayText || !params.nearestStation || !looksLikeDestinationLedTrip(displayText)) {
+  if (!displayText) {
+    return {
+      displayText,
+      planningTranscript: displayText,
+      assumptionNote: null,
+    };
+  }
+
+  const inlineOriginDestination = hasInlineOriginDestination(displayText);
+  if (inlineOriginDestination) {
+    return {
+      displayText,
+      planningTranscript: `${displayText}
+
+Ace context: the customer has already given a route with both origin and destination inline. Treat the place before "to" as the departure point and avoid asking them to restate it unless the route is genuinely ambiguous.`,
+      assumptionNote: null,
+    };
+  }
+
+  if (!params.nearestStation || !looksLikeDestinationLedTrip(displayText)) {
     return {
       displayText,
       planningTranscript: displayText,
@@ -1837,6 +1890,7 @@ export default function ConverseScreen() {
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
   })();
+  const personalGreeting = userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`;
 
   const lastRouteHintPreview = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
     ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
@@ -1961,7 +2015,7 @@ export default function ConverseScreen() {
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
               <Text style={styles.emptyGreeting}>
-                {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
+                {personalGreeting}
               </Text>
               <View style={styles.heroLogoWrap}>
                 <Image source={ACE_MARK_ASSET} style={styles.heroLogoImage} resizeMode="contain" />
@@ -2155,6 +2209,19 @@ export default function ConverseScreen() {
                 </View>
               </View>
             )}
+          </View>
+        )}
+
+        {turns.length > 0 && (isIdle || isError) && (
+          <View style={styles.greetingStrip}>
+            <Text style={styles.greetingStripTitle}>{personalGreeting}</Text>
+            <Text style={styles.greetingStripBody}>
+              {routeMemory
+                ? `Ace still remembers ${routeMemory.origin} to ${routeMemory.destination}.`
+                : nearestStation
+                  ? `You are nearest to ${nearestStation.name}. Say where to line up next.`
+                  : 'Ace is ready when you are.'}
+            </Text>
           </View>
         )}
 
@@ -2697,6 +2764,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#7f95aa',
     fontWeight: '500',
+  },
+  greetingStrip: {
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(96, 126, 163, 0.2)',
+    backgroundColor: 'rgba(7, 14, 24, 0.74)',
+  },
+  greetingStripTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: '#edf4fb',
+    letterSpacing: -0.3,
+  },
+  greetingStripBody: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#91a4b8',
   },
   modeCard: {
     borderRadius: 22,
