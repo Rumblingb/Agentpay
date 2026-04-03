@@ -192,6 +192,11 @@ export function AceFaceSkia({
   const focusMaskImage = useImage(ACE_BRAIN_RENDER_PACK.focusMask);
   const markImage = useImage(ACE_BRAIN_RENDER_PACK.sigilFallback);
   const specularImage = useImage(ACE_BRAIN_RENDER_PACK.specular);
+  const speechJawImage = useImage(ACE_BRAIN_RENDER_PACK.speechJaw);
+  const speechOoImage = useImage(ACE_BRAIN_RENDER_PACK.speechOo);
+  const speechEeImage = useImage(ACE_BRAIN_RENDER_PACK.speechEe);
+  const focusExpressionImage = useImage(ACE_BRAIN_RENDER_PACK.expressionFocus);
+  const smileExpressionImage = useImage(ACE_BRAIN_RENDER_PACK.expressionSmile);
   const facePath  = useMemo(() => Skia.Path.MakeFromSVGString(FACE_PATH_SVG), []);
   const { tiltX, tiltY } = useAceMotion(!disabled);
   const motionFactor = mode === 'onboarding' ? 0.45 : 1;
@@ -202,6 +207,13 @@ export function AceFaceSkia({
     mouthMaskImage !== null &&
     focusMaskImage !== null &&
     specularImage !== null;
+  const hasSpeechRenderPack =
+    speechJawImage !== null &&
+    speechOoImage !== null &&
+    speechEeImage !== null;
+  const hasExpressionRenderPack =
+    focusExpressionImage !== null &&
+    smileExpressionImage !== null;
 
   // ─── Animation state ──────────────────────────────────────────────────────
 
@@ -396,6 +408,47 @@ export function AceFaceSkia({
           : 0.04;
     return Math.min(0.34, 0.06 + phaseBoost + speechEnergy.value * energyFactor * 0.08);
   });
+
+  const speechJawOpacity = useDerivedValue(() => {
+    if (!hasSpeechRenderPack || !isSpeaking) return 0;
+    return Math.min(0.78, 0.14 + speechEnergy.value * energyFactor * 0.52);
+  });
+
+  const speechOoOpacity = useDerivedValue(() => {
+    if (!hasSpeechRenderPack || !isSpeaking) return 0;
+    const roundedBias = Math.max(0, 0.42 - speechEnergy.value);
+    return Math.min(0.1, liveMouthOpacity.value * (0.02 + roundedBias * 0.18));
+  });
+
+  const speechEeOpacity = useDerivedValue(() => {
+    if (!hasSpeechRenderPack || !isSpeaking) return 0;
+    const wideBias = Math.max(0, speechEnergy.value - 0.18);
+    return Math.min(0.24, liveMouthOpacity.value * (0.04 + wideBias * 0.28));
+  });
+
+  const focusExpressionOpacity = useDerivedValue(() => {
+    if (!hasExpressionRenderPack) return 0;
+    if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') {
+      return Math.min(0.34, 0.1 + focusOpacity.value * 0.9);
+    }
+    if (phase === 'listening') return 0.04;
+    return 0;
+  });
+
+  const smileExpressionOpacity = useDerivedValue(() => {
+    if (!hasExpressionRenderPack) return 0;
+    if (phase === 'done') return 0.24;
+    if (phase === 'confirming') return 0.08;
+    return 0;
+  });
+
+  const mouthFillVisualOpacity = useDerivedValue(() =>
+    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.42 : liveMouthOpacity.value,
+  );
+
+  const mouthLineVisualOpacity = useDerivedValue(() =>
+    hasSpeechRenderPack && isSpeaking ? liveMouthOpacity.value * 0.58 : liveMouthOpacity.value,
+  );
 
   // ─── GPU-computed mouth path (UI thread) ─────────────────────────────────
 
@@ -643,6 +696,56 @@ export function AceFaceSkia({
                 />
               </SkiaGroup>
             )}
+            {hasExpressionRenderPack && focusExpressionImage !== null && (
+              <SkiaGroup opacity={focusExpressionOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={focusExpressionImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasExpressionRenderPack && smileExpressionImage !== null && (
+              <SkiaGroup opacity={smileExpressionOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={smileExpressionImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasSpeechRenderPack && speechJawImage !== null && (
+              <SkiaGroup opacity={speechJawOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={speechJawImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasSpeechRenderPack && speechOoImage !== null && (
+              <SkiaGroup opacity={speechOoOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={speechOoImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
+            {hasSpeechRenderPack && speechEeImage !== null && (
+              <SkiaGroup opacity={speechEeOpacity} transform={bustTransform}>
+                <SkiaImage
+                  image={speechEeImage}
+                  x={BUST_X} y={BUST_Y}
+                  width={BUST_W} height={BUST_H}
+                  fit="contain"
+                />
+              </SkiaGroup>
+            )}
             {hasDeformationPack && alphaImage !== null && (
               <SkiaGroup opacity={alphaAuraOpacity} transform={bustTransform}>
                 <SkiaImage
@@ -806,7 +909,7 @@ export function AceFaceSkia({
           <SkiaPath
             path={mouthFillPath}
             color="rgba(34,42,58,0.72)"
-            opacity={liveMouthOpacity}
+            opacity={mouthFillVisualOpacity}
           />
           <SkiaPath
             path={mouthLinePath}
@@ -814,7 +917,7 @@ export function AceFaceSkia({
             strokeWidth={2.4}
             strokeCap="round"
             color="rgba(230,244,255,0.98)"
-            opacity={liveMouthOpacity}
+            opacity={mouthLineVisualOpacity}
           />
 
           {/* ⑩ Ghost oval rim — minimal separation from background */}

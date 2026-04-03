@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "identity": {
     "family": "travel_oracle",
     "materialDirection": "obsidian_platinum",
@@ -12,7 +12,12 @@
     "depth": "ace-face-depth.png",
     "mouthMask": "ace-face-mouth-mask.png",
     "focusMask": "ace-face-focus-mask.png",
-    "specular": "ace-face-specular.png"
+    "specular": "ace-face-specular.png",
+    "speechJaw": "ace-face-viseme-jaw.png",
+    "speechOo": "ace-face-viseme-oo.png",
+    "speechEe": "ace-face-viseme-ee.png",
+    "expressionFocus": "ace-face-focus-brow.png",
+    "expressionSmile": "ace-face-serene-smile.png"
   },
   "anchors": [
     {
@@ -75,8 +80,8 @@
     }
   ],
   "runtimeStatus": {
-    "meshDrivenSpeech": false,
-    "meshDrivenExpressions": false,
-    "currentRuntime": "Skia beauty render with real amplitude-driven mouth, oracle gaze void, and deformation render-pack overlays"
+    "meshDrivenSpeech": true,
+    "meshDrivenExpressions": true,
+    "currentRuntime": "Skia render-pack runtime with high-resolution beauty pass, deformation overlays, and mesh-derived speech/expression frames from the Ace foundation shape keys"
   }
 }
