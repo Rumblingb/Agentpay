@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Asset } from 'expo-asset';
 import * as Haptics from 'expo-haptics';
@@ -40,6 +40,16 @@ const PrimitiveNode = 'primitive' as unknown as React.ComponentType<any>;
 const CW = 270;
 const CH = 310;
 const ACE_GLB = require('../assets/ace-brain-foundation.glb');
+type AceFaceFallbackComponent = React.ComponentType<Props>;
+
+let AceFaceSkiaImpl: AceFaceFallbackComponent | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  AceFaceSkiaImpl = require('./AceFaceSkia').AceFaceSkia as AceFaceFallbackComponent;
+} catch {
+  AceFaceSkiaImpl = null;
+}
 
 interface Props {
   phase: AppPhase;
@@ -133,7 +143,8 @@ function AceOracleScene({
   micAmplitude,
   ttsAmplitude,
   disabled,
-}: Props & { assetUri: string }) {
+  onReady,
+}: Props & { assetUri: string; onReady: () => void }) {
   const { scene } = useLoader(GLTFLoader, assetUri);
   const { tiltX, tiltY } = useAceMotion(!disabled);
   const rootRef = useRef<Group>(null);
@@ -174,7 +185,6 @@ function AceOracleScene({
         if (typeof standard.metalness === 'number') {
           standard.metalness = Math.max(standard.metalness, 0.34);
           standard.roughness = Math.min(standard.roughness, 0.22);
-          standard.envMapIntensity = 1.2;
         }
       });
       if (mesh.morphTargetDictionary && mesh.morphTargetInfluences) {
@@ -184,6 +194,10 @@ function AceOracleScene({
     morphMeshesRef.current = morphMeshes;
     return clone;
   }, [mode, scene]);
+
+  useEffect(() => {
+    onReady();
+  }, [model, onReady]);
 
   useFrame((state, delta) => {
     const elapsed = state.clock.getElapsedTime();
@@ -341,12 +355,34 @@ export function AceFace3D({
   disabled,
 }: Props) {
   const assetUri = useBundledAssetUri(ACE_GLB);
+  const [isSceneReady, setIsSceneReady] = useState(false);
+  const handleSceneReady = useCallback(() => {
+    setIsSceneReady(true);
+  }, []);
+
+  useEffect(() => {
+    setIsSceneReady(false);
+  }, [assetUri]);
 
   const handlePress = () => {
     if (disabled) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onPress?.();
   };
+
+  const loadingFallback =
+    AceFaceSkiaImpl && !isSceneReady ? (
+      <View pointerEvents="none" style={styles.overlayLayer}>
+        <AceFaceSkiaImpl
+          phase={phase}
+          isSpeaking={isSpeaking}
+          mode={mode}
+          micAmplitude={micAmplitude}
+          ttsAmplitude={ttsAmplitude}
+          disabled={disabled}
+        />
+      </View>
+    ) : null;
 
   return (
     <Pressable
@@ -357,24 +393,28 @@ export function AceFace3D({
       accessibilityLabel="Ace presence"
     >
       <View style={styles.shell}>
+        {loadingFallback}
         {assetUri !== null && (
-          <Canvas
-            style={styles.canvas}
-            camera={{ position: [0, 0.08, 3.16], fov: 25 }}
-            gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-          >
-            <Suspense fallback={null}>
-              <AceOracleScene
-                assetUri={assetUri}
-                phase={phase}
-                isSpeaking={isSpeaking}
-                mode={mode}
-                micAmplitude={micAmplitude}
-                ttsAmplitude={ttsAmplitude}
-                disabled={disabled}
-              />
-            </Suspense>
-          </Canvas>
+          <View pointerEvents="none" style={styles.overlayLayer}>
+            <Canvas
+              style={[styles.canvas, !isSceneReady && styles.canvasHidden]}
+              camera={{ position: [0, 0.08, 3.16], fov: 25 }}
+              gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+            >
+              <Suspense fallback={null}>
+                <AceOracleScene
+                  assetUri={assetUri}
+                  phase={phase}
+                  isSpeaking={isSpeaking}
+                  mode={mode}
+                  micAmplitude={micAmplitude}
+                  ttsAmplitude={ttsAmplitude}
+                  disabled={disabled}
+                  onReady={handleSceneReady}
+                />
+              </Suspense>
+            </Canvas>
+          </View>
         )}
       </View>
     </Pressable>
@@ -401,5 +441,13 @@ const styles = StyleSheet.create({
     width: CW,
     height: CH,
     backgroundColor: 'transparent',
+  },
+  canvasHidden: {
+    opacity: 0,
+  },
+  overlayLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
