@@ -98,6 +98,7 @@ const FACE_PATH_SVG =
 // ─── Per-phase config ──────────────────────────────────────────────────────────
 
 function baseMouthCurve(phase: AppPhase): number {
+  'worklet';
   if (phase === 'done') return 4.2;
   if (phase === 'listening') return 1.1;
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -0.6;
@@ -106,6 +107,7 @@ function baseMouthCurve(phase: AppPhase): number {
 }
 
 function baseMouthOpacity(phase: AppPhase): number {
+  'worklet';
   if (phase === 'done') return 0.68;
   if (phase === 'error') return 0.4;
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.18;
@@ -114,6 +116,7 @@ function baseMouthOpacity(phase: AppPhase): number {
 }
 
 function baseTextureOpacity(phase: AppPhase): number {
+  'worklet';
   if (phase === 'listening') return 0.86;
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.88;
   if (phase === 'confirming') return 0.78;
@@ -123,6 +126,7 @@ function baseTextureOpacity(phase: AppPhase): number {
 }
 
 function baseFocusOpacity(phase: AppPhase): number {
+  'worklet';
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.18;
   if (phase === 'confirming') return 0.1;
   if (phase === 'listening') return 0.05;
@@ -132,18 +136,21 @@ function baseFocusOpacity(phase: AppPhase): number {
 }
 
 function baseFocusScale(phase: AppPhase): number {
+  'worklet';
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 1.03;
   if (phase === 'confirming') return 1.01;
   return 1;
 }
 
 function baseFocusLift(phase: AppPhase): number {
+  'worklet';
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return -1.5;
   if (phase === 'listening' || phase === 'confirming') return -0.5;
   return 0;
 }
 
 function baseGazeVoidOpacity(phase: AppPhase): number {
+  'worklet';
   if (phase === 'thinking' || phase === 'hiring' || phase === 'executing') return 0.34;
   if (phase === 'listening') return 0.3;
   if (phase === 'confirming') return 0.26;
