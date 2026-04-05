@@ -164,6 +164,48 @@ type ManagerSnapshot = {
       notes: string;
     }>;
   };
+  eligibilityWorkItems: {
+    items: Array<{
+      workItemId: string;
+      workspaceName: string;
+      title: string;
+      payerName: string | null;
+      memberId: string | null;
+      amountAtRisk: number | null;
+      confidencePct: number | null;
+      priority: string;
+      status: string;
+      dueAt: string | null;
+      requiresHumanReview: boolean;
+    }>;
+    count: number;
+  };
+  eligibilityExceptions: {
+    items: Array<{
+      exceptionId: string;
+      workspaceName: string;
+      payerName: string | null;
+      claimRef: string | null;
+      priority: string;
+      exceptionType: string;
+      severity: string;
+      summary: string;
+      recommendedHumanAction: string | null;
+      slaAt: string | null;
+    }>;
+    count: number;
+  };
+  eligibilityConnectors: {
+    connectors: Array<{
+      key: string;
+      label: string;
+      status: 'live' | 'simulation' | 'manual_fallback';
+      mode: 'remote' | 'simulation' | 'manual';
+      configured: boolean;
+      capabilities: string[];
+      notes: string;
+    }>;
+  };
 };
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
@@ -229,6 +271,9 @@ export default function RcmPage() {
   const workItems = data?.workItems.items ?? [];
   const exceptions = data?.exceptions.items ?? [];
   const connectors = data?.connectors.connectors ?? [];
+  const eligibilityWorkItems = data?.eligibilityWorkItems?.items ?? [];
+  const eligibilityExceptions = data?.eligibilityExceptions?.items ?? [];
+  const eligibilityConnectors = data?.eligibilityConnectors?.connectors ?? [];
 
   return (
     <div className="space-y-6">
@@ -459,6 +504,135 @@ export default function RcmPage() {
                     {formatDate(item.slaAt)}
                   </div>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl border p-5"
+        style={{ background: '#0b1220', borderColor: '#1f2937' }}
+      >
+        <div className="flex items-center justify-between gap-3 text-white">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-violet-400" />
+            <h2 className="text-[16px] font-semibold">Eligibility lane</h2>
+          </div>
+          <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-violet-300">
+            Live
+          </span>
+        </div>
+        <p className="mt-2 text-[13px] leading-6 text-[#94a3b8]">
+          Medicare HETS 270/271 eligibility verification. Auto-close when coverage is confirmed, escalate when it cannot be resolved autonomously.
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
+              Work queue
+            </div>
+            {!isLoading && eligibilityWorkItems.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] leading-6 text-[#94a3b8]">
+                No eligibility work items open. Submit via{' '}
+                <code className="rounded bg-[#162033] px-1 py-0.5 text-[#93c5fd]">POST /api/rcm/lanes/eligibility/intake</code>.
+              </div>
+            )}
+            {eligibilityWorkItems.map((item) => (
+              <div
+                key={item.workItemId}
+                className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-[14px] font-semibold text-white">{item.title}</div>
+                    <div className="text-[12px] leading-5 text-[#94a3b8]">
+                      {item.workspaceName}
+                      {item.payerName ? ` • ${item.payerName}` : ''}
+                      {item.memberId ? ` • ID: ${item.memberId}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${toneForPriority(item.priority)}`}
+                    >
+                      {labelize(item.priority)}
+                    </span>
+                    <span className="rounded-full border border-[#22304a] bg-[#0f172a] px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-[#cbd5e1]">
+                      {labelize(item.status)}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 text-[12px] leading-6 text-[#cbd5e1] md:grid-cols-3">
+                  <div>
+                    <div className="text-[#64748b]">Amount at risk</div>
+                    <div>{formatCurrency(item.amountAtRisk)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#64748b]">Confidence</div>
+                    <div>{item.confidencePct === null ? 'Pending' : `${item.confidencePct}%`}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#64748b]">Due</div>
+                    <div>{formatDate(item.dueAt)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
+              Exceptions + connectors
+            </div>
+            {!isLoading && eligibilityExceptions.length === 0 && eligibilityConnectors.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] leading-6 text-[#94a3b8]">
+                No open exceptions. Connectors loading.
+              </div>
+            )}
+            {eligibilityExceptions.map((item) => (
+              <div
+                key={item.exceptionId}
+                className="rounded-2xl border border-[#162033] bg-[#0a1120] p-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-[13px] font-semibold text-white">{item.summary}</div>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] ${toneForSeverity(item.severity)}`}
+                  >
+                    {labelize(item.severity)}
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] leading-5 text-[#94a3b8]">
+                  {item.workspaceName}
+                  {item.payerName ? ` • ${item.payerName}` : ''}
+                </div>
+                <div className="mt-2 text-[12px] text-[#cbd5e1]">
+                  <span className="text-[#64748b]">Action: </span>
+                  {item.recommendedHumanAction ?? 'Review case'}
+                </div>
+              </div>
+            ))}
+            {eligibilityConnectors.map((connector) => (
+              <div
+                key={connector.key}
+                className="rounded-2xl border border-[#162033] bg-[#0a1120] p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#93c5fd]">
+                    {connector.label}
+                  </div>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] ${
+                      connector.status === 'live'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                    }`}
+                  >
+                    {connector.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] leading-5 text-[#94a3b8]">{connector.notes}</div>
               </div>
             ))}
           </div>

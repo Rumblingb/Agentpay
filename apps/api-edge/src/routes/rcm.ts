@@ -337,6 +337,49 @@ async function getLatestOpenExceptionForUpdate(sql: Sql, workItemId: string) {
   return rows[0] ?? null;
 }
 
+async function upsertVendorMetric(
+  sql: Sql,
+  merchantId: string,
+  agentId: string,
+  delta: { approved?: number; rejected?: number; escalated?: number; completed?: number },
+) {
+  const now = new Date();
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+
+  const existing = await sql<Array<{ id: string }>>`
+    SELECT id FROM rcm_vendor_metrics
+    WHERE merchant_id = ${merchantId}
+      AND agent_id    = ${agentId}
+      AND period_start = ${periodStart}
+    LIMIT 1
+  `;
+
+  if (existing[0]) {
+    await sql`
+      UPDATE rcm_vendor_metrics SET
+        completed_count  = completed_count  + ${delta.completed ?? 0},
+        approved_count   = approved_count   + ${delta.approved ?? 0},
+        rejected_count   = rejected_count   + ${delta.rejected ?? 0},
+        escalated_count  = escalated_count  + ${delta.escalated ?? 0},
+        updated_at       = NOW()
+      WHERE id = ${existing[0].id}
+    `;
+  } else {
+    await sql`
+      INSERT INTO rcm_vendor_metrics (
+        id, merchant_id, agent_id, period_start, period_end,
+        completed_count, approved_count, rejected_count, escalated_count,
+        avg_turnaround_mins, released_amount, score_payload, created_at, updated_at
+      ) VALUES (
+        ${crypto.randomUUID()}, ${merchantId}, ${agentId}, ${periodStart}, ${periodEnd},
+        ${delta.completed ?? 0}, ${delta.approved ?? 0}, ${delta.rejected ?? 0}, ${delta.escalated ?? 0},
+        0, 0, '{}'::jsonb, NOW(), NOW()
+      )
+    `;
+  }
+}
+
 function connectorInputFromWorkItem(row: WorkItemRow): ClaimStatusConnectorExecutionInput {
   return {
     workItemId: row.id,
@@ -1600,18 +1643,11 @@ const blueprint = {
   },
 };
 
-const plannedRoutes = [
-  'POST /api/rcm/workspaces',
-  'PATCH /api/rcm/workspaces/:workspaceId',
-  'POST /api/rcm/work-items',
-  'PATCH /api/rcm/work-items/:workItemId',
-  'POST /api/rcm/work-items/:workItemId/assign',
-  'POST /api/rcm/work-items/:workItemId/evidence',
-  'POST /api/rcm/work-items/:workItemId/submit',
-  'POST /api/rcm/work-items/:workItemId/approve',
-  'POST /api/rcm/work-items/:workItemId/reject',
-  'POST /api/rcm/work-items/:workItemId/milestones',
-  'POST /api/rcm/work-items/:workItemId/milestones/:milestoneId/release',
+const plannedRoutes: string[] = [
+  // Phase 2 lanes (denial follow-up, ERA 835, prior auth follow-up)
+  'POST /api/rcm/lanes/denial-follow-up/intake',
+  'POST /api/rcm/lanes/era-835/intake',
+  'POST /api/rcm/lanes/prior-auth-follow-up/intake',
 ];
 
 function notYet(c: Context<{ Bindings: Env; Variables: Variables }>, feature: string) {
@@ -1669,6 +1705,19 @@ router.get('/', (c) =>
         'GET /api/rcm/metrics/overview',
         'GET /api/rcm/metrics/queues',
         'GET /api/rcm/metrics/payouts',
+        // Operator onboarding (workspace + work-item CRUD)
+        'POST /api/rcm/workspaces',
+        'PATCH /api/rcm/workspaces/:workspaceId',
+        'POST /api/rcm/work-items',
+        'PATCH /api/rcm/work-items/:workItemId',
+        'POST /api/rcm/work-items/:workItemId/assign',
+        'POST /api/rcm/work-items/:workItemId/evidence',
+        'POST /api/rcm/work-items/:workItemId/submit',
+        'POST /api/rcm/work-items/:workItemId/approve',
+        'POST /api/rcm/work-items/:workItemId/reject',
+        // Milestone fee capture
+        'POST /api/rcm/work-items/:workItemId/milestones',
+        'POST /api/rcm/work-items/:workItemId/milestones/:milestoneId/release',
       ],
       planned: plannedRoutes,
     },
@@ -4865,18 +4914,893 @@ router.get('/metrics/payouts', authenticateApiKey, (c) =>
   }),
 );
 
-router.post('/workspaces', (c) => notYet(c, 'create_workspace'));
-router.patch('/workspaces/:workspaceId', (c) => notYet(c, 'update_workspace'));
-router.post('/work-items', (c) => notYet(c, 'create_work_item'));
-router.patch('/work-items/:workItemId', (c) => notYet(c, 'update_work_item'));
-router.post('/work-items/:workItemId/assign', (c) => notYet(c, 'assign_work_item'));
-router.post('/work-items/:workItemId/evidence', (c) => notYet(c, 'append_evidence'));
-router.post('/work-items/:workItemId/submit', (c) => notYet(c, 'submit_work_item'));
-router.post('/work-items/:workItemId/approve', (c) => notYet(c, 'approve_work_item'));
-router.post('/work-items/:workItemId/reject', (c) => notYet(c, 'reject_work_item'));
-router.post('/work-items/:workItemId/milestones', (c) => notYet(c, 'create_milestone'));
-router.post('/work-items/:workItemId/milestones/:milestoneId/release', (c) =>
-  notYet(c, 'release_milestone'),
-);
+// ---------------------------------------------------------------------------
+// Operator onboarding: workspace management
+// ---------------------------------------------------------------------------
+
+router.post('/workspaces', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const name = typeof body['name'] === 'string' ? body['name'].trim() : '';
+  const legalName = typeof body['legalName'] === 'string' ? body['legalName'].trim() : null;
+  const workspaceType =
+    typeof body['workspaceType'] === 'string' && body['workspaceType'].trim()
+      ? body['workspaceType'].trim()
+      : 'facility_rcm';
+  const specialty = typeof body['specialty'] === 'string' ? body['specialty'].trim() : null;
+  const timezone =
+    typeof body['timezone'] === 'string' && body['timezone'].trim()
+      ? body['timezone'].trim()
+      : 'America/New_York';
+  const approvalPolicy = asObject(body['approvalPolicy']);
+  const config = asObject(body['config']);
+
+  const details: string[] = [];
+  if (!name) details.push('"name" is required');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workspaceId = crypto.randomUUID();
+  const sql = createDb(c.env);
+
+  try {
+    await sql`
+      INSERT INTO rcm_workspaces (
+        id, merchant_id, name, legal_name, workspace_type,
+        specialty, timezone, status, approval_policy, config, created_at, updated_at
+      ) VALUES (
+        ${workspaceId}, ${merchant.id}, ${name}, ${legalName}, ${workspaceType},
+        ${specialty}, ${timezone}, 'active',
+        ${jsonb(approvalPolicy)}::jsonb, ${jsonb(config)}::jsonb, NOW(), NOW()
+      )
+    `;
+
+    const rows = await sql<
+      Array<{
+        id: string;
+        name: string;
+        legalName: string | null;
+        workspaceType: string;
+        specialty: string | null;
+        timezone: string | null;
+        status: string;
+        approvalPolicy: unknown;
+        config: unknown;
+        createdAt: Date | string;
+        updatedAt: Date | string;
+      }>
+    >`
+      SELECT id, name, legal_name AS "legalName", workspace_type AS "workspaceType",
+             specialty, timezone, status, approval_policy AS "approvalPolicy", config,
+             created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM rcm_workspaces WHERE id = ${workspaceId}
+    `;
+    const row = rows[0];
+
+    return c.json(
+      {
+        stage: 'live',
+        workspaceId: row.id,
+        name: row.name,
+        legalName: row.legalName,
+        workspaceType: row.workspaceType,
+        specialty: row.specialty,
+        timezone: row.timezone,
+        status: row.status,
+        approvalPolicy: parseJsonb<JsonRecord>(row.approvalPolicy, {}),
+        config: parseJsonb<JsonRecord>(row.config, {}),
+        createdAt: toIso(row.createdAt),
+        updatedAt: toIso(row.updatedAt),
+      },
+      201,
+    );
+  } catch (err: unknown) {
+    console.error('[rcm] create_workspace error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create workspace' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.patch('/workspaces/:workspaceId', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId') ?? '';
+  if (!isUuid(workspaceId)) return validationResponse(c, ['"workspaceId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    type WorkspaceRow = {
+      id: string;
+      name: string;
+      legalName: string | null;
+      workspaceType: string;
+      specialty: string | null;
+      timezone: string | null;
+      status: string;
+      approvalPolicy: unknown;
+      config: unknown;
+      createdAt: Date | string;
+      updatedAt: Date | string;
+    };
+
+    const existing = await sql<WorkspaceRow[]>`
+      SELECT id, name, legal_name AS "legalName", workspace_type AS "workspaceType",
+             specialty, timezone, status, approval_policy AS "approvalPolicy", config,
+             created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!existing[0]) return c.json({ error: 'Workspace not found' }, 404);
+    const e = existing[0];
+
+    const name = typeof body['name'] === 'string' && body['name'].trim() ? body['name'].trim() : e.name;
+    const legalName = 'legalName' in body
+      ? (typeof body['legalName'] === 'string' ? body['legalName'].trim() || null : null)
+      : e.legalName;
+    const specialty = 'specialty' in body
+      ? (typeof body['specialty'] === 'string' ? body['specialty'].trim() || null : null)
+      : e.specialty;
+    const timezone = typeof body['timezone'] === 'string' && body['timezone'].trim()
+      ? body['timezone'].trim()
+      : e.timezone;
+    const status = typeof body['status'] === 'string' && ['active', 'suspended', 'closed'].includes(body['status'])
+      ? body['status']
+      : e.status;
+    const approvalPolicy = 'approvalPolicy' in body ? asObject(body['approvalPolicy']) : parseJsonb<JsonRecord>(e.approvalPolicy, {});
+    const config = 'config' in body ? asObject(body['config']) : parseJsonb<JsonRecord>(e.config, {});
+
+    await sql`
+      UPDATE rcm_workspaces SET
+        name            = ${name},
+        legal_name      = ${legalName},
+        specialty       = ${specialty},
+        timezone        = ${timezone},
+        status          = ${status},
+        approval_policy = ${jsonb(approvalPolicy)}::jsonb,
+        config          = ${jsonb(config)}::jsonb,
+        updated_at      = NOW()
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+    `;
+
+    const rows = await sql<WorkspaceRow[]>`
+      SELECT id, name, legal_name AS "legalName", workspace_type AS "workspaceType",
+             specialty, timezone, status, approval_policy AS "approvalPolicy", config,
+             created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM rcm_workspaces WHERE id = ${workspaceId}
+    `;
+    const row = rows[0];
+
+    return c.json({
+      stage: 'live',
+      workspaceId: row.id,
+      name: row.name,
+      legalName: row.legalName,
+      workspaceType: row.workspaceType,
+      specialty: row.specialty,
+      timezone: row.timezone,
+      status: row.status,
+      approvalPolicy: parseJsonb<JsonRecord>(row.approvalPolicy, {}),
+      config: parseJsonb<JsonRecord>(row.config, {}),
+      createdAt: toIso(row.createdAt),
+      updatedAt: toIso(row.updatedAt),
+    });
+  } catch (err: unknown) {
+    console.error('[rcm] update_workspace error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to update workspace' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Generic work-item lifecycle (cross-lane operator API)
+// ---------------------------------------------------------------------------
+
+router.post('/work-items', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : '';
+  const workType = typeof body['workType'] === 'string' ? body['workType'].trim() : '';
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+  const billingDomain = typeof body['billingDomain'] === 'string' ? body['billingDomain'].trim() : 'facility';
+  const formType = typeof body['formType'] === 'string' ? body['formType'].trim() : null;
+  const payerName = typeof body['payerName'] === 'string' ? body['payerName'].trim() : null;
+  const coverageType = typeof body['coverageType'] === 'string' ? body['coverageType'].trim() : null;
+  const patientRef = typeof body['patientRef'] === 'string' ? body['patientRef'].trim() : null;
+  const providerRef = typeof body['providerRef'] === 'string' ? body['providerRef'].trim() : null;
+  const encounterRef = typeof body['encounterRef'] === 'string' ? body['encounterRef'].trim() : null;
+  const claimRef = typeof body['claimRef'] === 'string' ? body['claimRef'].trim() : null;
+  const sourceSystem = typeof body['sourceSystem'] === 'string' ? body['sourceSystem'].trim() : null;
+  const priority = normalizePriority(body['priority']);
+  const dueAt = parseDateString(body['dueAt']);
+  const amountAtRisk = 'amountAtRisk' in body ? parsePositiveAmount(body['amountAtRisk']) : null;
+  const metadata = asObject(body['metadata']);
+
+  const details: string[] = [];
+  if (!workspaceId || !isUuid(workspaceId)) details.push('"workspaceId" must be a valid UUID');
+  if (!workType) details.push('"workType" is required');
+  if (!title) details.push('"title" is required');
+  if ('amountAtRisk' in body && body['amountAtRisk'] !== null && amountAtRisk === null) {
+    details.push('"amountAtRisk" must be a positive number');
+  }
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workItemId = crypto.randomUUID();
+  const sql = createDb(c.env);
+
+  try {
+    const workspace = await getOwnedWorkspace(sql, merchant.id, workspaceId);
+    if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
+
+    await sql`
+      INSERT INTO rcm_work_items (
+        id, workspace_id, merchant_id, work_type, billing_domain, form_type,
+        title, payer_name, coverage_type, patient_ref, provider_ref,
+        encounter_ref, claim_ref, source_system, amount_at_risk, priority,
+        status, requires_human_review, due_at, metadata, created_at, updated_at
+      ) VALUES (
+        ${workItemId}, ${workspaceId}, ${merchant.id}, ${workType}, ${billingDomain}, ${formType},
+        ${title}, ${payerName}, ${coverageType}, ${patientRef}, ${providerRef},
+        ${encounterRef}, ${claimRef}, ${sourceSystem}, ${amountAtRisk ?? null}, ${priority},
+        'new', false, ${dueAt}, ${jsonb(metadata)}::jsonb, NOW(), NOW()
+      )
+    `;
+
+    const rows = await sql<WorkItemRow[]>`
+      SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+             w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+             w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+             w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+             w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+             w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+             w.confidence_pct AS "confidencePct", w.priority, w.status,
+             w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+             w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+             w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+      FROM rcm_work_items w
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.id = ${workItemId}
+    `;
+
+    return c.json({ stage: 'live', workItem: mapWorkItem(rows[0]) }, 201);
+  } catch (err: unknown) {
+    console.error('[rcm] create_work_item error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.patch('/work-items/:workItemId', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    const existing = await sql<Array<{ id: string; status: string; title: string; payerName: string | null; coverageType: string | null; priority: string; dueAt: Date | string | null; amountAtRisk: string | number | null }>>`
+      SELECT id, status, title, payer_name AS "payerName", coverage_type AS "coverageType",
+             priority, due_at AS "dueAt", amount_at_risk AS "amountAtRisk"
+      FROM rcm_work_items
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!existing[0]) return c.json({ error: 'Work item not found' }, 404);
+    const e = existing[0];
+
+    const terminalStatuses = ['closed_auto', 'closed_human', 'rejected'];
+    if (terminalStatuses.includes(e.status)) {
+      return c.json({ error: 'Terminal work items cannot be updated' }, 409);
+    }
+
+    const title = typeof body['title'] === 'string' && body['title'].trim()
+      ? body['title'].trim() : e.title;
+    const payerName = 'payerName' in body
+      ? (typeof body['payerName'] === 'string' ? body['payerName'].trim() || null : null)
+      : e.payerName;
+    const coverageType = 'coverageType' in body
+      ? (typeof body['coverageType'] === 'string' ? body['coverageType'].trim() || null : null)
+      : e.coverageType;
+    const priority = typeof body['priority'] === 'string'
+      ? normalizePriority(body['priority']) : e.priority;
+    const dueAt = 'dueAt' in body ? parseDateString(body['dueAt']) : toIso(e.dueAt);
+    const newAmount = 'amountAtRisk' in body ? parsePositiveAmount(body['amountAtRisk']) : undefined;
+
+    if ('amountAtRisk' in body && body['amountAtRisk'] !== null && newAmount === null) {
+      return validationResponse(c, ['"amountAtRisk" must be a positive number']);
+    }
+
+    const amountAtRisk = newAmount !== undefined ? newAmount : (e.amountAtRisk === null ? null : Number(e.amountAtRisk));
+
+    await sql`
+      UPDATE rcm_work_items SET
+        title          = ${title},
+        payer_name     = ${payerName},
+        coverage_type  = ${coverageType},
+        priority       = ${priority},
+        due_at         = ${dueAt},
+        amount_at_risk = ${amountAtRisk},
+        updated_at     = NOW()
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+    `;
+
+    const rows = await sql<WorkItemRow[]>`
+      SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+             w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+             w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+             w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+             w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+             w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+             w.confidence_pct AS "confidencePct", w.priority, w.status,
+             w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+             w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+             w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+      FROM rcm_work_items w
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.id = ${workItemId}
+    `;
+
+    return c.json({ stage: 'live', workItem: mapWorkItem(rows[0]) });
+  } catch (err: unknown) {
+    console.error('[rcm] update_work_item error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to update work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/assign', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  if (agentId !== null && !isUuid(agentId)) {
+    return validationResponse(c, ['"agentId" must be a valid UUID or null']);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    const existing = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_work_items
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!existing[0]) return c.json({ error: 'Work item not found' }, 404);
+
+    await sql`
+      UPDATE rcm_work_items
+      SET assigned_agent_id = ${agentId}, updated_at = NOW()
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+    `;
+
+    await insertEvidence(
+      sql,
+      workItemId,
+      [{ evidenceType: 'agent_assigned', payload: { agentId, assignedAt: new Date().toISOString() } }],
+      'operator',
+      'rcm_operator',
+    );
+
+    return c.json({ stage: 'live', workItemId, assignedAgentId: agentId });
+  } catch (err: unknown) {
+    console.error('[rcm] assign_work_item error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to assign work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/evidence', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const evidenceInput = Array.isArray(body['evidence']) ? body['evidence'] : [];
+  if (evidenceInput.length === 0) {
+    return validationResponse(c, ['"evidence" must contain at least one evidence record']);
+  }
+
+  const items: EvidenceInput[] = evidenceInput
+    .map((entry) => {
+      const item = asObject(entry);
+      return {
+        actorType: typeof item['actorType'] === 'string' ? item['actorType'] : 'operator',
+        actorRef: typeof item['actorRef'] === 'string' ? item['actorRef'] : 'rcm_operator',
+        evidenceType: typeof item['evidenceType'] === 'string' ? item['evidenceType'] : '',
+        payload: item['payload'],
+      };
+    })
+    .filter((item) => item.evidenceType.length > 0);
+
+  if (items.length !== evidenceInput.length) {
+    return validationResponse(c, ['Each evidence item must include "evidenceType"']);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    const existing = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_work_items
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!existing[0]) return c.json({ error: 'Work item not found' }, 404);
+
+    await insertEvidence(sql, workItemId, items, 'operator', 'rcm_operator');
+
+    return c.json({ stage: 'live', workItemId, appended: items.length });
+  } catch (err: unknown) {
+    console.error('[rcm] append_evidence error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to append evidence' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/submit', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  if (agentId !== null && !isUuid(agentId)) {
+    return validationResponse(c, ['"agentId" must be a valid UUID']);
+  }
+
+  const sql = createDb(c.env);
+
+  try {
+    const rows = await sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM rcm_work_items
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+
+    const allowedStatuses = ['new', 'routed', 'retry_pending'];
+    if (!allowedStatuses.includes(row.status)) {
+      return c.json({ error: 'Work item must be in new, routed, or retry_pending to submit' }, 409);
+    }
+
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        status       = 'awaiting_qa',
+        assigned_agent_id = ${agentId ?? sql`assigned_agent_id`},
+        submitted_at = NOW(),
+        updated_at   = NOW()
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+    `;
+
+    await insertEvidence(
+      sql,
+      workItemId,
+      [{ evidenceType: 'manual_submit', payload: { agentId, submittedAt: new Date().toISOString() } }],
+      'operator',
+      agentId ?? 'rcm_operator',
+    );
+
+    return c.json({ stage: 'live', nextState: 'awaiting_qa', workItemId });
+  } catch (err: unknown) {
+    console.error('[rcm] submit_work_item error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to submit work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/approve', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  const reviewerRef = typeof body['reviewerRef'] === 'string' && body['reviewerRef'].trim()
+    ? body['reviewerRef'].trim()
+    : 'operator';
+  const summary = typeof body['summary'] === 'string' ? body['summary'].trim() : null;
+
+  const sql = createDb(c.env);
+
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const rows = await tx<Array<{ id: string; status: string; assignedAgentId: string | null; workspaceId: string }>>`
+        SELECT id, status, assigned_agent_id AS "assignedAgentId", workspace_id AS "workspaceId"
+        FROM rcm_work_items
+        WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+        LIMIT 1
+        FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+
+      const allowedStatuses = ['awaiting_qa', 'human_review_required'];
+      if (!allowedStatuses.includes(row.status)) {
+        throw new Error('INVALID_STATE');
+      }
+
+      const nowIso = new Date().toISOString();
+
+      await tx`
+        UPDATE rcm_work_items
+        SET
+          status       = 'closed_human',
+          completed_at = NOW(),
+          updated_at   = NOW()
+        WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [{ actorType: 'human_reviewer', actorRef: reviewerRef, evidenceType: 'human_approved', payload: { summary, decidedAt: nowIso } }],
+        'human_reviewer',
+        reviewerRef,
+      );
+
+      // Update vendor scorecard for the assigned agent if present
+      if (row.assignedAgentId) {
+        await upsertVendorMetric(tx, merchant.id, row.assignedAgentId, { approved: 1 });
+      }
+
+      return { nextState: 'closed_human' };
+    });
+
+    return c.json({ stage: 'live', nextState: result.nextState, workItemId });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Work item must be in awaiting_qa or human_review_required to approve' }, 409);
+    }
+    console.error('[rcm] approve_work_item error:', message);
+    return c.json({ error: 'Failed to approve work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/reject', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  const reviewerRef = typeof body['reviewerRef'] === 'string' && body['reviewerRef'].trim()
+    ? body['reviewerRef'].trim()
+    : 'operator';
+  const reason = typeof body['reason'] === 'string' ? body['reason'].trim() : null;
+
+  const sql = createDb(c.env);
+
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const rows = await tx<Array<{ id: string; status: string; assignedAgentId: string | null }>>`
+        SELECT id, status, assigned_agent_id AS "assignedAgentId"
+        FROM rcm_work_items
+        WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+        LIMIT 1
+        FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+
+      const allowedStatuses = ['awaiting_qa', 'human_review_required'];
+      if (!allowedStatuses.includes(row.status)) {
+        throw new Error('INVALID_STATE');
+      }
+
+      const nowIso = new Date().toISOString();
+
+      await tx`
+        UPDATE rcm_work_items
+        SET
+          status       = 'rejected',
+          completed_at = NOW(),
+          updated_at   = NOW()
+        WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [{ actorType: 'human_reviewer', actorRef: reviewerRef, evidenceType: 'human_rejected', payload: { reason, decidedAt: nowIso } }],
+        'human_reviewer',
+        reviewerRef,
+      );
+
+      if (row.assignedAgentId) {
+        await upsertVendorMetric(tx, merchant.id, row.assignedAgentId, { rejected: 1 });
+      }
+
+      return { nextState: 'rejected' };
+    });
+
+    return c.json({ stage: 'live', nextState: result.nextState, workItemId });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Work item must be in awaiting_qa or human_review_required to reject' }, 409);
+    }
+    console.error('[rcm] reject_work_item error:', message);
+    return c.json({ error: 'Failed to reject work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Milestone fee capture
+// ---------------------------------------------------------------------------
+
+router.post('/work-items/:workItemId/milestones', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const name = typeof body['name'] === 'string' ? body['name'].trim() : '';
+  const amount = parsePositiveAmount(body['amount']);
+  const successCriteria = asObject(body['successCriteria']);
+
+  const details: string[] = [];
+  if (!name) details.push('"name" is required');
+  if (amount === null) details.push('"amount" must be a positive number');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+
+  try {
+    const existing = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_work_items
+      WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!existing[0]) return c.json({ error: 'Work item not found' }, 404);
+
+    const milestoneId = crypto.randomUUID();
+    await sql`
+      INSERT INTO rcm_milestones (id, work_item_id, name, amount, status, success_criteria, created_at, updated_at)
+      VALUES (${milestoneId}, ${workItemId}, ${name}, ${amount}, 'pending', ${jsonb(successCriteria)}::jsonb, NOW(), NOW())
+    `;
+
+    const rows = await sql<
+      Array<{
+        id: string;
+        workItemId: string;
+        name: string;
+        amount: string;
+        status: string;
+        successCriteria: unknown;
+        paymentIntentId: string | null;
+        releasedAt: Date | string | null;
+        createdAt: Date | string;
+        updatedAt: Date | string;
+      }>
+    >`
+      SELECT id, work_item_id AS "workItemId", name, amount, status,
+             success_criteria AS "successCriteria", payment_intent_id AS "paymentIntentId",
+             released_at AS "releasedAt", created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM rcm_milestones WHERE id = ${milestoneId}
+    `;
+    const row = rows[0];
+
+    return c.json(
+      {
+        stage: 'live',
+        milestoneId: row.id,
+        workItemId: row.workItemId,
+        name: row.name,
+        amount: Number(row.amount),
+        status: row.status,
+        successCriteria: parseJsonb<JsonRecord>(row.successCriteria, {}),
+        paymentIntentId: row.paymentIntentId,
+        releasedAt: toIso(row.releasedAt),
+        createdAt: toIso(row.createdAt),
+        updatedAt: toIso(row.updatedAt),
+      },
+      201,
+    );
+  } catch (err: unknown) {
+    console.error('[rcm] create_milestone error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create milestone' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/work-items/:workItemId/milestones/:milestoneId/release', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  const milestoneId = c.req.param('milestoneId') ?? '';
+
+  const idErrors: string[] = [];
+  if (!isUuid(workItemId)) idErrors.push('"workItemId" must be a valid UUID');
+  if (!isUuid(milestoneId)) idErrors.push('"milestoneId" must be a valid UUID');
+  if (idErrors.length > 0) return validationResponse(c, idErrors);
+
+  const sql = createDb(c.env);
+
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      // Verify work item ownership
+      const wiRows = await tx<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM rcm_work_items
+        WHERE id = ${workItemId} AND merchant_id = ${merchant.id}
+        LIMIT 1
+        FOR UPDATE
+      `;
+      if (!wiRows[0]) throw new Error('WORK_ITEM_NOT_FOUND');
+
+      // Verify milestone belongs to work item
+      const msRows = await tx<
+        Array<{
+          id: string;
+          workItemId: string;
+          name: string;
+          amount: string;
+          status: string;
+          successCriteria: unknown;
+          paymentIntentId: string | null;
+        }>
+      >`
+        SELECT id, work_item_id AS "workItemId", name, amount, status,
+               success_criteria AS "successCriteria", payment_intent_id AS "paymentIntentId"
+        FROM rcm_milestones
+        WHERE id = ${milestoneId} AND work_item_id = ${workItemId}
+        LIMIT 1
+        FOR UPDATE
+      `;
+      const ms = msRows[0];
+      if (!ms) throw new Error('MILESTONE_NOT_FOUND');
+      if (ms.status !== 'pending') throw new Error('ALREADY_RELEASED');
+
+      // Create a payment_intent as the fee event record
+      const intentId = crypto.randomUUID();
+      const verificationToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const amount = Number(ms.amount);
+
+      await tx`
+        INSERT INTO payment_intents (
+          id, merchant_id, amount, currency, status, protocol,
+          verification_token, expires_at, metadata, created_at, updated_at
+        ) VALUES (
+          ${intentId}, ${merchant.id}, ${amount}, 'USD', 'rcm_milestone_release', 'rcm',
+          ${verificationToken}, ${expiresAt},
+          ${jsonb({
+            source: 'rcm_milestone_release',
+            milestoneId,
+            workItemId,
+            milestoneName: ms.name,
+          })}::jsonb,
+          NOW(), NOW()
+        )
+      `;
+
+      await tx`
+        UPDATE rcm_milestones
+        SET
+          status             = 'released',
+          payment_intent_id  = ${intentId},
+          released_at        = NOW(),
+          updated_at         = NOW()
+        WHERE id = ${milestoneId}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [{
+          actorType: 'system',
+          actorRef: 'rcm_milestone_engine',
+          evidenceType: 'milestone_released',
+          payload: { milestoneId, intentId, amount, releasedAt: new Date().toISOString() },
+        }],
+        'system',
+        'rcm_milestone_engine',
+      );
+
+      return { intentId, verificationToken, amount };
+    });
+
+    return c.json({
+      stage: 'live',
+      milestoneId,
+      workItemId,
+      status: 'released',
+      feeEvent: {
+        paymentIntentId: result.intentId,
+        amount: result.amount,
+        currency: 'USD',
+        verificationToken: result.verificationToken,
+      },
+      releasedAt: new Date().toISOString(),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'MILESTONE_NOT_FOUND') return c.json({ error: 'Milestone not found' }, 404);
+    if (message === 'ALREADY_RELEASED') return c.json({ error: 'Milestone has already been released' }, 409);
+    console.error('[rcm] release_milestone error:', message);
+    return c.json({ error: 'Failed to release milestone' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
 
 export { router as rcmRouter };
