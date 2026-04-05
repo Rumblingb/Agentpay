@@ -233,6 +233,20 @@ export interface Env {
   /** Optional timeout in ms for the remote HETS eligibility connector. */
   RCM_HETS_TIMEOUT_MS?: string;
 
+  /** Base URL for the X12 appeal inquiry (denial follow-up) connector. */
+  RCM_X12_APPEAL_INQUIRY_API_URL?: string;
+  /** Bearer key for the X12 appeal inquiry (denial follow-up) connector. */
+  RCM_X12_APPEAL_INQUIRY_API_KEY?: string;
+
+  /** AES-GCM encryption key for the RCM credential vault (32-byte hex). */
+  RCM_VAULT_ENCRYPTION_KEY?: string;
+
+  /**
+   * Minutes before a retry_pending work item is picked up by the autonomy
+   * loop fallback pass. Defaults to 30 minutes.
+   */
+  RCM_RETRY_TIMEOUT_MINS?: string;
+
   // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
   /** OpenClaw API base URL — e.g. https://api.openclaw.io */
   OPENCLAW_API_URL?: string;

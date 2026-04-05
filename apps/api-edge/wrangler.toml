@@ -40,6 +40,7 @@ local_protocol = "http"
 
 [triggers]
 crons = [
+  "*/2 * * * *",
   "*/5 * * * *",
   "*/15 * * * *",
   "0 * * * *",

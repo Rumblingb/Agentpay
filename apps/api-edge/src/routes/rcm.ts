@@ -28,6 +28,20 @@ import {
   type EligibilityConnectorKey,
   type EligibilityExceptionSuggestion,
 } from '../lib/rcmEligibilityConnector';
+import {
+  getDenialFollowUpConnectorAvailability,
+  runDenialFollowUpConnector,
+  type DenialFollowUpAutoQaRecommendation,
+  type DenialFollowUpConnectorExecution,
+  type DenialFollowUpConnectorExecutionInput,
+  type DenialFollowUpConnectorKey,
+  type DenialFollowUpExceptionSuggestion,
+} from '../lib/rcmDenialFollowUpConnector';
+import {
+  getEra835ConnectorAvailability,
+  runEra835Connector,
+  type Era835ConnectorExecutionInput,
+} from '../lib/rcmEra835Connector';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1415,6 +1429,134 @@ const eligibilityLaneContract = {
   },
 };
 
+// ─── Denial follow-up lane contract ──────────────────────────────────────────
+
+const denialFollowUpLaneContract = {
+  laneKey: 'denial_follow_up',
+  version: 'v1',
+  supportedDomains: ['facility', 'professional', 'home_health', 'institutional'],
+  supportedForms: ['UB-04', 'CMS-1500'],
+  intakeSchema: {
+    required: [
+      'workspaceId',
+      'title',
+      'workType',
+      'billingDomain',
+      'formType',
+      'payerName',
+      'coverageType',
+      'patientRef',
+      'providerRef',
+      'claimRef',
+      'sourceSystem',
+      'priority',
+      'dueAt',
+      'amountAtRisk',
+    ],
+    optional: ['encounterRef'],
+    metadata: {
+      required: ['denialReasonCode', 'denialDate', 'appealDeadline'],
+      optional: ['appealLevel', 'originalSubmissionDate', 'priorAuthRef', 'notes'],
+    },
+  },
+  stateMachine: {
+    initialState: 'new',
+    terminalStates: ['closed_auto', 'closed_human', 'blocked', 'rejected'],
+    states: [
+      { key: 'new', owner: 'router_agent', purpose: 'Awaiting denial classification and appeal eligibility check.' },
+      { key: 'routed', owner: 'router_agent', purpose: 'Lane accepted and ready for denial follow-up execution.' },
+      { key: 'executing_primary', owner: 'worker_agent', purpose: 'Primary worker is querying denial status and appeal eligibility.' },
+      { key: 'awaiting_qa', owner: 'qa_agent', purpose: 'Denial status and appeal plan are under QA review.' },
+      { key: 'retry_pending', owner: 'qa_agent', purpose: 'Fallback execution approved and queued.' },
+      { key: 'executing_fallback', owner: 'fallback_worker_agent', purpose: 'Second bounded attempt with a different strategy.' },
+      { key: 'human_review_required', owner: 'escalation_agent_or_human', purpose: 'Appeal or denial requires human judgment.' },
+      { key: 'blocked', owner: 'escalation_agent_or_human', purpose: 'Case cannot proceed until external conditions change.' },
+      { key: 'closed_auto', owner: 'system', purpose: 'Appeal approved or denial resolved autonomously.' },
+      { key: 'closed_human', owner: 'human_reviewer', purpose: 'Resolved after explicit human review or takeover.' },
+      { key: 'rejected', owner: 'human_reviewer', purpose: 'Proposed resolution was rejected.' },
+    ],
+    transitions: [
+      { from: 'new', to: 'routed', trigger: 'router_accepts_lane', owner: 'router_agent' },
+      { from: 'new', to: 'blocked', trigger: 'router_detects_missing_prerequisite', owner: 'router_agent' },
+      { from: 'routed', to: 'executing_primary', trigger: 'denial_inquiry_started', owner: 'worker_agent' },
+      { from: 'executing_primary', to: 'awaiting_qa', trigger: 'worker_submits_denial_result', owner: 'worker_agent' },
+      { from: 'awaiting_qa', to: 'closed_auto', trigger: 'qa_approves_denial_resolution', owner: 'qa_agent' },
+      { from: 'awaiting_qa', to: 'retry_pending', trigger: 'qa_requests_fallback_retry', owner: 'qa_agent' },
+      { from: 'awaiting_qa', to: 'human_review_required', trigger: 'qa_escalates', owner: 'qa_agent' },
+      { from: 'retry_pending', to: 'executing_fallback', trigger: 'fallback_denial_inquiry_started', owner: 'fallback_worker_agent' },
+      { from: 'executing_fallback', to: 'awaiting_qa', trigger: 'fallback_worker_submits_result', owner: 'fallback_worker_agent' },
+      { from: 'human_review_required', to: 'closed_human', trigger: 'human_approves_or_takes_over', owner: 'human_reviewer' },
+      { from: 'human_review_required', to: 'blocked', trigger: 'human_marks_blocked', owner: 'human_reviewer' },
+      { from: 'human_review_required', to: 'rejected', trigger: 'human_rejects_resolution', owner: 'human_reviewer' },
+    ],
+  },
+  retryPolicy: {
+    maxAutonomousAttempts: 2,
+    retryPath: ['primary_worker', 'fallback_worker'],
+    requireDifferentStrategyOnRetry: true,
+    neverRetryWithoutNewEvidence: true,
+    escalateOnRepeatedConnectorFailure: true,
+  },
+  completionCriteria: [
+    'Denial appeal status is clearly established.',
+    'Appeal submitted with required documentation if appeal deadline is open.',
+    'Upheld denials are documented and routed to write-off or patient responsibility.',
+    'No unresolved payer ambiguity remains.',
+    'Confidence and QA checks meet the lane threshold.',
+  ],
+  evidenceTypes: [
+    'denial_inquiry_submitted',
+    'denial_inquiry_response',
+    'appeal_eligibility_checked',
+    'appeal_submitted',
+    'appeal_approved',
+    'appeal_denied_final',
+    'information_requested_by_payer',
+    'documentation_gap_found',
+    'qa_decision_recorded',
+    'human_resolution_recorded',
+  ],
+  exceptionInbox: {
+    queueKey: 'denial_follow_up_exceptions',
+    triageBuckets: [
+      'missing_appeal_documentation',
+      'appeal_deadline_exceeded',
+      'denial_upheld_requires_review',
+      'payer_information_request',
+      'coverage_dispute',
+      'medical_necessity_denial',
+      'payer_system_unavailable',
+    ],
+    allowedHumanActions: [
+      'submit_appeal',
+      'add_missing_documentation',
+      'write_off_claim',
+      'assign_patient_responsibility',
+      'request_peer_review',
+      'escalate_to_second_level_appeal',
+      'mark_blocked',
+    ],
+  },
+  endpoints: {
+    read: [
+      'GET /api/rcm/lanes/denial-follow-up',
+      'GET /api/rcm/lanes/denial-follow-up/work-items',
+      'GET /api/rcm/queues/denial-follow-up-exceptions',
+      'GET /api/rcm/connectors/denial-follow-up',
+    ],
+    liveMutations: [
+      'POST /api/rcm/lanes/denial-follow-up/intake',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/run-primary',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/execute',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/verify',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/retry',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/escalate',
+      'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/resolve',
+    ],
+    plannedMutations: [],
+  },
+};
+
 const blueprint = {
   vertical: 'rcm',
   stage: 'scaffold',
@@ -1640,13 +1782,12 @@ const blueprint = {
   laneContracts: {
     claimStatus: claimStatusLaneContract,
     eligibility: eligibilityLaneContract,
+    denialFollowUp: denialFollowUpLaneContract,
   },
 };
 
 const plannedRoutes: string[] = [
-  // Phase 2 lanes (denial follow-up, ERA 835, prior auth follow-up)
-  'POST /api/rcm/lanes/denial-follow-up/intake',
-  'POST /api/rcm/lanes/era-835/intake',
+  // Phase 2 lanes (prior auth follow-up, ERA 835 full posting)
   'POST /api/rcm/lanes/prior-auth-follow-up/intake',
 ];
 
@@ -1696,6 +1837,23 @@ router.get('/', (c) =>
         'POST /api/rcm/lanes/eligibility/work-items/:workItemId/retry',
         'POST /api/rcm/lanes/eligibility/work-items/:workItemId/escalate',
         'POST /api/rcm/lanes/eligibility/work-items/:workItemId/resolve',
+        // Denial follow-up lane
+        'GET /api/rcm/lanes/denial-follow-up',
+        'GET /api/rcm/lanes/denial-follow-up/work-items',
+        'GET /api/rcm/queues/denial-follow-up-exceptions',
+        'GET /api/rcm/connectors/denial-follow-up',
+        'POST /api/rcm/lanes/denial-follow-up/intake',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/run-primary',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/execute',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/verify',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/retry',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/escalate',
+        'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/resolve',
+        // ERA 835 lane (scaffold)
+        'GET /api/rcm/lanes/era-835',
+        'GET /api/rcm/connectors/era-835',
+        'POST /api/rcm/lanes/era-835/intake',
+        'POST /api/rcm/lanes/era-835/work-items/:workItemId/run-primary',
         // Cross-lane reads
         'GET /api/rcm/workspaces',
         'GET /api/rcm/work-items',
@@ -5798,6 +5956,1095 @@ router.post('/work-items/:workItemId/milestones/:milestoneId/release', authentic
     if (message === 'ALREADY_RELEASED') return c.json({ error: 'Milestone has already been released' }, 409);
     console.error('[rcm] release_milestone error:', message);
     return c.json({ error: 'Failed to release milestone' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — DB helpers ──────────────────────────────────────
+
+async function getOwnedDenialWorkItem(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id,
+      w.workspace_id         AS "workspaceId",
+      ws.name                AS "workspaceName",
+      w.assigned_agent_id    AS "assignedAgentId",
+      w.work_type            AS "workType",
+      w.form_type            AS "formType",
+      w.title,
+      w.payer_name           AS "payerName",
+      w.coverage_type        AS "coverageType",
+      w.patient_ref          AS "patientRef",
+      w.provider_ref         AS "providerRef",
+      w.claim_ref            AS "claimRef",
+      w.source_system        AS "sourceSystem",
+      w.amount_at_risk       AS "amountAtRisk",
+      w.confidence_pct       AS "confidencePct",
+      w.priority,
+      w.status,
+      w.requires_human_review AS "requiresHumanReview",
+      w.due_at               AS "dueAt",
+      w.submitted_at         AS "submittedAt",
+      w.completed_at         AS "completedAt",
+      w.metadata,
+      w.created_at           AS "createdAt",
+      w.updated_at           AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId}
+      AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${denialFollowUpLaneContract.laneKey}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+async function getOwnedDenialWorkItemForUpdate(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id,
+      w.workspace_id         AS "workspaceId",
+      ws.name                AS "workspaceName",
+      w.assigned_agent_id    AS "assignedAgentId",
+      w.work_type            AS "workType",
+      w.form_type            AS "formType",
+      w.title,
+      w.payer_name           AS "payerName",
+      w.coverage_type        AS "coverageType",
+      w.patient_ref          AS "patientRef",
+      w.provider_ref         AS "providerRef",
+      w.claim_ref            AS "claimRef",
+      w.source_system        AS "sourceSystem",
+      w.amount_at_risk       AS "amountAtRisk",
+      w.confidence_pct       AS "confidencePct",
+      w.priority,
+      w.status,
+      w.requires_human_review AS "requiresHumanReview",
+      w.due_at               AS "dueAt",
+      w.submitted_at         AS "submittedAt",
+      w.completed_at         AS "completedAt",
+      w.metadata,
+      w.created_at           AS "createdAt",
+      w.updated_at           AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId}
+      AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${denialFollowUpLaneContract.laneKey}
+    LIMIT 1
+    FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+function mapDenialWorkItem(row: WorkItemRow) {
+  const base = mapWorkItem(row);
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    ...base,
+    denialReasonCode: typeof metadata['denialReasonCode'] === 'string' ? metadata['denialReasonCode'] : null,
+    denialDate: typeof metadata['denialDate'] === 'string' ? metadata['denialDate'] : null,
+    appealDeadline: typeof metadata['appealDeadline'] === 'string' ? metadata['appealDeadline'] : null,
+    appealLevel: typeof metadata['appealLevel'] === 'string' ? metadata['appealLevel'] : null,
+  };
+}
+
+function denialFollowUpConnectorInputFromWorkItem(row: WorkItemRow): DenialFollowUpConnectorExecutionInput {
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    workItemId: row.id,
+    claimRef: row.claimRef ?? '',
+    payerName: row.payerName ?? '',
+    coverageType: row.coverageType ?? '',
+    patientRef: row.patientRef ?? '',
+    providerRef: row.providerRef ?? '',
+    denialReasonCode: typeof metadata['denialReasonCode'] === 'string' ? metadata['denialReasonCode'] : '',
+    denialDate: typeof metadata['denialDate'] === 'string' ? metadata['denialDate'] : '',
+    appealDeadline: typeof metadata['appealDeadline'] === 'string' ? metadata['appealDeadline'] : '',
+    formType: row.formType ?? '',
+    sourceSystem: row.sourceSystem ?? '',
+    amountAtRisk: row.amountAtRisk === null ? null : Number(row.amountAtRisk),
+    metadata,
+  };
+}
+
+function defaultExceptionForDenialConnector(result: DenialFollowUpConnectorExecution): DenialFollowUpExceptionSuggestion {
+  return (
+    result.exceptionSuggestion ?? {
+      exceptionType: 'denial_upheld_requires_review',
+      severity: 'high',
+      summary: result.summary,
+      recommendedHumanAction: 'Review denial status and decide on appeal or write-off.',
+      requiredContextFields: ['denial_final_reason', 'appeal_documentation'],
+      reasonCode: result.resolutionReasonCode,
+    }
+  );
+}
+
+function denialQaDecisionForRecommendation(
+  recommendation: DenialFollowUpAutoQaRecommendation,
+): 'approve_auto_close' | 'escalate' {
+  return recommendation === 'close_auto' ? 'approve_auto_close' : 'escalate';
+}
+
+async function persistDenialConnectorRun(
+  sql: any,
+  merchantId: string,
+  workItemId: string,
+  params: {
+    attemptRole: 'primary_worker' | 'fallback_worker';
+    agentId: string | null;
+    qaActorRef: string;
+    playbookVersion: string;
+    strategy: string;
+    connectorResult: DenialFollowUpConnectorExecution;
+    autoRoute: boolean;
+  },
+) {
+  const row = await getOwnedDenialWorkItemForUpdate(sql, merchantId, workItemId);
+  if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+
+  const expectedStatus = params.attemptRole === 'primary_worker' ? 'routed' : 'retry_pending';
+  if (row.status !== expectedStatus) throw new Error('INVALID_STATE');
+
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  const attempts = getAttemptHistory(metadata);
+  if (attempts.length >= denialFollowUpLaneContract.retryPolicy.maxAutonomousAttempts) {
+    throw new Error('ATTEMPTS_EXHAUSTED');
+  }
+
+  if (params.attemptRole === 'fallback_worker') {
+    if (attempts.length === 0) throw new Error('NO_PRIOR_ATTEMPT');
+    const previousAttempt = attempts[attempts.length - 1];
+    const previousStrategy = typeof previousAttempt['strategy'] === 'string' ? previousAttempt['strategy'] : '';
+    const previousConnector = typeof previousAttempt['connectorStrategy'] === 'string' ? previousAttempt['connectorStrategy'] : previousStrategy;
+    const strategyChanged = params.strategy !== previousStrategy;
+    const connectorChanged = params.connectorResult.connectorKey !== previousConnector;
+    if (denialFollowUpLaneContract.retryPolicy.requireDifferentStrategyOnRetry && !strategyChanged && !connectorChanged) {
+      throw new Error('SAME_STRATEGY');
+    }
+  }
+
+  const attemptSummary = {
+    attemptNumber: attempts.length + 1,
+    attemptRole: params.attemptRole,
+    strategy: params.strategy,
+    connectorStrategy: params.connectorResult.connectorKey,
+    connectorMode: params.connectorResult.mode,
+    playbookVersion: params.playbookVersion,
+    proposedResolution: params.connectorResult.proposedResolution,
+    resolutionReasonCode: params.connectorResult.resolutionReasonCode,
+    confidencePct: params.connectorResult.confidencePct,
+    nextBestAction: params.connectorResult.nextBestAction,
+    submittedAt: params.connectorResult.performedAt,
+    connectorTraceId: params.connectorResult.connectorTraceId,
+    statusCode: params.connectorResult.statusCode,
+    statusLabel: params.connectorResult.statusLabel,
+    appealEligible: params.connectorResult.appealEligible,
+    appealDeadlineStatus: params.connectorResult.appealDeadlineStatus,
+    evidenceTypes: params.connectorResult.evidence.map((item) => item.evidenceType),
+  };
+
+  const updatedMetadata = {
+    ...metadata,
+    playbookVersion: params.playbookVersion,
+    lastExecution: attemptSummary,
+    lastConnectorRun: {
+      connectorKey: params.connectorResult.connectorKey,
+      mode: params.connectorResult.mode,
+      statusCode: params.connectorResult.statusCode,
+      statusLabel: params.connectorResult.statusLabel,
+      traceId: params.connectorResult.connectorTraceId,
+      summary: params.connectorResult.summary,
+      performedAt: params.connectorResult.performedAt,
+    },
+    attemptHistory: [...attempts, attemptSummary],
+  };
+
+  const workerActorType = params.attemptRole === 'primary_worker' ? 'worker_agent' : 'fallback_worker_agent';
+  const workerActorRef =
+    params.agentId ??
+    (params.attemptRole === 'primary_worker' ? 'denial_connector_primary' : 'denial_connector_fallback');
+
+  let nextState = 'awaiting_qa';
+  if (params.autoRoute) {
+    nextState =
+      params.connectorResult.autoQaRecommendation === 'close_auto'
+        ? 'closed_auto'
+        : params.connectorResult.autoQaRecommendation === 'human_review_required'
+          ? 'human_review_required'
+          : 'awaiting_qa';
+  }
+
+  if (nextState === 'closed_auto') {
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'closed_auto',
+        requires_human_review = false,
+        submitted_at = NOW(),
+        completed_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await resolveOpenExceptions(sql, workItemId);
+  } else if (nextState === 'human_review_required') {
+    const exception = defaultExceptionForDenialConnector(params.connectorResult);
+    await upsertOpenException(sql, workItemId, {
+      exceptionType: exception.exceptionType,
+      severity: exception.severity,
+      reasonCode: exception.reasonCode,
+      summary: exception.summary,
+      payload: {
+        requiredContextFields: exception.requiredContextFields,
+        recommendedHumanAction: exception.recommendedHumanAction,
+        connectorKey: params.connectorResult.connectorKey,
+        connectorMode: params.connectorResult.mode,
+        appealEligible: params.connectorResult.appealEligible,
+        appealDeadlineStatus: params.connectorResult.appealDeadlineStatus,
+      },
+    });
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'human_review_required',
+        requires_human_review = true,
+        submitted_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+  } else {
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'awaiting_qa',
+        requires_human_review = false,
+        submitted_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+  }
+
+  await insertEvidence(
+    sql,
+    workItemId,
+    [
+      ...params.connectorResult.evidence.map((item) => ({
+        ...item,
+        actorType: item.actorType ?? workerActorType,
+        actorRef: item.actorRef ?? workerActorRef,
+      })),
+      {
+        actorType: workerActorType,
+        actorRef: workerActorRef,
+        evidenceType:
+          params.attemptRole === 'primary_worker'
+            ? 'execution_resolution_proposed'
+            : 'fallback_execution_submitted',
+        payload: attemptSummary,
+      },
+    ],
+    workerActorType,
+    workerActorRef,
+  );
+
+  if (params.autoRoute && nextState !== 'awaiting_qa') {
+    await insertEvidence(
+      sql,
+      workItemId,
+      [
+        {
+          actorType: 'qa_agent',
+          actorRef: params.qaActorRef,
+          evidenceType: 'qa_decision_recorded',
+          payload: {
+            qaDecision: denialQaDecisionForRecommendation(params.connectorResult.autoQaRecommendation),
+            qaReasonCode:
+              params.connectorResult.autoQaRecommendation === 'close_auto'
+                ? 'connector_policy_auto_close'
+                : defaultExceptionForDenialConnector(params.connectorResult).reasonCode,
+            source: 'connector_policy_loop',
+            reviewedAt: new Date().toISOString(),
+          },
+        },
+      ],
+      'qa_agent',
+      params.qaActorRef,
+    );
+  }
+
+  const updated = await getOwnedDenialWorkItem(sql, merchantId, workItemId);
+  if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+  return { nextState, workItem: mapDenialWorkItem(updated) };
+}
+
+// ─── Denial follow-up lane — read routes ─────────────────────────────────────
+
+router.get('/lanes/denial-follow-up', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    contract: denialFollowUpLaneContract,
+    message:
+      'Denial follow-up lane: autonomous appeal eligibility checking, denial status inquiry, and appeal submission via X12 276/277 with appeal-intent metadata.',
+  }),
+);
+
+router.get('/connectors/denial-follow-up', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    lane: denialFollowUpLaneContract.laneKey,
+    connectors: getDenialFollowUpConnectorAvailability(c.env),
+    message:
+      'X12 appeal inquiry is the primary autonomous rail. Portal fallback stays human-led until credential vaulting is production-ready.',
+  }),
+);
+
+router.get('/lanes/denial-follow-up/work-items', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const status = c.req.query('status');
+  const workspaceId = c.req.query('workspaceId');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+
+  if (workspaceId && !isUuid(workspaceId)) {
+    sql.end().catch(() => {});
+    return validationResponse(c, ['"workspaceId" must be a valid UUID']);
+  }
+
+  try {
+    const rows = await sql<WorkItemRow[]>`
+      SELECT
+        w.id,
+        w.workspace_id          AS "workspaceId",
+        ws.name                 AS "workspaceName",
+        w.assigned_agent_id     AS "assignedAgentId",
+        w.work_type             AS "workType",
+        w.form_type             AS "formType",
+        w.title,
+        w.payer_name            AS "payerName",
+        w.coverage_type         AS "coverageType",
+        w.patient_ref           AS "patientRef",
+        w.provider_ref          AS "providerRef",
+        w.claim_ref             AS "claimRef",
+        w.source_system         AS "sourceSystem",
+        w.amount_at_risk        AS "amountAtRisk",
+        w.confidence_pct        AS "confidencePct",
+        w.priority,
+        w.status,
+        w.requires_human_review AS "requiresHumanReview",
+        w.due_at                AS "dueAt",
+        w.submitted_at          AS "submittedAt",
+        w.completed_at          AS "completedAt",
+        w.metadata,
+        w.created_at            AS "createdAt",
+        w.updated_at            AS "updatedAt"
+      FROM rcm_work_items w
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id}
+        AND w.work_type = ${denialFollowUpLaneContract.laneKey}
+        AND (${status ?? null}::text IS NULL OR w.status = ${status ?? null})
+        AND (${workspaceId ?? null}::uuid IS NULL OR w.workspace_id = ${workspaceId ?? null})
+      ORDER BY
+        CASE w.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END,
+        w.created_at DESC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', lane: denialFollowUpLaneContract.laneKey, count: rows.length, items: rows.map(mapDenialWorkItem) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up work-items error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch denial-follow-up work items' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.get('/queues/denial-follow-up-exceptions', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const severity = c.req.query('severity');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+
+  try {
+    const rows = await sql<ExceptionQueueRow[]>`
+      SELECT
+        e.id,
+        e.work_item_id          AS "workItemId",
+        ws.name                 AS "workspaceName",
+        w.payer_name            AS "payerName",
+        w.claim_ref             AS "claimRef",
+        w.priority,
+        e.exception_type        AS "exceptionType",
+        e.severity,
+        e.reason_code           AS "reasonCode",
+        e.summary,
+        w.confidence_pct        AS "confidencePct",
+        w.amount_at_risk        AS "amountAtRisk",
+        e.payload,
+        e.created_at            AS "openedAt"
+      FROM rcm_exceptions e
+      JOIN rcm_work_items w ON w.id = e.work_item_id
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id}
+        AND w.work_type = ${denialFollowUpLaneContract.laneKey}
+        AND e.resolved_at IS NULL
+        AND (${severity ?? null}::text IS NULL OR e.severity = ${severity ?? null})
+      ORDER BY
+        CASE e.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END,
+        e.created_at ASC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', queueKey: denialFollowUpLaneContract.exceptionInbox.queueKey, count: rows.length, items: rows.map(mapException) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up exception queue error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch denial-follow-up exception queue' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — intake ──────────────────────────────────────────
+
+router.post('/lanes/denial-follow-up/intake', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const metadata = asObject(body['metadata']);
+  const details: string[] = [];
+
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : '';
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+  const workType = typeof body['workType'] === 'string' ? body['workType'] : '';
+  const billingDomain = typeof body['billingDomain'] === 'string' ? body['billingDomain'] : '';
+  const formType = typeof body['formType'] === 'string' ? body['formType'] : '';
+  const payerName = typeof body['payerName'] === 'string' ? body['payerName'].trim() : '';
+  const coverageType = typeof body['coverageType'] === 'string' ? body['coverageType'].trim() : '';
+  const patientRef = typeof body['patientRef'] === 'string' ? body['patientRef'].trim() : '';
+  const providerRef = typeof body['providerRef'] === 'string' ? body['providerRef'].trim() : '';
+  const encounterRef = typeof body['encounterRef'] === 'string' ? body['encounterRef'].trim() : null;
+  const claimRef = typeof body['claimRef'] === 'string' ? body['claimRef'].trim() : '';
+  const sourceSystem = typeof body['sourceSystem'] === 'string' ? body['sourceSystem'].trim() : '';
+  const priority = normalizePriority(body['priority']);
+  const dueAt = parseDateString(body['dueAt']);
+  const amountAtRisk = parsePositiveAmount(body['amountAtRisk']);
+
+  // Denial-specific metadata
+  const denialReasonCode = typeof metadata['denialReasonCode'] === 'string' ? metadata['denialReasonCode'].trim() : '';
+  const denialDate = parseDateString(metadata['denialDate']);
+  const appealDeadline = parseDateString(metadata['appealDeadline']);
+
+  if (!workspaceId || !isUuid(workspaceId)) details.push('"workspaceId" must be a valid UUID');
+  if (!title) details.push('"title" is required');
+  if (workType !== denialFollowUpLaneContract.laneKey) {
+    details.push(`"workType" must be "${denialFollowUpLaneContract.laneKey}"`);
+  }
+  if (!denialFollowUpLaneContract.supportedDomains.includes(billingDomain)) {
+    details.push(`"billingDomain" must be one of: ${denialFollowUpLaneContract.supportedDomains.join(', ')}`);
+  }
+  if (!denialFollowUpLaneContract.supportedForms.includes(formType)) {
+    details.push(`"formType" must be one of: ${denialFollowUpLaneContract.supportedForms.join(', ')}`);
+  }
+  if (!payerName) details.push('"payerName" is required');
+  if (!coverageType) details.push('"coverageType" is required');
+  if (!patientRef) details.push('"patientRef" is required');
+  if (!providerRef) details.push('"providerRef" is required');
+  if (!claimRef) details.push('"claimRef" is required');
+  if (!sourceSystem) details.push('"sourceSystem" is required');
+  if (!dueAt) details.push('"dueAt" must be a valid ISO date');
+  if (!amountAtRisk) details.push('"amountAtRisk" must be a positive number');
+  if (!denialReasonCode) details.push('"metadata.denialReasonCode" is required');
+  if (!denialDate) details.push('"metadata.denialDate" must be a valid ISO date');
+  if (!appealDeadline) details.push('"metadata.appealDeadline" must be a valid ISO date');
+
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workItemId = crypto.randomUUID();
+  const sql = createDb(c.env);
+
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const workspace = await getOwnedWorkspace(tx, merchant.id, workspaceId);
+      if (!workspace) throw new Error('WORKSPACE_NOT_FOUND');
+
+      const workItemMetadata = {
+        ...metadata,
+        laneKey: denialFollowUpLaneContract.laneKey,
+        contractVersion: denialFollowUpLaneContract.version,
+        playbookVersion:
+          typeof metadata['playbookVersion'] === 'string' ? metadata['playbookVersion'] : 'denial_follow_up_v1',
+        autoExecuteAllowed: metadata['autoExecuteAllowed'] !== false,
+        denialReasonCode,
+        denialDate,
+        appealDeadline,
+        appealLevel: typeof metadata['appealLevel'] === 'string' ? metadata['appealLevel'] : 'first',
+        connectorPlan: { primary: 'x12_appeal_inquiry', fallback: ['portal'] },
+        routing: {
+          laneSelection: denialFollowUpLaneContract.laneKey,
+          priorityBand: priority,
+          routingReason: 'structured_denial_follow_up_lane',
+        },
+        attemptHistory: [],
+      };
+
+      await tx`
+        INSERT INTO rcm_work_items (
+          id, workspace_id, merchant_id, work_type, billing_domain, form_type, title,
+          payer_name, coverage_type, patient_ref, provider_ref, encounter_ref, claim_ref,
+          source_system, amount_at_risk, priority, status, requires_human_review, due_at,
+          metadata, created_at, updated_at
+        )
+        VALUES (
+          ${workItemId}, ${workspaceId}, ${merchant.id}, ${denialFollowUpLaneContract.laneKey},
+          ${billingDomain}, ${formType}, ${title}, ${payerName}, ${coverageType},
+          ${patientRef}, ${providerRef}, ${encounterRef}, ${claimRef},
+          ${sourceSystem}, ${amountAtRisk}, ${priority}, 'routed', false, ${dueAt},
+          ${jsonb(workItemMetadata)}::jsonb, NOW(), NOW()
+        )
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          {
+            actorType: 'router_agent',
+            actorRef: 'denial_follow_up_lane_router',
+            evidenceType: 'router_decision_recorded',
+            payload: {
+              laneSelection: denialFollowUpLaneContract.laneKey,
+              denialReasonCode,
+              denialDate,
+              appealDeadline,
+              routingReason: 'structured_denial_follow_up_lane',
+              autoExecuteAllowed: workItemMetadata.autoExecuteAllowed,
+            },
+          },
+        ],
+        'router_agent',
+        'denial_follow_up_lane_router',
+      );
+
+      const inserted = await getOwnedDenialWorkItem(tx, merchant.id, workItemId);
+      if (!inserted) throw new Error('WORK_ITEM_NOT_FOUND');
+      return { workItem: mapDenialWorkItem(inserted) };
+    });
+
+    return c.json({ stage: 'live', lane: denialFollowUpLaneContract.laneKey, status: 'routed', workItemId, workItem: result.workItem }, 201);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORKSPACE_NOT_FOUND') return c.json({ error: 'Workspace not found' }, 404);
+    console.error('[rcm] denial-follow-up intake error:', message);
+    return c.json({ error: 'Failed to create denial-follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — run-primary ─────────────────────────────────────
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/run-primary', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const connectorKey = (body['connectorKey'] as DenialFollowUpConnectorKey | undefined) ?? 'x12_appeal_inquiry';
+  const playbookVersion = (typeof body['playbookVersion'] === 'string' ? body['playbookVersion'] : 'denial_follow_up_v1');
+  const strategy = (typeof body['strategy'] === 'string' ? body['strategy'] : connectorKey);
+  const autoRoute = body['autoRoute'] !== false;
+  const agentId = (typeof body['agentId'] === 'string' ? body['agentId'] : null);
+  const qaActorRef = (typeof body['qaActorRef'] === 'string' ? body['qaActorRef'] : 'denial_follow_up_policy_loop');
+
+  const details: string[] = [];
+  if (!['x12_appeal_inquiry', 'portal'].includes(connectorKey)) {
+    details.push('"connectorKey" must be "x12_appeal_inquiry" for primary execution');
+  }
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'routed') {
+      return c.json({ error: 'Denial follow-up work item must be in "routed" before autonomous run' }, 409);
+    }
+
+    const connectorResult = await runDenialFollowUpConnector(c.env, connectorKey, denialFollowUpConnectorInputFromWorkItem(row));
+
+    const persisted = await sql.begin(async (tx: any) =>
+      persistDenialConnectorRun(tx, merchant.id, workItemId, {
+        attemptRole: 'primary_worker',
+        agentId,
+        qaActorRef,
+        playbookVersion,
+        strategy,
+        connectorResult,
+        autoRoute,
+      }),
+    );
+
+    return c.json({
+      stage: 'live',
+      autoRoute,
+      nextState: persisted.nextState,
+      connector: {
+        key: connectorResult.connectorKey,
+        mode: connectorResult.mode,
+        statusCode: connectorResult.statusCode,
+        statusLabel: connectorResult.statusLabel,
+        appealEligible: connectorResult.appealEligible,
+        appealDeadlineStatus: connectorResult.appealDeadlineStatus,
+        traceId: connectorResult.connectorTraceId,
+        summary: connectorResult.summary,
+      },
+      workItem: persisted.workItem,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') return c.json({ error: 'Denial follow-up work item must be in "routed" before autonomous run' }, 409);
+    if (message === 'ATTEMPTS_EXHAUSTED') return c.json({ error: 'Autonomous attempt limit reached' }, 409);
+    console.error('[rcm] denial-follow-up run-primary error:', message);
+    return c.json({ error: 'Failed to run primary denial follow-up connector' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — execute ─────────────────────────────────────────
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/execute', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const details: string[] = [];
+  const proposedResolution = typeof body['proposedResolution'] === 'string' ? body['proposedResolution'].trim() : '';
+  const resolutionReasonCode = typeof body['resolutionReasonCode'] === 'string' ? body['resolutionReasonCode'].trim() : '';
+  const confidencePct = parseConfidence(body['confidencePct']);
+  const evidence = Array.isArray(body['evidence']) ? body['evidence'] : [];
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const playbookVersion = typeof body['playbookVersion'] === 'string' ? body['playbookVersion'] : 'denial_follow_up_v1';
+  const connectorStrategy = typeof body['connectorStrategy'] === 'string' ? body['connectorStrategy'] : 'x12_appeal_inquiry';
+
+  if (!proposedResolution) details.push('"proposedResolution" is required');
+  if (!resolutionReasonCode) details.push('"resolutionReasonCode" is required');
+  if (confidencePct === null) details.push('"confidencePct" must be a number 0-100');
+  if (evidence.length === 0) details.push('"evidence" must contain at least one item');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'routed') return c.json({ error: 'Denial follow-up work item must be in "routed" to execute' }, 409);
+
+    const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+    const attempts = getAttemptHistory(metadata);
+    if (attempts.length >= denialFollowUpLaneContract.retryPolicy.maxAutonomousAttempts) {
+      return c.json({ error: 'Autonomous attempt limit reached' }, 409);
+    }
+
+    const attempt = {
+      attemptNumber: attempts.length + 1,
+      attemptRole: 'primary_worker',
+      playbookVersion,
+      connectorStrategy,
+      proposedResolution,
+      resolutionReasonCode,
+      confidencePct,
+      submittedAt: new Date().toISOString(),
+    };
+    const updatedMetadata = { ...metadata, lastExecution: attempt, attemptHistory: [...attempts, attempt] };
+
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${agentId},
+        confidence_pct = ${confidencePct},
+        status = 'awaiting_qa',
+        requires_human_review = false,
+        submitted_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+
+    await insertEvidence(sql, workItemId, [
+      ...evidence.map((item: unknown) => {
+        const base = typeof item === 'object' && item ? item as Record<string, unknown> : {};
+        return {
+          actorType: typeof base['actorType'] === 'string' ? base['actorType'] : 'worker_agent',
+          actorRef: typeof base['actorRef'] === 'string' ? base['actorRef'] : (agentId ?? 'denial_follow_up_worker'),
+          evidenceType: typeof base['evidenceType'] === 'string' ? base['evidenceType'] : 'supporting_evidence',
+          payload: typeof base['payload'] === 'object' ? (base['payload'] as Record<string, unknown>) : base,
+        };
+      }),
+      { actorType: 'worker_agent', actorRef: agentId ?? 'denial_follow_up_worker', evidenceType: 'execution_resolution_proposed', payload: attempt },
+    ], 'worker_agent', agentId ?? 'denial_follow_up_worker');
+
+    const updated = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', status: 'awaiting_qa', nextAction: 'qa_verify', workItem: mapDenialWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up execute error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to execute denial follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — verify ──────────────────────────────────────────
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/verify', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const details: string[] = [];
+  const qaDecision = typeof body['qaDecision'] === 'string' ? body['qaDecision'] : '';
+  const qaReasonCode = typeof body['qaReasonCode'] === 'string' ? body['qaReasonCode'].trim() : '';
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const validDecisions = ['approve_auto_close', 'retry_with_next_worker', 'escalate'];
+
+  if (!validDecisions.includes(qaDecision)) details.push(`"qaDecision" must be one of: ${validDecisions.join(', ')}`);
+  if (!qaReasonCode) details.push('"qaReasonCode" is required');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'awaiting_qa') return c.json({ error: 'Work item must be in "awaiting_qa" to verify' }, 409);
+
+    const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+    const qaPayload = { qaDecision, qaReasonCode, source: 'manual', reviewedAt: new Date().toISOString() };
+    const nextMetadata = { ...metadata, lastQaDecision: qaPayload };
+
+    if (qaDecision === 'approve_auto_close') {
+      await sql`
+        UPDATE rcm_work_items SET status = 'closed_auto', requires_human_review = false, completed_at = NOW(), metadata = ${jsonb(nextMetadata)}::jsonb, updated_at = NOW()
+        WHERE id = ${workItemId} AND status = 'awaiting_qa'
+      `;
+      await resolveOpenExceptions(sql, workItemId);
+    } else if (qaDecision === 'retry_with_next_worker') {
+      await sql`
+        UPDATE rcm_work_items SET status = 'retry_pending', metadata = ${jsonb(nextMetadata)}::jsonb, updated_at = NOW()
+        WHERE id = ${workItemId} AND status = 'awaiting_qa'
+      `;
+    } else {
+      const exceptionType = typeof body['exceptionType'] === 'string' ? body['exceptionType'] : 'denial_upheld_requires_review';
+      const summary = typeof body['summary'] === 'string' ? body['summary'] : 'QA escalated denial case for human review.';
+      await upsertOpenException(sql, workItemId, {
+        exceptionType, severity: typeof body['severity'] === 'string' ? body['severity'] : 'high',
+        reasonCode: qaReasonCode, summary,
+        payload: { qaDecision, qaReasonCode, recommendedHumanAction: typeof body['recommendedHumanAction'] === 'string' ? body['recommendedHumanAction'] : null },
+      });
+      await sql`
+        UPDATE rcm_work_items SET status = 'human_review_required', requires_human_review = true, metadata = ${jsonb(nextMetadata)}::jsonb, updated_at = NOW()
+        WHERE id = ${workItemId} AND status = 'awaiting_qa'
+      `;
+    }
+
+    await insertEvidence(sql, workItemId, [{ actorType: 'qa_agent', actorRef: agentId ?? 'denial_qa_agent', evidenceType: 'qa_decision_recorded', payload: qaPayload }], 'qa_agent', agentId ?? 'denial_qa_agent');
+    const updated = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', qaDecision, workItem: mapDenialWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up verify error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to verify denial follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — retry ───────────────────────────────────────────
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/retry', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const connectorKey = (body['connectorKey'] as DenialFollowUpConnectorKey | undefined) ?? 'x12_appeal_inquiry';
+  const playbookVersion = typeof body['playbookVersion'] === 'string' ? body['playbookVersion'] : 'denial_follow_up_v1';
+  const strategy = typeof body['strategy'] === 'string' ? body['strategy'] : connectorKey;
+  const autoRoute = body['autoRoute'] !== false;
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'retry_pending') return c.json({ error: 'Work item must be in "retry_pending" to retry' }, 409);
+
+    const connectorResult = await runDenialFollowUpConnector(c.env, connectorKey, denialFollowUpConnectorInputFromWorkItem(row));
+
+    const persisted = await sql.begin(async (tx: any) =>
+      persistDenialConnectorRun(tx, merchant.id, workItemId, {
+        attemptRole: 'fallback_worker',
+        agentId,
+        qaActorRef: 'denial_follow_up_policy_loop',
+        playbookVersion,
+        strategy,
+        connectorResult,
+        autoRoute,
+      }),
+    );
+
+    return c.json({ stage: 'live', autoRoute, nextState: persisted.nextState, connector: { key: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, appealEligible: connectorResult.appealEligible }, workItem: persisted.workItem });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') return c.json({ error: 'Work item must be in "retry_pending" to retry' }, 409);
+    if (message === 'ATTEMPTS_EXHAUSTED') return c.json({ error: 'Autonomous attempt limit reached' }, 409);
+    if (message === 'SAME_STRATEGY') return c.json({ error: 'Retry must use a different connector strategy' }, 409);
+    console.error('[rcm] denial-follow-up retry error:', message);
+    return c.json({ error: 'Failed to retry denial follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── Denial follow-up lane — escalate / resolve ───────────────────────────────
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/escalate', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const exceptionType = typeof body['exceptionType'] === 'string' ? body['exceptionType'] : 'denial_upheld_requires_review';
+  const severity = typeof body['severity'] === 'string' ? body['severity'] : 'high';
+  const summary = typeof body['summary'] === 'string' ? body['summary'].trim() : '';
+  const recommendedHumanAction = typeof body['recommendedHumanAction'] === 'string' ? body['recommendedHumanAction'] : '';
+  const reasonCode = typeof body['reasonCode'] === 'string' ? body['reasonCode'] : 'manual_escalation';
+
+  if (!summary) return validationResponse(c, ['"summary" is required']);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (['closed_auto', 'closed_human', 'rejected', 'blocked'].includes(row.status)) {
+      return c.json({ error: 'Cannot escalate a terminal work item' }, 409);
+    }
+
+    await upsertOpenException(sql, workItemId, { exceptionType, severity, reasonCode, summary, payload: { recommendedHumanAction } });
+    await sql`
+      UPDATE rcm_work_items SET status = 'human_review_required', requires_human_review = true, updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await insertEvidence(sql, workItemId, [{ actorType: 'escalation_agent', actorRef: 'denial_escalation', evidenceType: 'qa_decision_recorded', payload: { qaDecision: 'escalate', reasonCode, summary } }], 'escalation_agent', 'denial_escalation');
+
+    const updated = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', status: 'human_review_required', workItem: mapDenialWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up escalate error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to escalate denial follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/denial-follow-up/work-items/:workItemId/resolve', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const resolution = typeof body['resolution'] === 'string' ? body['resolution'] : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!resolution) return validationResponse(c, ['"resolution" is required (approve_closure | reject_closure | mark_blocked)']);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'human_review_required') return c.json({ error: 'Work item must be in "human_review_required" to resolve' }, 409);
+
+    let newStatus = 'closed_human';
+    if (resolution === 'reject_closure') newStatus = 'rejected';
+    else if (resolution === 'mark_blocked') newStatus = 'blocked';
+
+    const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...metadata, humanResolution: { resolution, notes, resolvedAt: new Date().toISOString() } };
+    await sql`
+      UPDATE rcm_work_items SET status = ${newStatus}, requires_human_review = false, completed_at = NOW(), metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    if (newStatus === 'closed_human') await resolveOpenExceptions(sql, workItemId);
+
+    await insertEvidence(sql, workItemId, [{ actorType: 'human_reviewer', actorRef: 'denial_human_resolver', evidenceType: 'human_resolution_recorded', payload: { resolution, notes } }], 'human_reviewer', 'denial_human_resolver');
+    const updated = await getOwnedDenialWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', status: newStatus, workItem: mapDenialWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] denial-follow-up resolve error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to resolve denial follow-up work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+// ─── ERA 835 lane — routes (scaffold) ────────────────────────────────────────
+
+router.get('/lanes/era-835', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'scaffold',
+    laneKey: 'era_835',
+    version: 'v1',
+    description: 'ERA 835 Electronic Remittance Advice processing: parse payments, match claims, post adjustments, detect underpayments.',
+    connectors: getEra835ConnectorAvailability(c.env),
+    note: 'ERA 835 parsing and payment posting are planned for Phase 2. Intake and simulation connector are available now.',
+  }),
+);
+
+router.get('/connectors/era-835', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'scaffold',
+    lane: 'era_835',
+    connectors: getEra835ConnectorAvailability(c.env),
+    message: 'ERA 835 clearinghouse connector is in simulation mode. Full X12 835 parsing coming in Phase 2.',
+  }),
+);
+
+router.post('/lanes/era-835/intake', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const details: string[] = [];
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : '';
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+  const payerName = typeof body['payerName'] === 'string' ? body['payerName'].trim() : '';
+  const claimRef = typeof body['claimRef'] === 'string' ? body['claimRef'].trim() : '';
+  const metadata = asObject(body['metadata']);
+  const eraRef = typeof metadata['eraRef'] === 'string' ? metadata['eraRef'].trim() : '';
+  const checkAmount = parsePositiveAmount(metadata['checkAmount']);
+  const priority = normalizePriority(body['priority']);
+  const dueAt = parseDateString(body['dueAt'] ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+
+  if (!workspaceId || !isUuid(workspaceId)) details.push('"workspaceId" must be a valid UUID');
+  if (!title) details.push('"title" is required');
+  if (!payerName) details.push('"payerName" is required');
+  if (!claimRef) details.push('"claimRef" is required');
+  if (!eraRef) details.push('"metadata.eraRef" is required');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workItemId = crypto.randomUUID();
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const workspace = await getOwnedWorkspace(tx, merchant.id, workspaceId);
+      if (!workspace) throw new Error('WORKSPACE_NOT_FOUND');
+
+      const workItemMetadata = {
+        ...metadata,
+        laneKey: 'era_835',
+        contractVersion: 'v1',
+        eraRef,
+        checkAmount: checkAmount ?? null,
+        connectorPlan: { primary: 'x12_835_clearinghouse', fallback: ['direct_sftp'] },
+        attemptHistory: [],
+      };
+
+      await tx`
+        INSERT INTO rcm_work_items (id, workspace_id, merchant_id, work_type, billing_domain, form_type, title, payer_name, coverage_type, patient_ref, provider_ref, claim_ref, source_system, amount_at_risk, priority, status, requires_human_review, due_at, metadata, created_at, updated_at)
+        VALUES (${workItemId}, ${workspaceId}, ${merchant.id}, 'era_835', ${typeof body['billingDomain'] === 'string' ? body['billingDomain'] : 'facility'}, ${typeof body['formType'] === 'string' ? body['formType'] : 'ERA'}, ${title}, ${payerName}, ${typeof body['coverageType'] === 'string' ? body['coverageType'] : 'medical'}, ${typeof body['patientRef'] === 'string' ? body['patientRef'] : ''}, ${typeof body['providerRef'] === 'string' ? body['providerRef'] : ''}, ${claimRef}, ${typeof body['sourceSystem'] === 'string' ? body['sourceSystem'] : 'unknown'}, ${checkAmount}, ${priority}, 'routed', false, ${dueAt}, ${jsonb(workItemMetadata)}::jsonb, NOW(), NOW())
+      `;
+      await insertEvidence(tx, workItemId, [{ actorType: 'router_agent', actorRef: 'era_835_router', evidenceType: 'router_decision_recorded', payload: { eraRef, checkAmount, payerName } }], 'router_agent', 'era_835_router');
+      const inserted = await tx<WorkItemRow[]>`SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt" FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id WHERE w.id = ${workItemId} LIMIT 1`;
+      return { workItem: mapWorkItem(inserted[0]!) };
+    });
+
+    return c.json({ stage: 'scaffold', lane: 'era_835', status: 'routed', workItemId, workItem: result.workItem }, 201);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORKSPACE_NOT_FOUND') return c.json({ error: 'Workspace not found' }, 404);
+    console.error('[rcm] era-835 intake error:', message);
+    return c.json({ error: 'Failed to create ERA 835 work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/era-835/work-items/:workItemId/run-primary', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<WorkItemRow[]>`
+      SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+      FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.id = ${workItemId} AND w.merchant_id = ${merchant.id} AND w.work_type = 'era_835' LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'routed') return c.json({ error: 'ERA 835 work item must be in "routed" before autonomous run' }, 409);
+
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const input: Era835ConnectorExecutionInput = {
+      workItemId: row.id,
+      claimRef: row.claimRef ?? '',
+      eraRef: typeof meta['eraRef'] === 'string' ? meta['eraRef'] : '',
+      payerName: row.payerName ?? '',
+      payerId: typeof meta['payerId'] === 'string' ? meta['payerId'] : null,
+      patientRef: row.patientRef ?? '',
+      providerRef: row.providerRef ?? '',
+      npi: typeof meta['npi'] === 'string' ? meta['npi'] : null,
+      checkDate: typeof meta['checkDate'] === 'string' ? meta['checkDate'] : null,
+      checkAmount: row.amountAtRisk ? Number(row.amountAtRisk) : null,
+      formType: row.formType ?? '',
+      sourceSystem: row.sourceSystem ?? '',
+      metadata: meta,
+    };
+
+    const connectorResult = await runEra835Connector(c.env, 'x12_835_clearinghouse', input);
+
+    const newStatus = connectorResult.autoQaRecommendation === 'close_auto' ? 'closed_auto' : connectorResult.autoQaRecommendation === 'human_review_required' ? 'human_review_required' : 'awaiting_qa';
+    const updatedMetadata = { ...meta, lastConnectorRun: { connectorKey: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, paymentDetails: connectorResult.paymentDetails } };
+
+    await sql`
+      UPDATE rcm_work_items SET status = ${newStatus}, confidence_pct = ${connectorResult.confidencePct}, submitted_at = NOW(), ${newStatus === 'closed_auto' ? sql`completed_at = NOW(),` : sql``} metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await insertEvidence(sql, workItemId, connectorResult.evidence.map((e) => ({ ...e, actorType: e.actorType ?? 'worker_agent', actorRef: e.actorRef ?? 'era_835_connector' })), 'worker_agent', 'era_835_connector');
+
+    return c.json({ stage: 'scaffold', nextState: newStatus, connector: { key: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, paymentDetails: connectorResult.paymentDetails, summary: connectorResult.summary } });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 run-primary error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to run ERA 835 connector' }, 500);
   } finally {
     sql.end().catch(() => {});
   }
