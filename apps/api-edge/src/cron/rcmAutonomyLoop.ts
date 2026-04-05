@@ -18,6 +18,7 @@ import { createDb, parseJsonb } from '../lib/db';
 import { runClaimStatusConnector } from '../lib/rcmClaimStatusConnector';
 import { runEligibilityConnector } from '../lib/rcmEligibilityConnector';
 import { runDenialFollowUpConnector } from '../lib/rcmDenialFollowUpConnector';
+import { getAdjustedThresholds, recordConnectorOutcome, BASE_THRESHOLDS } from '../lib/rcmConfidenceTuner';
 import type {
   ClaimStatusConnectorExecution,
   ClaimStatusConnectorExecutionInput,
@@ -250,7 +251,7 @@ async function processRoutedItem(sql: ReturnType<typeof createDb>, env: Env, ite
     // Immediately run Claude QA so items don't wait for the next cron tick
     if (env.ANTHROPIC_API_KEY) {
       const qaDecision = await callClaudeQaAgent(env, item.workType, connectorResult, updatedMetadata);
-      await applyQaDecision(sql, item, qaDecision, connectorResult, updatedMetadata);
+      await applyQaDecision(sql, item, qaDecision, connectorResult, updatedMetadata, env);
     }
   }
 }
@@ -264,7 +265,7 @@ async function processAwaitingQaItem(sql: ReturnType<typeof createDb>, env: Env,
   const lastExecution = metadata['lastExecution'] as JsonRecord | undefined;
 
   const qaDecision = await callClaudeQaAgent(env, item.workType, lastExecution ?? {}, metadata);
-  await applyQaDecision(sql, item, qaDecision, lastExecution ?? {}, metadata);
+  await applyQaDecision(sql, item, qaDecision, lastExecution ?? {}, metadata, env);
 }
 
 // ─── Phase 3: process retry_pending item ──────────────────────────────────────
@@ -338,7 +339,7 @@ async function processRetryItem(sql: ReturnType<typeof createDb>, env: Env, item
 
     if (env.ANTHROPIC_API_KEY) {
       const qaDecision = await callClaudeQaAgent(env, item.workType, connectorResult, updatedMetadata);
-      await applyQaDecision(sql, item, qaDecision, connectorResult, updatedMetadata);
+      await applyQaDecision(sql, item, qaDecision, connectorResult, updatedMetadata, env);
     }
   }
 }
@@ -489,9 +490,9 @@ Respond with JSON only: {"qaDecision": "approve_auto_close|retry_with_next_worke
     return { qaDecision: parsed.qaDecision!, qaReasonCode: parsed.qaReasonCode };
   } catch (err) {
     console.warn('[rcm-loop] Claude QA fallback to threshold logic:', err instanceof Error ? err.message : err);
-    // Threshold-based fallback when Claude is unavailable
-    if (confidencePct >= 80) return { qaDecision: 'approve_auto_close', qaReasonCode: 'threshold_auto_close' };
-    if (confidencePct >= 60 && attempts.length < 2) return { qaDecision: 'retry_with_next_worker', qaReasonCode: 'threshold_retry' };
+    const thresholds = await getAdjustedThresholds(env, workType).catch(() => BASE_THRESHOLDS);
+    if (confidencePct >= thresholds.autoClose) return { qaDecision: 'approve_auto_close', qaReasonCode: 'threshold_auto_close' };
+    if (confidencePct >= thresholds.retry && attempts.length < 2) return { qaDecision: 'retry_with_next_worker', qaReasonCode: 'threshold_retry' };
     return { qaDecision: 'escalate', qaReasonCode: 'threshold_escalate' };
   }
 }
@@ -504,6 +505,7 @@ async function applyQaDecision(
   decision: QaAgentDecision,
   connectorResult: AnyConnectorExecution | JsonRecord,
   metadata: JsonRecord,
+  env: Env,
 ): Promise<void> {
   const qaPayload = {
     qaDecision: decision.qaDecision,
@@ -531,6 +533,7 @@ async function applyQaDecision(
       evidenceType: 'qa_decision_recorded',
       payload: qaPayload,
     }]);
+    recordConnectorOutcome(env, item.workType, 'autonomy_loop', 'auto_close_confirmed').catch(() => {});
 
   } else if (decision.qaDecision === 'retry_with_next_worker') {
     await sql`
@@ -547,6 +550,7 @@ async function applyQaDecision(
       evidenceType: 'qa_decision_recorded',
       payload: qaPayload,
     }]);
+    recordConnectorOutcome(env, item.workType, 'autonomy_loop', 'auto_close_overridden').catch(() => {});
 
   } else {
     // escalate
@@ -586,6 +590,7 @@ async function applyQaDecision(
       evidenceType: 'qa_decision_recorded',
       payload: qaPayload,
     }]);
+    recordConnectorOutcome(env, item.workType, 'autonomy_loop', 'escalation_required').catch(() => {});
   }
 }
 

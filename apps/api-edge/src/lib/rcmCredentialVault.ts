@@ -1,20 +1,11 @@
 /**
- * RCM Credential Vault — scaffold
+ * RCM Credential Vault
  *
  * Provides secure storage and retrieval of payer portal credentials for
  * autonomous portal connector fallback paths.
  *
- * Status: SCAFFOLD — encryption and full credential lifecycle are TODO.
- *
- * Blocked on:
- *   1. Key management strategy (Workers Secrets vs. external KMS)
- *   2. HIPAA audit logging requirements
- *   3. Payer portal authentication schemes (form-based, SAML, OAuth)
- *
- * Once this is production-ready, the `portal` connector stubs in
- * rcmClaimStatusConnector.ts, rcmEligibilityConnector.ts, and
- * rcmDenialFollowUpConnector.ts can transition from `manual_fallback`
- * to `remote` mode.
+ * Encryption: AES-256-GCM via Web Crypto API (edge-compatible).
+ * Key management: env.RCM_VAULT_ENCRYPTION_KEY (32-byte hex, Workers Secret).
  *
  * Database: rcm_credential_vault table (migration 002_rcm_credential_vault.sql)
  */
@@ -37,7 +28,7 @@ export interface VaultCredential {
   payerName: string;
   payerId: string | null;
   portalUrl: string | null;
-  /** Encrypted credential blob — AES-GCM, key managed via Workers Secrets. */
+  /** Encrypted credential blob — AES-256-GCM, iv prepended, base64 encoded. */
   encryptedPayload: string;
   /** Additional unencrypted metadata (login URL, selector hints, etc.) */
   meta: Record<string, unknown>;
@@ -58,14 +49,43 @@ export interface PlaintextCredential {
   [key: string]: unknown;
 }
 
+// ─── Pure crypto helpers ──────────────────────────────────────────────────────
+
+export function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+export async function deriveKey(keyHex: string): Promise<CryptoKey> {
+  const keyBytes = hexToBytes(keyHex);
+  return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+export async function encryptPayload(keyHex: string, plaintext: string): Promise<string> {
+  const key = await deriveKey(keyHex);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  const combined = new Uint8Array(12 + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), 12);
+  return btoa(String.fromCharCode(...combined));
+}
+
+export async function decryptPayload(keyHex: string, blob: string): Promise<string> {
+  const key = await deriveKey(keyHex);
+  const combined = Uint8Array.from(atob(blob), c => c.charCodeAt(0));
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-/**
- * Store a credential for a payer portal.
- *
- * TODO: Encrypt `plaintextData` with AES-GCM before storing.
- *       Use env.RCM_VAULT_ENCRYPTION_KEY (Workers Secret, 32-byte hex).
- */
 export async function storeCredential(
   env: Env,
   params: {
@@ -82,8 +102,14 @@ export async function storeCredential(
   const sql = createDb(env);
   try {
     const id = crypto.randomUUID();
-    // TODO: Replace with real encryption using Web Crypto API + env.RCM_VAULT_ENCRYPTION_KEY
-    const encryptedPayload = btoa(JSON.stringify(params.plaintextData)); // NOT SECURE — placeholder only
+    const vaultKey = env.RCM_VAULT_ENCRYPTION_KEY;
+    let encryptedPayload: string;
+    if (vaultKey) {
+      encryptedPayload = await encryptPayload(vaultKey, JSON.stringify(params.plaintextData));
+    } else {
+      console.warn('[rcm-vault] RCM_VAULT_ENCRYPTION_KEY not set — falling back to base64 (not secure)');
+      encryptedPayload = btoa(JSON.stringify(params.plaintextData));
+    }
 
     await sql`
       INSERT INTO rcm_credential_vault (
@@ -121,11 +147,6 @@ export async function storeCredential(
 
 // ─── Retrieve ─────────────────────────────────────────────────────────────────
 
-/**
- * Retrieve and decrypt a stored credential.
- *
- * TODO: Implement real AES-GCM decryption.
- */
 export async function retrieveCredential(
   env: Env,
   params: {
@@ -149,11 +170,47 @@ export async function retrieveCredential(
 
     if (!rows[0]) return null;
 
-    // TODO: Replace with real AES-GCM decryption
-    const decrypted = JSON.parse(atob(rows[0].encryptedPayload)) as PlaintextCredential;
-    return decrypted;
+    const vaultKey = env.RCM_VAULT_ENCRYPTION_KEY;
+    let decryptedText: string;
+    if (vaultKey) {
+      decryptedText = await decryptPayload(vaultKey, rows[0].encryptedPayload);
+    } else {
+      decryptedText = atob(rows[0].encryptedPayload);
+    }
+    return JSON.parse(decryptedText) as PlaintextCredential;
   } catch {
     return null;
+  } finally {
+    await sql.end();
+  }
+}
+
+// ─── Rotate ───────────────────────────────────────────────────────────────────
+
+export async function rotateCredential(
+  env: Env,
+  credentialId: string,
+  newPlaintextData: PlaintextCredential,
+): Promise<void> {
+  const sql = createDb(env);
+  try {
+    const vaultKey = env.RCM_VAULT_ENCRYPTION_KEY;
+    let encryptedPayload: string;
+    if (vaultKey) {
+      encryptedPayload = await encryptPayload(vaultKey, JSON.stringify(newPlaintextData));
+    } else {
+      console.warn('[rcm-vault] RCM_VAULT_ENCRYPTION_KEY not set — falling back to base64 (not secure)');
+      encryptedPayload = btoa(JSON.stringify(newPlaintextData));
+    }
+
+    await sql`
+      UPDATE rcm_credential_vault
+      SET
+        encrypted_payload = ${encryptedPayload},
+        rotated_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${credentialId}
+    `;
   } finally {
     await sql.end();
   }
@@ -174,12 +231,44 @@ export async function revokeCredential(env: Env, credentialId: string): Promise<
   }
 }
 
+// ─── Access log ───────────────────────────────────────────────────────────────
+
+export async function logCredentialAccess(
+  env: Env,
+  credentialId: string,
+  workspaceId: string,
+  accessedBy: string,
+  accessReason: string,
+  workItemId?: string,
+): Promise<void> {
+  const sql = createDb(env);
+  try {
+    await sql`
+      INSERT INTO rcm_credential_access_log (
+        id,
+        credential_id,
+        workspace_id,
+        accessed_by,
+        access_reason,
+        work_item_id,
+        accessed_at
+      ) VALUES (
+        ${crypto.randomUUID()},
+        ${credentialId},
+        ${workspaceId},
+        ${accessedBy},
+        ${accessReason},
+        ${workItemId ?? null},
+        NOW()
+      )
+    `;
+  } finally {
+    await sql.end();
+  }
+}
+
 // ─── Check availability ───────────────────────────────────────────────────────
 
-/**
- * Returns true if a non-expired credential exists for the given payer.
- * Used by connector stubs to decide whether autonomous portal access is possible.
- */
 export async function hasCredential(
   env: Env,
   workspaceId: string,
