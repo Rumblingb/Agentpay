@@ -167,7 +167,7 @@ type ManagerSnapshot = {
 };
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
-  const res = await fetch('/api/rcm/manager');
+  const res = await fetch('/api/rcm/manager', { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to load RCM manager snapshot');
   return res.json();
 }

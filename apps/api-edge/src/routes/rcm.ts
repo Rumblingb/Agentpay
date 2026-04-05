@@ -68,6 +68,11 @@ type ExceptionQueueRow = {
   openedAt: Date | string;
 };
 
+type OpenExceptionRow = {
+  id: string;
+  payload: unknown;
+};
+
 type EvidenceInput = {
   actorType?: string;
   actorRef?: string;
@@ -182,7 +187,11 @@ function mapException(row: ExceptionQueueRow) {
     summary: row.summary,
     confidencePct: row.confidencePct,
     amountAtRisk: row.amountAtRisk === null ? null : Number(row.amountAtRisk),
-    requiredContextFields: Array.isArray(payload['requiredContextFields']) ? payload['requiredContextFields'] : [],
+    requiredContextFields: Array.isArray(payload['requiredContextFields'])
+      ? payload['requiredContextFields'].filter(
+          (value): value is string => typeof value === 'string' && value.trim().length > 0,
+        )
+      : [],
     recommendedHumanAction: typeof payload['recommendedHumanAction'] === 'string' ? payload['recommendedHumanAction'] : null,
     assignedReviewer: typeof payload['assignedReviewer'] === 'string' ? payload['assignedReviewer'] : null,
     slaAt: toIso(payload['slaAt']),
@@ -239,6 +248,48 @@ async function getOwnedClaimStatusWorkItem(sql: Sql, merchantId: string, workIte
   return rows[0] ?? null;
 }
 
+async function getOwnedClaimStatusWorkItemForUpdate(
+  sql: Sql,
+  merchantId: string,
+  workItemId: string,
+) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id,
+      w.workspace_id         AS "workspaceId",
+      ws.name                AS "workspaceName",
+      w.assigned_agent_id    AS "assignedAgentId",
+      w.work_type            AS "workType",
+      w.form_type            AS "formType",
+      w.title,
+      w.payer_name           AS "payerName",
+      w.coverage_type        AS "coverageType",
+      w.patient_ref          AS "patientRef",
+      w.provider_ref         AS "providerRef",
+      w.claim_ref            AS "claimRef",
+      w.source_system        AS "sourceSystem",
+      w.amount_at_risk       AS "amountAtRisk",
+      w.confidence_pct       AS "confidencePct",
+      w.priority,
+      w.status,
+      w.requires_human_review AS "requiresHumanReview",
+      w.due_at               AS "dueAt",
+      w.submitted_at         AS "submittedAt",
+      w.completed_at         AS "completedAt",
+      w.metadata,
+      w.created_at           AS "createdAt",
+      w.updated_at           AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId}
+      AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${claimStatusLaneContract.laneKey}
+    LIMIT 1
+    FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
 async function insertEvidence(
   sql: Sql,
   workItemId: string,
@@ -264,6 +315,19 @@ async function insertEvidence(
   }
 }
 
+async function getLatestOpenExceptionForUpdate(sql: Sql, workItemId: string) {
+  const rows = await sql<OpenExceptionRow[]>`
+    SELECT id, payload
+    FROM rcm_exceptions
+    WHERE work_item_id = ${workItemId}
+      AND resolved_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+    FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
 function connectorInputFromWorkItem(row: WorkItemRow): ClaimStatusConnectorExecutionInput {
   return {
     workItemId: row.id,
@@ -286,6 +350,62 @@ async function resolveOpenExceptions(sql: any, workItemId: string) {
     WHERE work_item_id = ${workItemId}
       AND resolved_at IS NULL
   `;
+}
+
+async function upsertOpenException(
+  sql: Sql,
+  workItemId: string,
+  params: {
+    exceptionType: string;
+    severity: string;
+    reasonCode: string | null;
+    summary: string;
+    payload: JsonRecord;
+  },
+) {
+  const existing = await getLatestOpenExceptionForUpdate(sql, workItemId);
+  if (existing) {
+    const existingPayload = parseJsonb<JsonRecord>(existing.payload, {});
+    await sql`
+      UPDATE rcm_exceptions
+      SET
+        exception_type = ${params.exceptionType},
+        severity = ${params.severity},
+        reason_code = ${params.reasonCode},
+        summary = ${params.summary},
+        payload = ${jsonb({
+          ...existingPayload,
+          ...params.payload,
+        })}::jsonb
+      WHERE id = ${existing.id}
+    `;
+    return existing.id;
+  }
+
+  const exceptionId = crypto.randomUUID();
+  await sql`
+    INSERT INTO rcm_exceptions (
+      id,
+      work_item_id,
+      exception_type,
+      severity,
+      reason_code,
+      summary,
+      payload,
+      created_at
+    )
+    VALUES (
+      ${exceptionId},
+      ${workItemId},
+      ${params.exceptionType},
+      ${params.severity},
+      ${params.reasonCode},
+      ${params.summary},
+      ${jsonb(params.payload)}::jsonb,
+      NOW()
+    )
+  `;
+  return exceptionId;
 }
 
 function defaultExceptionForConnector(result: ClaimStatusConnectorExecution): ClaimStatusExceptionSuggestion {
@@ -321,7 +441,7 @@ async function persistClaimStatusConnectorRun(
     autoRoute: boolean;
   },
 ) {
-  const row = await getOwnedClaimStatusWorkItem(sql, merchantId, workItemId);
+  const row = await getOwnedClaimStatusWorkItemForUpdate(sql, merchantId, workItemId);
   if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
 
   const expectedStatus = params.attemptRole === 'primary_worker' ? 'routed' : 'retry_pending';
@@ -421,35 +541,20 @@ async function persistClaimStatusConnectorRun(
     await resolveOpenExceptions(sql, workItemId);
   } else if (nextState === 'human_review_required') {
     const exception = defaultExceptionForConnector(params.connectorResult);
-    await sql`
-      INSERT INTO rcm_exceptions (
-        id,
-        work_item_id,
-        exception_type,
-        severity,
-        reason_code,
-        summary,
-        payload,
-        created_at
-      )
-      VALUES (
-        ${crypto.randomUUID()},
-        ${workItemId},
-        ${exception.exceptionType},
-        ${exception.severity},
-        ${exception.reasonCode},
-        ${exception.summary},
-        ${jsonb({
-          requiredContextFields: exception.requiredContextFields,
-          recommendedHumanAction: exception.recommendedHumanAction,
-          connectorKey: params.connectorResult.connectorKey,
-          connectorMode: params.connectorResult.mode,
-          connectorTraceId: params.connectorResult.connectorTraceId,
-          rawResponse: params.connectorResult.rawResponse,
-        })}::jsonb,
-        NOW()
-      )
-    `;
+    await upsertOpenException(sql, workItemId, {
+      exceptionType: exception.exceptionType,
+      severity: exception.severity,
+      reasonCode: exception.reasonCode,
+      summary: exception.summary,
+      payload: {
+        requiredContextFields: exception.requiredContextFields,
+        recommendedHumanAction: exception.recommendedHumanAction,
+        connectorKey: params.connectorResult.connectorKey,
+        connectorMode: params.connectorResult.mode,
+        connectorTraceId: params.connectorResult.connectorTraceId,
+        rawResponse: params.connectorResult.rawResponse,
+      },
+    });
     await sql`
       UPDATE rcm_work_items
       SET
@@ -998,9 +1103,9 @@ router.get('/', (c) =>
   }),
 );
 
-router.get('/blueprint', (c) => c.json(blueprint));
+router.get('/blueprint', authenticateApiKey, (c) => c.json(blueprint));
 
-router.get('/autonomy-loop', (c) =>
+router.get('/autonomy-loop', authenticateApiKey, (c) =>
   c.json({
     stage: 'scaffold',
     autonomyLoop: blueprint.autonomyLoop,
@@ -1009,7 +1114,7 @@ router.get('/autonomy-loop', (c) =>
   }),
 );
 
-router.get('/lanes/claim-status', (c) =>
+router.get('/lanes/claim-status', authenticateApiKey, (c) =>
   c.json({
     stage: 'live',
     contract: claimStatusLaneContract,
@@ -1602,7 +1707,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/execute', authenticateAp
   const sql = createDb(c.env);
   try {
     const result = await sql.begin(async (tx: any) => {
-      const row = await getOwnedClaimStatusWorkItem(tx, merchant.id, workItemId);
+      const row = await getOwnedClaimStatusWorkItemForUpdate(tx, merchant.id, workItemId);
       if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
       if (row.status !== 'routed') throw new Error('INVALID_STATE');
 
@@ -1738,7 +1843,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/verify', authenticateApi
   const sql = createDb(c.env);
   try {
     const result = await sql.begin(async (tx: any) => {
-      const row = await getOwnedClaimStatusWorkItem(tx, merchant.id, workItemId);
+      const row = await getOwnedClaimStatusWorkItemForUpdate(tx, merchant.id, workItemId);
       if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
       if (row.status !== 'awaiting_qa') throw new Error('INVALID_STATE');
 
@@ -1774,6 +1879,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/verify', authenticateApi
             updated_at = NOW()
           WHERE id = ${workItemId}
         `;
+        await resolveOpenExceptions(tx, workItemId);
       } else if (qaDecision === 'retry_with_next_worker') {
         nextState = 'retry_pending';
         await tx`
@@ -1786,7 +1892,6 @@ router.post('/lanes/claim-status/work-items/:workItemId/verify', authenticateApi
         `;
       } else {
         nextState = 'human_review_required';
-        const exceptionId = crypto.randomUUID();
         const payload = {
           requiredContextFields,
           recommendedHumanAction,
@@ -1794,28 +1899,13 @@ router.post('/lanes/claim-status/work-items/:workItemId/verify', authenticateApi
           qaReasonCode,
           lastAttempt: attempts[attempts.length - 1] ?? null,
         };
-        await tx`
-          INSERT INTO rcm_exceptions (
-            id,
-            work_item_id,
-            exception_type,
-            severity,
-            reason_code,
-            summary,
-            payload,
-            created_at
-          )
-          VALUES (
-            ${exceptionId},
-            ${workItemId},
-            ${exceptionType},
-            ${severity},
-            ${qaReasonCode},
-            ${summary},
-            ${jsonb(payload)}::jsonb,
-            NOW()
-          )
-        `;
+        await upsertOpenException(tx, workItemId, {
+          exceptionType,
+          severity,
+          reasonCode: qaReasonCode,
+          summary,
+          payload,
+        });
         await tx`
           UPDATE rcm_work_items
           SET
@@ -1932,7 +2022,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/retry', authenticateApiK
   const sql = createDb(c.env);
   try {
     const result = await sql.begin(async (tx: any) => {
-      const row = await getOwnedClaimStatusWorkItem(tx, merchant.id, workItemId);
+      const row = await getOwnedClaimStatusWorkItemForUpdate(tx, merchant.id, workItemId);
       if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
       if (row.status !== 'retry_pending') throw new Error('INVALID_STATE');
 
@@ -2086,13 +2176,12 @@ router.post('/lanes/claim-status/work-items/:workItemId/escalate', authenticateA
   const sql = createDb(c.env);
   try {
     const result = await sql.begin(async (tx: any) => {
-      const row = await getOwnedClaimStatusWorkItem(tx, merchant.id, workItemId);
+      const row = await getOwnedClaimStatusWorkItemForUpdate(tx, merchant.id, workItemId);
       if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
       if (claimStatusLaneContract.stateMachine.terminalStates.includes(row.status)) {
         throw new Error('TERMINAL_STATE');
       }
 
-      const exceptionId = crypto.randomUUID();
       const payload = {
         requiredContextFields,
         recommendedHumanAction,
@@ -2100,29 +2189,13 @@ router.post('/lanes/claim-status/work-items/:workItemId/escalate', authenticateA
         slaAt,
         notes,
       };
-
-      await tx`
-        INSERT INTO rcm_exceptions (
-          id,
-          work_item_id,
-          exception_type,
-          severity,
-          reason_code,
-          summary,
-          payload,
-          created_at
-        )
-        VALUES (
-          ${exceptionId},
-          ${workItemId},
-          ${exceptionType},
-          ${severity},
-          ${reasonCode},
-          ${summary},
-          ${jsonb(payload)}::jsonb,
-          NOW()
-        )
-      `;
+      await upsertOpenException(tx, workItemId, {
+        exceptionType,
+        severity,
+        reasonCode,
+        summary,
+        payload,
+      });
 
       const metadata = parseJsonb<JsonRecord>(row.metadata, {});
       await tx`
@@ -2226,8 +2299,16 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
   const sql = createDb(c.env);
   try {
     const result = await sql.begin(async (tx: any) => {
-      const row = await getOwnedClaimStatusWorkItem(tx, merchant.id, workItemId);
+      const row = await getOwnedClaimStatusWorkItemForUpdate(tx, merchant.id, workItemId);
       if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (claimStatusLaneContract.stateMachine.terminalStates.includes(row.status)) {
+        throw new Error('TERMINAL_STATE');
+      }
+
+      const exceptionManagedStates = new Set(['human_review_required', 'blocked']);
+      if (!exceptionManagedStates.has(row.status)) {
+        throw new Error('INVALID_STATE');
+      }
 
       const metadata = parseJsonb<JsonRecord>(row.metadata, {});
       const nowIso = new Date().toISOString();
@@ -2354,15 +2435,8 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
         `;
       } else if (action === 'classify_new_exception_type') {
         nextStatus = row.status;
-        const unresolved = await tx<Array<{ id: string }>>`
-          SELECT id
-          FROM rcm_exceptions
-          WHERE work_item_id = ${workItemId}
-            AND resolved_at IS NULL
-          ORDER BY created_at DESC
-          LIMIT 1
-        `;
-        if (!unresolved[0]) throw new Error('NO_OPEN_EXCEPTION');
+        const unresolved = await getLatestOpenExceptionForUpdate(tx, workItemId);
+        if (!unresolved) throw new Error('NO_OPEN_EXCEPTION');
         await tx`
           UPDATE rcm_exceptions
           SET
@@ -2372,7 +2446,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
               reclassifiedBy: reviewerRef,
               reclassifiedAt: nowIso,
             })}::jsonb
-          WHERE id = ${unresolved[0].id}
+          WHERE id = ${unresolved.id}
         `;
       }
 
@@ -2414,6 +2488,12 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'TERMINAL_STATE') {
+      return c.json({ error: 'Terminal claim-status work items cannot be resolved again' }, 409);
+    }
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Human resolution is only allowed while the case is in the exception inbox' }, 409);
+    }
     if (message === 'NO_OPEN_EXCEPTION') {
       return c.json({ error: 'No open exception exists for this work item' }, 409);
     }
@@ -2424,7 +2504,7 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
   }
 });
 
-router.get('/services', (c) =>
+router.get('/services', authenticateApiKey, (c) =>
   c.json({
     stage: 'scaffold',
     modules: blueprint.serviceModules,
@@ -2612,7 +2692,7 @@ router.get('/work-items', authenticateApiKey, async (c) => {
   }
 });
 
-router.get('/vendors', (c) =>
+router.get('/vendors', authenticateApiKey, (c) =>
   c.json({
     items: [],
     stage: 'scaffold',
@@ -2626,7 +2706,7 @@ router.get('/vendors', (c) =>
   }),
 );
 
-router.get('/payouts', (c) =>
+router.get('/payouts', authenticateApiKey, (c) =>
   c.json({
     items: [],
     stage: 'scaffold',
@@ -2803,7 +2883,7 @@ router.get('/metrics/queues', authenticateApiKey, async (c) => {
   }
 });
 
-router.get('/metrics/payouts', (c) =>
+router.get('/metrics/payouts', authenticateApiKey, (c) =>
   c.json({
     stage: 'scaffold',
     payoutModel: {

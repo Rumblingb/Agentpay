@@ -66,9 +66,12 @@ function headers(apiKey: string) {
   };
 }
 
+const noStore = { cache: 'no-store' as const };
+
 export async function fetchProfile(apiKey: string): Promise<MerchantProfile> {
   const res = await fetch(`${API_BASE}/api/merchants/profile`, {
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
   return res.json();
@@ -77,6 +80,7 @@ export async function fetchProfile(apiKey: string): Promise<MerchantProfile> {
 export async function fetchStats(apiKey: string): Promise<PaymentStats> {
   const res = await fetch(`${API_BASE}/api/merchants/stats`, {
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`Stats fetch failed: ${res.status}`);
   const data = await res.json();
@@ -90,7 +94,7 @@ export async function fetchPayments(
 ): Promise<{ transactions: Payment[]; stats: PaymentStats }> {
   const res = await fetch(
     `${API_BASE}/api/merchants/payments?limit=${limit}&offset=${offset}`,
-    { headers: headers(apiKey) },
+    { headers: headers(apiKey), ...noStore },
   );
   if (!res.ok) throw new Error(`Payments fetch failed: ${res.status}`);
   return res.json();
@@ -100,6 +104,7 @@ export async function rotateApiKey(apiKey: string): Promise<{ apiKey: string }> 
   const res = await fetch(`${API_BASE}/api/merchants/rotate-key`, {
     method: 'POST',
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`Key rotation failed: ${res.status}`);
   return res.json();
@@ -113,6 +118,7 @@ export async function updateWebhookUrl(
     method: 'PATCH',
     headers: headers(apiKey),
     body: JSON.stringify({ webhookUrl }),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`Webhook update failed: ${res.status}`);
   return res.json();
@@ -225,6 +231,7 @@ export interface RcmConnectorStatus {
 export async function fetchRcmOverview(apiKey: string): Promise<RcmOverview> {
   const res = await fetch(`${API_BASE}/api/rcm/metrics/overview`, {
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`RCM overview fetch failed: ${res.status}`);
   return res.json();
@@ -233,6 +240,7 @@ export async function fetchRcmOverview(apiKey: string): Promise<RcmOverview> {
 export async function fetchRcmWorkspaces(apiKey: string): Promise<{ items: RcmWorkspace[]; count: number }> {
   const res = await fetch(`${API_BASE}/api/rcm/workspaces`, {
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`RCM workspaces fetch failed: ${res.status}`);
   return res.json();
@@ -244,7 +252,7 @@ export async function fetchRcmClaimStatusWorkItems(
 ): Promise<{ items: RcmWorkItem[]; count: number }> {
   const res = await fetch(
     `${API_BASE}/api/rcm/lanes/claim-status/work-items?limit=${limit}`,
-    { headers: headers(apiKey) },
+    { headers: headers(apiKey), ...noStore },
   );
   if (!res.ok) throw new Error(`RCM claim-status fetch failed: ${res.status}`);
   return res.json();
@@ -256,7 +264,7 @@ export async function fetchRcmClaimStatusExceptions(
 ): Promise<{ items: RcmException[]; count: number }> {
   const res = await fetch(
     `${API_BASE}/api/rcm/queues/claim-status-exceptions?limit=${limit}`,
-    { headers: headers(apiKey) },
+    { headers: headers(apiKey), ...noStore },
   );
   if (!res.ok) throw new Error(`RCM exception fetch failed: ${res.status}`);
   return res.json();
@@ -267,6 +275,7 @@ export async function fetchRcmClaimStatusConnectors(
 ): Promise<{ connectors: RcmConnectorStatus[] }> {
   const res = await fetch(`${API_BASE}/api/rcm/connectors/claim-status`, {
     headers: headers(apiKey),
+    ...noStore,
   });
   if (!res.ok) throw new Error(`RCM connector fetch failed: ${res.status}`);
   return res.json();
