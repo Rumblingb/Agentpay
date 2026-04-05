@@ -1842,12 +1842,29 @@ router.get('/queues/eligibility-exceptions', authenticateApiKey, async (c) => {
       queueKey: eligibilityLaneContract.exceptionInbox.queueKey,
       count: rows.length,
       items: rows.map((row) => {
-        const base = mapException(row);
+        const { exceptionId, workItemId, workspaceName, payerName, priority, exceptionType,
+                severity, reasonCode, summary, confidencePct, amountAtRisk, requiredContextFields,
+                recommendedHumanAction, assignedReviewer, slaAt, openedAt, payload } = mapException(row);
         return {
-          ...base,
-          // For eligibility, claimRef is the member ID
+          exceptionId,
+          workItemId,
+          workspaceName,
+          payerName,
+          /** claim_ref column stores the member/subscriber ID for eligibility work items. */
           memberId: row.claimRef,
-          claimRef: undefined,
+          priority,
+          exceptionType,
+          severity,
+          reasonCode,
+          summary,
+          confidencePct,
+          amountAtRisk,
+          requiredContextFields,
+          recommendedHumanAction,
+          assignedReviewer,
+          slaAt,
+          openedAt,
+          payload,
         };
       }),
     });

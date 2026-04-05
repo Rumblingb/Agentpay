@@ -434,6 +434,27 @@ async function runRemoteHetsEligibility(
   }
 }
 
+// ─── Status group constants ────────────────────────────────────────────────────
+// Statuses that represent confirmed coverage — eligible for automatic close.
+const AUTO_CLOSE_STATUSES: ReadonlySet<NormalizedEligibilityStatus> = new Set([
+  'active',
+  'active_with_limitations',
+  'deductible_not_met',
+]);
+
+// Statuses that indicate a negative eligibility result.
+const NEGATIVE_STATUSES: ReadonlySet<NormalizedEligibilityStatus> = new Set([
+  'inactive',
+  'not_found',
+]);
+
+// Statuses where the response is ambiguous or the connector failed.
+const AMBIGUOUS_STATUSES: ReadonlySet<NormalizedEligibilityStatus> = new Set([
+  'transport_failed',
+  'out_of_network',
+  'coordination_required',
+]);
+
 // ─── Build execution object from normalized response ──────────────────────────
 
 function buildExecutionFromEligibility(
@@ -613,7 +634,7 @@ function buildExecutionFromEligibility(
     },
   ];
 
-  if (normalized.normalized === 'active' || normalized.normalized === 'active_with_limitations' || normalized.normalized === 'deductible_not_met') {
+  if (AUTO_CLOSE_STATUSES.has(normalized.normalized)) {
     evidence.push({
       evidenceType: 'eligibility_verified',
       payload: {
@@ -632,7 +653,7 @@ function buildExecutionFromEligibility(
     });
   }
 
-  if (normalized.normalized === 'inactive' || normalized.normalized === 'not_found') {
+  if (NEGATIVE_STATUSES.has(normalized.normalized)) {
     evidence.push({
       evidenceType: 'coverage_gap_detected',
       payload: {
@@ -653,11 +674,7 @@ function buildExecutionFromEligibility(
     });
   }
 
-  if (
-    normalized.normalized === 'transport_failed' ||
-    normalized.normalized === 'out_of_network' ||
-    normalized.normalized === 'coordination_required'
-  ) {
+  if (AMBIGUOUS_STATUSES.has(normalized.normalized)) {
     evidence.push({
       evidenceType: 'payer_response_ambiguous',
       payload: {
