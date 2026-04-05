@@ -3,35 +3,38 @@
 // (This file is the canonical single-source schema for the monorepo.)
 // Preserve agent_reputation_network table
 model AgentReputationNetwork {
-  id              String   @id @default(uuid()) @db.Uuid
-  agent_id        String   @map("agent_id")
-  success_rate    Float    @default(0)
-  dispute_rate    Float    @default(0)
-  avg_response_time Int    @default(0) @map("avg_response_time")
-  rating          Float    @default(5.0)
-  total_tx        Int      @default(0) @map("total_tx")
-  created_at      DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  id                String    @id @default(uuid()) @db.Uuid
+  agent_id          String    @map("agent_id")
+  success_rate      Float     @default(0)
+  dispute_rate      Float     @default(0)
+  avg_response_time Int       @default(0) @map("avg_response_time")
+  rating            Float     @default(5.0)
+  total_tx          Int       @default(0) @map("total_tx")
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+
   @@map("agent_reputation_network")
 }
+
 // Legacy compatibility: bots table
 model Bot {
-  id                     String   @id @default(uuid()) @db.Uuid
-  platformBotId          String?  @map("platform_bot_id")
-  handle                 String   @unique
-  displayName            String?  @map("display_name")
+  id                     String    @id @default(uuid()) @db.Uuid
+  platformBotId          String?   @map("platform_bot_id")
+  handle                 String    @unique
+  displayName            String?   @map("display_name")
   bio                    String?
-  createdBy              String?  @map("created_by")
-  primaryFunction        String?  @map("primary_function")
-  walletAddress          String?  @map("wallet_address")
-  walletKeypairEncrypted String?  @map("wallet_keypair_encrypted")
-  dailySpendingLimit     Decimal? @map("daily_spending_limit")
-  perTxLimit             Decimal? @map("per_tx_limit")
-  autoApproveUnder       Decimal? @map("auto_approve_under")
-  dailyAutoApproveCap    Decimal? @map("daily_auto_approve_cap")
-  status                 String?  @default("active")
+  createdBy              String?   @map("created_by")
+  primaryFunction        String?   @map("primary_function")
+  walletAddress          String?   @map("wallet_address")
+  walletKeypairEncrypted String?   @map("wallet_keypair_encrypted")
+  dailySpendingLimit     Decimal?  @map("daily_spending_limit")
+  perTxLimit             Decimal?  @map("per_tx_limit")
+  autoApproveUnder       Decimal?  @map("auto_approve_under")
+  dailyAutoApproveCap    Decimal?  @map("daily_auto_approve_cap")
+  status                 String?   @default("active")
   createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+
   @@map("bots")
 }
 
@@ -42,40 +45,46 @@ model ApiLog {
   path       String?
   statusCode Int?      @map("status_code")
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
   @@map("api_logs")
 }
 
 // Legacy compatibility: agent_reputation table
 model AgentReputationLegacy {
-  agent_id      String   @id @map("agent_id")
-  trust_score   Int      @default(50)
-  total_payments Int     @default(0)
-  success_rate  Float    @default(0)
-  dispute_rate  Float    @default(0)
+  agent_id        String    @id @map("agent_id")
+  trust_score     Int       @default(50)
+  total_payments  Int       @default(0)
+  success_rate    Float     @default(0)
+  dispute_rate    Float     @default(0)
   last_payment_at DateTime?
-  created_at    DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+
   @@map("agent_reputation")
 }
 
 // Legacy compatibility: rate_limit_counters table
 model RateLimitCounter {
-  id         String    @id @default(uuid()) @db.Uuid
-  key        String   @unique
-  count      Int      @default(0)
-  window     String?
-  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id        String    @id @default(uuid()) @db.Uuid
+  key       String    @unique
+  count     Int       @default(0)
+  window    String?
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+
   @@map("rate_limit_counters")
 }
+
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"] // <--- ADD THIS LINE
   // output = "../src/generated/prisma" (keep if you prefer Option B)
 }
+
 datasource db {
   provider = "postgresql"
 }
+
 model Merchant {
   id                       String    @id @default(uuid()) @db.Uuid
   name                     String
@@ -90,8 +99,11 @@ model Merchant {
   createdAt                DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  paymentIntents PaymentIntent[]
-  agents         Agent[]
+  paymentIntents   PaymentIntent[]
+  agents           Agent[]
+  rcmWorkspaces    RcmWorkspace[]
+  rcmWorkItems     RcmWorkItem[]
+  rcmVendorMetrics RcmVendorMetric[]
 
   @@map("merchants")
 }
@@ -99,27 +111,29 @@ model Merchant {
 // First-class agent entity — owns intents and carries identity/risk data.
 // Network fields (service, endpointUrl, etc.) support the AgentPay Network marketplace.
 model Agent {
-  id             String    @id @default(uuid()) @db.Uuid
-  merchantId     String?   @map("merchant_id") @db.Uuid
-  merchant       Merchant? @relation(fields: [merchantId], references: [id])
-  displayName    String    @map("display_name")
-  publicKey      String?   @map("public_key")
-  riskScore      Int       @default(500) @map("risk_score")
+  id                      String                       @id @default(uuid()) @db.Uuid
+  merchantId              String?                      @map("merchant_id") @db.Uuid
+  merchant                Merchant?                    @relation(fields: [merchantId], references: [id])
+  displayName             String                       @map("display_name")
+  publicKey               String?                      @map("public_key")
+  riskScore               Int                          @default(500) @map("risk_score")
   // AgentPay Network marketplace fields
-  service        String?
-  endpointUrl    String?   @map("endpoint_url")
-  pricingModel   Json?     @default("{}") @map("pricing_model")
-  rating         Float     @default(5.0)
-  totalEarnings  Float     @default(0) @map("total_earnings")
-  tasksCompleted Int       @default(0) @map("tasks_completed")
+  service                 String?
+  endpointUrl             String?                      @map("endpoint_url")
+  pricingModel            Json?                        @default("{}") @map("pricing_model")
+  rating                  Float                        @default(5.0)
+  totalEarnings           Float                        @default(0) @map("total_earnings")
+  tasksCompleted          Int                          @default(0) @map("tasks_completed")
   // Semantic discovery — pgvector column (optional, requires pgvector extension)
-  embedding      Unsupported("vector(1536)")?
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  intents        PaymentIntent[]
+  embedding               Unsupported("vector(1536)")?
+  createdAt               DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  intents                 PaymentIntent[]
+  rcmAssignedWorkItems    RcmWorkItem[]
+  rcmVendorMetrics        RcmVendorMetric[]
   // Foundation agent fields
-  operatorId     String?   @map("operator_id")
-  trustScore     Float     @default(50.0) @map("trust_score")
+  operatorId              String?                      @map("operator_id")
+  trustScore              Float                        @default(50.0) @map("trust_score")
   verificationCredentials VerificationCredential[]
   identityLinks           IdentityLink[]
 
@@ -177,9 +191,9 @@ model Endorsement {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@unique([fromAgentId, toAgentId])
   @@index([fromAgentId])
   @@index([toAgentId])
-  @@unique([fromAgentId, toAgentId])
   @@map("endorsements")
 }
 
@@ -205,11 +219,12 @@ model PaymentIntent {
   createdAt         DateTime? @default(now()) @map("created_at")
   updatedAt         DateTime? @default(now()) @map("updated_at")
 
-  merchant             Merchant              @relation(fields: [merchantId], references: [id])
-  agent                Agent?                @relation(fields: [agentId], references: [id])
+  merchant             Merchant             @relation(fields: [merchantId], references: [id])
+  agent                Agent?               @relation(fields: [agentId], references: [id])
   settlementIdentities SettlementIdentity[]
   resolution           IntentResolution?
   feeLedgerEntry       FeeLedgerEntry?
+  rcmMilestone         RcmMilestone?
 
   @@map("payment_intents")
 }
@@ -300,19 +315,19 @@ model behavior_alerts {
 
 // PRODUCTION FIX — ADDED BY COPILOT: KYA (Know Your Agent) identity table
 model agent_identities {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  agent_id        String    @unique
-  owner_email     String
-  owner_id        String?
-  verified        Boolean   @default(false)
-  kyc_status      String    @default("pending")
-  risk_score      Decimal   @default(0) @db.Decimal(5, 2)
-  stripe_account  String?
-  platform_token  String?
-  world_id_hash   String?
-  metadata        Json?     @default("{}")
-  created_at      DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agent_id       String    @unique
+  owner_email    String
+  owner_id       String?
+  verified       Boolean   @default(false)
+  kyc_status     String    @default("pending")
+  risk_score     Decimal   @default(0) @db.Decimal(5, 2)
+  stripe_account String?
+  platform_token String?
+  world_id_hash  String?
+  metadata       Json?     @default("{}")
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
 }
 
 // PRODUCTION FIX — ADDED BY COPILOT: INSURANCE POOL TABLE
@@ -380,17 +395,17 @@ model AgentFeeTransaction {
 
 // IdentityVerifierAgent — issued identity credentials
 model VerificationCredential {
-  id         String   @id @db.Uuid
-  agentId    String   @map("agent_id") @db.Uuid
-  agent      Agent    @relation(fields: [agentId], references: [id])
-  operatorId String   @map("operator_id")
+  id          String   @id @db.Uuid
+  agentId     String   @map("agent_id") @db.Uuid
+  agent       Agent    @relation(fields: [agentId], references: [id])
+  operatorId  String   @map("operator_id")
   environment Json
-  issuedAt   DateTime @map("issued_at")
-  expiresAt  DateTime @map("expires_at")
-  signature  String
-  trustLevel String   @map("trust_level")
-  revoked    Boolean  @default(false)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  issuedAt    DateTime @map("issued_at")
+  expiresAt   DateTime @map("expires_at")
+  signature   String
+  trustLevel  String   @map("trust_level")
+  revoked     Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("verification_credentials")
 }
@@ -504,7 +519,7 @@ model SettlementIdentity {
   // Ordering hint — higher value = preferred identity when multiple exist.
   priority    Int       @default(0)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   intent     PaymentIntent     @relation(fields: [intentId], references: [id])
   events     SettlementEvent[]
@@ -599,38 +614,38 @@ model SettlementEvent {
 // Provides a single, queryable source of truth for "was this intent paid?"
 // without requiring a join across payment_intents + transactions.
 model IntentResolution {
-  id                   String    @id @default(uuid()) @db.Uuid
-  intentId             String    @unique @map("intent_id") @db.Uuid
+  id                   String   @id @default(uuid()) @db.Uuid
+  intentId             String   @unique @map("intent_id") @db.Uuid
   // FK to the SettlementIdentity that provided the winning proof.
   // Null for resolutions that close without on-chain evidence (e.g. expired).
   // @unique ensures at most one IntentResolution per SettlementIdentity.
-  settlementIdentityId String?   @unique @map("settlement_identity_id") @db.Uuid
+  settlementIdentityId String?  @unique @map("settlement_identity_id") @db.Uuid
   protocol             String
   // Which subsystem wrote this record:
   // solana_listener | stripe_webhook | ap2_confirm | manual
-  resolvedBy           String    @map("resolved_by")
+  resolvedBy           String   @map("resolved_by")
   // confirmed | failed | disputed | expired
-  resolutionStatus     String    @map("resolution_status")
+  resolutionStatus     String   @map("resolution_status")
   // Phase 6: fine-grained decision from the resolution engine
   // matched | matched_with_external_fee | partial_match | underpaid | overpaid | unmatched | rejected
-  decisionCode         String?   @map("decision_code")
+  decisionCode         String?  @map("decision_code")
   // Phase 6: machine-readable reason for the decision
-  reasonCode           String?   @map("reason_code")
+  reasonCode           String?  @map("reason_code")
   // Phase 6: engine confidence score (0.000 – 1.000) — kept for backward compat
-  confidenceScore      Decimal?  @map("confidence_score") @db.Decimal(4, 3)
+  confidenceScore      Decimal? @map("confidence_score") @db.Decimal(4, 3)
   // Phase 035: 0-100 integer confidence score (preferred representation going forward).
   // DB CHECK constraint enforces 0 ≤ value ≤ 100 (see migration 035).
-  confidencePct        Int?      @map("confidence_pct")
+  confidencePct        Int?     @map("confidence_pct")
   // Phase 035: structured reasoning / mismatch detail from the resolution engine
   // (e.g. amount delta, memo comparison, recipient check output).
   details              Json?
-  externalRef          String?   @map("external_ref")
-  confirmationDepth    Int?      @map("confirmation_depth")
+  externalRef          String?  @map("external_ref")
+  confirmationDepth    Int?     @map("confirmation_depth")
   // Payer address (Solana wallet) or Stripe customer ID — protocol-specific.
-  payerRef             String?   @map("payer_ref")
-  resolvedAt           DateTime  @map("resolved_at") @db.Timestamptz(6)
-  metadata             Json?     @default("{}")
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  payerRef             String?  @map("payer_ref")
+  resolvedAt           DateTime @map("resolved_at") @db.Timestamptz(6)
+  metadata             Json?    @default("{}")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   intent             PaymentIntent       @relation(fields: [intentId], references: [id])
   // onDelete: Restrict — a SettlementIdentity named as the winning proof cannot
@@ -656,11 +671,12 @@ model TrustEdge {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@unique([fromAgentId, toAgentId])
   @@index([fromAgentId])
   @@index([toAgentId])
-  @@unique([fromAgentId, toAgentId])
   @@map("trust_edges")
 }
+
 // Moved schema from top-level prisma/ to infra/prisma for monorepo layout
 // (Keep identical to original schema; edits should be performed here.)
 // Moved schema from top-level prisma/ to infra/prisma for monorepo layout
@@ -672,44 +688,195 @@ model TrustEdge {
 /// Every confirmed payment intent generates one row.
 /// The Workers cron reconciler processes rows until status = 'complete' or 'terminal'.
 model FeeLedgerEntry {
-  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
   // Intent this fee entry belongs to (1:1)
-  intentId             String    @map("intent_id") @db.Uuid
+  intentId String @map("intent_id") @db.Uuid
 
   // Populated once intent_resolutions row exists
-  intentResolutionId   String?   @map("intent_resolution_id") @db.Uuid
+  intentResolutionId String? @map("intent_resolution_id") @db.Uuid
 
   // Amounts — all in USDC
-  grossAmount          Decimal   @map("gross_amount") @db.Decimal(20, 6)
-  platformFeeAmount    Decimal   @map("platform_fee_amount") @db.Decimal(20, 6)
-  railFeeAmount        Decimal   @default(0) @map("rail_fee_amount") @db.Decimal(20, 6)
-  netRecipientAmount   Decimal   @map("net_recipient_amount") @db.Decimal(20, 6)
+  grossAmount        Decimal @map("gross_amount") @db.Decimal(20, 6)
+  platformFeeAmount  Decimal @map("platform_fee_amount") @db.Decimal(20, 6)
+  railFeeAmount      Decimal @default(0) @map("rail_fee_amount") @db.Decimal(20, 6)
+  netRecipientAmount Decimal @map("net_recipient_amount") @db.Decimal(20, 6)
 
   // Wallet addresses at time of settlement (immutable snapshot)
-  treasuryDestination  String    @map("treasury_destination")
-  recipientDestination String    @map("recipient_destination")
+  treasuryDestination  String @map("treasury_destination")
+  recipientDestination String @map("recipient_destination")
 
   // Verification token / Solana memo used for this intent
-  settlementReference  String?   @map("settlement_reference")
+  settlementReference String? @map("settlement_reference")
 
   // Populated when treasury fee transfer succeeds
-  feeTransferSignature String?   @map("fee_transfer_signature")
+  feeTransferSignature String? @map("fee_transfer_signature")
 
   // Lifecycle: pending → processing → complete | failed → terminal
-  status               String    @default("pending")
-  failureReason        String?   @map("failure_reason")
-  attemptCount         Int       @default(0) @map("attempt_count")
-  lastAttemptedAt      DateTime? @map("last_attempted_at") @db.Timestamptz(6)
+  status          String    @default("pending")
+  failureReason   String?   @map("failure_reason")
+  attemptCount    Int       @default(0) @map("attempt_count")
+  lastAttemptedAt DateTime? @map("last_attempted_at") @db.Timestamptz(6)
 
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  settledAt            DateTime? @map("settled_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  settledAt DateTime? @map("settled_at") @db.Timestamptz(6)
 
-  intent     PaymentIntent    @relation(fields: [intentId], references: [id])
+  intent     PaymentIntent     @relation(fields: [intentId], references: [id])
   resolution IntentResolution? @relation(fields: [intentResolutionId], references: [id])
 
   @@unique([intentId])
   @@index([status])
   @@index([createdAt(sort: Desc)])
   @@map("fee_ledger_entries")
+}
+
+// RCM vertical — thin additive layer for autonomous billing operations.
+// Keeps AgentPay core intact while giving hospital / provider workflows
+// a queue, proof, exception, and payout spine.
+model RcmWorkspace {
+  id             String   @id @default(uuid()) @db.Uuid
+  merchantId     String   @map("merchant_id") @db.Uuid
+  name           String
+  legalName      String?  @map("legal_name")
+  workspaceType  String   @default("facility_rcm") @map("workspace_type")
+  specialty      String?
+  timezone       String?  @default("America/New_York")
+  status         String   @default("active")
+  approvalPolicy Json?    @default("{}") @map("approval_policy")
+  config         Json?    @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant  Merchant      @relation(fields: [merchantId], references: [id])
+  workItems RcmWorkItem[]
+
+  @@index([merchantId])
+  @@index([workspaceType])
+  @@index([status])
+  @@map("rcm_workspaces")
+}
+
+model RcmWorkItem {
+  id                  String    @id @default(uuid()) @db.Uuid
+  workspaceId         String    @map("workspace_id") @db.Uuid
+  merchantId          String    @map("merchant_id") @db.Uuid
+  assignedAgentId     String?   @map("assigned_agent_id") @db.Uuid
+  workType            String    @map("work_type")
+  billingDomain       String    @default("facility") @map("billing_domain")
+  formType            String?   @map("form_type")
+  title               String
+  payerName           String?   @map("payer_name")
+  coverageType        String?   @map("coverage_type")
+  patientRef          String?   @map("patient_ref")
+  providerRef         String?   @map("provider_ref")
+  encounterRef        String?   @map("encounter_ref")
+  claimRef            String?   @map("claim_ref")
+  sourceSystem        String?   @map("source_system")
+  amountAtRisk        Decimal?  @map("amount_at_risk") @db.Decimal(20, 2)
+  confidencePct       Int?      @map("confidence_pct")
+  priority            String    @default("normal")
+  status              String    @default("new")
+  requiresHumanReview Boolean   @default(false) @map("requires_human_review")
+  dueAt               DateTime? @map("due_at") @db.Timestamptz(6)
+  submittedAt         DateTime? @map("submitted_at") @db.Timestamptz(6)
+  completedAt         DateTime? @map("completed_at") @db.Timestamptz(6)
+  metadata            Json?     @default("{}")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workspace     RcmWorkspace          @relation(fields: [workspaceId], references: [id])
+  merchant      Merchant              @relation(fields: [merchantId], references: [id])
+  assignedAgent Agent?                @relation(fields: [assignedAgentId], references: [id])
+  evidence      RcmWorkItemEvidence[]
+  milestones    RcmMilestone[]
+  exceptions    RcmException[]
+
+  @@index([workspaceId])
+  @@index([merchantId])
+  @@index([assignedAgentId])
+  @@index([workType])
+  @@index([billingDomain])
+  @@index([status])
+  @@index([priority])
+  @@index([dueAt])
+  @@map("rcm_work_items")
+}
+
+model RcmWorkItemEvidence {
+  id           String   @id @default(uuid()) @db.Uuid
+  workItemId   String   @map("work_item_id") @db.Uuid
+  actorType    String   @map("actor_type")
+  actorRef     String   @map("actor_ref")
+  evidenceType String   @map("evidence_type")
+  payload      Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workItem RcmWorkItem @relation(fields: [workItemId], references: [id])
+
+  @@index([workItemId])
+  @@index([evidenceType])
+  @@map("rcm_work_item_evidence")
+}
+
+model RcmMilestone {
+  id              String    @id @default(uuid()) @db.Uuid
+  workItemId      String    @map("work_item_id") @db.Uuid
+  name            String
+  amount          Decimal   @db.Decimal(20, 2)
+  status          String    @default("pending")
+  successCriteria Json?     @default("{}") @map("success_criteria")
+  paymentIntentId String?   @unique @map("payment_intent_id") @db.Uuid
+  releasedAt      DateTime? @map("released_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workItem      RcmWorkItem    @relation(fields: [workItemId], references: [id])
+  paymentIntent PaymentIntent? @relation(fields: [paymentIntentId], references: [id])
+
+  @@index([workItemId])
+  @@index([status])
+  @@map("rcm_milestones")
+}
+
+model RcmException {
+  id            String    @id @default(uuid()) @db.Uuid
+  workItemId    String    @map("work_item_id") @db.Uuid
+  exceptionType String    @map("exception_type")
+  severity      String    @default("normal")
+  reasonCode    String?   @map("reason_code")
+  summary       String
+  payload       Json?     @default("{}")
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workItem RcmWorkItem @relation(fields: [workItemId], references: [id])
+
+  @@index([workItemId])
+  @@index([exceptionType])
+  @@index([severity])
+  @@map("rcm_exceptions")
+}
+
+model RcmVendorMetric {
+  id                String   @id @default(uuid()) @db.Uuid
+  merchantId        String   @map("merchant_id") @db.Uuid
+  agentId           String   @map("agent_id") @db.Uuid
+  periodStart       DateTime @map("period_start") @db.Timestamptz(6)
+  periodEnd         DateTime @map("period_end") @db.Timestamptz(6)
+  completedCount    Int      @default(0) @map("completed_count")
+  approvedCount     Int      @default(0) @map("approved_count")
+  rejectedCount     Int      @default(0) @map("rejected_count")
+  escalatedCount    Int      @default(0) @map("escalated_count")
+  avgTurnaroundMins Int      @default(0) @map("avg_turnaround_mins")
+  releasedAmount    Decimal  @default(0) @map("released_amount") @db.Decimal(20, 2)
+  scorePayload      Json?    @default("{}") @map("score_payload")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  agent    Agent    @relation(fields: [agentId], references: [id])
+
+  @@index([merchantId, agentId])
+  @@index([periodStart, periodEnd])
+  @@map("rcm_vendor_metrics")
 }

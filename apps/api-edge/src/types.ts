@@ -219,6 +219,13 @@ export interface Env {
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */
   FIRECRAWL_API_KEY?: string;
 
+  /** Base URL for the institutional 276/277 claim-status connector. */
+  RCM_X12_CLAIM_STATUS_API_URL?: string;
+  /** Bearer key for the institutional 276/277 claim-status connector. */
+  RCM_X12_CLAIM_STATUS_API_KEY?: string;
+  /** Optional timeout in ms for the remote 276/277 connector. */
+  RCM_X12_CLAIM_STATUS_TIMEOUT_MS?: string;
+
   // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
   /** OpenClaw API base URL — e.g. https://api.openclaw.io */
   OPENCLAW_API_URL?: string;

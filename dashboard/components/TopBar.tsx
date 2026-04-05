@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   '/overview':    { title: 'Overview',     desc: 'Payment metrics and network activity' },
+  '/rcm':         { title: 'RCM Ops',      desc: 'Autonomous billing operations and exception control' },
   '/intents':     { title: 'Intents',      desc: 'Payment intent ledger' },
   '/escrow':      { title: 'Escrow',       desc: 'Agent-to-agent escrow contracts' },
   '/agentrank':   { title: 'AgentRank',    desc: 'Economic reputation scores' },
@@ -27,7 +28,10 @@ async function checkApiHealth(): Promise<boolean> {
 
 export default function TopBar() {
   const pathname = usePathname();
-  const meta = PAGE_META[pathname] ?? { title: 'AgentPay', desc: '' };
+  const matchedEntry = Object.entries(PAGE_META)
+    .sort((a, b) => b[0].length - a[0].length)
+    .find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const meta = matchedEntry?.[1] ?? { title: 'AgentPay', desc: '' };
 
   const { data: apiOnline = false } = useQuery({
     queryKey: ['apiHealth'],
