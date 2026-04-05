@@ -164,6 +164,7 @@ export default function OnboardScreen() {
   const [demoPhase,    setDemoPhase]    = useState<DemoPhase>('intro');
   const [demoResponse, setDemoResponse] = useState('');
   const demoIntroPlayedRef = useRef(false);
+  const demoAutoListenStartedRef = useRef(false);
   const demoCompletingRef = useRef(false);
   const nameAutoStartedRef = useRef(false);
   const nameCompletingRef = useRef(false);
@@ -232,7 +233,7 @@ export default function OnboardScreen() {
     const t = setTimeout(async () => {
       await speak(marketCopy.intro);
       setDemoPhase('ready');
-    }, 600);
+    }, 200);
     return () => clearTimeout(t);
   }, [marketCopy.intro, step]);
 
@@ -289,6 +290,32 @@ export default function OnboardScreen() {
       const uri = await stopRecording().catch(() => null);
       await completeDemoCapture(uri);
     }
+  }, [completeDemoCapture, demoPhase, marketCopy.fallback]);
+
+  // Auto-start listening after Ace speaks the intro — no tap required
+  React.useEffect(() => {
+    if (demoPhase !== 'ready' || demoAutoListenStartedRef.current) return;
+    demoAutoListenStartedRef.current = true;
+    const t = setTimeout(async () => {
+      setDemoPhase('listening');
+      await startRecording({
+        autoStopOnSilence: true,
+        silenceMs: 2400,
+        maxDurationMs: 9000,
+        onSilence: () => {
+          void stopRecording()
+            .then((uri) => completeDemoCapture(uri))
+            .catch(() => completeDemoCapture(null));
+        },
+      }).catch(async () => {
+        // Mic denied — show scripted demo so user still gets the moment
+        const fallback = marketCopy.fallback;
+        setDemoResponse(fallback);
+        setDemoPhase('done');
+        await speak(fallback);
+      });
+    }, 600);
+    return () => clearTimeout(t);
   }, [completeDemoCapture, demoPhase, marketCopy.fallback]);
 
   const normalizeCapturedName = React.useCallback((rawTranscript: string) => (
@@ -605,25 +632,7 @@ export default function OnboardScreen() {
                 {/* Wordmark */}
                 <Text style={demoStyles.wordmark}>ACE</Text>
 
-                <View style={demoStyles.marketWrap}>
-                  <Text style={demoStyles.marketLabel}>Where should Ace start?</Text>
-                  <View style={styles.chipRow}>
-                    {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
-                      <Pressable
-                        key={nat}
-                        onPress={() => handleNationality(nat)}
-                        style={[styles.chip, nationality === nat && styles.chipActive, demoStyles.marketChip]}
-                      >
-                        <Text style={[styles.chipText, nationality === nat && styles.chipTextActive]}>
-                          {nat === 'uk' ? 'United Kingdom' : nat === 'india' ? 'India' : 'Global'}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <Text style={demoStyles.marketHint}>{marketCopy.setupTagline}</Text>
-                </View>
-
-                {/* Ace demo — calm during intro, voice-first when ready */}
+                {/* Ace — leads the experience */}
                 <View style={demoStyles.orbArea}>
                   <AceBrain
                     phase={demoPhaseTo(demoPhase)}
@@ -635,12 +644,32 @@ export default function OnboardScreen() {
 
                 {/* Dynamic label */}
                 <Text style={demoStyles.label}>
-                  {demoPhase === 'intro'     ? '' :
+                  {demoPhase === 'intro'     ? 'Just a moment…' :
                    demoPhase === 'ready'     ? 'Tell Ace where you need to go.' :
                    demoPhase === 'listening' ? 'Ace is listening.' :
                    demoPhase === 'thinking'  ? 'Working it through…' :
                    demoResponse}
                 </Text>
+
+                {/* Market picker — appears after listening starts so Ace speaks first */}
+                {(demoPhase === 'ready' || demoPhase === 'listening' || demoPhase === 'done') && (
+                  <View style={demoStyles.marketWrap}>
+                    <Text style={demoStyles.marketLabel}>Where should Ace start?</Text>
+                    <View style={styles.chipRow}>
+                      {(['uk', 'india', 'other'] as Nationality[]).map(nat => (
+                        <Pressable
+                          key={nat}
+                          onPress={() => handleNationality(nat)}
+                          style={[styles.chip, nationality === nat && styles.chipActive, demoStyles.marketChip]}
+                        >
+                          <Text style={[styles.chipText, nationality === nat && styles.chipTextActive]}>
+                            {nat === 'uk' ? 'United Kingdom' : nat === 'india' ? 'India' : 'Global'}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )}
 
                 {/* CTA — appears after demo */}
                 {demoPhase === 'done' && (
@@ -650,8 +679,8 @@ export default function OnboardScreen() {
                   </View>
                 )}
 
-                {/* Skip — subtle, for returning testers */}
-                {(demoPhase === 'intro' || demoPhase === 'ready') && (
+                {/* Skip — subtle, only before demo is done */}
+                {demoPhase === 'intro' && (
                   <Pressable onPress={() => fadeToNext('name')} style={demoStyles.skip}>
                     <Text style={demoStyles.skipText}>Skip intro</Text>
                   </Pressable>
@@ -708,41 +737,32 @@ export default function OnboardScreen() {
                   <Ionicons name="shield-checkmark" size={40} color="#dcecff" />
                 </View>
 
-                <Text style={styles.stepTitle}>Your data.{'\n'}Your advantage.</Text>
+                <Text style={styles.stepTitle}>Two quick things.</Text>
                 <Text style={styles.stepSub}>
-                  Ace needs real booking data to do real booking work. More detail means fewer follow-up questions, fewer failed checkouts, better fares, and faster confirmations. We keep that data locked down and only use it when you want the trip to move.
+                  Ace keeps everything on this device, locked with {biometricLabel}. Two optional permissions make it sharper.
                 </Text>
-
-                <View style={styles.promiseList}>
-                  <PromiseRow icon="lock-closed"    text="Encrypted in your phone's secure storage" />
-                  <PromiseRow icon="finger-print"   text={`Protected by ${biometricLabel} — only you`} />
-                    <PromiseRow icon="person"         text="More profile detail means Ace can stop asking basics on every booking" />
-                    <PromiseRow icon="checkmark-done" text="Only the details needed for the journey you approve are shared" />
-                  <PromiseRow icon="server"         text="Trip and receipt records may be kept so Ace can reopen your journey" />
-                  <PromiseRow icon="trash"          text="Delete everything from Settings anytime" />
-                </View>
 
                 <View style={styles.consentToggles}>
                   <ConsentRow
-                    label="Allow location for nearby stations"
-                      sub="Lets Ace suggest the right nearby station instead of making you type it every time"
+                    label="Location — nearby stations"
+                    sub="So Ace can suggest the right departure point without you typing it"
                     value={locationConsent}
                     onToggle={setLocationConsent}
                   />
                   <ConsentRow
-                    label="Booking updates"
-                      sub="Lets Ace warn you about booking progress, delays, and last-minute changes"
+                    label="Notifications — booking updates"
+                    sub="Platform changes, delays, and confirmations arrive as they happen"
                     value={notifConsent}
                     onToggle={setNotifConsent}
                   />
                 </View>
 
-                  <PrimaryBtn onPress={handleAcceptPrivacy} label="Continue with these protections" />
+                <PrimaryBtn onPress={handleAcceptPrivacy} label="Continue" />
 
                 <Text style={styles.legalNote}>
-                    Ace asks for meaningful data because it is trying to act, not just chat. By continuing you accept our{' '}
+                  By continuing you accept our{' '}
                   <Text style={styles.legalLink} onPress={() => router.push('/legal/terms')}>
-                    Terms of Service
+                    Terms
                   </Text>
                   {' '}and{' '}
                   <Text style={styles.legalLink} onPress={() => router.push('/legal/privacy')}>
@@ -1078,24 +1098,30 @@ export default function OnboardScreen() {
                   Ready{userName.trim() ? `, ${userName.trim()}` : ''}.
                 </Text>
                 <Text style={styles.stepSub}>
-                  Ace is ready for the first booking. You will still approve important moments, and Ace will handle the rest.
+                  Say the trip once. Ace handles the route, the booking, and the delivery. You approve when it matters.
                 </Text>
+
+                {/* No-fee banner */}
+                <View style={finishStyles.noFeeBanner}>
+                  <Ionicons name="gift-outline" size={18} color="#4ade80" />
+                  <Text style={finishStyles.noFeeText}>No service fee for your first month. Every booking costs exactly what you see.</Text>
+                </View>
 
                 {/* Time saved strip */}
                 <View style={finishStyles.savedStrip}>
                   <View style={finishStyles.savedItem}>
-                    <Text style={finishStyles.savedNum}>~4 min</Text>
-                    <Text style={finishStyles.savedLabel}>saved per booking</Text>
+                    <Text style={finishStyles.savedNum}>1 sentence</Text>
+                    <Text style={finishStyles.savedLabel}>to book a trip</Text>
                   </View>
                   <View style={finishStyles.savedDivider} />
                   <View style={finishStyles.savedItem}>
-                    <Text style={finishStyles.savedNum}>Less chasing</Text>
-                    <Text style={finishStyles.savedLabel}>Ace keeps the trip moving</Text>
+                    <Text style={finishStyles.savedNum}>Always on</Text>
+                    <Text style={finishStyles.savedLabel}>watching for changes</Text>
                   </View>
                   <View style={finishStyles.savedDivider} />
                   <View style={finishStyles.savedItem}>
                     <Text style={finishStyles.savedNum}>1 tap</Text>
-                    <Text style={finishStyles.savedLabel}>to confirm anything</Text>
+                    <Text style={finishStyles.savedLabel}>to confirm</Text>
                   </View>
                 </View>
 
@@ -1414,6 +1440,24 @@ const demoStyles = StyleSheet.create({
 // ── Finish screen styles ──────────────────────────────────────────────────
 
 const finishStyles = StyleSheet.create({
+  noFeeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#0a1a0f',
+    borderWidth: 1,
+    borderColor: '#166534',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    width: '100%',
+  },
+  noFeeText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#86efac',
+    lineHeight: 18,
+  },
   savedStrip: {
     flexDirection: 'row',
     borderWidth: 1,
