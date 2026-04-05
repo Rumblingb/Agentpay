@@ -4,6 +4,9 @@ import {
   fetchRcmClaimStatusExceptions,
   fetchRcmClaimStatusConnectors,
   fetchRcmClaimStatusWorkItems,
+  fetchRcmEligibilityConnectors,
+  fetchRcmEligibilityExceptions,
+  fetchRcmEligibilityWorkItems,
   fetchRcmOverview,
   fetchRcmWorkspaces,
 } from '@/lib/api';
@@ -17,20 +20,37 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const [overview, workspaces, workItems, exceptions, connectors] = await Promise.all([
+    const [
+      overview,
+      workspaces,
+      claimStatusWorkItems,
+      claimStatusExceptions,
+      claimStatusConnectors,
+      eligibilityWorkItems,
+      eligibilityExceptions,
+      eligibilityConnectors,
+    ] = await Promise.all([
       fetchRcmOverview(session.apiKey),
       fetchRcmWorkspaces(session.apiKey),
       fetchRcmClaimStatusWorkItems(session.apiKey, 8),
       fetchRcmClaimStatusExceptions(session.apiKey, 6),
       fetchRcmClaimStatusConnectors(session.apiKey),
+      fetchRcmEligibilityWorkItems(session.apiKey, 8),
+      fetchRcmEligibilityExceptions(session.apiKey, 6),
+      fetchRcmEligibilityConnectors(session.apiKey),
     ]);
 
     return NextResponse.json({
       overview,
       workspaces,
-      workItems,
-      exceptions,
-      connectors,
+      // Claim status lane
+      workItems: claimStatusWorkItems,
+      exceptions: claimStatusExceptions,
+      connectors: claimStatusConnectors,
+      // Eligibility lane
+      eligibilityWorkItems,
+      eligibilityExceptions,
+      eligibilityConnectors,
     });
   } catch (err: unknown) {
     console.error('[dashboard] rcm manager fetch error:', err instanceof Error ? err.message : err);

@@ -280,3 +280,38 @@ export async function fetchRcmClaimStatusConnectors(
   if (!res.ok) throw new Error(`RCM connector fetch failed: ${res.status}`);
   return res.json();
 }
+
+export async function fetchRcmEligibilityWorkItems(
+  apiKey: string,
+  limit = 8,
+): Promise<{ items: RcmWorkItem[]; count: number }> {
+  const res = await fetch(
+    `${API_BASE}/api/rcm/lanes/eligibility/work-items?limit=${limit}`,
+    { headers: headers(apiKey), ...noStore },
+  );
+  if (!res.ok) throw new Error(`RCM eligibility work-items fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchRcmEligibilityExceptions(
+  apiKey: string,
+  limit = 6,
+): Promise<{ items: RcmException[]; count: number }> {
+  const res = await fetch(
+    `${API_BASE}/api/rcm/queues/eligibility-exceptions?limit=${limit}`,
+    { headers: headers(apiKey), ...noStore },
+  );
+  if (!res.ok) throw new Error(`RCM eligibility exceptions fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchRcmEligibilityConnectors(
+  apiKey: string,
+): Promise<{ connectors: RcmConnectorStatus[] }> {
+  const res = await fetch(`${API_BASE}/api/rcm/connectors/eligibility`, {
+    headers: headers(apiKey),
+    ...noStore,
+  });
+  if (!res.ok) throw new Error(`RCM eligibility connector fetch failed: ${res.status}`);
+  return res.json();
+}
