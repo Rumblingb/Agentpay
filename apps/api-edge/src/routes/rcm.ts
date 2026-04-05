@@ -7508,7 +7508,7 @@ router.post('/lanes/era-835/intake', authenticateApiKey, async (c) => {
       return { workItem: mapWorkItem(inserted[0]!) };
     });
 
-    return c.json({ stage: 'scaffold', lane: 'era_835', status: 'routed', workItemId, workItem: result.workItem }, 201);
+    return c.json({ lane: 'era_835', status: 'routed', workItemId, workItem: result.workItem }, 201);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'WORKSPACE_NOT_FOUND') return c.json({ error: 'Workspace not found' }, 404);
@@ -7563,7 +7563,7 @@ router.post('/lanes/era-835/work-items/:workItemId/run-primary', authenticateApi
     `;
     await insertEvidence(sql, workItemId, connectorResult.evidence.map((e) => ({ ...e, actorType: e.actorType ?? 'worker_agent', actorRef: e.actorRef ?? 'era_835_connector' })), 'worker_agent', 'era_835_connector');
 
-    return c.json({ stage: 'scaffold', nextState: newStatus, connector: { key: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, paymentDetails: connectorResult.paymentDetails, summary: connectorResult.summary } });
+    return c.json({ nextState: newStatus, connector: { key: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, paymentDetails: connectorResult.paymentDetails, summary: connectorResult.summary } });
   } catch (err: unknown) {
     console.error('[rcm] era-835 run-primary error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to run ERA 835 connector' }, 500);

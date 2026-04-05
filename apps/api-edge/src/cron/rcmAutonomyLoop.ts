@@ -10,7 +10,7 @@
  *   retry_pending → fallback connector (different strategy) → awaiting_qa
  *
  * Connectors supported: institutional_claim_status, eligibility_verification,
- *                        denial_follow_up
+ *                        denial_follow_up, prior_auth_follow_up, era_835
  */
 
 import type { Env } from '../types';
@@ -18,6 +18,8 @@ import { createDb, parseJsonb } from '../lib/db';
 import { runClaimStatusConnector } from '../lib/rcmClaimStatusConnector';
 import { runEligibilityConnector } from '../lib/rcmEligibilityConnector';
 import { runDenialFollowUpConnector } from '../lib/rcmDenialFollowUpConnector';
+import { runEra835Connector } from '../lib/rcmEra835Connector';
+import { runPriorAuthConnector } from '../lib/rcmPriorAuthConnector';
 import { getAdjustedThresholds, recordConnectorOutcome, BASE_THRESHOLDS } from '../lib/rcmConfidenceTuner';
 import type {
   ClaimStatusConnectorExecution,
@@ -31,6 +33,14 @@ import type {
   DenialFollowUpConnectorExecution,
   DenialFollowUpConnectorExecutionInput,
 } from '../lib/rcmDenialFollowUpConnector';
+import type {
+  Era835ConnectorExecution,
+  Era835ConnectorExecutionInput,
+} from '../lib/rcmEra835Connector';
+import type {
+  PriorAuthConnectorExecution,
+  PriorAuthConnectorExecutionInput,
+} from '../lib/rcmPriorAuthConnector';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,7 +67,9 @@ interface LoopWorkItem {
 type AnyConnectorExecution =
   | ClaimStatusConnectorExecution
   | EligibilityConnectorExecution
-  | DenialFollowUpConnectorExecution;
+  | DenialFollowUpConnectorExecution
+  | Era835ConnectorExecution
+  | PriorAuthConnectorExecution;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,6 +88,8 @@ const SUPPORTED_WORK_TYPES = [
   'institutional_claim_status',
   'eligibility_verification',
   'denial_follow_up',
+  'prior_auth_follow_up',
+  'era_835',
 ] as const;
 
 const CLAUDE_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
@@ -418,6 +432,50 @@ async function runConnector(
         metadata: meta,
       };
       return runDenialFollowUpConnector(env, 'x12_appeal_inquiry', input);
+    }
+
+    case 'prior_auth_follow_up': {
+      const meta = parseJsonb<JsonRecord>(item.metadata, {});
+      const input: PriorAuthConnectorExecutionInput = {
+        workItemId: item.id,
+        claimRef: item.claimRef ?? '',
+        payerName: item.payerName ?? '',
+        payerId: typeof meta['payerId'] === 'string' ? meta['payerId'] : null,
+        patientRef: item.patientRef ?? '',
+        providerRef: item.providerRef ?? '',
+        npi: typeof meta['npi'] === 'string' ? meta['npi'] : null,
+        procedureCode: typeof meta['procedureCode'] === 'string' ? meta['procedureCode'] : '',
+        diagnosisCode: typeof meta['diagnosisCode'] === 'string' ? meta['diagnosisCode'] : '',
+        serviceStartDate: typeof meta['serviceStartDate'] === 'string' ? meta['serviceStartDate'] : '',
+        serviceEndDate: typeof meta['serviceEndDate'] === 'string' ? meta['serviceEndDate'] : null,
+        placeOfService: typeof meta['placeOfService'] === 'string' ? meta['placeOfService'] : '',
+        authRef: typeof meta['authRef'] === 'string' ? meta['authRef'] : null,
+        urgencyFlag: meta['urgencyFlag'] === true,
+        formType: item.formType ?? '',
+        sourceSystem: item.sourceSystem ?? '',
+        metadata: meta,
+      };
+      return runPriorAuthConnector(env, 'x12_278', input);
+    }
+
+    case 'era_835': {
+      const meta = parseJsonb<JsonRecord>(item.metadata, {});
+      const input: Era835ConnectorExecutionInput = {
+        workItemId: item.id,
+        claimRef: item.claimRef ?? '',
+        eraRef: typeof meta['eraRef'] === 'string' ? meta['eraRef'] : '',
+        payerName: item.payerName ?? '',
+        payerId: typeof meta['payerId'] === 'string' ? meta['payerId'] : null,
+        patientRef: item.patientRef ?? '',
+        providerRef: item.providerRef ?? '',
+        npi: typeof meta['npi'] === 'string' ? meta['npi'] : null,
+        checkDate: typeof meta['checkDate'] === 'string' ? meta['checkDate'] : null,
+        checkAmount: typeof meta['checkAmount'] === 'number' ? meta['checkAmount'] : null,
+        formType: item.formType ?? '',
+        sourceSystem: item.sourceSystem ?? '',
+        metadata: meta,
+      };
+      return runEra835Connector(env, 'x12_835_clearinghouse', input);
     }
 
     default:
