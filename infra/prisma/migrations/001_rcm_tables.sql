@@ -129,3 +129,8 @@ CREATE TABLE IF NOT EXISTS rcm_vendor_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_rcm_vendor_metrics_merchant_agent ON rcm_vendor_metrics(merchant_id, agent_id);
 CREATE INDEX IF NOT EXISTS idx_rcm_vendor_metrics_period         ON rcm_vendor_metrics(period_start, period_end);
+
+-- Migration: 001_rcm_tables
+-- Applied: initial setup of RCM domain tables
+-- Tables: rcm_workspaces, rcm_work_items, rcm_work_item_evidence,
+--         rcm_milestones, rcm_exceptions, rcm_vendor_metrics
