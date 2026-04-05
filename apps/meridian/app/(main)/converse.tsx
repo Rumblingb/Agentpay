@@ -1396,7 +1396,7 @@ export default function ConverseScreen() {
           ?? [
             (firstAction.input as Record<string, string> | undefined)?.origin ?? null,
             (firstAction.input as Record<string, string> | undefined)?.destination ?? null,
-          ].filter(Boolean).join(' -> '))
+          ].filter(Boolean).join(' → '))
           || firstAction.displayName;
         const liveIntentId = firstAction.jobId;
         rememberConfirmApproved(liveIntentId, executionApprovedAtRef.current ?? executeStartedAt);
@@ -2294,9 +2294,8 @@ export default function ConverseScreen() {
                 const to    = last.destination ?? last.to ?? tripDest;
                 return from && to ? `${from} → ${to} · ${plan.length} legs` : `${plan.length}-leg journey`;
               })()
-            : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
-            ? `${tripOrigin} → ${tripDest}`
-          */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
+            : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} → ${tripDest}` : plan[0]?.displayName ?? null);
+          const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
           // Flight offer expiry: find the soonest expiry across all flight legs
           const flightExpiresAt = plan
             .map(p => p.flightDetails?.offerExpiresAt)

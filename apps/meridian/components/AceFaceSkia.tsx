@@ -80,6 +80,10 @@ const CW = 270;
 const CH = 310;
 const CX = CW / 2;   // 135
 const CY = CH / 2;   // 155
+// Canvas is expanded by this pad on all sides so expanding rings don't get
+// clipped. The canvas is positioned with a -CANVAS_PAD offset so the face
+// remains visually centred over the layout footprint.
+const CANVAS_PAD = 88;
 
 const GLOW_R  = 144;
 const RING_R  = 122;  // Starts clearly outside the face oval edge — no mic-button shape
@@ -687,6 +691,8 @@ export function AceFaceSkia({
       style={styles.container}
     >
       <Canvas style={styles.canvas}>
+        {/* Global offset — canvas bleeds CANVAS_PAD px outside layout on all sides */}
+        <SkiaGroup transform={[{ translateX: CANVAS_PAD }, { translateY: CANVAS_PAD }]}>
 
         {/* ① Atmospheric halo */}
         <SkiaGroup opacity={glowOpacity} transform={glowTransform}>
@@ -1018,6 +1024,7 @@ export function AceFaceSkia({
           opacity={coronaVisualOpacity}
         />
 
+        </SkiaGroup>{/* end global offset */}
       </Canvas>
     </Pressable>
   );
@@ -1033,7 +1040,10 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   canvas: {
-    width: CW,
-    height: CH,
+    position: 'absolute',
+    top: -CANVAS_PAD,
+    left: -CANVAS_PAD,
+    width: CW + CANVAS_PAD * 2,
+    height: CH + CANVAS_PAD * 2,
   },
 });

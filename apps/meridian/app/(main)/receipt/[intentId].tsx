@@ -27,6 +27,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
+import * as MailComposer from 'expo-mail-composer';
+import * as Sharing from 'expo-sharing';
 import { getConciergeExecution, getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
@@ -34,6 +36,8 @@ import { loadActiveTrip, loadJourneySession, patchJourneySession, saveActiveTrip
 import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { loadProfileRaw } from '../../../lib/profile';
+import { createReceiptPdf, type ReceiptPdfSection } from '../../../lib/receiptPdf';
 import { trackClientEvent } from '../../../lib/telemetry';
 import { journeyRecovery } from '../../../lib/journeyRecovery';
 
@@ -109,6 +113,15 @@ function formatLegMoment(value?: string) {
     return parsed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
   return value;
+}
+
+function fallbackCurrencySymbol(code?: string | null): string {
+  const resolved = (code ?? '').toUpperCase();
+  if (resolved === 'GBP') return '£';
+  if (resolved === 'INR') return '₹';
+  if (resolved === 'USD') return '$';
+  if (resolved === 'EUR') return 'EUR ';
+  return resolved ? `${resolved} ` : '';
 }
 
 function isRollbackState(bookingState: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never, totalLegs: number) {
@@ -218,10 +231,15 @@ export default function ReceiptScreen() {
   const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [walletNote, setWalletNote] = useState<string | null>(null);
+  const [travellerName, setTravellerName] = useState<string | null>(null);
+  const [travellerEmail, setTravellerEmail] = useState<string | null>(null);
+  const [exportAction, setExportAction] = useState<'pdf' | 'email' | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
   const [journeySession, setJourneySession] = useState<JourneySession | null>(null);
   const rerouteReminderScheduledRef = useRef(false);
   const walletTelemetryTrackedRef = useRef(false);
   const rerouteTelemetryTrackedRef = useRef(false);
+  const exportPdfUriRef = useRef<string | null>(null);
 
   const logReceiptEvent = (params: {
     event: string;
@@ -363,6 +381,25 @@ export default function ReceiptScreen() {
       setPartnerCheckoutUrl(partnerCheckoutUrlParam);
     }
   }, [partnerCheckoutUrlParam]);
+
+  useEffect(() => {
+    let active = true;
+    loadProfileRaw()
+      .then((profile) => {
+        if (!active || !profile) return;
+        setTravellerName(profile.legalName?.trim() || null);
+        setTravellerEmail(profile.email?.trim() || null);
+      })
+      .catch(() => null);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    exportPdfUriRef.current = null;
+    setExportNote(null);
+  }, [intentId, bookingRef, receipt?.verifiedAt]);
 
   useEffect(() => {
     if (walletPassUrl) return;
@@ -748,6 +785,186 @@ export default function ReceiptScreen() {
     });
   };
 
+  const buildExpensePdf = async () => {
+    if (exportPdfUriRef.current) {
+      const existing = await FileSystem.getInfoAsync(exportPdfUriRef.current).catch(() => null);
+      if (existing?.exists) {
+        return { uri: exportPdfUriRef.current };
+      }
+    }
+
+    const routeText = fromStation && toStation
+      ? `${fromStation} to ${toStation}`
+      : flightDetails
+      ? `${flightDetails.origin} to ${flightDetails.destination}`
+      : hotelDetails?.bestOption
+      ? `${hotelDetails.bestOption.name}, ${hotelDetails.city}`
+      : tripContext?.title ?? 'Journey details';
+    const departureLabel = departureDatetime ?? departureTime ?? hotelDetails?.checkIn ?? flightDetails?.departureAt ?? null;
+    const arrivalLabel = arrivalTime ?? hotelDetails?.checkOut ?? flightDetails?.arrivalAt ?? null;
+    const processedLabel = receipt?.verifiedAt
+      ? new Date(receipt.verifiedAt).toLocaleString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
+    const amountText = fiatAmountNum != null
+      ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
+      : receipt
+      ? formatMoney(receipt.amount, fallbackCurrencySymbol(receipt.currency), receipt.currency)
+      : 'Recorded';
+
+    const sections: ReceiptPdfSection[] = [
+      {
+        title: 'Journey',
+        rows: [
+          { label: 'Receipt type', value: modeMeta.title },
+          { label: 'Trip', value: routeText },
+          ...(departureLabel ? [{ label: 'Departure', value: departureLabel }] : []),
+          ...(arrivalLabel ? [{ label: 'Arrival', value: arrivalLabel }] : []),
+          ...(operator ? [{ label: 'Operator', value: operator }] : []),
+          ...(platform ? [{ label: 'Platform / gate', value: platform }] : []),
+          ...(preservedFinalLegSummary ? [{ label: 'Next step', value: preservedFinalLegSummary }] : []),
+          ...(bookingRef ? [{ label: 'Reference', value: bookingRef }] : []),
+        ],
+      },
+      {
+        title: 'Traveller',
+        rows: [
+          ...(travellerName ? [{ label: 'Name', value: travellerName }] : []),
+          ...(travellerEmail ? [{ label: 'Email', value: travellerEmail }] : []),
+        ],
+      },
+      {
+        title: 'Settlement',
+        rows: [
+          { label: 'Status', value: receiptStatusLabel },
+          { label: 'Amount', value: amountText },
+          { label: 'Currency', value: fiatCode ?? receipt?.currency ?? 'GBP' },
+          ...(processedLabel ? [{ label: 'Processed', value: processedLabel }] : []),
+          { label: 'Intent ID', value: intentId },
+          ...(receipt?.signature ? [{ label: 'Settlement signature', value: receipt.signature }] : []),
+        ],
+      },
+    ].filter((section) => section.rows.length > 0);
+
+    const pdf = await createReceiptPdf({
+      fileStem: bookingRef ? `ace-receipt-${bookingRef}` : `ace-receipt-${intentId}`,
+      title: bookingRef ? `Expense receipt - ${bookingRef}` : 'Expense receipt',
+      eyebrow: 'Ace travel receipt',
+      statusLabel: receiptStatusLabel,
+      amountText,
+      subtitle: routeText,
+      generatedAtLabel: new Date().toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      footerNote: 'Generated by Ace from the live journey record for finance and expense submission.',
+      sections,
+    });
+
+    exportPdfUriRef.current = pdf.uri;
+    return pdf;
+  };
+
+  const handleExportPdf = async () => {
+    if (exportAction) return;
+    setExportAction('pdf');
+    setExportNote(null);
+    try {
+      const { uri } = await buildExpensePdf();
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Export Ace expense receipt',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        await Share.share({
+          title: 'Ace expense receipt',
+          message: `Ace prepared a receipt PDF for ${bookingRef ?? intentId}.`,
+          url: uri,
+        });
+      }
+      setExportNote('Expense-ready PDF prepared.');
+      logReceiptEvent({
+        event: 'receipt_pdf_exported',
+        metadata: { intentId, source: 'receipt' },
+      });
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not prepare the PDF right now.';
+      setExportNote(message);
+      logReceiptEvent({
+        event: 'receipt_pdf_export_failed',
+        severity: 'warning',
+        message,
+        metadata: { intentId, source: 'receipt' },
+      });
+    } finally {
+      setExportAction(null);
+    }
+  };
+
+  const handleEmailReceipt = async () => {
+    if (exportAction) return;
+    setExportAction('email');
+    setExportNote(null);
+    try {
+      const { uri } = await buildExpensePdf();
+      const mailAvailable = await MailComposer.isAvailableAsync();
+      if (!mailAvailable) {
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          throw new Error('Mail is unavailable on this device.');
+        }
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Share Ace expense receipt',
+          UTI: 'com.adobe.pdf',
+        });
+        setExportNote('Mail is unavailable on this device, so Ace opened the receipt in Share instead.');
+      } else {
+        const subject = bookingRef ? `Ace receipt ${bookingRef}` : `Ace receipt ${intentId}`;
+        const routeSummary = fromStation && toStation
+          ? `${fromStation} to ${toStation}`
+          : tripContext?.title ?? 'your recent journey';
+        await MailComposer.composeAsync({
+          recipients: travellerEmail ? [travellerEmail] : undefined,
+          subject,
+          body: `Attached is the Ace receipt for ${routeSummary}.`,
+          attachments: [uri],
+        });
+        setExportNote(
+          travellerEmail
+            ? `Draft email opened with ${travellerEmail} prefilled.`
+            : 'Draft email opened with the receipt attached.',
+        );
+      }
+      logReceiptEvent({
+        event: 'receipt_email_started',
+        metadata: { intentId, source: 'receipt' },
+      });
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not open email right now.';
+      setExportNote(message);
+      logReceiptEvent({
+        event: 'receipt_email_failed',
+        severity: 'warning',
+        message,
+        metadata: { intentId, source: 'receipt' },
+      });
+    } finally {
+      setExportAction(null);
+    }
+  };
+
   const handleDone = () => {
     reset();
     router.replace('/(main)/converse');
@@ -814,11 +1031,11 @@ export default function ReceiptScreen() {
           logReceiptEvent({
             event: 'reroute_offer_accepted',
             metadata: { intentId, source: 'receipt', cardKind: card.kind },
-        });
-        router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
+          });
+          router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
+        }
+        return;
       }
-      return;
-    }
 
     if (['platform_changed', 'gate_changed'].includes(card.kind)) {
       logReceiptEvent({
@@ -844,7 +1061,7 @@ export default function ReceiptScreen() {
         const { shortUrl } = await createUpiPaymentLink({
           jobId: intentId,
           amountInr: Math.round(amount),
-          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
         });
         await Linking.openURL(shortUrl);
       } else {
@@ -1364,7 +1581,40 @@ export default function ReceiptScreen() {
             )}
 
             {/* Actions */}
-              <Pressable onPress={handleShare} style={styles.shareBtn}>
+              <View style={styles.exportCard}>
+                <Text style={styles.exportCardTitle}>Expense-ready receipt</Text>
+                <Text style={styles.exportCardBody}>
+                  Export a PDF or open an email draft with route, timing, traveller, fare, and booking reference details.
+                </Text>
+              </View>
+
+              <Pressable onPress={() => { void handleExportPdf(); }} style={styles.shareBtn} disabled={!!exportAction}>
+                {exportAction === 'pdf' ? (
+                  <ActivityIndicator color="#cbe8ff" size="small" />
+                ) : (
+                  <Ionicons name="document-text-outline" size={18} color="#cbe8ff" />
+                )}
+                <Text style={[styles.shareBtnText, styles.exportPrimaryText]}>
+                  {exportAction === 'pdf' ? 'Preparing PDF...' : 'Export PDF'}
+                </Text>
+              </Pressable>
+
+              <Pressable onPress={() => { void handleEmailReceipt(); }} style={styles.shareBtn} disabled={!!exportAction}>
+                {exportAction === 'email' ? (
+                  <ActivityIndicator color="#93c5fd" size="small" />
+                ) : (
+                  <Ionicons name="mail-outline" size={18} color="#93c5fd" />
+                )}
+                <Text style={[styles.shareBtnText, styles.exportSecondaryText]}>
+                  {exportAction === 'email' ? 'Opening email...' : 'Email receipt'}
+                </Text>
+              </Pressable>
+
+              {exportNote && (
+                <Text style={styles.exportNote}>{exportNote}</Text>
+              )}
+
+              <Pressable onPress={handleShare} style={styles.shareBtn} disabled={!!exportAction}>
                 <Ionicons name="share-outline" size={18} color="#818cf8" />
                 <Text style={styles.shareBtnText}>Share journey</Text>
               </Pressable>
@@ -1910,6 +2160,40 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 12,
     color: '#7f95aa',
+    textAlign: 'center',
+  },
+  exportCard: {
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.18)',
+    backgroundColor: 'rgba(8, 16, 30, 0.78)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+  },
+  exportCardTitle: {
+    fontSize: 13,
+    color: '#e6f1fb',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  exportCardBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#8ea3b8',
+  },
+  exportPrimaryText: {
+    color: '#cbe8ff',
+  },
+  exportSecondaryText: {
+    color: '#93c5fd',
+  },
+  exportNote: {
+    marginTop: 2,
+    marginBottom: 10,
+    fontSize: 12,
+    color: '#8ea3b8',
     textAlign: 'center',
   },
 

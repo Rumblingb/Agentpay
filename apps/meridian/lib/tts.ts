@@ -1,5 +1,6 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
 import { trackClientEvent } from './telemetry';
 
@@ -154,10 +155,12 @@ async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise
 
     activeSpeechResolver = finish;
     options?.onStart?.();
+    // Android system TTS ignores most voice selection — lower pitch to
+    // reduce the chance of a high female-sounding default voice.
     Speech.speak(text, {
       language: 'en-GB',
-      pitch: 0.96,
-      rate: 0.94,
+      pitch: Platform.OS === 'android' ? 0.78 : 0.96,
+      rate: Platform.OS === 'android' ? 0.90 : 0.94,
       onDone: finish,
       onStopped: finish,
       onError: finish,
@@ -204,6 +207,7 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
+      playThroughEarpieceAndroid: false,
     });
 
     const uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
@@ -214,7 +218,11 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
 
     const { sound } = await Audio.Sound.createAsync(
       { uri },
-      { shouldPlay: true, volume: 1.0 },
+      {
+        shouldPlay: true,
+        volume: 1.0,
+        androidImplementation: 'MediaPlayer',
+      },
     );
     activeSound = sound;
     let playbackStarted = false;

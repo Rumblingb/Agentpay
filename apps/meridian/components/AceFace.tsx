@@ -309,7 +309,7 @@ export function AceFace({
 
   return (
     <Pressable onPress={handlePress} disabled={disabled || !isInteractive} style={styles.container}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${CW} ${CH}`} preserveAspectRatio="xMidYMid meet">
+      <Svg width="100%" height="100%" viewBox={`0 0 ${CW} ${CH}`} preserveAspectRatio="xMidYMid meet" overflow="visible">
         <Defs>
           <RadialGradient id="haloGrad" cx="50%" cy="50%" r="50%">
             <Stop offset="0" stopColor={glowColor} stopOpacity="0.56" />

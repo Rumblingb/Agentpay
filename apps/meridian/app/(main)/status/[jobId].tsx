@@ -154,7 +154,7 @@ export default function StatusScreen() {
       intentId: currentIntentId,
       jobId,
       journeyId: paramJourneyId ?? null,
-      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
+      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
       state: 'securing',
       intentStatus: intentStatusValue,
       bookingState: tripContext?.watchState?.bookingState ?? 'securing',
@@ -330,7 +330,7 @@ export default function StatusScreen() {
               intentId: data.intentId ?? currentIntentId,
               jobId,
               journeyId: paramJourneyId ?? null,
-              title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' -> ') || 'Journey'),
+              title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey'),
               state: paymentWasConfirmed || !paymentRequired ? 'ticketed' : 'payment_pending',
               intentStatus: s,
               bookingState: nextTripContext?.watchState?.bookingState ?? 'issued',
@@ -417,7 +417,7 @@ export default function StatusScreen() {
             intentId: data.intentId ?? currentIntentId,
             jobId,
             journeyId: paramJourneyId ?? null,
-            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             state: 'attention',
             intentStatus: s,
             bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
@@ -490,7 +490,7 @@ export default function StatusScreen() {
             intentId: currentIntentId,
             jobId,
             journeyId: paramJourneyId ?? null,
-            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' -> ') || 'Journey'),
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             state: 'attention',
             intentStatus: intentStatusValue ?? 'pending',
             bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
@@ -689,7 +689,7 @@ export default function StatusScreen() {
   const conciergeSteps = journeySteps({
     intentId: currentIntentId,
     jobId,
-    title: tripContext?.title ?? ([fromStation, toStation].filter(Boolean).join(' -> ') || 'Journey'),
+    title: tripContext?.title ?? ([fromStation, toStation].filter(Boolean).join(' → ') || 'Journey'),
     state: journeyState,
     bookingState: tripContext?.watchState?.bookingState ?? null,
     tripContext,
@@ -727,7 +727,7 @@ export default function StatusScreen() {
     if (!agentId || issueSending) return;
     setIssueSending(true);
     try {
-      const route = [fromStation, toStation].filter(Boolean).join(' -> ');
+      const route = [fromStation, toStation].filter(Boolean).join(' → ');
       const prefix = `[${issueCategory}]`;
       const summary = [prefix, route, bookingRef ? `ref ${bookingRef}` : null].filter(Boolean).join(' ');
       await reportIssue({
@@ -775,7 +775,7 @@ export default function StatusScreen() {
           jobId,
           journeyId: paramJourneyId,
           amountInr: Math.round(parseFloat(fiatAmount)),
-          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
         });
         await Linking.openURL(shortUrl);
       } else {

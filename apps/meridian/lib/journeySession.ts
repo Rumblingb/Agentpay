@@ -3,7 +3,7 @@ import type { JourneySession } from './storage';
 import { journeyRecovery } from './journeyRecovery';
 
 export function journeyDisplayRoute(session: Pick<JourneySession, 'fromStation' | 'toStation' | 'title'>): string {
-  const route = [session.fromStation, session.toStation].filter(Boolean).join(' -> ');
+  const route = [session.fromStation, session.toStation].filter(Boolean).join(' → ');
   return route || session.title;
 }
 

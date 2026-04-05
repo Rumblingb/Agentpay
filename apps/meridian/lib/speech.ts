@@ -14,6 +14,7 @@
 
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
 export { speak, stopSpeaking } from './tts';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
@@ -54,7 +55,10 @@ let recordingLevelCallback: ((level: number) => void) | null = null;
 
 function normalizeRecordingMetering(metering: number | null): number {
   if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0;
-  const normalized = Math.max(0, Math.min(1, (metering + 55) / 55));
+  // Android AAC reports a compressed dB range (-100 to 0) vs iOS (-160 to 0).
+  // Use a tighter range on Android so the visual meter responds correctly.
+  const range = Platform.OS === 'android' ? 70 : 55;
+  const normalized = Math.max(0, Math.min(1, (metering + range) / range));
   return Math.pow(normalized, 1.35);
 }
 
@@ -87,6 +91,8 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: true,
     playsInSilentModeIOS: true,
+    playThroughEarpieceAndroid: false,
+    staysActiveInBackground: false,
   });
 
   if (startCancelled) return;
@@ -137,7 +143,10 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
       if (!status.isRecording || silenceCallbackFired) return;
       const metering = typeof status.metering === 'number' ? status.metering : null;
       recordingLevelCallback?.(normalizeRecordingMetering(metering));
-      if (metering != null && metering > -38) {
+      // Android AAC metering reports in a compressed range — use a lower
+      // threshold so speech is detected reliably on Android devices.
+      const speechThreshold = Platform.OS === 'android' ? -50 : -38;
+      if (metering != null && metering > speechThreshold) {
         heardSpeech = true;
         if (silenceTimer) {
           clearTimeout(silenceTimer);

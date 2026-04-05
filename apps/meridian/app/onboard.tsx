@@ -476,7 +476,7 @@ export default function OnboardScreen() {
     try {
       const profile: TravelProfile = {
         legalName:      legalName.trim(),
-        dateOfBirth:    dob.trim() || '1990-01-01',
+        dateOfBirth:    dob.trim(),
         nationality,
         phone:          phone.trim(),
         email:          email.trim(),

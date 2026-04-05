@@ -1,5 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Asset } from 'expo-asset';
 import * as Haptics from 'expo-haptics';
 import {
@@ -433,9 +433,11 @@ const styles = StyleSheet.create({
   shell: {
     width: CW,
     height: CH,
-    borderRadius: CH / 2,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
+    // Android OpenGL ES surfaces ignore overflow/borderRadius clipping —
+    // use app background colour so the GL surface blends into the screen.
+    borderRadius: Platform.OS === 'android' ? 0 : CH / 2,
+    overflow: Platform.OS === 'android' ? 'visible' : 'hidden',
+    backgroundColor: Platform.OS === 'android' ? '#080808' : 'transparent',
   },
   canvas: {
     width: CW,
