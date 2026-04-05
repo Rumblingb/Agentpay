@@ -42,6 +42,14 @@ import {
   runEra835Connector,
   type Era835ConnectorExecutionInput,
 } from '../lib/rcmEra835Connector';
+import {
+  getPriorAuthConnectorAvailability,
+  runPriorAuthConnector,
+  priorAuthLaneContract,
+  PRIOR_AUTH_LANE_KEY,
+  type PriorAuthConnectorKey,
+  type PriorAuthConnectorExecutionInput,
+} from '../lib/rcmPriorAuthConnector';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1783,13 +1791,11 @@ const blueprint = {
     claimStatus: claimStatusLaneContract,
     eligibility: eligibilityLaneContract,
     denialFollowUp: denialFollowUpLaneContract,
+    priorAuth: priorAuthLaneContract,
   },
 };
 
-const plannedRoutes: string[] = [
-  // Phase 2 lanes (prior auth follow-up, ERA 835 full posting)
-  'POST /api/rcm/lanes/prior-auth-follow-up/intake',
-];
+const plannedRoutes: string[] = [];
 
 function notYet(c: Context<{ Bindings: Env; Variables: Variables }>, feature: string) {
   return c.json(
@@ -1849,11 +1855,28 @@ router.get('/', (c) =>
         'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/retry',
         'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/escalate',
         'POST /api/rcm/lanes/denial-follow-up/work-items/:workItemId/resolve',
-        // ERA 835 lane (scaffold)
+        // Prior auth follow-up lane
+        'GET /api/rcm/lanes/prior-auth-follow-up',
+        'GET /api/rcm/connectors/prior-auth-follow-up',
+        'GET /api/rcm/lanes/prior-auth-follow-up/work-items',
+        'GET /api/rcm/queues/prior-auth-follow-up-exceptions',
+        'POST /api/rcm/lanes/prior-auth-follow-up/intake',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/run-primary',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/execute',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/verify',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/retry',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/escalate',
+        'POST /api/rcm/lanes/prior-auth-follow-up/work-items/:workItemId/resolve',
+        // ERA 835 lane
         'GET /api/rcm/lanes/era-835',
         'GET /api/rcm/connectors/era-835',
+        'GET /api/rcm/lanes/era-835/work-items',
+        'GET /api/rcm/queues/era-835-exceptions',
         'POST /api/rcm/lanes/era-835/intake',
         'POST /api/rcm/lanes/era-835/work-items/:workItemId/run-primary',
+        'POST /api/rcm/lanes/era-835/work-items/:workItemId/execute',
+        'POST /api/rcm/lanes/era-835/work-items/:workItemId/verify',
+        'POST /api/rcm/lanes/era-835/work-items/:workItemId/resolve',
         // Cross-lane reads
         'GET /api/rcm/workspaces',
         'GET /api/rcm/work-items',
@@ -6915,6 +6938,505 @@ router.post('/lanes/denial-follow-up/work-items/:workItemId/resolve', authentica
   }
 });
 
+// ─── Prior auth follow-up lane — helpers ─────────────────────────────────────
+
+async function getOwnedPriorAuthWorkItem(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+      w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+      w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+      w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+      w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+      w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+      w.confidence_pct AS "confidencePct", w.priority, w.status,
+      w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+      w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+      w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId} AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${PRIOR_AUTH_LANE_KEY}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+async function getOwnedPriorAuthWorkItemForUpdate(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+      w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+      w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+      w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+      w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+      w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+      w.confidence_pct AS "confidencePct", w.priority, w.status,
+      w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+      w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+      w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId} AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${PRIOR_AUTH_LANE_KEY}
+    LIMIT 1 FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+function mapPriorAuthWorkItem(row: WorkItemRow) {
+  const base = mapWorkItem(row);
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    ...base,
+    procedureCode: typeof metadata['procedureCode'] === 'string' ? metadata['procedureCode'] : null,
+    diagnosisCode: typeof metadata['diagnosisCode'] === 'string' ? metadata['diagnosisCode'] : null,
+    serviceStartDate: typeof metadata['serviceStartDate'] === 'string' ? metadata['serviceStartDate'] : null,
+    serviceEndDate: typeof metadata['serviceEndDate'] === 'string' ? metadata['serviceEndDate'] : null,
+    authRef: typeof metadata['authRef'] === 'string' ? metadata['authRef'] : null,
+    urgencyFlag: metadata['urgencyFlag'] === true,
+  };
+}
+
+function priorAuthConnectorInputFromWorkItem(row: WorkItemRow): PriorAuthConnectorExecutionInput {
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    workItemId: row.id,
+    claimRef: row.claimRef ?? '',
+    payerName: row.payerName ?? '',
+    payerId: typeof metadata['payerId'] === 'string' ? metadata['payerId'] : null,
+    patientRef: row.patientRef ?? '',
+    providerRef: row.providerRef ?? '',
+    npi: typeof metadata['npi'] === 'string' ? metadata['npi'] : null,
+    procedureCode: typeof metadata['procedureCode'] === 'string' ? metadata['procedureCode'] : '',
+    diagnosisCode: typeof metadata['diagnosisCode'] === 'string' ? metadata['diagnosisCode'] : '',
+    serviceStartDate: typeof metadata['serviceStartDate'] === 'string' ? metadata['serviceStartDate'] : '',
+    serviceEndDate: typeof metadata['serviceEndDate'] === 'string' ? metadata['serviceEndDate'] : null,
+    placeOfService: typeof metadata['placeOfService'] === 'string' ? metadata['placeOfService'] : '11',
+    authRef: typeof metadata['authRef'] === 'string' ? metadata['authRef'] : null,
+    urgencyFlag: metadata['urgencyFlag'] === true,
+    formType: row.formType ?? '',
+    sourceSystem: row.sourceSystem ?? '',
+    metadata,
+  };
+}
+
+// ─── Prior auth follow-up lane — routes ──────────────────────────────────────
+
+router.get('/lanes/prior-auth-follow-up', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    contract: priorAuthLaneContract,
+    message: 'Prior auth follow-up lane: autonomous X12 278 prior authorization inquiry, approval status, denial detection, and human escalation.',
+  }),
+);
+
+router.get('/connectors/prior-auth-follow-up', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    lane: priorAuthLaneContract.laneKey,
+    connectors: getPriorAuthConnectorAvailability(c.env),
+    message: 'X12 278 is the primary autonomous rail. Portal submission stays human-led until credential vaulting is production-ready.',
+  }),
+);
+
+router.get('/lanes/prior-auth-follow-up/work-items', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const status = c.req.query('status');
+  const workspaceId = c.req.query('workspaceId');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+  if (workspaceId && !isUuid(workspaceId)) { sql.end().catch(() => {}); return validationResponse(c, ['"workspaceId" must be a valid UUID']); }
+  try {
+    const rows = await sql<WorkItemRow[]>`
+      SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+        w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+        w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+        w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+        w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+        w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+        w.confidence_pct AS "confidencePct", w.priority, w.status,
+        w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+        w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+        w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+      FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id} AND w.work_type = ${PRIOR_AUTH_LANE_KEY}
+        AND (${status ?? null}::text IS NULL OR w.status = ${status ?? null})
+        AND (${workspaceId ?? null}::uuid IS NULL OR w.workspace_id = ${workspaceId ?? null})
+      ORDER BY CASE w.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, w.created_at DESC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', lane: PRIOR_AUTH_LANE_KEY, count: rows.length, items: rows.map(mapPriorAuthWorkItem) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth work-items error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch prior-auth work items' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+router.get('/queues/prior-auth-follow-up-exceptions', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const severity = c.req.query('severity');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+  try {
+    const rows = await sql<ExceptionQueueRow[]>`
+      SELECT e.id, e.work_item_id AS "workItemId", ws.name AS "workspaceName",
+        w.payer_name AS "payerName", w.claim_ref AS "claimRef", w.priority,
+        e.exception_type AS "exceptionType", e.severity, e.reason_code AS "reasonCode",
+        e.summary, w.confidence_pct AS "confidencePct", w.amount_at_risk AS "amountAtRisk",
+        e.payload, e.created_at AS "openedAt"
+      FROM rcm_exceptions e
+      JOIN rcm_work_items w ON w.id = e.work_item_id
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id} AND w.work_type = ${PRIOR_AUTH_LANE_KEY}
+        AND e.resolved_at IS NULL
+        AND (${severity ?? null}::text IS NULL OR e.severity = ${severity ?? null})
+      ORDER BY CASE e.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, e.created_at ASC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', queueKey: priorAuthLaneContract.exceptionInbox.queueKey, count: rows.length, items: rows.map(mapException) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth exception queue error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch prior-auth exception queue' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — intake ──────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/intake', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const metadata = asObject(body['metadata']);
+  const details: string[] = [];
+
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : '';
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+  const workType = typeof body['workType'] === 'string' ? body['workType'] : '';
+  const billingDomain = typeof body['billingDomain'] === 'string' ? body['billingDomain'] : '';
+  const formType = typeof body['formType'] === 'string' ? body['formType'] : '';
+  const payerName = typeof body['payerName'] === 'string' ? body['payerName'].trim() : '';
+  const coverageType = typeof body['coverageType'] === 'string' ? body['coverageType'].trim() : '';
+  const patientRef = typeof body['patientRef'] === 'string' ? body['patientRef'].trim() : '';
+  const providerRef = typeof body['providerRef'] === 'string' ? body['providerRef'].trim() : '';
+  const claimRef = typeof body['claimRef'] === 'string' ? body['claimRef'].trim() : '';
+  const sourceSystem = typeof body['sourceSystem'] === 'string' ? body['sourceSystem'].trim() : '';
+  const priority = normalizePriority(body['priority']);
+  const dueAt = parseDateString(body['dueAt']);
+  const amountAtRisk = parsePositiveAmount(body['amountAtRisk']);
+  const procedureCode = typeof metadata['procedureCode'] === 'string' ? metadata['procedureCode'].trim() : '';
+  const diagnosisCode = typeof metadata['diagnosisCode'] === 'string' ? metadata['diagnosisCode'].trim() : '';
+  const serviceStartDate = parseDateString(metadata['serviceStartDate']);
+  const urgencyFlag = metadata['urgencyFlag'] === true;
+
+  if (!workspaceId || !isUuid(workspaceId)) details.push('"workspaceId" must be a valid UUID');
+  if (!title) details.push('"title" is required');
+  if (workType !== PRIOR_AUTH_LANE_KEY) details.push(`"workType" must be "${PRIOR_AUTH_LANE_KEY}"`);
+  if (!priorAuthLaneContract.supportedDomains.includes(billingDomain)) details.push(`"billingDomain" must be one of: ${priorAuthLaneContract.supportedDomains.join(', ')}`);
+  if (!priorAuthLaneContract.supportedForms.includes(formType)) details.push(`"formType" must be one of: ${priorAuthLaneContract.supportedForms.join(', ')}`);
+  if (!payerName) details.push('"payerName" is required');
+  if (!coverageType) details.push('"coverageType" is required');
+  if (!patientRef) details.push('"patientRef" is required');
+  if (!providerRef) details.push('"providerRef" is required');
+  if (!claimRef) details.push('"claimRef" is required');
+  if (!sourceSystem) details.push('"sourceSystem" is required');
+  if (!dueAt) details.push('"dueAt" must be a valid ISO date');
+  if (!amountAtRisk) details.push('"amountAtRisk" must be a positive number');
+  if (!procedureCode) details.push('"metadata.procedureCode" is required');
+  if (!diagnosisCode) details.push('"metadata.diagnosisCode" is required');
+  if (!serviceStartDate) details.push('"metadata.serviceStartDate" must be a valid ISO date');
+
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workItemId = crypto.randomUUID();
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const workspace = await getOwnedWorkspace(tx, merchant.id, workspaceId);
+      if (!workspace) throw new Error('WORKSPACE_NOT_FOUND');
+
+      const workItemMetadata = {
+        ...metadata,
+        laneKey: PRIOR_AUTH_LANE_KEY,
+        contractVersion: priorAuthLaneContract.version,
+        procedureCode,
+        diagnosisCode,
+        serviceStartDate,
+        serviceEndDate: parseDateString(metadata['serviceEndDate']) ?? null,
+        placeOfService: typeof metadata['placeOfService'] === 'string' ? metadata['placeOfService'] : '11',
+        authRef: typeof metadata['authRef'] === 'string' ? metadata['authRef'] : null,
+        urgencyFlag,
+        autoExecuteAllowed: metadata['autoExecuteAllowed'] !== false,
+        connectorPlan: { primary: 'x12_278', fallback: ['portal_submission'] },
+        routing: { laneSelection: PRIOR_AUTH_LANE_KEY, priorityBand: priority, routingReason: 'structured_prior_auth_follow_up_lane' },
+        attemptHistory: [],
+      };
+
+      await tx`
+        INSERT INTO rcm_work_items (
+          id, workspace_id, merchant_id, work_type, billing_domain, form_type, title,
+          payer_name, coverage_type, patient_ref, provider_ref, claim_ref,
+          source_system, amount_at_risk, priority, status, requires_human_review, due_at,
+          metadata, created_at, updated_at
+        ) VALUES (
+          ${workItemId}, ${workspaceId}, ${merchant.id}, ${PRIOR_AUTH_LANE_KEY},
+          ${billingDomain}, ${formType}, ${title}, ${payerName}, ${coverageType},
+          ${patientRef}, ${providerRef}, ${claimRef},
+          ${sourceSystem}, ${amountAtRisk}, ${priority}, 'routed', ${urgencyFlag}, ${dueAt},
+          ${jsonb(workItemMetadata)}::jsonb, NOW(), NOW()
+        )
+      `;
+
+      await insertEvidence(tx, workItemId, [{
+        actorType: 'router_agent', actorRef: 'prior_auth_lane_router',
+        evidenceType: 'router_decision_recorded',
+        payload: { laneSelection: PRIOR_AUTH_LANE_KEY, procedureCode, diagnosisCode, serviceStartDate, urgencyFlag, routingReason: 'structured_prior_auth_follow_up_lane' },
+      }], 'router_agent', 'prior_auth_lane_router');
+
+      const inserted = await getOwnedPriorAuthWorkItem(tx, merchant.id, workItemId);
+      if (!inserted) throw new Error('WORK_ITEM_NOT_FOUND');
+      return { workItem: mapPriorAuthWorkItem(inserted) };
+    });
+
+    return c.json({ stage: 'live', lane: PRIOR_AUTH_LANE_KEY, status: 'routed', workItemId, workItem: result.workItem }, 201);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORKSPACE_NOT_FOUND') return c.json({ error: 'Workspace not found' }, 404);
+    console.error('[rcm] prior-auth intake error:', message);
+    return c.json({ error: 'Failed to create prior-auth work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — run-primary ─────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/run-primary', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const connectorKey = (body['connectorKey'] as PriorAuthConnectorKey | undefined) ?? 'x12_278';
+  const autoRoute = body['autoRoute'] !== false;
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'routed') return c.json({ error: 'Prior auth work item must be in "routed" before autonomous run' }, 409);
+
+    const connectorResult = await runPriorAuthConnector(c.env, connectorKey, priorAuthConnectorInputFromWorkItem(row));
+
+    let newStatus: string;
+    if (autoRoute) {
+      if (connectorResult.autoQaRecommendation === 'close_auto') newStatus = 'closed_auto';
+      else if (connectorResult.autoQaRecommendation === 'human_review_required') newStatus = 'human_review_required';
+      else newStatus = 'awaiting_qa';
+    } else {
+      newStatus = 'awaiting_qa';
+    }
+
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...meta, lastConnectorRun: { connectorKey: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, authDetails: connectorResult.authDetails } };
+
+    await sql`
+      UPDATE rcm_work_items SET status = ${newStatus}, confidence_pct = ${connectorResult.confidencePct},
+        submitted_at = NOW(), ${newStatus === 'closed_auto' ? sql`completed_at = NOW(),` : sql``}
+        metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await insertEvidence(sql, workItemId, connectorResult.evidence.map((e) => ({ ...e, actorType: e.actorType ?? 'worker_agent', actorRef: e.actorRef ?? 'prior_auth_connector' })), 'worker_agent', 'prior_auth_connector');
+
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', autoRoute, nextState: newStatus, connector: { key: connectorResult.connectorKey, mode: connectorResult.mode, statusCode: connectorResult.statusCode, statusLabel: connectorResult.statusLabel, traceId: connectorResult.connectorTraceId, summary: connectorResult.summary }, workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth run-primary error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to run primary prior-auth connector' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — execute ─────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/execute', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const additionalInfo = typeof body['additionalInfo'] === 'string' ? body['additionalInfo'].trim() : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!additionalInfo) return validationResponse(c, ['"additionalInfo" is required']);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (!['awaiting_qa', 'human_review_required'].includes(row.status)) return c.json({ error: 'Work item must be in "awaiting_qa" or "human_review_required" to submit additional info' }, 409);
+
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...meta, additionalInfoSubmitted: { additionalInfo, notes, submittedAt: new Date().toISOString() } };
+    await sql`UPDATE rcm_work_items SET metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW() WHERE id = ${workItemId}`;
+    await insertEvidence(sql, workItemId, [{ actorType: 'human_worker', actorRef: 'prior_auth_worker', evidenceType: 'additional_info_submitted', payload: { additionalInfo, notes } }], 'human_worker', 'prior_auth_worker');
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth execute error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to execute prior-auth work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — verify ──────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/verify', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const decision = typeof body['decision'] === 'string' ? body['decision'] : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!['approve_auto_close', 'retry', 'escalate'].includes(decision)) return validationResponse(c, ['"decision" must be "approve_auto_close", "retry", or "escalate"']);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItemForUpdate(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'awaiting_qa') return c.json({ error: 'Work item must be in "awaiting_qa" to verify' }, 409);
+
+    let newStatus: string;
+    if (decision === 'approve_auto_close') newStatus = 'closed_auto';
+    else if (decision === 'retry') newStatus = 'retry_pending';
+    else newStatus = 'human_review_required';
+
+    await sql`
+      UPDATE rcm_work_items SET status = ${newStatus},
+        ${newStatus === 'closed_auto' ? sql`completed_at = NOW(),` : sql``}
+        requires_human_review = ${newStatus === 'human_review_required'},
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    if (newStatus === 'closed_auto') await resolveOpenExceptions(sql, workItemId);
+    await insertEvidence(sql, workItemId, [{ actorType: 'qa_reviewer', actorRef: 'prior_auth_qa', evidenceType: 'qa_decision_recorded', payload: { decision, notes } }], 'qa_reviewer', 'prior_auth_qa');
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', nextState: newStatus, workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth verify error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to verify prior-auth work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — retry ───────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/retry', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const connectorKey = (body['connectorKey'] as PriorAuthConnectorKey | undefined) ?? 'x12_278';
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'retry_pending') return c.json({ error: 'Work item must be in "retry_pending" to retry' }, 409);
+
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const attemptHistory = Array.isArray(meta['attemptHistory']) ? meta['attemptHistory'] : [];
+    if (attemptHistory.length >= priorAuthLaneContract.autonomyLimits.maxAutonomousAttempts) {
+      await sql`UPDATE rcm_work_items SET status = 'human_review_required', requires_human_review = true, updated_at = NOW() WHERE id = ${workItemId}`;
+      return c.json({ stage: 'live', nextState: 'human_review_required', reason: 'attempts_exhausted' });
+    }
+
+    const connectorResult = await runPriorAuthConnector(c.env, connectorKey, priorAuthConnectorInputFromWorkItem(row));
+    const newStatus = connectorResult.autoQaRecommendation === 'close_auto' ? 'closed_auto' : connectorResult.autoQaRecommendation === 'human_review_required' ? 'human_review_required' : 'awaiting_qa';
+    const updatedMetadata = { ...meta, attemptHistory: [...attemptHistory, { connectorKey: connectorResult.connectorKey, statusCode: connectorResult.statusCode, attemptedAt: connectorResult.performedAt }] };
+
+    await sql`
+      UPDATE rcm_work_items SET status = ${newStatus}, confidence_pct = ${connectorResult.confidencePct},
+        ${newStatus === 'closed_auto' ? sql`completed_at = NOW(),` : sql``}
+        metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await insertEvidence(sql, workItemId, connectorResult.evidence.map((e) => ({ ...e, actorType: e.actorType ?? 'worker_agent', actorRef: e.actorRef ?? 'prior_auth_connector' })), 'worker_agent', 'prior_auth_connector');
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', nextState: newStatus, connector: { key: connectorResult.connectorKey, statusCode: connectorResult.statusCode, summary: connectorResult.summary }, workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth retry error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to retry prior-auth connector' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — escalate ────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/escalate', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const escalationReason = typeof body['escalationReason'] === 'string' ? body['escalationReason'] : 'manual_escalation';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (['closed_auto', 'closed_human', 'blocked'].includes(row.status)) return c.json({ error: 'Cannot escalate a closed work item' }, 409);
+
+    await sql`UPDATE rcm_work_items SET status = 'human_review_required', requires_human_review = true, updated_at = NOW() WHERE id = ${workItemId}`;
+    await insertEvidence(sql, workItemId, [{ actorType: 'operator', actorRef: 'prior_auth_escalator', evidenceType: 'manual_escalation', payload: { escalationReason, notes } }], 'operator', 'prior_auth_escalator');
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', nextState: 'human_review_required', workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth escalate error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to escalate prior-auth work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── Prior auth follow-up lane — resolve ─────────────────────────────────────
+
+router.post('/lanes/prior-auth-follow-up/work-items/:workItemId/resolve', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const resolution = typeof body['resolution'] === 'string' ? body['resolution'] : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!['approved', 'denied', 'mark_blocked'].includes(resolution)) return validationResponse(c, ['"resolution" must be "approved", "denied", or "mark_blocked"']);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'human_review_required') return c.json({ error: 'Work item must be in "human_review_required" to resolve' }, 409);
+
+    const newStatus = resolution === 'mark_blocked' ? 'blocked' : 'closed_human';
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...meta, humanResolution: { resolution, notes, resolvedAt: new Date().toISOString() } };
+    await sql`UPDATE rcm_work_items SET status = ${newStatus}, requires_human_review = false, completed_at = NOW(), metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW() WHERE id = ${workItemId}`;
+    if (newStatus === 'closed_human') await resolveOpenExceptions(sql, workItemId);
+    await insertEvidence(sql, workItemId, [{ actorType: 'human_reviewer', actorRef: 'prior_auth_resolver', evidenceType: 'human_resolution_recorded', payload: { resolution, notes } }], 'human_reviewer', 'prior_auth_resolver');
+    const updated = await getOwnedPriorAuthWorkItem(sql, merchant.id, workItemId);
+    return c.json({ stage: 'live', status: newStatus, workItem: mapPriorAuthWorkItem(updated!) });
+  } catch (err: unknown) {
+    console.error('[rcm] prior-auth resolve error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to resolve prior-auth work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
 // ─── ERA 835 lane — routes (scaffold) ────────────────────────────────────────
 
 router.get('/lanes/era-835', authenticateApiKey, (c) =>
@@ -7048,6 +7570,174 @@ router.post('/lanes/era-835/work-items/:workItemId/run-primary', authenticateApi
   } finally {
     sql.end().catch(() => {});
   }
+});
+
+// ─── ERA 835 lane — work-items queue ─────────────────────────────────────────
+
+router.get('/lanes/era-835/work-items', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const status = c.req.query('status');
+  const workspaceId = c.req.query('workspaceId');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+  if (workspaceId && !isUuid(workspaceId)) { sql.end().catch(() => {}); return validationResponse(c, ['"workspaceId" must be a valid UUID']); }
+  try {
+    const rows = await sql<WorkItemRow[]>`
+      SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName",
+        w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType",
+        w.form_type AS "formType", w.title, w.payer_name AS "payerName",
+        w.coverage_type AS "coverageType", w.patient_ref AS "patientRef",
+        w.provider_ref AS "providerRef", w.claim_ref AS "claimRef",
+        w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk",
+        w.confidence_pct AS "confidencePct", w.priority, w.status,
+        w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt",
+        w.submitted_at AS "submittedAt", w.completed_at AS "completedAt",
+        w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt"
+      FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id} AND w.work_type = 'era_835'
+        AND (${status ?? null}::text IS NULL OR w.status = ${status ?? null})
+        AND (${workspaceId ?? null}::uuid IS NULL OR w.workspace_id = ${workspaceId ?? null})
+      ORDER BY CASE w.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, w.created_at DESC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', lane: 'era_835', count: rows.length, items: rows.map(mapWorkItem) });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 work-items error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch ERA 835 work items' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── ERA 835 lane — exception queue ──────────────────────────────────────────
+
+router.get('/queues/era-835-exceptions', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const severity = c.req.query('severity');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+  try {
+    const rows = await sql<ExceptionQueueRow[]>`
+      SELECT e.id, e.work_item_id AS "workItemId", ws.name AS "workspaceName",
+        w.payer_name AS "payerName", w.claim_ref AS "claimRef", w.priority,
+        e.exception_type AS "exceptionType", e.severity, e.reason_code AS "reasonCode",
+        e.summary, w.confidence_pct AS "confidencePct", w.amount_at_risk AS "amountAtRisk",
+        e.payload, e.created_at AS "openedAt"
+      FROM rcm_exceptions e
+      JOIN rcm_work_items w ON w.id = e.work_item_id
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id} AND w.work_type = 'era_835'
+        AND e.resolved_at IS NULL
+        AND (${severity ?? null}::text IS NULL OR e.severity = ${severity ?? null})
+      ORDER BY CASE e.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, e.created_at ASC
+      LIMIT ${limit}
+    `;
+    return c.json({ stage: 'live', queueKey: 'era_835_exceptions', count: rows.length, items: rows.map(mapException) });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 exception queue error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch ERA 835 exception queue' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── ERA 835 lane — execute ───────────────────────────────────────────────────
+
+router.post('/lanes/era-835/work-items/:workItemId/execute', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const resolution = typeof body['resolution'] === 'string' ? body['resolution'].trim() : '';
+  const paymentAmount = parsePositiveAmount(body['paymentAmount']);
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  const details: string[] = [];
+  if (!resolution) details.push('"resolution" is required');
+  if (!paymentAmount) details.push('"paymentAmount" must be a positive number');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<WorkItemRow[]>`SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt" FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id WHERE w.id = ${workItemId} AND w.merchant_id = ${merchant.id} AND w.work_type = 'era_835' LIMIT 1`;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (!['awaiting_qa', 'human_review_required'].includes(row.status)) return c.json({ error: 'Work item must be in "awaiting_qa" or "human_review_required" to execute' }, 409);
+
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...meta, workerExecution: { resolution, paymentAmount, notes, executedAt: new Date().toISOString() } };
+    await sql`UPDATE rcm_work_items SET metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW() WHERE id = ${workItemId}`;
+    await insertEvidence(sql, workItemId, [{ actorType: 'human_worker', actorRef: 'era_835_worker', evidenceType: 'payment_posting_submitted', payload: { resolution, paymentAmount, notes } }], 'human_worker', 'era_835_worker');
+    const updated = await sql<WorkItemRow[]>`SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt" FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id WHERE w.id = ${workItemId} LIMIT 1`;
+    return c.json({ stage: 'live', workItem: mapWorkItem(updated[0]!) });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 execute error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to execute ERA 835 work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── ERA 835 lane — verify ────────────────────────────────────────────────────
+
+router.post('/lanes/era-835/work-items/:workItemId/verify', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const decision = typeof body['decision'] === 'string' ? body['decision'] : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!['approve_auto_close', 'retry', 'escalate'].includes(decision)) return validationResponse(c, ['"decision" must be "approve_auto_close", "retry", or "escalate"']);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<WorkItemRow[]>`SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt" FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id WHERE w.id = ${workItemId} AND w.merchant_id = ${merchant.id} AND w.work_type = 'era_835' LIMIT 1`;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'awaiting_qa') return c.json({ error: 'Work item must be in "awaiting_qa" to verify' }, 409);
+
+    const newStatus = decision === 'approve_auto_close' ? 'closed_auto' : decision === 'retry' ? 'retry_pending' : 'human_review_required';
+    await sql`UPDATE rcm_work_items SET status = ${newStatus}, ${newStatus === 'closed_auto' ? sql`completed_at = NOW(),` : sql``} requires_human_review = ${newStatus === 'human_review_required'}, updated_at = NOW() WHERE id = ${workItemId}`;
+    if (newStatus === 'closed_auto') await resolveOpenExceptions(sql, workItemId);
+    await insertEvidence(sql, workItemId, [{ actorType: 'qa_reviewer', actorRef: 'era_835_qa', evidenceType: 'qa_decision_recorded', payload: { decision, notes } }], 'qa_reviewer', 'era_835_qa');
+    return c.json({ stage: 'live', nextState: newStatus });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 verify error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to verify ERA 835 work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ─── ERA 835 lane — resolve ───────────────────────────────────────────────────
+
+router.post('/lanes/era-835/work-items/:workItemId/resolve', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) return validationResponse(c, ['"workItemId" must be a valid UUID']);
+
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body' }, 400); }
+
+  const resolution = typeof body['resolution'] === 'string' ? body['resolution'] : '';
+  const notes = typeof body['notes'] === 'string' ? body['notes'] : '';
+  if (!['payment_posted', 'rejected', 'blocked'].includes(resolution)) return validationResponse(c, ['"resolution" must be "payment_posted", "rejected", or "blocked"']);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<WorkItemRow[]>`SELECT w.id, w.workspace_id AS "workspaceId", ws.name AS "workspaceName", w.assigned_agent_id AS "assignedAgentId", w.work_type AS "workType", w.form_type AS "formType", w.title, w.payer_name AS "payerName", w.coverage_type AS "coverageType", w.patient_ref AS "patientRef", w.provider_ref AS "providerRef", w.claim_ref AS "claimRef", w.source_system AS "sourceSystem", w.amount_at_risk AS "amountAtRisk", w.confidence_pct AS "confidencePct", w.priority, w.status, w.requires_human_review AS "requiresHumanReview", w.due_at AS "dueAt", w.submitted_at AS "submittedAt", w.completed_at AS "completedAt", w.metadata, w.created_at AS "createdAt", w.updated_at AS "updatedAt" FROM rcm_work_items w JOIN rcm_workspaces ws ON ws.id = w.workspace_id WHERE w.id = ${workItemId} AND w.merchant_id = ${merchant.id} AND w.work_type = 'era_835' LIMIT 1`;
+    const row = rows[0];
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'human_review_required') return c.json({ error: 'Work item must be in "human_review_required" to resolve' }, 409);
+
+    const newStatus = resolution === 'blocked' ? 'blocked' : resolution === 'rejected' ? 'rejected' : 'closed_human';
+    const meta = parseJsonb<JsonRecord>(row.metadata, {});
+    const updatedMetadata = { ...meta, humanResolution: { resolution, notes, resolvedAt: new Date().toISOString() } };
+    await sql`UPDATE rcm_work_items SET status = ${newStatus}, requires_human_review = false, completed_at = NOW(), metadata = ${jsonb(updatedMetadata)}::jsonb, updated_at = NOW() WHERE id = ${workItemId}`;
+    if (newStatus === 'closed_human') await resolveOpenExceptions(sql, workItemId);
+    await insertEvidence(sql, workItemId, [{ actorType: 'human_reviewer', actorRef: 'era_835_resolver', evidenceType: 'human_resolution_recorded', payload: { resolution, notes } }], 'human_reviewer', 'era_835_resolver');
+    return c.json({ stage: 'live', status: newStatus });
+  } catch (err: unknown) {
+    console.error('[rcm] era-835 resolve error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to resolve ERA 835 work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
 });
 
 export { router as rcmRouter };
