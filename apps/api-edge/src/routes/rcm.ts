@@ -19,6 +19,15 @@ import {
   type ClaimStatusConnectorKey,
   type ClaimStatusExceptionSuggestion,
 } from '../lib/rcmClaimStatusConnector';
+import {
+  getEligibilityConnectorAvailability,
+  runEligibilityConnector,
+  type EligibilityAutoQaRecommendation,
+  type EligibilityConnectorExecution,
+  type EligibilityConnectorExecutionInput,
+  type EligibilityConnectorKey,
+  type EligibilityExceptionSuggestion,
+} from '../lib/rcmEligibilityConnector';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -421,6 +430,378 @@ function defaultExceptionForConnector(result: ClaimStatusConnectorExecution): Cl
   );
 }
 
+// ─── Eligibility lane — DB helpers ───────────────────────────────────────────
+
+async function getOwnedEligibilityWorkItem(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id,
+      w.workspace_id         AS "workspaceId",
+      ws.name                AS "workspaceName",
+      w.assigned_agent_id    AS "assignedAgentId",
+      w.work_type            AS "workType",
+      w.form_type            AS "formType",
+      w.title,
+      w.payer_name           AS "payerName",
+      w.coverage_type        AS "coverageType",
+      w.patient_ref          AS "patientRef",
+      w.provider_ref         AS "providerRef",
+      w.claim_ref            AS "claimRef",
+      w.source_system        AS "sourceSystem",
+      w.amount_at_risk       AS "amountAtRisk",
+      w.confidence_pct       AS "confidencePct",
+      w.priority,
+      w.status,
+      w.requires_human_review AS "requiresHumanReview",
+      w.due_at               AS "dueAt",
+      w.submitted_at         AS "submittedAt",
+      w.completed_at         AS "completedAt",
+      w.metadata,
+      w.created_at           AS "createdAt",
+      w.updated_at           AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId}
+      AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${eligibilityLaneContract.laneKey}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+async function getOwnedEligibilityWorkItemForUpdate(sql: Sql, merchantId: string, workItemId: string) {
+  const rows = await sql<WorkItemRow[]>`
+    SELECT
+      w.id,
+      w.workspace_id         AS "workspaceId",
+      ws.name                AS "workspaceName",
+      w.assigned_agent_id    AS "assignedAgentId",
+      w.work_type            AS "workType",
+      w.form_type            AS "formType",
+      w.title,
+      w.payer_name           AS "payerName",
+      w.coverage_type        AS "coverageType",
+      w.patient_ref          AS "patientRef",
+      w.provider_ref         AS "providerRef",
+      w.claim_ref            AS "claimRef",
+      w.source_system        AS "sourceSystem",
+      w.amount_at_risk       AS "amountAtRisk",
+      w.confidence_pct       AS "confidencePct",
+      w.priority,
+      w.status,
+      w.requires_human_review AS "requiresHumanReview",
+      w.due_at               AS "dueAt",
+      w.submitted_at         AS "submittedAt",
+      w.completed_at         AS "completedAt",
+      w.metadata,
+      w.created_at           AS "createdAt",
+      w.updated_at           AS "updatedAt"
+    FROM rcm_work_items w
+    JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+    WHERE w.id = ${workItemId}
+      AND w.merchant_id = ${merchantId}
+      AND w.work_type = ${eligibilityLaneContract.laneKey}
+    LIMIT 1
+    FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+function mapEligibilityWorkItem(row: WorkItemRow) {
+  const base = mapWorkItem(row);
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    workItemId: base.workItemId,
+    workspaceId: base.workspaceId,
+    workspaceName: base.workspaceName,
+    assignedAgentId: base.assignedAgentId,
+    workType: base.workType,
+    title: base.title,
+    payerName: base.payerName,
+    coverageType: base.coverageType,
+    /** claim_ref column stores the member/subscriber ID for eligibility work items. */
+    memberId: base.claimRef,
+    patientRef: base.patientRef,
+    providerRef: base.providerRef,
+    sourceSystem: base.sourceSystem,
+    amountAtRisk: base.amountAtRisk,
+    confidencePct: base.confidencePct,
+    priority: base.priority,
+    status: base.status,
+    requiresHumanReview: base.requiresHumanReview,
+    dueAt: base.dueAt,
+    submittedAt: base.submittedAt,
+    completedAt: base.completedAt,
+    // Eligibility-specific fields promoted from metadata
+    dateOfService: typeof metadata['dateOfService'] === 'string' ? metadata['dateOfService'] : null,
+    serviceTypeCodes: Array.isArray(metadata['serviceTypeCodes'])
+      ? metadata['serviceTypeCodes'].filter((s): s is string => typeof s === 'string')
+      : [],
+    providerNpi: typeof metadata['providerNpi'] === 'string' ? metadata['providerNpi'] : null,
+    payerId: typeof metadata['payerId'] === 'string' ? metadata['payerId'] : null,
+    metadata: base.metadata,
+    createdAt: base.createdAt,
+    updatedAt: base.updatedAt,
+  };
+}
+
+function eligibilityConnectorInputFromWorkItem(row: WorkItemRow): EligibilityConnectorExecutionInput {
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  return {
+    workItemId: row.id,
+    memberId: row.claimRef ?? '',
+    payerName: row.payerName ?? '',
+    payerId: typeof metadata['payerId'] === 'string' ? metadata['payerId'] : null,
+    coverageType: row.coverageType ?? '',
+    patientRef: row.patientRef ?? '',
+    providerRef: row.providerRef ?? '',
+    providerNpi: typeof metadata['providerNpi'] === 'string' ? metadata['providerNpi'] : '',
+    dateOfService: typeof metadata['dateOfService'] === 'string' ? metadata['dateOfService'] : '',
+    serviceTypeCodes: Array.isArray(metadata['serviceTypeCodes'])
+      ? metadata['serviceTypeCodes'].filter((s): s is string => typeof s === 'string')
+      : [],
+    formType: row.formType ?? '',
+    sourceSystem: row.sourceSystem ?? '',
+    metadata,
+  };
+}
+
+function defaultExceptionForEligibilityConnector(result: EligibilityConnectorExecution): EligibilityExceptionSuggestion {
+  return (
+    result.exceptionSuggestion ?? {
+      exceptionType: 'payer_system_unavailable',
+      severity: 'high',
+      summary: result.summary,
+      recommendedHumanAction:
+        'Review the connector result and verify eligibility manually via the payer portal.',
+      requiredContextFields: ['manual_verification_path'],
+      reasonCode: result.resolutionReasonCode,
+    }
+  );
+}
+
+function eligibilityQaDecisionForRecommendation(
+  recommendation: EligibilityAutoQaRecommendation,
+): 'approve_auto_close' | 'escalate' {
+  return recommendation === 'close_auto' ? 'approve_auto_close' : 'escalate';
+}
+
+async function persistEligibilityConnectorRun(
+  sql: any,
+  merchantId: string,
+  workItemId: string,
+  params: {
+    attemptRole: 'primary_worker' | 'fallback_worker';
+    agentId: string | null;
+    qaActorRef: string;
+    playbookVersion: string;
+    strategy: string;
+    connectorResult: EligibilityConnectorExecution;
+    autoRoute: boolean;
+  },
+) {
+  const row = await getOwnedEligibilityWorkItemForUpdate(sql, merchantId, workItemId);
+  if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+
+  const expectedStatus = params.attemptRole === 'primary_worker' ? 'routed' : 'retry_pending';
+  if (row.status !== expectedStatus) throw new Error('INVALID_STATE');
+
+  const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+  const attempts = getAttemptHistory(metadata);
+  if (attempts.length >= eligibilityLaneContract.retryPolicy.maxAutonomousAttempts) {
+    throw new Error('ATTEMPTS_EXHAUSTED');
+  }
+
+  if (params.attemptRole === 'fallback_worker') {
+    if (attempts.length === 0) throw new Error('NO_PRIOR_ATTEMPT');
+    const previousAttempt = attempts[attempts.length - 1];
+    const previousStrategy =
+      typeof previousAttempt['strategy'] === 'string' ? previousAttempt['strategy'] : '';
+    const previousConnector =
+      typeof previousAttempt['connectorStrategy'] === 'string'
+        ? previousAttempt['connectorStrategy']
+        : previousStrategy;
+    const strategyChanged = params.strategy !== previousStrategy;
+    const connectorChanged = params.connectorResult.connectorKey !== previousConnector;
+    if (
+      eligibilityLaneContract.retryPolicy.requireDifferentStrategyOnRetry &&
+      !strategyChanged &&
+      !connectorChanged
+    ) {
+      throw new Error('SAME_STRATEGY');
+    }
+  }
+
+  const attemptSummary = {
+    attemptNumber: attempts.length + 1,
+    attemptRole: params.attemptRole,
+    strategy: params.strategy,
+    connectorStrategy: params.connectorResult.connectorKey,
+    connectorMode: params.connectorResult.mode,
+    playbookVersion: params.playbookVersion,
+    proposedResolution: params.connectorResult.proposedResolution,
+    resolutionReasonCode: params.connectorResult.resolutionReasonCode,
+    confidencePct: params.connectorResult.confidencePct,
+    nextBestAction: params.connectorResult.nextBestAction,
+    submittedAt: params.connectorResult.performedAt,
+    connectorTraceId: params.connectorResult.connectorTraceId,
+    statusCode: params.connectorResult.statusCode,
+    statusLabel: params.connectorResult.statusLabel,
+    evidenceTypes: params.connectorResult.evidence.map((item) => item.evidenceType),
+  };
+
+  const updatedMetadata = {
+    ...metadata,
+    playbookVersion: params.playbookVersion,
+    lastExecution: attemptSummary,
+    lastConnectorRun: {
+      connectorKey: params.connectorResult.connectorKey,
+      mode: params.connectorResult.mode,
+      statusCode: params.connectorResult.statusCode,
+      statusLabel: params.connectorResult.statusLabel,
+      traceId: params.connectorResult.connectorTraceId,
+      summary: params.connectorResult.summary,
+      performedAt: params.connectorResult.performedAt,
+    },
+    attemptHistory: [...attempts, attemptSummary],
+  };
+
+  const workerActorType =
+    params.attemptRole === 'primary_worker' ? 'worker_agent' : 'fallback_worker_agent';
+  const workerActorRef =
+    params.agentId ??
+    (params.attemptRole === 'primary_worker'
+      ? 'eligibility_connector_primary'
+      : 'eligibility_connector_fallback');
+
+  let nextState = 'awaiting_qa';
+  if (params.autoRoute) {
+    nextState =
+      params.connectorResult.autoQaRecommendation === 'close_auto'
+        ? 'closed_auto'
+        : params.connectorResult.autoQaRecommendation === 'human_review_required'
+          ? 'human_review_required'
+          : 'awaiting_qa';
+  }
+
+  if (nextState === 'closed_auto') {
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'closed_auto',
+        requires_human_review = false,
+        submitted_at = NOW(),
+        completed_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+    await resolveOpenExceptions(sql, workItemId);
+  } else if (nextState === 'human_review_required') {
+    const exception = defaultExceptionForEligibilityConnector(params.connectorResult);
+    await upsertOpenException(sql, workItemId, {
+      exceptionType: exception.exceptionType,
+      severity: exception.severity,
+      reasonCode: exception.reasonCode,
+      summary: exception.summary,
+      payload: {
+        requiredContextFields: exception.requiredContextFields,
+        recommendedHumanAction: exception.recommendedHumanAction,
+        connectorKey: params.connectorResult.connectorKey,
+        connectorMode: params.connectorResult.mode,
+        connectorTraceId: params.connectorResult.connectorTraceId,
+        rawResponse: params.connectorResult.rawResponse,
+      },
+    });
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'human_review_required',
+        requires_human_review = true,
+        submitted_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+  } else {
+    await sql`
+      UPDATE rcm_work_items
+      SET
+        assigned_agent_id = ${params.agentId},
+        confidence_pct = ${params.connectorResult.confidencePct},
+        status = 'awaiting_qa',
+        requires_human_review = false,
+        submitted_at = NOW(),
+        metadata = ${jsonb(updatedMetadata)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${workItemId}
+    `;
+  }
+
+  await insertEvidence(
+    sql,
+    workItemId,
+    [
+      ...params.connectorResult.evidence.map((item) => ({
+        ...item,
+        actorType: item.actorType ?? workerActorType,
+        actorRef: item.actorRef ?? workerActorRef,
+      })),
+      {
+        actorType: workerActorType,
+        actorRef: workerActorRef,
+        evidenceType:
+          params.attemptRole === 'primary_worker'
+            ? 'execution_resolution_proposed'
+            : 'fallback_execution_submitted',
+        payload: attemptSummary,
+      },
+    ],
+    workerActorType,
+    workerActorRef,
+  );
+
+  if (params.autoRoute && nextState !== 'awaiting_qa') {
+    await insertEvidence(
+      sql,
+      workItemId,
+      [
+        {
+          actorType: 'qa_agent',
+          actorRef: params.qaActorRef,
+          evidenceType: 'qa_decision_recorded',
+          payload: {
+            qaDecision: eligibilityQaDecisionForRecommendation(
+              params.connectorResult.autoQaRecommendation,
+            ),
+            qaReasonCode:
+              params.connectorResult.autoQaRecommendation === 'close_auto'
+                ? 'connector_policy_auto_close'
+                : defaultExceptionForEligibilityConnector(params.connectorResult).reasonCode,
+            source: 'connector_policy_loop',
+            reviewedAt: new Date().toISOString(),
+            connectorKey: params.connectorResult.connectorKey,
+            connectorMode: params.connectorResult.mode,
+          },
+        },
+      ],
+      'qa_agent',
+      params.qaActorRef,
+    );
+  }
+
+  const updated = await getOwnedEligibilityWorkItem(sql, merchantId, workItemId);
+  if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+  return {
+    nextState,
+    workItem: mapEligibilityWorkItem(updated),
+  };
+}
+
 function qaDecisionForRecommendation(
   recommendation: ClaimStatusAutoQaRecommendation,
 ): 'approve_auto_close' | 'escalate' {
@@ -816,6 +1197,181 @@ const claimStatusLaneContract = {
   },
 };
 
+const eligibilityLaneContract = {
+  laneKey: 'eligibility_verification',
+  version: 'v1',
+  supportedDomains: ['professional', 'facility', 'home_health', 'dme', 'hospice', 'institutional'],
+  supportedForms: ['CMS-1500', 'UB-04'],
+  intakeSchema: {
+    required: [
+      'workspaceId',
+      'title',
+      'workType',
+      'billingDomain',
+      'formType',
+      'payerName',
+      'coverageType',
+      'patientRef',
+      'providerRef',
+      'sourceSystem',
+      'priority',
+      'dueAt',
+    ],
+    optional: ['encounterRef', 'amountAtRisk'],
+    metadata: {
+      required: ['memberId', 'providerNpi', 'dateOfService', 'serviceTypeCodes'],
+      optional: ['payerId', 'groupNumber', 'providerTaxonomyCode', 'secondaryPayerName', 'notes'],
+    },
+  },
+  stateMachine: {
+    initialState: 'new',
+    terminalStates: ['closed_auto', 'closed_human', 'blocked', 'rejected'],
+    states: [
+      { key: 'new', owner: 'router_agent', purpose: 'Awaiting lane classification and playbook selection.' },
+      { key: 'routed', owner: 'router_agent', purpose: 'Lane accepted and ready for HETS inquiry.' },
+      { key: 'executing_primary', owner: 'worker_agent', purpose: 'Primary worker is running the 270/271 inquiry.' },
+      { key: 'awaiting_qa', owner: 'qa_agent', purpose: 'Eligibility result and proposed resolution are under QA review.' },
+      { key: 'retry_pending', owner: 'qa_agent', purpose: 'Fallback execution has been approved and queued.' },
+      { key: 'executing_fallback', owner: 'fallback_worker_agent', purpose: 'Second bounded attempt via portal or alternate path.' },
+      { key: 'human_review_required', owner: 'escalation_agent_or_human', purpose: 'Exception inbox owns the case.' },
+      { key: 'blocked', owner: 'escalation_agent_or_human', purpose: 'Case cannot continue until external conditions change.' },
+      { key: 'closed_auto', owner: 'system', purpose: 'Eligibility confirmed autonomously; case closed.' },
+      { key: 'closed_human', owner: 'human_reviewer', purpose: 'Case closed after explicit human review or takeover.' },
+      { key: 'rejected', owner: 'human_reviewer', purpose: 'Proposed closure or workflow path was rejected.' },
+    ],
+    transitions: [
+      { from: 'new', to: 'routed', trigger: 'router_accepts_lane', owner: 'router_agent' },
+      { from: 'new', to: 'blocked', trigger: 'router_detects_missing_prerequisite', owner: 'router_agent' },
+      { from: 'routed', to: 'executing_primary', trigger: 'hets_inquiry_started', owner: 'worker_agent' },
+      { from: 'executing_primary', to: 'awaiting_qa', trigger: 'worker_submits_eligibility_result', owner: 'worker_agent' },
+      { from: 'awaiting_qa', to: 'closed_auto', trigger: 'qa_approves_eligibility', owner: 'qa_agent' },
+      { from: 'awaiting_qa', to: 'retry_pending', trigger: 'qa_requests_fallback_retry', owner: 'qa_agent' },
+      { from: 'awaiting_qa', to: 'human_review_required', trigger: 'qa_escalates', owner: 'qa_agent' },
+      { from: 'retry_pending', to: 'executing_fallback', trigger: 'fallback_inquiry_started', owner: 'fallback_worker_agent' },
+      { from: 'executing_fallback', to: 'awaiting_qa', trigger: 'fallback_worker_submits_result', owner: 'fallback_worker_agent' },
+      { from: 'human_review_required', to: 'closed_human', trigger: 'human_approves_or_takes_over', owner: 'human_reviewer' },
+      { from: 'human_review_required', to: 'blocked', trigger: 'human_marks_blocked', owner: 'human_reviewer' },
+      { from: 'human_review_required', to: 'rejected', trigger: 'human_rejects_resolution', owner: 'human_reviewer' },
+    ],
+  },
+  agentPayloads: {
+    router: {
+      input: ['workItemCore', 'metadata.memberId', 'metadata.dateOfService', 'metadata.serviceTypeCodes'],
+      output: ['laneSelection', 'playbookVersion', 'priorityBand', 'autoExecuteAllowed', 'routingReason'],
+    },
+    worker: {
+      input: ['memberId', 'payerName', 'coverageType', 'providerNpi', 'dateOfService', 'serviceTypeCodes', 'playbookVersion', 'connectorHints'],
+      output: ['eligibilityStatus', 'resolutionReasonCode', 'confidencePct', 'evidenceBundle', 'nextBestAction'],
+    },
+    qa: {
+      input: ['eligibilityResult', 'confidencePct', 'evidenceBundle', 'playbookVersion'],
+      output: ['qaDecision', 'qaReasonCode', 'retryAllowed', 'requiredEscalationFields'],
+    },
+    fallbackWorker: {
+      input: ['priorAttemptSummary', 'connectorFailureHistory', 'alternativeStrategy'],
+      output: ['fallbackEligibilityResult', 'fallbackReasonCode', 'confidencePct', 'evidenceBundle'],
+    },
+    escalation: {
+      input: ['workItemSummary', 'exceptionPacket', 'missingContextFields', 'recommendedHumanAction'],
+      output: ['queueAssignment', 'reviewerInstructions', 'newExceptionClassCandidate'],
+    },
+  },
+  retryPolicy: {
+    maxAutonomousAttempts: 2,
+    retryPath: ['primary_worker', 'fallback_worker'],
+    requireDifferentStrategyOnRetry: true,
+    neverRetryWithoutNewEvidence: true,
+    escalateOnRepeatedConnectorFailure: true,
+  },
+  completionCriteria: [
+    'Subscriber eligibility status is clearly established via 270/271 or manual verification.',
+    'Required benefit detail is captured (deductible, copay, network status).',
+    'Prior auth flags are documented and handed off.',
+    'No unresolved coverage ambiguity remains.',
+    'Confidence and QA checks meet the lane threshold.',
+  ],
+  evidenceTypes: [
+    'eligibility_inquiry_requested',
+    'edi_270_submitted',
+    'edi_271_received',
+    'eligibility_verified',
+    'coverage_gap_detected',
+    'prior_auth_flag_detected',
+    'benefit_detail_captured',
+    'payer_response_ambiguous',
+    'qa_decision_recorded',
+    'router_decision_recorded',
+    'escalation_packet_created',
+    'human_resolution_recorded',
+    'human_context_added',
+  ],
+  exceptionInbox: {
+    queueKey: 'eligibility_exceptions',
+    columns: [
+      'workItemId',
+      'workspaceName',
+      'payerName',
+      'memberId',
+      'dateOfService',
+      'priority',
+      'exceptionType',
+      'reasonCode',
+      'confidencePct',
+      'requiredContextFields',
+      'recommendedHumanAction',
+      'openedAt',
+      'slaAt',
+      'assignedReviewer',
+    ],
+    triageBuckets: [
+      'subscriber_not_found',
+      'coverage_inactive',
+      'prior_auth_required',
+      'coordination_of_benefits_gap',
+      'out_of_network_provider',
+      'payer_system_unavailable',
+    ],
+    allowedHumanActions: [
+      'approve_closure',
+      'reject_closure',
+      'add_missing_context',
+      'take_over_case',
+      'mark_blocked',
+      'propose_rule_candidate',
+      'classify_new_exception_type',
+    ],
+  },
+  metrics: [
+    'autoClosedPct',
+    'retryRate',
+    'exceptionRate',
+    'humanInterventionRate',
+    'avgTurnaroundMins',
+    'qaRejectionRate',
+    'connectorFailureRate',
+    'priorAuthFlagRate',
+  ],
+  endpoints: {
+    read: [
+      'GET /api/rcm/lanes/eligibility',
+      'GET /api/rcm/lanes/eligibility/work-items',
+      'GET /api/rcm/queues/eligibility-exceptions',
+      'GET /api/rcm/connectors/eligibility',
+    ],
+    liveMutations: [
+      'POST /api/rcm/lanes/eligibility/intake',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/run-primary',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/run-fallback',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/execute',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/verify',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/retry',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/escalate',
+      'POST /api/rcm/lanes/eligibility/work-items/:workItemId/resolve',
+    ],
+    plannedMutations: [],
+  },
+};
+
 const blueprint = {
   vertical: 'rcm',
   stage: 'scaffold',
@@ -1040,6 +1596,7 @@ const blueprint = {
   },
   laneContracts: {
     claimStatus: claimStatusLaneContract,
+    eligibility: eligibilityLaneContract,
   },
 };
 
@@ -1077,6 +1634,7 @@ router.get('/', (c) =>
         'GET /api/rcm',
         'GET /api/rcm/blueprint',
         'GET /api/rcm/autonomy-loop',
+        // Claim status lane
         'GET /api/rcm/lanes/claim-status',
         'GET /api/rcm/lanes/claim-status/work-items',
         'GET /api/rcm/queues/claim-status-exceptions',
@@ -1089,6 +1647,20 @@ router.get('/', (c) =>
         'POST /api/rcm/lanes/claim-status/work-items/:workItemId/retry',
         'POST /api/rcm/lanes/claim-status/work-items/:workItemId/escalate',
         'POST /api/rcm/lanes/claim-status/work-items/:workItemId/resolve',
+        // Eligibility lane
+        'GET /api/rcm/lanes/eligibility',
+        'GET /api/rcm/lanes/eligibility/work-items',
+        'GET /api/rcm/queues/eligibility-exceptions',
+        'GET /api/rcm/connectors/eligibility',
+        'POST /api/rcm/lanes/eligibility/intake',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/run-primary',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/run-fallback',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/execute',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/verify',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/retry',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/escalate',
+        'POST /api/rcm/lanes/eligibility/work-items/:workItemId/resolve',
+        // Cross-lane reads
         'GET /api/rcm/workspaces',
         'GET /api/rcm/work-items',
         'GET /api/rcm/services',
@@ -1132,6 +1704,160 @@ router.get('/connectors/claim-status', authenticateApiKey, (c) =>
       'X12 276/277 is the primary autonomous rail. Portal and DDE stay bounded fallback paths until credential custody and operator controls are production-ready.',
   }),
 );
+
+// ─── Eligibility lane — read routes ──────────────────────────────────────────
+
+router.get('/lanes/eligibility', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    contract: eligibilityLaneContract,
+    message:
+      'This is the implementation contract for the eligibility verification lane: intake schema, state machine, agent payloads, retry policy, and exception inbox shape.',
+  }),
+);
+
+router.get('/connectors/eligibility', authenticateApiKey, (c) =>
+  c.json({
+    stage: 'live',
+    lane: eligibilityLaneContract.laneKey,
+    connectors: getEligibilityConnectorAvailability(c.env),
+    message:
+      'X12 270/271 (HETS) is the primary autonomous rail for eligibility verification. Portal fallback stays human-led until credential vaulting is production-ready.',
+  }),
+);
+
+router.get('/lanes/eligibility/work-items', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const status = c.req.query('status');
+  const workspaceId = c.req.query('workspaceId');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+
+  if (workspaceId && !isUuid(workspaceId)) {
+    sql.end().catch(() => {});
+    return validationResponse(c, ['"workspaceId" must be a valid UUID']);
+  }
+
+  try {
+    const rows = await sql<WorkItemRow[]>`
+      SELECT
+        w.id,
+        w.workspace_id          AS "workspaceId",
+        ws.name                 AS "workspaceName",
+        w.assigned_agent_id     AS "assignedAgentId",
+        w.work_type             AS "workType",
+        w.form_type             AS "formType",
+        w.title,
+        w.payer_name            AS "payerName",
+        w.coverage_type         AS "coverageType",
+        w.patient_ref           AS "patientRef",
+        w.provider_ref          AS "providerRef",
+        w.claim_ref             AS "claimRef",
+        w.source_system         AS "sourceSystem",
+        w.amount_at_risk        AS "amountAtRisk",
+        w.confidence_pct        AS "confidencePct",
+        w.priority,
+        w.status,
+        w.requires_human_review AS "requiresHumanReview",
+        w.due_at                AS "dueAt",
+        w.submitted_at          AS "submittedAt",
+        w.completed_at          AS "completedAt",
+        w.metadata,
+        w.created_at            AS "createdAt",
+        w.updated_at            AS "updatedAt"
+      FROM rcm_work_items w
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id}
+        AND w.work_type = ${eligibilityLaneContract.laneKey}
+        AND (${status ?? null}::text IS NULL OR w.status = ${status ?? null})
+        AND (${workspaceId ?? null}::uuid IS NULL OR w.workspace_id = ${workspaceId ?? null})
+      ORDER BY
+        CASE w.priority
+          WHEN 'urgent' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'normal' THEN 3
+          ELSE 4
+        END,
+        w.created_at DESC
+      LIMIT ${limit}
+    `;
+
+    return c.json({
+      stage: 'live',
+      lane: eligibilityLaneContract.laneKey,
+      count: rows.length,
+      items: rows.map(mapEligibilityWorkItem),
+    });
+  } catch (err: unknown) {
+    console.error('[rcm] eligibility work-items error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch eligibility work items' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.get('/queues/eligibility-exceptions', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  const severity = c.req.query('severity');
+  const limit = parseLimit(c.req.query('limit'), 50, 200);
+
+  try {
+    const rows = await sql<ExceptionQueueRow[]>`
+      SELECT
+        e.id,
+        e.work_item_id          AS "workItemId",
+        ws.name                 AS "workspaceName",
+        w.payer_name            AS "payerName",
+        w.claim_ref             AS "claimRef",
+        w.priority,
+        e.exception_type        AS "exceptionType",
+        e.severity,
+        e.reason_code           AS "reasonCode",
+        e.summary,
+        w.confidence_pct        AS "confidencePct",
+        w.amount_at_risk        AS "amountAtRisk",
+        e.payload,
+        e.created_at            AS "openedAt"
+      FROM rcm_exceptions e
+      JOIN rcm_work_items w ON w.id = e.work_item_id
+      JOIN rcm_workspaces ws ON ws.id = w.workspace_id
+      WHERE w.merchant_id = ${merchant.id}
+        AND w.work_type = ${eligibilityLaneContract.laneKey}
+        AND e.resolved_at IS NULL
+        AND (${severity ?? null}::text IS NULL OR e.severity = ${severity ?? null})
+      ORDER BY
+        CASE e.severity
+          WHEN 'critical' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'normal' THEN 3
+          ELSE 4
+        END,
+        e.created_at ASC
+      LIMIT ${limit}
+    `;
+
+    return c.json({
+      stage: 'live',
+      queueKey: eligibilityLaneContract.exceptionInbox.queueKey,
+      count: rows.length,
+      items: rows.map((row) => {
+        const base = mapException(row);
+        return {
+          ...base,
+          // For eligibility, claimRef is the member ID
+          memberId: row.claimRef,
+          claimRef: undefined,
+        };
+      }),
+    });
+  } catch (err: unknown) {
+    console.error('[rcm] eligibility exception queue error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch eligibility exception queue' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
 
 router.get('/lanes/claim-status/work-items', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
@@ -2504,6 +3230,1200 @@ router.post('/lanes/claim-status/work-items/:workItemId/resolve', authenticateAp
   }
 });
 
+// ─── Eligibility lane — mutation routes ──────────────────────────────────────
+
+router.post('/lanes/eligibility/intake', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const metadata = asObject(body['metadata']);
+  const details: string[] = [];
+
+  const workspaceId = typeof body['workspaceId'] === 'string' ? body['workspaceId'] : '';
+  const title = typeof body['title'] === 'string' ? body['title'].trim() : '';
+  const workType = typeof body['workType'] === 'string' ? body['workType'] : '';
+  const billingDomain = typeof body['billingDomain'] === 'string' ? body['billingDomain'] : '';
+  const formType = typeof body['formType'] === 'string' ? body['formType'] : '';
+  const payerName = typeof body['payerName'] === 'string' ? body['payerName'].trim() : '';
+  const coverageType = typeof body['coverageType'] === 'string' ? body['coverageType'].trim() : '';
+  const patientRef = typeof body['patientRef'] === 'string' ? body['patientRef'].trim() : '';
+  const providerRef = typeof body['providerRef'] === 'string' ? body['providerRef'].trim() : '';
+  const encounterRef = typeof body['encounterRef'] === 'string' ? body['encounterRef'].trim() : null;
+  const sourceSystem = typeof body['sourceSystem'] === 'string' ? body['sourceSystem'].trim() : '';
+  const priority = normalizePriority(body['priority']);
+  const dueAt = parseDateString(body['dueAt']);
+  const amountAtRisk = parsePositiveAmount(body['amountAtRisk']); // optional for eligibility
+
+  // Eligibility-specific metadata fields
+  const memberId = typeof metadata['memberId'] === 'string' ? metadata['memberId'].trim() : '';
+  const providerNpi = typeof metadata['providerNpi'] === 'string' ? metadata['providerNpi'].trim() : '';
+  const dateOfService = parseDateString(metadata['dateOfService']);
+  const serviceTypeCodes = Array.isArray(metadata['serviceTypeCodes'])
+    ? metadata['serviceTypeCodes'].filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    : [];
+
+  if (!workspaceId || !isUuid(workspaceId)) details.push('"workspaceId" must be a valid UUID');
+  if (!title) details.push('"title" is required');
+  if (workType !== eligibilityLaneContract.laneKey) {
+    details.push(`"workType" must be "${eligibilityLaneContract.laneKey}"`);
+  }
+  if (!eligibilityLaneContract.supportedDomains.includes(billingDomain)) {
+    details.push(`"billingDomain" must be one of: ${eligibilityLaneContract.supportedDomains.join(', ')}`);
+  }
+  if (!eligibilityLaneContract.supportedForms.includes(formType)) {
+    details.push(`"formType" must be one of: ${eligibilityLaneContract.supportedForms.join(', ')}`);
+  }
+  if (!payerName) details.push('"payerName" is required');
+  if (!coverageType) details.push('"coverageType" is required');
+  if (!patientRef) details.push('"patientRef" is required');
+  if (!providerRef) details.push('"providerRef" is required');
+  if (!sourceSystem) details.push('"sourceSystem" is required');
+  if (!dueAt) details.push('"dueAt" must be a valid ISO date');
+  if (!memberId) details.push('"metadata.memberId" is required');
+  if (!providerNpi) details.push('"metadata.providerNpi" is required');
+  if (!dateOfService) details.push('"metadata.dateOfService" must be a valid ISO date');
+  if (serviceTypeCodes.length === 0) {
+    details.push('"metadata.serviceTypeCodes" must contain at least one X12 service type code');
+  }
+
+  if (details.length > 0) return validationResponse(c, details);
+
+  const workItemId = crypto.randomUUID();
+  const sql = createDb(c.env);
+
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const workspace = await getOwnedWorkspace(tx, merchant.id, workspaceId);
+      if (!workspace) throw new Error('WORKSPACE_NOT_FOUND');
+
+      const workItemMetadata = {
+        ...metadata,
+        laneKey: eligibilityLaneContract.laneKey,
+        contractVersion: eligibilityLaneContract.version,
+        playbookVersion:
+          typeof metadata['playbookVersion'] === 'string'
+            ? metadata['playbookVersion']
+            : 'eligibility_v1',
+        autoExecuteAllowed: metadata['autoExecuteAllowed'] !== false,
+        // Eligibility-specific fields stored in metadata for connector access
+        memberId,
+        providerNpi,
+        dateOfService,
+        serviceTypeCodes,
+        payerId: typeof metadata['payerId'] === 'string' ? metadata['payerId'] : null,
+        connectorPlan: {
+          primary: 'x12_270_271',
+          fallback: ['portal'],
+        },
+        routing: {
+          laneSelection: eligibilityLaneContract.laneKey,
+          priorityBand: priority,
+          routingReason: 'structured_eligibility_lane',
+        },
+        attemptHistory: [],
+      };
+
+      await tx`
+        INSERT INTO rcm_work_items (
+          id,
+          workspace_id,
+          merchant_id,
+          work_type,
+          billing_domain,
+          form_type,
+          title,
+          payer_name,
+          coverage_type,
+          patient_ref,
+          provider_ref,
+          encounter_ref,
+          claim_ref,
+          source_system,
+          amount_at_risk,
+          priority,
+          status,
+          requires_human_review,
+          due_at,
+          metadata,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${workItemId},
+          ${workspaceId},
+          ${merchant.id},
+          ${eligibilityLaneContract.laneKey},
+          ${billingDomain},
+          ${formType},
+          ${title},
+          ${payerName},
+          ${coverageType},
+          ${patientRef},
+          ${providerRef},
+          ${encounterRef},
+          ${memberId},
+          ${sourceSystem},
+          ${amountAtRisk},
+          ${priority},
+          'routed',
+          false,
+          ${dueAt},
+          ${jsonb(workItemMetadata)}::jsonb,
+          NOW(),
+          NOW()
+        )
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          {
+            actorType: 'router_agent',
+            actorRef: 'eligibility_router',
+            evidenceType: 'router_decision_recorded',
+            payload: {
+              laneSelection: eligibilityLaneContract.laneKey,
+              routingReason: 'structured_eligibility_lane',
+              autoExecuteAllowed: workItemMetadata.autoExecuteAllowed,
+              connectorPlan: workItemMetadata.connectorPlan,
+              memberId,
+              providerNpi,
+              dateOfService,
+              serviceTypeCodeCount: serviceTypeCodes.length,
+            },
+          },
+        ],
+        'router_agent',
+        'eligibility_router',
+      );
+
+      const row = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      return {
+        workspaceName: workspace.name,
+        workItem: mapEligibilityWorkItem(row),
+      };
+    });
+
+    return c.json(
+      {
+        stage: 'live',
+        lane: eligibilityLaneContract.laneKey,
+        nextState: 'routed',
+        nextAction: 'execute_primary',
+        workspaceName: result.workspaceName,
+        workItem: result.workItem,
+      },
+      201,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORKSPACE_NOT_FOUND') {
+      return c.json({ error: 'Workspace not found' }, 404);
+    }
+    console.error('[rcm] eligibility intake error:', message);
+    return c.json({ error: 'Failed to create eligibility work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/run-primary', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  const connectorKey = (
+    typeof body['connectorKey'] === 'string' ? body['connectorKey'] : 'x12_270_271'
+  ) as EligibilityConnectorKey;
+  const playbookVersion =
+    typeof body['playbookVersion'] === 'string' && body['playbookVersion'].trim()
+      ? body['playbookVersion'].trim()
+      : 'eligibility_v1';
+  const strategy =
+    typeof body['strategy'] === 'string' && body['strategy'].trim()
+      ? body['strategy'].trim()
+      : connectorKey;
+  const autoRoute = body['autoRoute'] !== false;
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const qaActorRef =
+    typeof body['qaActorRef'] === 'string' && body['qaActorRef'].trim()
+      ? body['qaActorRef'].trim()
+      : 'eligibility_policy_loop';
+
+  const details: string[] = [];
+  if (connectorKey !== 'x12_270_271') {
+    details.push('"connectorKey" must be "x12_270_271" for primary execution');
+  }
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedEligibilityWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'routed') {
+      return c.json({ error: 'Eligibility work item must be in "routed" before autonomous run' }, 409);
+    }
+
+    const connectorResult = await runEligibilityConnector(
+      c.env,
+      connectorKey,
+      eligibilityConnectorInputFromWorkItem(row),
+    );
+
+    const persisted = await sql.begin(async (tx: any) =>
+      persistEligibilityConnectorRun(tx, merchant.id, workItemId, {
+        attemptRole: 'primary_worker',
+        agentId,
+        qaActorRef,
+        playbookVersion,
+        strategy,
+        connectorResult,
+        autoRoute,
+      }),
+    );
+
+    return c.json({
+      stage: 'live',
+      autoRoute,
+      nextState: persisted.nextState,
+      connector: {
+        key: connectorResult.connectorKey,
+        mode: connectorResult.mode,
+        statusCode: connectorResult.statusCode,
+        statusLabel: connectorResult.statusLabel,
+        traceId: connectorResult.connectorTraceId,
+        summary: connectorResult.summary,
+      },
+      workItem: persisted.workItem,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Eligibility work item must be in "routed" before autonomous run' }, 409);
+    }
+    if (message === 'ATTEMPTS_EXHAUSTED') {
+      return c.json({ error: 'Autonomous attempt limit reached for this work item' }, 409);
+    }
+    console.error('[rcm] eligibility run-primary error:', message);
+    return c.json({ error: 'Failed to run primary eligibility connector' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/run-fallback', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const connectorKey = (
+    typeof body['connectorKey'] === 'string' ? body['connectorKey'] : 'portal'
+  ) as EligibilityConnectorKey;
+  const playbookVersion =
+    typeof body['playbookVersion'] === 'string' && body['playbookVersion'].trim()
+      ? body['playbookVersion'].trim()
+      : 'eligibility_v1';
+  const strategy =
+    typeof body['alternativeStrategy'] === 'string' && body['alternativeStrategy'].trim()
+      ? body['alternativeStrategy'].trim()
+      : '';
+  const autoRoute = body['autoRoute'] !== false;
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const qaActorRef =
+    typeof body['qaActorRef'] === 'string' && body['qaActorRef'].trim()
+      ? body['qaActorRef'].trim()
+      : 'eligibility_policy_loop';
+
+  const details: string[] = [];
+  if (!['x12_270_271', 'portal'].includes(connectorKey)) {
+    details.push('"connectorKey" must be one of: x12_270_271, portal');
+  }
+  if (!strategy) details.push('"alternativeStrategy" is required');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const row = await getOwnedEligibilityWorkItem(sql, merchant.id, workItemId);
+    if (!row) return c.json({ error: 'Work item not found' }, 404);
+    if (row.status !== 'retry_pending') {
+      return c.json({ error: 'Eligibility work item must be in "retry_pending" before fallback run' }, 409);
+    }
+
+    const connectorResult = await runEligibilityConnector(
+      c.env,
+      connectorKey,
+      eligibilityConnectorInputFromWorkItem(row),
+    );
+
+    const persisted = await sql.begin(async (tx: any) =>
+      persistEligibilityConnectorRun(tx, merchant.id, workItemId, {
+        attemptRole: 'fallback_worker',
+        agentId,
+        qaActorRef,
+        playbookVersion,
+        strategy,
+        connectorResult,
+        autoRoute,
+      }),
+    );
+
+    return c.json({
+      stage: 'live',
+      autoRoute,
+      nextState: persisted.nextState,
+      connector: {
+        key: connectorResult.connectorKey,
+        mode: connectorResult.mode,
+        statusCode: connectorResult.statusCode,
+        statusLabel: connectorResult.statusLabel,
+        traceId: connectorResult.connectorTraceId,
+        summary: connectorResult.summary,
+      },
+      workItem: persisted.workItem,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Eligibility work item must be in "retry_pending" before fallback run' }, 409);
+    }
+    if (message === 'NO_PRIOR_ATTEMPT') {
+      return c.json({ error: 'Fallback connector run requires a prior primary attempt' }, 409);
+    }
+    if (message === 'ATTEMPTS_EXHAUSTED') {
+      return c.json({ error: 'Autonomous attempt limit reached for this work item' }, 409);
+    }
+    if (message === 'SAME_STRATEGY') {
+      return c.json({ error: 'Fallback connector run must use a different strategy or connector' }, 409);
+    }
+    console.error('[rcm] eligibility run-fallback error:', message);
+    return c.json({ error: 'Failed to run fallback eligibility connector' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/execute', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const details: string[] = [];
+  const attemptRole = body['attemptRole'];
+  const playbookVersion = typeof body['playbookVersion'] === 'string' ? body['playbookVersion'].trim() : '';
+  const connectorStrategy = typeof body['connectorStrategy'] === 'string' ? body['connectorStrategy'].trim() : '';
+  const proposedResolution = typeof body['proposedResolution'] === 'string' ? body['proposedResolution'].trim() : '';
+  const resolutionReasonCode =
+    typeof body['resolutionReasonCode'] === 'string' ? body['resolutionReasonCode'].trim() : '';
+  const confidencePct = parseConfidence(body['confidencePct']);
+  const evidenceInput = Array.isArray(body['evidence']) ? body['evidence'] : [];
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const nextBestAction = typeof body['nextBestAction'] === 'string' ? body['nextBestAction'].trim() : null;
+
+  if (attemptRole !== 'primary_worker') details.push('"attemptRole" must be "primary_worker"');
+  if (!playbookVersion) details.push('"playbookVersion" is required');
+  if (!connectorStrategy) details.push('"connectorStrategy" is required');
+  if (!proposedResolution) details.push('"proposedResolution" is required');
+  if (!resolutionReasonCode) details.push('"resolutionReasonCode" is required');
+  if (confidencePct === null) details.push('"confidencePct" must be a number between 0 and 100');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (evidenceInput.length === 0) details.push('"evidence" must contain at least one evidence record');
+
+  const evidence = evidenceInput
+    .map((entry) => {
+      const item = asObject(entry);
+      return {
+        actorType: typeof item['actorType'] === 'string' ? item['actorType'] : 'worker_agent',
+        actorRef:
+          typeof item['actorRef'] === 'string'
+            ? item['actorRef']
+            : agentId ?? 'eligibility_primary_worker',
+        evidenceType: typeof item['evidenceType'] === 'string' ? item['evidenceType'] : '',
+        payload: item['payload'],
+      } satisfies EvidenceInput;
+    })
+    .filter((item) => item.evidenceType.length > 0);
+
+  if (evidence.length !== evidenceInput.length) {
+    details.push('Each evidence item must include "evidenceType"');
+  }
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const row = await getOwnedEligibilityWorkItemForUpdate(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (row.status !== 'routed') throw new Error('INVALID_STATE');
+
+      const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+      const attempts = getAttemptHistory(metadata);
+      if (attempts.length >= eligibilityLaneContract.retryPolicy.maxAutonomousAttempts) {
+        throw new Error('ATTEMPTS_EXHAUSTED');
+      }
+
+      const nextAttempt = {
+        attemptNumber: attempts.length + 1,
+        attemptRole,
+        strategy: connectorStrategy,
+        playbookVersion,
+        proposedResolution,
+        resolutionReasonCode,
+        confidencePct,
+        nextBestAction,
+        submittedAt: new Date().toISOString(),
+        evidenceTypes: evidence.map((item) => item.evidenceType),
+      };
+
+      const updatedMetadata = {
+        ...metadata,
+        playbookVersion,
+        lastExecution: nextAttempt,
+        attemptHistory: [...attempts, nextAttempt],
+      };
+
+      await tx`
+        UPDATE rcm_work_items
+        SET
+          assigned_agent_id = ${agentId},
+          confidence_pct = ${confidencePct},
+          status = 'awaiting_qa',
+          submitted_at = NOW(),
+          metadata = ${jsonb(updatedMetadata)}::jsonb,
+          updated_at = NOW()
+        WHERE id = ${workItemId}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          ...evidence,
+          {
+            actorType: 'worker_agent',
+            actorRef: agentId ?? 'eligibility_primary_worker',
+            evidenceType: 'execution_resolution_proposed',
+            payload: nextAttempt,
+          },
+        ],
+        'worker_agent',
+        agentId ?? 'eligibility_primary_worker',
+      );
+
+      const updated = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+      return mapEligibilityWorkItem(updated);
+    });
+
+    return c.json({
+      stage: 'live',
+      nextState: 'awaiting_qa',
+      nextAction: 'qa_verify',
+      workItem: result,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Eligibility work item must be in "routed" before execute' }, 409);
+    }
+    if (message === 'ATTEMPTS_EXHAUSTED') {
+      return c.json({ error: 'Autonomous attempt limit reached for this lane' }, 409);
+    }
+    console.error('[rcm] eligibility execute error:', message);
+    return c.json({ error: 'Failed to execute eligibility work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/verify', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const details: string[] = [];
+  const qaDecision = typeof body['qaDecision'] === 'string' ? body['qaDecision'] : '';
+  const qaReasonCode = typeof body['qaReasonCode'] === 'string' ? body['qaReasonCode'].trim() : '';
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const exceptionType = typeof body['exceptionType'] === 'string' ? body['exceptionType'] : '';
+  const summary = typeof body['summary'] === 'string' ? body['summary'].trim() : '';
+  const recommendedHumanAction =
+    typeof body['recommendedHumanAction'] === 'string' ? body['recommendedHumanAction'].trim() : '';
+  const severity =
+    typeof body['severity'] === 'string' && ['critical', 'high', 'normal', 'low'].includes(body['severity'])
+      ? (body['severity'] as string)
+      : 'normal';
+  const requiredContextFields = Array.isArray(body['requiredContextFields'])
+    ? body['requiredContextFields'].filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+      )
+    : [];
+  const notes = typeof body['notes'] === 'string' ? body['notes'].trim() : null;
+
+  if (!['approve_auto_close', 'retry_with_next_worker', 'escalate'].includes(qaDecision)) {
+    details.push('"qaDecision" must be one of: approve_auto_close, retry_with_next_worker, escalate');
+  }
+  if (!qaReasonCode) details.push('"qaReasonCode" is required');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (qaDecision === 'escalate') {
+    if (!eligibilityLaneContract.exceptionInbox.triageBuckets.includes(exceptionType)) {
+      details.push(
+        `"exceptionType" must be one of: ${eligibilityLaneContract.exceptionInbox.triageBuckets.join(', ')}`,
+      );
+    }
+    if (!summary) details.push('"summary" is required when escalating');
+    if (!recommendedHumanAction) details.push('"recommendedHumanAction" is required when escalating');
+  }
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const row = await getOwnedEligibilityWorkItemForUpdate(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (row.status !== 'awaiting_qa') throw new Error('INVALID_STATE');
+
+      const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+      const attempts = getAttemptHistory(metadata);
+      if (
+        qaDecision === 'retry_with_next_worker' &&
+        attempts.length >= eligibilityLaneContract.retryPolicy.maxAutonomousAttempts
+      ) {
+        throw new Error('ATTEMPTS_EXHAUSTED');
+      }
+
+      const qaPayload = {
+        qaDecision,
+        qaReasonCode,
+        reviewedAt: new Date().toISOString(),
+        reviewerAgentId: agentId,
+      };
+
+      const nextMetadata = { ...metadata, lastQaDecision: qaPayload };
+      let nextState = 'awaiting_qa';
+
+      if (qaDecision === 'approve_auto_close') {
+        nextState = 'closed_auto';
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'closed_auto',
+            requires_human_review = false,
+            completed_at = NOW(),
+            metadata = ${jsonb(nextMetadata)}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+        await resolveOpenExceptions(tx, workItemId);
+      } else if (qaDecision === 'retry_with_next_worker') {
+        nextState = 'retry_pending';
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'retry_pending',
+            metadata = ${jsonb(nextMetadata)}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+      } else {
+        nextState = 'human_review_required';
+        const payload = {
+          requiredContextFields,
+          recommendedHumanAction,
+          notes,
+          qaReasonCode,
+          lastAttempt: attempts[attempts.length - 1] ?? null,
+        };
+        await upsertOpenException(tx, workItemId, {
+          exceptionType,
+          severity,
+          reasonCode: qaReasonCode,
+          summary,
+          payload,
+        });
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'human_review_required',
+            requires_human_review = true,
+            metadata = ${jsonb(nextMetadata)}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+      }
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          {
+            actorType: 'qa_agent',
+            actorRef: agentId ?? 'eligibility_qa',
+            evidenceType: 'qa_decision_recorded',
+            payload: {
+              ...qaPayload,
+              exceptionType: qaDecision === 'escalate' ? exceptionType : null,
+            },
+          },
+        ],
+        'qa_agent',
+        agentId ?? 'eligibility_qa',
+      );
+
+      const updated = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+      return { nextState, workItem: mapEligibilityWorkItem(updated) };
+    });
+
+    return c.json({ stage: 'live', nextState: result.nextState, workItem: result.workItem });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Eligibility work item must be in "awaiting_qa" before verify' }, 409);
+    }
+    if (message === 'ATTEMPTS_EXHAUSTED') {
+      return c.json({ error: 'Fallback retry is no longer allowed for this work item' }, 409);
+    }
+    console.error('[rcm] eligibility verify error:', message);
+    return c.json({ error: 'Failed to verify eligibility work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/retry', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const details: string[] = [];
+  const playbookVersion = typeof body['playbookVersion'] === 'string' ? body['playbookVersion'].trim() : '';
+  const connectorStrategy = typeof body['connectorStrategy'] === 'string' ? body['connectorStrategy'].trim() : '';
+  const alternativeStrategy = typeof body['alternativeStrategy'] === 'string' ? body['alternativeStrategy'].trim() : '';
+  const fallbackResolution = typeof body['fallbackResolution'] === 'string' ? body['fallbackResolution'].trim() : '';
+  const fallbackReasonCode = typeof body['fallbackReasonCode'] === 'string' ? body['fallbackReasonCode'].trim() : '';
+  const confidencePct = parseConfidence(body['confidencePct']);
+  const evidenceInput = Array.isArray(body['evidence']) ? body['evidence'] : [];
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+
+  if (!playbookVersion) details.push('"playbookVersion" is required');
+  if (!connectorStrategy) details.push('"connectorStrategy" is required');
+  if (!alternativeStrategy) details.push('"alternativeStrategy" is required');
+  if (!fallbackResolution) details.push('"fallbackResolution" is required');
+  if (!fallbackReasonCode) details.push('"fallbackReasonCode" is required');
+  if (confidencePct === null) details.push('"confidencePct" must be a number between 0 and 100');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (evidenceInput.length === 0) details.push('"evidence" must contain at least one evidence record');
+
+  const evidence = evidenceInput
+    .map((entry) => {
+      const item = asObject(entry);
+      return {
+        actorType: typeof item['actorType'] === 'string' ? item['actorType'] : 'fallback_worker_agent',
+        actorRef:
+          typeof item['actorRef'] === 'string'
+            ? item['actorRef']
+            : agentId ?? 'eligibility_fallback_worker',
+        evidenceType: typeof item['evidenceType'] === 'string' ? item['evidenceType'] : '',
+        payload: item['payload'],
+      } satisfies EvidenceInput;
+    })
+    .filter((item) => item.evidenceType.length > 0);
+
+  if (evidence.length !== evidenceInput.length) {
+    details.push('Each evidence item must include "evidenceType"');
+  }
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const row = await getOwnedEligibilityWorkItemForUpdate(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (row.status !== 'retry_pending') throw new Error('INVALID_STATE');
+
+      const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+      const attempts = getAttemptHistory(metadata);
+      if (attempts.length === 0) throw new Error('NO_PRIOR_ATTEMPT');
+      if (attempts.length >= eligibilityLaneContract.retryPolicy.maxAutonomousAttempts) {
+        throw new Error('ATTEMPTS_EXHAUSTED');
+      }
+
+      const previousAttempt = attempts[attempts.length - 1];
+      const previousStrategy =
+        typeof previousAttempt['strategy'] === 'string' ? previousAttempt['strategy'] : '';
+      const previousConnector =
+        typeof previousAttempt['connectorStrategy'] === 'string'
+          ? previousAttempt['connectorStrategy']
+          : previousStrategy;
+
+      if (eligibilityLaneContract.retryPolicy.requireDifferentStrategyOnRetry) {
+        const strategyChanged = alternativeStrategy !== previousStrategy;
+        const connectorChanged = connectorStrategy !== previousConnector;
+        if (!strategyChanged && !connectorChanged) throw new Error('SAME_STRATEGY');
+      }
+
+      const nextAttempt = {
+        attemptNumber: attempts.length + 1,
+        attemptRole: 'fallback_worker',
+        strategy: alternativeStrategy,
+        connectorStrategy,
+        playbookVersion,
+        fallbackResolution,
+        fallbackReasonCode,
+        confidencePct,
+        submittedAt: new Date().toISOString(),
+        evidenceTypes: evidence.map((item) => item.evidenceType),
+      };
+
+      const nextMetadata = {
+        ...metadata,
+        playbookVersion,
+        lastExecution: nextAttempt,
+        attemptHistory: [...attempts, nextAttempt],
+      };
+
+      await tx`
+        UPDATE rcm_work_items
+        SET
+          assigned_agent_id = ${agentId},
+          confidence_pct = ${confidencePct},
+          status = 'awaiting_qa',
+          submitted_at = NOW(),
+          metadata = ${jsonb(nextMetadata)}::jsonb,
+          updated_at = NOW()
+        WHERE id = ${workItemId}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          ...evidence,
+          {
+            actorType: 'fallback_worker_agent',
+            actorRef: agentId ?? 'eligibility_fallback_worker',
+            evidenceType: 'fallback_execution_submitted',
+            payload: nextAttempt,
+          },
+        ],
+        'fallback_worker_agent',
+        agentId ?? 'eligibility_fallback_worker',
+      );
+
+      const updated = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+      return mapEligibilityWorkItem(updated);
+    });
+
+    return c.json({ stage: 'live', nextState: 'awaiting_qa', nextAction: 'qa_verify', workItem: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Eligibility work item must be in "retry_pending" before retry' }, 409);
+    }
+    if (message === 'NO_PRIOR_ATTEMPT') {
+      return c.json({ error: 'Fallback retry requires a prior autonomous attempt' }, 409);
+    }
+    if (message === 'ATTEMPTS_EXHAUSTED') {
+      return c.json({ error: 'Autonomous attempt limit reached for this work item' }, 409);
+    }
+    if (message === 'SAME_STRATEGY') {
+      return c.json({ error: 'Fallback retry must use a different strategy or connector path' }, 409);
+    }
+    console.error('[rcm] eligibility retry error:', message);
+    return c.json({ error: 'Failed to submit eligibility fallback retry' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/escalate', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const details: string[] = [];
+  const exceptionType = typeof body['exceptionType'] === 'string' ? body['exceptionType'] : '';
+  const summary = typeof body['summary'] === 'string' ? body['summary'].trim() : '';
+  const reasonCode = typeof body['reasonCode'] === 'string' ? body['reasonCode'].trim() : '';
+  const recommendedHumanAction =
+    typeof body['recommendedHumanAction'] === 'string' ? body['recommendedHumanAction'].trim() : '';
+  const assignedReviewer =
+    typeof body['assignedReviewer'] === 'string' ? body['assignedReviewer'].trim() : null;
+  const notes = typeof body['notes'] === 'string' ? body['notes'].trim() : null;
+  const agentId = typeof body['agentId'] === 'string' ? body['agentId'] : null;
+  const severity =
+    typeof body['severity'] === 'string' && ['critical', 'high', 'normal', 'low'].includes(body['severity'])
+      ? (body['severity'] as string)
+      : 'normal';
+  const requiredContextFields = Array.isArray(body['requiredContextFields'])
+    ? body['requiredContextFields'].filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+      )
+    : [];
+  const slaAt =
+    parseDateString(body['slaAt']) ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  if (!eligibilityLaneContract.exceptionInbox.triageBuckets.includes(exceptionType)) {
+    details.push(
+      `"exceptionType" must be one of: ${eligibilityLaneContract.exceptionInbox.triageBuckets.join(', ')}`,
+    );
+  }
+  if (!summary) details.push('"summary" is required');
+  if (!reasonCode) details.push('"reasonCode" is required');
+  if (!recommendedHumanAction) details.push('"recommendedHumanAction" is required');
+  if (agentId && !isUuid(agentId)) details.push('"agentId" must be a valid UUID');
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const row = await getOwnedEligibilityWorkItemForUpdate(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (eligibilityLaneContract.stateMachine.terminalStates.includes(row.status)) {
+        throw new Error('TERMINAL_STATE');
+      }
+
+      const payload = { requiredContextFields, recommendedHumanAction, assignedReviewer, slaAt, notes };
+      await upsertOpenException(tx, workItemId, {
+        exceptionType,
+        severity,
+        reasonCode,
+        summary,
+        payload,
+      });
+
+      const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+      await tx`
+        UPDATE rcm_work_items
+        SET
+          status = 'human_review_required',
+          requires_human_review = true,
+          metadata = ${jsonb({
+            ...metadata,
+            lastEscalation: {
+              exceptionType,
+              reasonCode,
+              recommendedHumanAction,
+              assignedReviewer,
+              escalatedAt: new Date().toISOString(),
+            },
+          })}::jsonb,
+          updated_at = NOW()
+        WHERE id = ${workItemId}
+      `;
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          {
+            actorType: 'escalation_agent',
+            actorRef: agentId ?? 'eligibility_escalation',
+            evidenceType: 'escalation_packet_created',
+            payload: { exceptionType, reasonCode, summary, ...payload },
+          },
+        ],
+        'escalation_agent',
+        agentId ?? 'eligibility_escalation',
+      );
+
+      const updated = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+      return mapEligibilityWorkItem(updated);
+    });
+
+    return c.json({ stage: 'live', nextState: 'human_review_required', workItem: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'TERMINAL_STATE') {
+      return c.json({ error: 'Terminal eligibility work items cannot be escalated again' }, 409);
+    }
+    console.error('[rcm] eligibility escalate error:', message);
+    return c.json({ error: 'Failed to escalate eligibility work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
+router.post('/lanes/eligibility/work-items/:workItemId/resolve', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workItemId = c.req.param('workItemId') ?? '';
+  if (!isUuid(workItemId)) {
+    return validationResponse(c, ['"workItemId" must be a valid UUID']);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const details: string[] = [];
+  const action = typeof body['action'] === 'string' ? body['action'] : '';
+  const reviewerRef = typeof body['reviewerRef'] === 'string' ? body['reviewerRef'].trim() : 'human_reviewer';
+  const summary = typeof body['summary'] === 'string' ? body['summary'].trim() : null;
+  const addedContext = asObject(body['addedContext']);
+  const ruleCandidate = asObject(body['ruleCandidate']);
+  const exceptionType = typeof body['exceptionType'] === 'string' ? body['exceptionType'] : null;
+
+  if (!eligibilityLaneContract.exceptionInbox.allowedHumanActions.includes(action)) {
+    details.push(
+      `"action" must be one of: ${eligibilityLaneContract.exceptionInbox.allowedHumanActions.join(', ')}`,
+    );
+  }
+  if (action === 'add_missing_context' && Object.keys(addedContext).length === 0) {
+    details.push('"addedContext" is required for add_missing_context');
+  }
+  if (action === 'classify_new_exception_type' && !exceptionType) {
+    details.push('"exceptionType" is required for classify_new_exception_type');
+  }
+  if (details.length > 0) return validationResponse(c, details);
+
+  const sql = createDb(c.env);
+  try {
+    const result = await sql.begin(async (tx: any) => {
+      const row = await getOwnedEligibilityWorkItemForUpdate(tx, merchant.id, workItemId);
+      if (!row) throw new Error('WORK_ITEM_NOT_FOUND');
+      if (eligibilityLaneContract.stateMachine.terminalStates.includes(row.status)) {
+        throw new Error('TERMINAL_STATE');
+      }
+
+      const exceptionManagedStates = new Set(['human_review_required', 'blocked']);
+      if (!exceptionManagedStates.has(row.status)) throw new Error('INVALID_STATE');
+
+      const metadata = parseJsonb<JsonRecord>(row.metadata, {});
+      const nowIso = new Date().toISOString();
+      let nextStatus = row.status;
+      let evidenceType = 'human_resolution_recorded';
+
+      if (action === 'approve_closure' || action === 'take_over_case') {
+        nextStatus = 'closed_human';
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'closed_human',
+            requires_human_review = false,
+            completed_at = NOW(),
+            metadata = ${jsonb({
+              ...metadata,
+              lastHumanDecision: { action, reviewerRef, summary, decidedAt: nowIso },
+            })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+        await tx`
+          UPDATE rcm_exceptions
+          SET resolved_at = NOW()
+          WHERE work_item_id = ${workItemId} AND resolved_at IS NULL
+        `;
+      } else if (action === 'reject_closure') {
+        nextStatus = 'rejected';
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'rejected',
+            requires_human_review = false,
+            metadata = ${jsonb({
+              ...metadata,
+              lastHumanDecision: { action, reviewerRef, summary, decidedAt: nowIso },
+            })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+        await tx`
+          UPDATE rcm_exceptions
+          SET resolved_at = NOW()
+          WHERE work_item_id = ${workItemId} AND resolved_at IS NULL
+        `;
+      } else if (action === 'mark_blocked') {
+        nextStatus = 'blocked';
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'blocked',
+            requires_human_review = true,
+            metadata = ${jsonb({
+              ...metadata,
+              lastHumanDecision: { action, reviewerRef, summary, decidedAt: nowIso },
+            })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+      } else if (action === 'add_missing_context') {
+        nextStatus = 'routed';
+        evidenceType = 'human_context_added';
+        const humanProvidedContext = asObject(metadata['humanProvidedContext']);
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            status = 'routed',
+            requires_human_review = false,
+            metadata = ${jsonb({
+              ...metadata,
+              humanProvidedContext: { ...humanProvidedContext, ...addedContext },
+              lastHumanDecision: { action, reviewerRef, summary, decidedAt: nowIso },
+            })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+        await tx`
+          UPDATE rcm_exceptions
+          SET resolved_at = NOW()
+          WHERE work_item_id = ${workItemId} AND resolved_at IS NULL
+        `;
+      } else if (action === 'propose_rule_candidate') {
+        nextStatus = row.status;
+        await tx`
+          UPDATE rcm_work_items
+          SET
+            metadata = ${jsonb({
+              ...metadata,
+              pendingRuleCandidate: {
+                ...ruleCandidate,
+                reviewerRef,
+                summary,
+                proposedAt: nowIso,
+              },
+            })}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${workItemId}
+        `;
+      } else if (action === 'classify_new_exception_type') {
+        nextStatus = row.status;
+        const unresolved = await getLatestOpenExceptionForUpdate(tx, workItemId);
+        if (!unresolved) throw new Error('NO_OPEN_EXCEPTION');
+        await tx`
+          UPDATE rcm_exceptions
+          SET
+            exception_type = ${exceptionType},
+            reason_code = ${summary ?? 'human_reclassified'},
+            payload = COALESCE(payload, '{}'::jsonb) || ${jsonb({
+              reclassifiedBy: reviewerRef,
+              reclassifiedAt: nowIso,
+            })}::jsonb
+          WHERE id = ${unresolved.id}
+        `;
+      }
+
+      await insertEvidence(
+        tx,
+        workItemId,
+        [
+          {
+            actorType: 'human_reviewer',
+            actorRef: reviewerRef,
+            evidenceType,
+            payload: {
+              action,
+              summary,
+              addedContext: Object.keys(addedContext).length > 0 ? addedContext : null,
+              ruleCandidate: Object.keys(ruleCandidate).length > 0 ? ruleCandidate : null,
+              exceptionType,
+              decidedAt: nowIso,
+            },
+          },
+        ],
+        'human_reviewer',
+        reviewerRef,
+      );
+
+      const updated = await getOwnedEligibilityWorkItem(tx, merchant.id, workItemId);
+      if (!updated) throw new Error('WORK_ITEM_NOT_FOUND');
+      return { nextState: nextStatus, workItem: mapEligibilityWorkItem(updated) };
+    });
+
+    return c.json({ stage: 'live', nextState: result.nextState, workItem: result.workItem });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'WORK_ITEM_NOT_FOUND') return c.json({ error: 'Work item not found' }, 404);
+    if (message === 'TERMINAL_STATE') {
+      return c.json({ error: 'Terminal eligibility work items cannot be resolved again' }, 409);
+    }
+    if (message === 'INVALID_STATE') {
+      return c.json({ error: 'Human resolution is only allowed while the case is in the exception inbox' }, 409);
+    }
+    if (message === 'NO_OPEN_EXCEPTION') {
+      return c.json({ error: 'No open exception exists for this work item' }, 409);
+    }
+    console.error('[rcm] eligibility resolve error:', message);
+    return c.json({ error: 'Failed to resolve eligibility work item' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
+
 router.get('/services', authenticateApiKey, (c) =>
   c.json({
     stage: 'scaffold',
@@ -2857,6 +4777,31 @@ router.get('/metrics/queues', authenticateApiKey, async (c) => {
         AND w.work_type = ${claimStatusLaneContract.laneKey}
     `;
 
+    const [eligibility] = await sql<
+      Array<{ totalCount: number; openCount: number; exceptionCount: number; autoClosedCount: number }>
+    >`
+      SELECT
+        COUNT(*)::int AS "totalCount",
+        COUNT(*) FILTER (
+          WHERE w.status NOT IN ('closed_auto', 'closed_human', 'blocked', 'rejected')
+        )::int AS "openCount",
+        COUNT(*) FILTER (WHERE w.status = 'closed_auto')::int AS "autoClosedCount",
+        (
+          SELECT COUNT(*)::int
+          FROM rcm_exceptions e
+          WHERE e.work_item_id = ANY(
+            SELECT id
+            FROM rcm_work_items
+            WHERE merchant_id = ${merchant.id}
+              AND work_type = ${eligibilityLaneContract.laneKey}
+          )
+            AND e.resolved_at IS NULL
+        ) AS "exceptionCount"
+      FROM rcm_work_items w
+      WHERE w.merchant_id = ${merchant.id}
+        AND w.work_type = ${eligibilityLaneContract.laneKey}
+    `;
+
     return c.json({
       stage: 'live',
       queues: [
@@ -2868,6 +4813,15 @@ router.get('/metrics/queues', authenticateApiKey, async (c) => {
           openCount: claimStatus?.openCount ?? 0,
           exceptionCount: claimStatus?.exceptionCount ?? 0,
           autoClosedCount: claimStatus?.autoClosedCount ?? 0,
+        },
+        {
+          key: 'eligibility_verification',
+          label: 'Eligibility verification',
+          status: 'live',
+          totalCount: eligibility?.totalCount ?? 0,
+          openCount: eligibility?.openCount ?? 0,
+          exceptionCount: eligibility?.exceptionCount ?? 0,
+          autoClosedCount: eligibility?.autoClosedCount ?? 0,
         },
         { key: 'dde_correction', label: 'DDE correction', status: 'build_next' },
         { key: 'denial_follow_up', label: 'Denial follow-up', status: 'phase_two' },
