@@ -56,8 +56,9 @@ let recordingLevelCallback: ((level: number) => void) | null = null;
 function normalizeRecordingMetering(metering: number | null): number {
   if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0;
   // Android AAC reports a compressed dB range (-100 to 0) vs iOS (-160 to 0).
-  // Use a tighter range on Android so the visual meter responds correctly.
-  const range = Platform.OS === 'android' ? 70 : 55;
+  // iOS range widened to 65 to match the lowered -45 dB speech threshold
+  // so the visual meter responds proportionally to actual speech energy.
+  const range = Platform.OS === 'android' ? 70 : 65;
   const normalized = Math.max(0, Math.min(1, (metering + range) / range));
   return Math.pow(normalized, 1.35);
 }
@@ -78,6 +79,19 @@ async function resetRecordingMode(): Promise<void> {
   await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
 }
 
+async function prepareAudioSessionForRecording(): Promise<void> {
+  // On iOS, explicitly deactivate the current audio session (which may be
+  // in .playback from a previous TTS playback) before switching to
+  // .playAndRecord. Skipping this step can leave the microphone inactive
+  // even though the recording appears to start correctly.
+  if (Platform.OS === 'ios') {
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    // Brief yield so the audio session state change propagates before
+    // we re-activate with allowsRecordingIOS: true.
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+  }
+}
+
 export async function startRecording(options?: StartRecordingOptions): Promise<void> {
   startCancelled = false;
   clearRecordingTimers();
@@ -86,6 +100,9 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
 
   const { granted } = await Audio.requestPermissionsAsync();
   if (!granted) throw new Error('Microphone permission denied.');
+  if (startCancelled) return;
+
+  await prepareAudioSessionForRecording();
   if (startCancelled) return;
 
   await Audio.setAudioModeAsync({
@@ -143,9 +160,11 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
       if (!status.isRecording || silenceCallbackFired) return;
       const metering = typeof status.metering === 'number' ? status.metering : null;
       recordingLevelCallback?.(normalizeRecordingMetering(metering));
-      // Android AAC metering reports in a compressed range — use a lower
-      // threshold so speech is detected reliably on Android devices.
-      const speechThreshold = Platform.OS === 'android' ? -50 : -38;
+      // expo-av on iOS reports average power (dBFS), not peak.
+      // Conversational speech at arm's length averages -42 to -50 dBFS,
+      // so -38 was too tight and heardSpeech never fired.
+      // Android AAC metering uses a compressed range (-100→0) so needs -50.
+      const speechThreshold = Platform.OS === 'android' ? -50 : -45;
       if (metering != null && metering > speechThreshold) {
         heardSpeech = true;
         if (silenceTimer) {

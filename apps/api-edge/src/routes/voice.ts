@@ -57,6 +57,36 @@ function shouldFallbackToEnglishWhisper(text: string): boolean {
   return false;
 }
 
+// CF Whisper (@cf/openai/whisper) hallucinates predictable filler phrases for
+// quiet, short, or unclear audio. Detect these and force a fallback to OpenAI
+// Whisper which handles edge cases much more reliably.
+const CF_WHISPER_HALLUCINATIONS = new Set([
+  'thank you for watching.',
+  'thank you for watching',
+  'thank you.',
+  'thank you',
+  'thanks for watching.',
+  'thanks for watching',
+  'you',
+  'yeah',
+  'hmm',
+  'um',
+  'uh',
+  'okay',
+  'ok',
+  '.',
+  '...',
+]);
+
+function isCfWhisperHallucination(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (!lower) return true;
+  if (CF_WHISPER_HALLUCINATIONS.has(lower)) return true;
+  // Single word with no travel meaning — likely hallucinated
+  if (lower.split(/\s+/).length === 1 && lower.length <= 4) return true;
+  return false;
+}
+
 voiceRouter.post('/transcribe', async (c) => {
   const unauthorized = requireBroClientKey(c);
   if (unauthorized) return unauthorized;
@@ -96,8 +126,11 @@ voiceRouter.post('/transcribe', async (c) => {
         audio: [...audioBytes],
       });
       const transcript = (result?.text ?? '').trim();
-      if (transcript && !shouldFallbackToEnglishWhisper(transcript)) {
+      if (transcript && !shouldFallbackToEnglishWhisper(transcript) && !isCfWhisperHallucination(transcript)) {
         return c.json({ transcript });
+      }
+      if (transcript) {
+        console.warn('[voice/transcribe] cf_whisper_fallback', { transcript });
       }
     } catch (error: any) {
       console.warn('[voice/transcribe] cf_ai_failed', error?.message ?? String(error));
