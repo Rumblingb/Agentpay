@@ -107,8 +107,7 @@ export async function storeCredential(
     if (vaultKey) {
       encryptedPayload = await encryptPayload(vaultKey, JSON.stringify(params.plaintextData));
     } else {
-      console.warn('[rcm-vault] RCM_VAULT_ENCRYPTION_KEY not set — falling back to base64 (not secure)');
-      encryptedPayload = btoa(JSON.stringify(params.plaintextData));
+      throw new Error('RCM_VAULT_ENCRYPTION_KEY is not configured — cannot store credentials without encryption');
     }
 
     await sql`
@@ -171,12 +170,11 @@ export async function retrieveCredential(
     if (!rows[0]) return null;
 
     const vaultKey = env.RCM_VAULT_ENCRYPTION_KEY;
-    let decryptedText: string;
-    if (vaultKey) {
-      decryptedText = await decryptPayload(vaultKey, rows[0].encryptedPayload);
-    } else {
-      decryptedText = atob(rows[0].encryptedPayload);
+    if (!vaultKey) {
+      console.error('[rcm-vault] RCM_VAULT_ENCRYPTION_KEY is not configured — cannot decrypt credential');
+      return null;
     }
+    const decryptedText = await decryptPayload(vaultKey, rows[0].encryptedPayload);
     return JSON.parse(decryptedText) as PlaintextCredential;
   } catch {
     return null;
@@ -199,8 +197,7 @@ export async function rotateCredential(
     if (vaultKey) {
       encryptedPayload = await encryptPayload(vaultKey, JSON.stringify(newPlaintextData));
     } else {
-      console.warn('[rcm-vault] RCM_VAULT_ENCRYPTION_KEY not set — falling back to base64 (not secure)');
-      encryptedPayload = btoa(JSON.stringify(newPlaintextData));
+      throw new Error('RCM_VAULT_ENCRYPTION_KEY is not configured — cannot rotate credentials without encryption');
     }
 
     await sql`
