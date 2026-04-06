@@ -1,4 +1,4 @@
-import type { TripIntent, JourneySession, BookingState } from '../ace-core/src/index'
+import type { TripIntent, JourneySession, BookingState } from '@ace/core'
 
 // ── Booking adapter ───────────────────────────────────────────────────────────
 

@@ -15,6 +15,12 @@ import { createDb } from '../../lib/db';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function genId(prefix: string): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${prefix}_${hex}`;
+}
+
 type PolicyDecisionMode = 'auto' | 'human_confirm' | 'escalate';
 
 function evaluatePolicy(params: {
@@ -109,7 +115,7 @@ router.post('/', async (c) => {
     const newStatus = decision.mode === 'auto' ? 'planned' : 'awaiting_approval';
 
     // Update intent status and store plan reference
-    const planId = `pln_${Date.now().toString(36)}`;
+    const planId = genId('pln');
     await sql`
       UPDATE ace_trip_intents
       SET status = ${newStatus}, plan_id = ${planId}, updated_at = now()
@@ -117,7 +123,7 @@ router.post('/', async (c) => {
     `;
 
     // Create approval record
-    const approvalId = `apv_${Date.now().toString(36)}`;
+    const approvalId = genId('apv');
     const requiredFrom = decision.mode === 'auto' ? 'policy_auto' : 'human';
     const approvalStatus = decision.mode === 'auto' ? 'approved' : 'pending';
 

@@ -1,4 +1,4 @@
-import type { TravelPolicy, Operator, TripIntent, OperatorPermission } from '../ace-core/src/index'
+import type { TravelPolicy, Operator, TripIntent, OperatorPermission } from '@ace/core'
 import type { PolicyDecision } from './engine'
 
 /**

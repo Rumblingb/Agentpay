@@ -1,4 +1,4 @@
-import type { TripIntent, JourneySession } from '../ace-core/src/index'
+import type { TripIntent, JourneySession } from '@ace/core'
 import type { BookingLeg } from './adapters'
 
 // ── Execution request / result ────────────────────────────────────────────────

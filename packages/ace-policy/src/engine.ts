@@ -1,4 +1,4 @@
-import type { TravelPolicy, Operator, TripIntent } from '../ace-core/src/index'
+import type { TravelPolicy, Operator, TripIntent } from '@ace/core'
 
 export type PolicyDecision =
   | { mode: 'auto'; reason: string }

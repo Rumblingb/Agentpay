@@ -1,4 +1,4 @@
-import type { Operator, OperatorType } from '../ace-core/src/index'
+import type { Operator, OperatorType } from '@ace/core'
 import type { AllowedAction } from './scopes'
 import { validateActions } from './scopes'
 
