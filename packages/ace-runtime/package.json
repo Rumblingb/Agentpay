@@ -1,0 +1,16 @@
+{
+  "name": "@ace/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ace/core": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

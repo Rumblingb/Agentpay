@@ -1,0 +1,6 @@
+export type { Principal } from './types/principal'
+export type { Operator, OperatorType } from './types/operator'
+export type { TripIntent, TripIntentSource, TripIntentStatus } from './types/trip-intent'
+export type { TravelPolicy, OperatorPermission } from './types/travel-policy'
+export type { ApprovalDecision, ApprovalActor, ApprovalStatus } from './types/approval-decision'
+export type { JourneySession, BookingState, RerouteOption } from './types/journey-session'
