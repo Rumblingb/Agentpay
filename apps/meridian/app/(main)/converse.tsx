@@ -2112,7 +2112,7 @@ export default function ConverseScreen() {
                 </View>
                 <Text style={styles.usualRouteRoute}>{usualRoute.origin} → {usualRoute.destination}</Text>
                 {usualRoute.typicalFareGbp != null && (
-                  <Text style={styles.usualRouteFare}>~£{usualRoute.typicalFareGbp} · Tap to book</Text>
+                  <Text style={styles.usualRouteFare}>~£{usualRoute.typicalFareGbp} (estimate) · Tap to book</Text>
                 )}
               </Pressable>
             )}
@@ -2372,7 +2372,7 @@ export default function ConverseScreen() {
                 </View>
               )}
               {priceLabel && (
-                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
+                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel} (estimated)` : priceLabel}</Text>
               )}
               <View style={styles.noFeeStrip}>
                 <Ionicons name="gift-outline" size={12} color="#4ade80" />
