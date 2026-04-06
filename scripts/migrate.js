@@ -885,6 +885,103 @@ const migrations = [
         WHERE decision_code IS NOT NULL;
     `,
   },
+  {
+    name: '036_ace_tables',
+    sql: `
+      -- ace_principals: links Ace principals to existing agent_identities
+      CREATE TABLE IF NOT EXISTS ace_principals (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT REFERENCES agent_identities(agent_id),
+        profile_id TEXT,
+        policy_set_id TEXT,
+        trusted_operator_ids TEXT[] DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_principals_agent_id ON ace_principals(agent_id);
+
+      -- ace_operators: trusted agent delegation relationships
+      CREATE TABLE IF NOT EXISTS ace_operators (
+        id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL,
+        operator_type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        permissions_id TEXT,
+        allowed_actions TEXT[] DEFAULT '{}',
+        spend_limit_gbp INTEGER,
+        requires_human_confirm_above_gbp INTEGER,
+        delegation_expires_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_operators_principal_id ON ace_operators(principal_id);
+
+      -- ace_travel_policies: per-principal travel constitution
+      CREATE TABLE IF NOT EXISTS ace_travel_policies (
+        id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL,
+        auto_book_rail_under_gbp INTEGER,
+        auto_book_hotel_under_gbp INTEGER,
+        require_human_for_flights BOOLEAN DEFAULT true,
+        max_arrival_hour INTEGER,
+        prefer_direct BOOLEAN DEFAULT true,
+        preferred_seat TEXT DEFAULT 'any',
+        preferred_class TEXT DEFAULT 'standard',
+        business_class_flights_over_hours INTEGER,
+        operator_permissions JSONB DEFAULT '[]',
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_travel_policies_principal_id ON ace_travel_policies(principal_id);
+
+      -- ace_trip_intents: the intent spine
+      CREATE TABLE IF NOT EXISTS ace_trip_intents (
+        id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL,
+        operator_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        constraints JSONB DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'draft',
+        plan_id TEXT,
+        journey_session_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_trip_intents_principal_id ON ace_trip_intents(principal_id);
+      CREATE INDEX IF NOT EXISTS idx_ace_trip_intents_status ON ace_trip_intents(status);
+
+      -- ace_approvals: approval decisions for trip intents
+      CREATE TABLE IF NOT EXISTS ace_approvals (
+        id TEXT PRIMARY KEY,
+        trip_intent_id TEXT NOT NULL,
+        required_from TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decided_by TEXT,
+        decided_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_approvals_trip_intent_id ON ace_approvals(trip_intent_id);
+
+      -- ace_journey_sessions: the live object Ace owns after execution
+      CREATE TABLE IF NOT EXISTS ace_journey_sessions (
+        id TEXT PRIMARY KEY,
+        trip_intent_id TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        operator_id TEXT NOT NULL,
+        policy_id TEXT NOT NULL,
+        approval_id TEXT NOT NULL,
+        initiated_by TEXT NOT NULL,
+        booking_state TEXT NOT NULL DEFAULT 'planned',
+        live_state JSONB DEFAULT '{}',
+        notifications TEXT[] DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_ace_journey_sessions_principal_id ON ace_journey_sessions(principal_id);
+      CREATE INDEX IF NOT EXISTS idx_ace_journey_sessions_trip_intent_id ON ace_journey_sessions(trip_intent_id);
+    `,
+  },
 ];
 
 async function migrate() {
