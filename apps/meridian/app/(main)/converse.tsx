@@ -2374,6 +2374,10 @@ export default function ConverseScreen() {
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
               )}
+              <View style={styles.noFeeStrip}>
+                <Ionicons name="gift-outline" size={12} color="#4ade80" />
+                <Text style={styles.noFeeStripText}>No service fee · April</Text>
+              </View>
               <Text style={styles.confirmDecision}>{decisionLine}</Text>
               {pendingPlanRef.current?.assumptionNote && (
                 <Text style={styles.confirmFootnote}>{pendingPlanRef.current.assumptionNote}</Text>
@@ -3105,6 +3109,19 @@ const styles = StyleSheet.create({
     letterSpacing: -2,
     marginTop: 6,
     marginBottom: 12,
+  },
+  noFeeStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginBottom: 10,
+  },
+  noFeeStripText: {
+    fontSize: 12,
+    color: '#4ade80',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   confirmDecision: {
     fontSize: 15,
