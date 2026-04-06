@@ -147,6 +147,7 @@ export default function StatusScreen() {
       currencySymbol: paramSymbol ?? null,
       currencyCode: paramCode ?? null,
       tripContext,
+      isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
       shareToken,
       updatedAt: new Date().toISOString(),
     });
@@ -323,6 +324,8 @@ export default function StatusScreen() {
               currencySymbol: paramSymbol ?? null,
               currencyCode: paramCode ?? null,
               tripContext: nextTripContext,
+              // ticketed implies finalised fare
+              isEstimated: false,
               shareToken: resolvedShareToken,
               updatedAt: new Date().toISOString(),
             });
@@ -410,6 +413,7 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
             shareToken,
             updatedAt: new Date().toISOString(),
           });
@@ -483,6 +487,7 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
             shareToken,
             updatedAt: new Date().toISOString(),
           });
@@ -574,7 +579,7 @@ export default function StatusScreen() {
         intentId: currentIntentId,
         jobId,
         journeyId: paramJourneyId ?? null,
-        status: isError ? 'attention' : 'ticketed',
+          status: isError ? 'attention' : 'ticketed',
         title: nextTripContext.title,
         fromStation: fromStation ?? nextTripContext.origin ?? null,
         toStation: toStation ?? nextTripContext.destination ?? null,
@@ -587,6 +592,7 @@ export default function StatusScreen() {
         currencySymbol: paramSymbol ?? null,
         currencyCode: paramCode ?? null,
         tripContext: nextTripContext,
+          isEstimated: false,
         shareToken,
         updatedAt: new Date().toISOString(),
       });

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Practitioner Billing Prototype</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Helvetica,Arial;padding:20px;background:#f7fafc}
+    .container{max-width:980px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.06)}
+    h1{margin:0 0 16px}
+    label{display:block;margin-top:8px}
+    input,select{padding:8px;width:100%;box-sizing:border-box;margin-top:4px}
+    button{margin-top:12px;padding:10px 14px}
+    .row{display:flex;gap:12px}
+    .col{flex:1}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+    .badge{display:inline-block;padding:4px 8px;border-radius:6px;background:#eef;color:#0b6}
+    .status-draft{color:#6b7280}
+    .status-submitted{color:#0ea5a4}
+    .status-paid{color:#10b981}
+    .status-denied{color:#ef4444}
+    .small{font-size:0.9em;color:#6b7280}
+    .inbox{background:#fff3f2;padding:12px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Practitioner Billing — Prototype</h1>
+
+    <section>
+      <h2>Create Invoice</h2>
+      <div>
+        <label>Patient name<input id="patient" /></label>
+        <label>Amount (USD)<input id="amount" type="number" step="0.01" /></label>
+        <label>Procedure code (CPT/ICD)
+          <input id="code" list="code-list" autocomplete="off" />
+          <datalist id="code-list"></datalist>
+        </label>
+        <button id="create">Create Invoice</button>
+        <div id="createMsg" class="small"></div>
+      </div>
+    </section>
+
+    <section style="margin-top:20px">
+      <h2>Invoices</h2>
+      <div id="invoices"></div>
+    </section>
+
+    <section style="margin-top:20px">
+      <h2>Exceptions Inbox</h2>
+      <div id="inbox" class="inbox small">Loading...</div>
+    </section>
+
+    <section style="margin-top:20px">
+      <h2>Webhooks</h2>
+      <div id="webhooks" class="small">Loading...</div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

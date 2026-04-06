@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
+import { v4 as uuidv4 } from 'uuid';
 import rateLimit from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
 import * as merchantsService from '../services/merchants.js';
 import * as transactionsService from '../services/transactions.js';
 import { evaluatePolicy } from '../policy/evaluatePolicy.js';
 import * as webhooksService from '../services/webhooks.js';
+import { scrubClaimServer } from '../lib/claimScrubber.js';
 import type { WebhookPayload } from '../services/webhooks.js';
 import * as webhookEmitter from '../services/webhookEmitter.js';
 import * as auditService from '../services/audit.js';
@@ -89,6 +91,13 @@ const paymentSchema = Joi.object({
   protocol: Joi.string().valid('solana', 'x402', 'ap2', 'acp').optional(),
   metadata: Joi.object().optional(),
   expiryMinutes: Joi.number().min(1).max(1440).optional(),
+});
+
+const draftSchema = Joi.object({
+  amountUsdc: Joi.number().positive().required(),
+  recipientAddress: Joi.string().min(0).max(44).optional().allow(''),
+  metadata: Joi.object().optional(),
+  expiryMinutes: Joi.number().min(1).max(525600).optional(),
 });
 
 const verifyPaymentSchema = Joi.object({
@@ -251,6 +260,20 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
       value.expiryMinutes || 30
     );
 
+    // Server-side scrubbing: validate metadata (patient, code) before creating live payment
+    try {
+      const scrub = scrubClaimServer({ patient: value.metadata?.patient, amount: value.amountUsdc, code: value.metadata?.code });
+      if (!scrub.ok && scrub.status === 'invalid') {
+        return res.status(400).json({ success: false, error: 'scrub_invalid', reason: scrub.reason });
+      }
+      // If unknown_code, we attach scrub flag into metadata for ops review
+      if (scrub.status === 'unknown_code') {
+        value.metadata = { ...(value.metadata || {}), scrubStatus: 'unknown_code', scrubNote: scrub.reason };
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Scrub check failed; proceeding with creation');
+    }
+
     logger.info({ merchantId: req.merchant!.id, paymentId, amount: value.amountUsdc, agentId: value.agentId ?? null, protocol: value.protocol ?? null }, 'Payment request created');
 
     res.status(201).json({
@@ -264,6 +287,50 @@ router.post('/payments', authenticateApiKey, async (req: AuthRequest, res: Respo
   } catch (error: any) {
     logger.error({ error }, 'Payment creation error:');
     res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * @route   POST /api/merchants/payments/drafts
+ * Creates a server-persisted draft invoice (status='draft') so the prototype
+ * can store practitioner drafts in the repo DB and share them across devices.
+ */
+router.post('/payments/drafts', authenticateApiKey, async (req: AuthRequest, res: Response) => {
+  try {
+    const { error, value } = draftSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: 'Validation error', details: error.details.map((d: any) => d.message) });
+    }
+
+    const transactionId = uuidv4();
+    const paymentId = uuidv4();
+    const expiresAt = new Date(Date.now() + (value.expiryMinutes || 60) * 60 * 1000);
+
+    // Server-side scrub for drafts
+    try {
+      const scrub = scrubClaimServer({ patient: value.metadata?.patient, amount: value.amountUsdc, code: value.metadata?.code });
+      if (!scrub.ok && scrub.status === 'invalid') {
+        return res.status(400).json({ success: false, error: 'scrub_invalid', reason: scrub.reason });
+      }
+      if (scrub.status === 'unknown_code') {
+        value.metadata = { ...(value.metadata || {}), scrubStatus: 'unknown_code', scrubNote: scrub.reason };
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Draft scrub failed; persisting draft for manual review');
+    }
+
+    await query(
+      `INSERT INTO transactions (id, merchant_id, payment_id, amount_usdc, recipient_address, status, confirmation_depth, required_depth, expires_at, metadata, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
+      [transactionId, req.merchant!.id, paymentId, value.amountUsdc, value.recipientAddress || '', 'draft', 0, 0, expiresAt, JSON.stringify(value.metadata || {})]
+    );
+
+    logger.info({ merchantId: req.merchant!.id, transactionId, amount: value.amountUsdc }, 'Draft invoice persisted');
+
+    res.status(201).json({ success: true, transactionId, message: 'Draft saved' });
+  } catch (err: any) {
+    logger.error({ err }, 'Draft persist error');
+    res.status(500).json({ error: 'Failed to persist draft' });
   }
 });
 

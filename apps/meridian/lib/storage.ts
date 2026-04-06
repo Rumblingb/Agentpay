@@ -66,6 +66,7 @@ export interface ActiveTrip {
   shareToken?: string | null;
   walletPassUrl?: string | null;
   arrivalTime?: string | null;
+  isEstimated?: boolean | null;
   updatedAt: string;
 }
 
@@ -138,6 +139,7 @@ export interface TripEntry {
   currencyCode?: string | null;
   tripContext?: TripContext | null;
   shareToken?: string | null;
+  isEstimated?: boolean | null;
   savedAt: string;
 }
 

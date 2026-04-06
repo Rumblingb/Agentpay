@@ -1,0 +1,12 @@
+{
+  "cpt": [
+    {"code": "99213", "desc": "Office/outpatient visit, established patient"},
+    {"code": "99214", "desc": "Office/outpatient visit, moderate complexity"},
+    {"code": "93000", "desc": "Electrocardiogram"}
+  ],
+  "icd": [
+    {"code": "R51", "desc": "Headache"},
+    {"code": "I10", "desc": "Essential (primary) hypertension"},
+    {"code": "E11.9", "desc": "Type 2 diabetes mellitus without complications"}
+  ]
+}

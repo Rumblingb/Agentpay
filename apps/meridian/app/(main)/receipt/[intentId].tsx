@@ -504,6 +504,17 @@ export default function ReceiptScreen() {
       finalLegSummary: preservedFinalLegSummary ?? undefined,
     });
     if (nextTripContext) setTripContext(nextTripContext);
+    const isEstimatedDisplay = (() => {
+      try {
+        const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+        if (td && td.dataSource === 'estimated') return true;
+        if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+        return false;
+      } catch {
+        return false;
+      }
+    })();
+
     const entry = {
       intentId,
       title:         nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
@@ -520,6 +531,8 @@ export default function ReceiptScreen() {
       currencySymbol: fiatSymbol,
       currencyCode:  fiatCode,
       tripContext:   nextTripContext,
+      // Helpful flag for tracing whether this displayed amount was an estimate
+      isEstimated:   isEstimatedDisplay,
       shareToken,
       savedAt:       new Date().toISOString(),
     };
@@ -811,11 +824,24 @@ export default function ReceiptScreen() {
           minute: '2-digit',
         })
       : null;
-    const amountText = fiatAmountNum != null
-      ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
-      : receipt
-      ? formatMoney(receipt.amount, fallbackCurrencySymbol(receipt.currency), receipt.currency)
-      : 'Recorded';
+    const amountText = (() => {
+      const isEstimatedDisplay = (() => {
+        try {
+          const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+          if (td && td.dataSource === 'estimated') return true;
+          if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+          return false;
+        } catch {
+          return false;
+        }
+      })();
+      const base = fiatAmountNum != null
+        ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
+        : receipt
+        ? formatMoney(receipt.amount, fallbackCurrencySymbol(receipt.currency), receipt.currency)
+        : 'Recorded';
+      return isEstimatedDisplay ? `${base} (estimated)` : base;
+    })();
 
     const sections: ReceiptPdfSection[] = [
       {
@@ -1367,11 +1393,24 @@ export default function ReceiptScreen() {
             </View>
 
             <Text style={styles.amount}>
-              {fiatAmountNum != null
-                ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
-                : receipt
-                ? `${fiatSymbol}${receipt.amount}`
-                : 'Journey details'}
+              {(() => {
+                const isEstimatedDisplay = (() => {
+                  try {
+                    const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+                    if (td && td.dataSource === 'estimated') return true;
+                    if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+                    return false;
+                  } catch {
+                    return false;
+                  }
+                })();
+                const base = fiatAmountNum != null
+                  ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
+                  : receipt
+                  ? `${fiatSymbol}${receipt.amount}`
+                  : 'Journey details';
+                return isEstimatedDisplay ? `${base} (estimated)` : base;
+              })()}
             </Text>
             <Text style={styles.subtitle}>
               {fromStation && toStation
