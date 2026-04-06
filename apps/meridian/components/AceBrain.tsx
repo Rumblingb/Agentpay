@@ -4,9 +4,25 @@ import { Platform, UIManager } from 'react-native';
 import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 import type { AppPhase } from '../lib/store';
 import { AceFace } from './AceFace';
+import { trackClientEvent } from '../lib/telemetry';
 
 export type AceBrainMode = 'conversation' | 'onboarding';
-const ACE_3D_RUNTIME_ENABLED = false;
+
+// ─── Feature flag ─────────────────────────────────────────────────────────────
+//
+// ACE_3D_RUNTIME_ENABLED: master switch for the @react-three/fiber 3D runtime.
+//
+// Enabled on iOS builds >= MIN_ACE_3D_NATIVE_BUILD when ExponentGLView is
+// present. Disabled on Android (GLView stability) and web.
+//
+// Crash telemetry: RuntimeFallbackBoundary reports to trackClientEvent so we
+// can monitor 3D render failures in production without surfacing them to users.
+// Set to false to force Skia path on all builds.
+//
+const ACE_3D_RUNTIME_ENABLED =
+  Platform.OS === 'ios' &&
+  process.env.EXPO_PUBLIC_ACE_3D_ENABLED !== 'false';
+
 const MIN_ACE_3D_NATIVE_BUILD = 10;
 
 type AceFaceRuntimeComponent = React.ComponentType<{
@@ -71,9 +87,12 @@ function shouldUse3D(mode: AceBrainMode, aceFace3DImpl: AceFaceRuntimeComponent 
   return mode === 'conversation' && aceFace3DImpl !== null;
 }
 
+// ─── Crash boundary with telemetry ───────────────────────────────────────────
+
 interface RuntimeFallbackBoundaryProps {
   fallback: React.ReactNode;
   children: React.ReactNode;
+  runtime: '3d' | 'skia';
 }
 
 interface RuntimeFallbackBoundaryState {
@@ -84,24 +103,37 @@ class RuntimeFallbackBoundary extends React.Component<
   RuntimeFallbackBoundaryProps,
   RuntimeFallbackBoundaryState
 > {
-  state: RuntimeFallbackBoundaryState = {
-    hasError: false,
-  };
+  state: RuntimeFallbackBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(): RuntimeFallbackBoundaryState {
     return { hasError: true };
   }
 
-  componentDidCatch() {}
+  componentDidCatch(error: Error) {
+    // Report crash so we can monitor 3D / Skia failures per build in telemetry
+    void trackClientEvent({
+      event: 'ace_face_runtime_crash',
+      screen: 'ace_brain',
+      severity: 'warning',
+      message: error?.message ?? 'AceFace runtime crashed',
+      metadata: {
+        runtime: this.props.runtime,
+        platform: Platform.OS,
+        buildNumber: Constants.nativeBuildVersion ?? null,
+        errorName: error?.name ?? null,
+      },
+    });
+  }
 
   render() {
     if (this.state.hasError) {
       return this.props.fallback;
     }
-
     return this.props.children;
   }
 }
+
+// ─── AceBrain ────────────────────────────────────────────────────────────────
 
 interface Props {
   phase: AppPhase;
@@ -125,6 +157,7 @@ export function AceBrain({
   const silentMic = useSharedValue(0);
   const silentTts = useSharedValue(0);
   const AceFace3DRuntime = getAceFace3DImpl(mode);
+
   const legacyFace = (
     <AceFace
       phase={phase}
@@ -135,6 +168,7 @@ export function AceBrain({
       disabled={disabled}
     />
   );
+
   const runtimeProps = {
     phase,
     isSpeaking,
@@ -144,15 +178,22 @@ export function AceBrain({
     onPress,
     disabled,
   };
-  const fallbackFace = AceFaceSkiaImpl ? <AceFaceSkiaImpl {...runtimeProps} /> : legacyFace;
 
+  // Skia is the primary runtime — legacy SVG face is the last resort fallback
+  const skiaFace = AceFaceSkiaImpl ? (
+    <RuntimeFallbackBoundary fallback={legacyFace} runtime="skia">
+      <AceFaceSkiaImpl {...runtimeProps} />
+    </RuntimeFallbackBoundary>
+  ) : legacyFace;
+
+  // 3D is the premium runtime — falls back to Skia on crash or unavailability
   if (shouldUse3D(mode, AceFace3DRuntime) && AceFace3DRuntime) {
     return (
-      <RuntimeFallbackBoundary fallback={fallbackFace}>
+      <RuntimeFallbackBoundary fallback={skiaFace} runtime="3d">
         <AceFace3DRuntime {...runtimeProps} />
       </RuntimeFallbackBoundary>
     );
   }
 
-  return fallbackFace;
+  return skiaFace;
 }

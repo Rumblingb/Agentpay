@@ -75,6 +75,18 @@ async function stopActivePlayback(): Promise<void> {
     FileSystem.deleteAsync(activeUri, { idempotent: true }).catch(() => {});
     activeUri = null;
   }
+
+  // On Android, release AudioFocus explicitly after playback so the mic
+  // can be claimed without contention on the next recording session.
+  if (Platform.OS === 'android') {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch {}
+  }
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

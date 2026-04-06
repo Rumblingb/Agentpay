@@ -1,149 +1,162 @@
-# AgentPay
-
-Payment infrastructure for autonomous agents — create payment intents, verify settlement, enforce spending policy, and build portable economic reputation through AgentPassport.
+# Ace — Voice-First AI Travel Concierge
 
 <p align="center">
-  <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="./openapi.yaml"><img src="https://img.shields.io/badge/OpenAPI-3.1-85EA2D?logo=swagger" alt="OpenAPI 3.1"></a>
-  <img src="https://img.shields.io/badge/status-beta-blue" alt="Beta">
+  <strong>Say the trip once. Ace books it.</strong><br>
+  UK rail · India rail · No service fee until May 2026
 </p>
 
-> **First mainnet payment — verified on-chain:**
-> [`2wjGMoDn…P2cvFB9w`](https://solscan.io/tx/2wjGMoDnHT1HZpQx2zCwCArkoUHvoKdcwzuuDwYDccW47ZAgAJRd7btWn7tR75L1domf66C6MxrJQUqFP2cvFB9w) · USDC on Solana · settled via AgentPay
+<p align="center">
+  <a href="https://testflight.apple.com/join/agentpay"><img src="https://img.shields.io/badge/iOS-TestFlight-0d96f6?logo=apple&logoColor=white" alt="TestFlight"></a>
+  <a href="https://agentpay.gg/join"><img src="https://img.shields.io/badge/Early_Access-agentpay.gg%2Fjoin-4ade80" alt="Early Access"></a>
+  <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/status-live_beta-4ade80" alt="Live Beta">
+</p>
 
 ---
 
-## What it does
+## What Ace is
 
-AgentPay gives agents a payment identity and the infrastructure to transact autonomously — without a human in the loop for every payment.
+Ace is a voice-first AI travel concierge that lives on your phone. You speak once, naturally. Ace finds the route, applies your railcard, quotes the fare, takes one tap to confirm, and delivers a ticket to your inbox — without you touching a form or switching a tab.
 
-- **AgentPassport** — portable identity and spending policy per agent
-- **Payment intents** — create, verify, and settle USDC payments on Solana
-- **Policy engine** — per-merchant rules: amount caps, daily limits, allowlists, approval thresholds
-- **Trust graph** — every settlement builds verifiable economic reputation
-- **Fee ledger** — every payment records a fee obligation; the reconciler collects to treasury automatically
-- **Escrow (A2A)** — lock-and-release for agent-to-agent service contracts
-- **Multi-protocol** — x402, AP2, ACP, Solana Pay, Stripe (fiat)
+It is not a chatbot. It is not a booking engine with a voice layer bolted on. Ace is an economic agent: it holds your preferences, executes autonomously, and stays with the trip after booking — watching for delays, platform changes, and disruptions.
+
+> "Book a train from London Paddington to Bristol Temple Meads, tomorrow morning, cheapest."
+>
+> *Ace: Done. £24.50 · 07:04 depart · ticket to your inbox.*
 
 ---
 
-## Quick start
+## Demo
 
-**1. Register a merchant and get an API key**
+<!-- Drop demo.mp4 into the repo root or link to a hosted video -->
+<!-- [![Watch the demo](apps/meridian/assets/ace-face-render.png)](https://agentpay.gg/join) -->
 
-```bash
-POST https://api.agentpay.so/api/merchants/register
-{
-  "name": "My Agent App",
-  "email": "you@example.com",
-  "walletAddress": "<your-solana-wallet>"
-}
-```
-
-Returns `{ merchantId, apiKey }`. Store both securely.
-
-**2. Create a payment intent (agent-initiated, no API key needed)**
-
-```bash
-POST https://api.agentpay.so/api/v1/payment-intents
-{
-  "merchantId": "<merchant-id>",
-  "agentId": "my-agent-01",
-  "amount": 0.10,
-  "currency": "USDC"
-}
-```
-
-Returns `intentId`, `verificationToken`, and a Solana Pay URI.
-
-**3. Pay on-chain**
-
-Send USDC to `instructions.crypto.recipientAddress` with the `memo` set to `verificationToken`.
-
-**4. Submit the transaction hash**
-
-```bash
-POST /api/v1/payment-intents/:intentId/verify
-{ "txHash": "<solana-tx-signature>" }
-```
-
-**5. Get the receipt**
-
-```bash
-GET /api/receipt/:intentId
-```
+**[→ Try it yourself on TestFlight](https://testflight.apple.com/join/agentpay)**
 
 ---
 
-## API reference
+## Key capabilities
 
-Full spec: [`openapi.yaml`](openapi.yaml) — committed in-repo and kept aligned to the Workers API surface.
+| Feature | Status |
+|---------|--------|
+| Voice booking — UK rail (National Rail / Darwin) | ✅ Live |
+| Voice booking — India rail (IRCTC) | ✅ Live |
+| Railcard auto-detection + discount | ✅ Live |
+| UPI payment (India) | ✅ Live |
+| Stripe payment (UK) | ✅ Live |
+| Platform change push alerts | ✅ Live |
+| Live disruption monitoring | ✅ Live |
+| Receipt + wallet pass | ✅ Live |
+| AceFace — GPU-rendered 3D voice presence | ✅ Live |
+| EU rail (Rail Europe) | 🔜 Next |
+| Flights (Duffel) | 🔜 Next |
+| Hotels | 🔜 Q2 |
+| Android | 🔜 Q2 |
 
-Base URL: `https://api.agentpay.so`
+---
 
-| Route | Auth | Description |
-|-------|------|-------------|
-| `POST /api/merchants/register` | none | Register merchant, get API key |
-| `GET /api/merchants/profile` | API key | Get merchant profile |
-| `PATCH /api/merchants/profile/wallet` | API key | Update payout wallet address |
-| `PATCH /api/merchants/profile/webhook` | API key | Set outgoing webhook URL |
-| `POST /api/merchants/rotate-key` | API key | Rotate API key |
-| `GET /api/merchants/stats` | API key | Payment statistics |
-| `POST /api/intents` | API key | Create payment intent (merchant-facing) |
-| `GET /api/intents` | API key | List payment intents |
-| `POST /api/v1/payment-intents` | none | Create payment intent (agent-facing) |
-| `GET /api/v1/payment-intents/:id` | none | Poll intent status |
-| `POST /api/v1/payment-intents/:id/verify` | none | Submit on-chain tx hash |
-| `GET /api/receipt/:intentId` | none | Get settlement receipt |
-| `GET /api/verify/:txHash` | none | Verify by transaction hash (HMAC-signed) |
-| `GET /api/health` | none | Health check |
-| `GET /api/agentrank/leaderboard` | none | Public trust leaderboard |
-| `GET /api/marketplace/categories` | none | Marketplace category list |
+## The Ace presence layer
 
-Authentication: `Authorization: Bearer <api_key>` or `X-Api-Key: <api_key>`
+AceFace is Ace's voice presence — a GPU-rendered sculptural bust that reacts in real-time to speech energy, mic amplitude, and phase state. It is not decorative.
+
+- **Metal GPU pipeline** — @shopify/react-native-skia, runs on the UI thread via Reanimated worklets
+- **11 render layers** — atmospheric halo, listening rings, 3D bust PNG, focus field, key light, rim light, inner shadow, lower-face tension, mouth cavity + lip line, ghost rim, audio-reactive corona
+- **Real speech sync** — TTS amplitude drives jaw, viseme-oo, viseme-ee blend shapes at ~60fps
+- **Phase-aware** — idle / listening / thinking / confirming / executing / done / error each have distinct animation signatures
+- **No hallucination silence** — CF Whisper hallucination detection + OpenAI Whisper fallback means Ace never transcribes "Thank you for watching." as a booking intent
 
 ---
 
 ## Architecture
 
 ```
-Cloudflare Workers (apps/api-edge)   ← authoritative public API surface
-  ├── Hono router
-  ├── PBKDF2 auth middleware
-  ├── Policy engine (AgentPassport)
-  ├── Settlement identity + matching policy
-  ├── Fee ledger outbox (fee_ledger_entries)
-  └── Cron triggers (*/5 balance alerts, */15 reconciliation)
+apps/meridian/          React Native / Expo iOS app (the Ace experience)
+  ├── components/AceFaceSkia.tsx    GPU presence layer (Skia + Reanimated)
+  ├── components/AceBrain.tsx       Runtime selector (3D / Skia / SVG fallback)
+  ├── app/(main)/converse.tsx       Voice conversation + confirm card
+  ├── app/(main)/journey/           Live trip tracking
+  ├── app/(main)/receipt/           Receipt + wallet pass
+  └── lib/speech.ts                 STT proxy (Whisper via server-side API)
 
-Node.js backend (src/)              ← legacy/internal services retained during migration
-  ├── Solana listener (30s poll)    ← confirms on-chain payments
-  ├── Reconciliation daemon (15m)
-  └── Webhook delivery
+apps/api-edge/          Cloudflare Workers — public API surface
+  ├── src/routes/concierge.ts       Ace AI concierge (Claude Sonnet)
+  ├── src/routes/voice.ts           STT + TTS proxy (Whisper + ElevenLabs)
+  ├── src/routes/rcm.ts             Revenue cycle management (hospital billing)
+  └── src/cron/                     Platform watch, reconciliation, autonomy loop
 
-Database: PostgreSQL via Supabase
-  ├── payment_intents
-  ├── settlement_identities
-  ├── intent_resolutions
-  ├── fee_ledger_entries            ← outbox for treasury fee collection
-  ├── merchants + agent_wallets
-  └── trust_events + agentrank_scores
+dashboard/              Next.js — operator dashboard (app.agentpay.so)
+  ├── app/join/                     DTC early access landing
+  └── app/partner/                  Operator intake
+
+Database: PostgreSQL via Supabase + Cloudflare Hyperdrive
+AI: Claude Sonnet 4.6 (concierge) + Haiku 4.5 (classify/extract)
+Voice: OpenAI Whisper (STT) + ElevenLabs Daniel (TTS)
+Rail: Darwin SOAP (UK live) + IRCTC via RapidAPI (India live)
 ```
 
 ---
 
-## Free vs paid
+## Early access
 
-| Feature | Free |
-|---------|------|
-| Merchant registration | yes |
-| AgentPassport identity | yes |
-| Create payment intents | yes |
-| Policy engine | yes |
-| Receipt generation | yes |
-| Platform fee — payment rails | 0.5% (50 bps) on settled payment intents |
-| Platform fee — agent marketplace | 5% (500 bps) on hired job completion |
+**Travelers** — iOS TestFlight, no service fee until May 2026:
+[agentpay.gg/join](https://agentpay.gg/join)
 
-Payment-rail fees are recorded in `fee_ledger_entries` at intent creation and collected after settlement confirmation. Marketplace fees are deducted from the agent payout at job completion — the agent receives 95% of the agreed price. Fee configuration is per-merchant (`feeConfiguration` on `payment_intents`).
+**Operators** — embed Ace into your travel product:
+[agentpay.gg/partner](https://agentpay.gg/partner)
+
+---
+
+## AgentPay infrastructure
+
+Ace runs on AgentPay — autonomous agent payment infrastructure. Every booking Ace executes goes through an AgentPassport (portable identity + spending policy) and settles on-chain.
+
+- **AgentPassport** — portable agent identity with spending policy and trust graph
+- **Policy engine** — per-merchant rules: amount caps, daily limits, approval thresholds
+- **Multi-protocol** — x402, AP2, ACP, Solana Pay, Stripe (fiat), Razorpay (UPI)
+- **Fee ledger** — every payment records a fee obligation; reconciler collects to treasury
+- **First mainnet payment** — [`2wjGMoDn…P2cvFB9w`](https://solscan.io/tx/2wjGMoDnHT1HZpQx2zCwCArkoUHvoKdcwzuuDwYDccW47ZAgAJRd7btWn7tR75L1domf66C6MxrJQUqFP2cvFB9w)
+
+### Quick start (agent API)
+
+```bash
+# 1. Register
+POST https://api.agentpay.so/api/merchants/register
+{ "name": "My Agent", "email": "you@example.com", "walletAddress": "<solana-wallet>" }
+# → { merchantId, apiKey }
+
+# 2. Create intent
+POST https://api.agentpay.so/api/v1/payment-intents
+{ "merchantId": "<id>", "agentId": "agent-01", "amount": 0.10, "currency": "USDC" }
+# → { intentId, verificationToken, instructions }
+
+# 3. Pay + verify
+POST /api/v1/payment-intents/:intentId/verify
+{ "txHash": "<solana-tx>" }
+
+# 4. Receipt
+GET /api/receipt/:intentId
+```
+
+### npm packages
+
+```bash
+npm install @agentpay/sdk       # JS / TypeScript SDK
+npx @agentpayxyz/mcp-server    # MCP server for Claude Desktop
+```
+
+---
+
+## Repository layout
+
+```
+apps/api-edge/     Cloudflare Workers API (primary public surface)
+apps/meridian/     React Native iOS app (Ace)
+dashboard/         Next.js operator dashboard
+packages/          Shared libraries (bro-trip, etc.)
+infra/prisma/      Database schema + SQL migrations
+sdk/               TypeScript + Python SDKs
+docs/              Architecture, test strategy, pitch decks
+```
 
 ---
 
@@ -153,46 +166,10 @@ Payment-rail fees are recorded in `fee_ledger_entries` at intent creation and co
 - [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) — SDK, webhooks, protocol adapters
 - [openapi.yaml](openapi.yaml) — full OpenAPI 3.1 spec
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design
-- [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — environment variables reference
-
----
-
-## Repository layout
-
-```
-apps/api-edge/     Cloudflare Workers API (primary public surface)
-src/               Node.js backend services (Solana listener, reconciler)
-infra/prisma/      Database schema (Prisma + raw SQL migrations)
-sdk/               TypeScript + Python SDKs
-packages/          Shared libraries
-examples/          Integration examples
-scripts/           One-time ops scripts
-```
-
----
-
-## npm packages
-
-```bash
-npm install @agentpay/sdk           # JavaScript / TypeScript SDK
-npx @agentpayxyz/mcp-server         # MCP server for Claude Desktop
-```
-
-> `@agentpay/sdk` is the monorepo's current canonical JS SDK package. Legacy `@agentpayxyz/*` references remain only where the published package has not been cut over yet.
-
----
-
-## Support
-
-- Issues: [github.com/Rumblingb/Agentpay/issues](https://github.com/Rumblingb/Agentpay/issues)
-- API spec: [openapi.yaml](openapi.yaml)
+- [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) — release test strategy
 
 ---
 
 ## License
 
-Business Source License 1.1 (BSL-1.1) — converts to AGPL-3.0 on 2029-01-01.
-
-You may use, modify, and distribute this software for any non-commercial purpose. You may not use it to provide a competing hosted payment service. See [LICENSE](LICENSE) for full terms.
-
-Enterprise licenses (for internal deployment or use cases approaching the Additional Use Grant boundary) are available — email enterprise@agentpay.gg.
+Business Source License 1.1 — converts to AGPL-3.0 on 2029-01-01. Non-commercial use is free. Enterprise licenses: enterprise@agentpay.gg

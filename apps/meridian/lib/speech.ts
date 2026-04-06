@@ -89,6 +89,27 @@ async function prepareAudioSessionForRecording(): Promise<void> {
     // Brief yield so the audio session state change propagates before
     // we re-activate with allowsRecordingIOS: true.
     await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    return;
+  }
+
+  // On Android, the MediaPlayer from TTS playback holds AudioFocus with
+  // AUDIOFOCUS_GAIN. If we start recording immediately after playback ends,
+  // the mic can be blocked or return silent frames because the audio stack
+  // hasn't fully released focus back to the system.
+  // Reset the audio mode to release focus before re-acquiring for recording.
+  if (Platform.OS === 'android') {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch {
+      // Non-fatal — proceed with recording attempt
+    }
+    // Android AudioFocus handoff is async under the hood; 80ms is enough
+    // for the system to process the focus change before we claim it again.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
   }
 }
 
@@ -155,7 +176,10 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
     const silenceMs = options.silenceMs ?? 1700;
     const maxDurationMs = options.maxDurationMs ?? 12000;
     let heardSpeech = false;
-    created.recording.setProgressUpdateInterval(options?.onMeter ? 120 : 250);
+    // Use 120ms on Android too — 250ms was causing sluggish silence detection
+    // because the metering update could arrive 250ms after speech ended, making
+    // the silence window feel 250ms longer than intended.
+    created.recording.setProgressUpdateInterval(120);
     created.recording.setOnRecordingStatusUpdate((status) => {
       if (!status.isRecording || silenceCallbackFired) return;
       const metering = typeof status.metering === 'number' ? status.metering : null;
