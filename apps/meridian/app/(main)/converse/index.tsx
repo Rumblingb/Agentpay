@@ -31,25 +31,25 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C } from '../../lib/theme';
+import { C } from '../../../lib/theme';
 
-import { AceBrain } from '../../components/AceBrain';
+import { AceBrain } from '../../../components/AceBrain';
 import { useSharedValue } from 'react-native-reanimated';
-import { useStore } from '../../lib/store';
-import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
-import { speakBro, cancelSpeech } from '../../lib/tts';
-import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
-import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
-import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
-import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
-import { authenticateWithBiometrics } from '../../lib/biometric';
-import { getLocationContext } from '../../lib/location';
-import type { StationGeo } from '../../lib/stationGeo';
-import { fetchRate } from '../../lib/currency';
-import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
-import type { TripContext } from '../../lib/trip';
-import { rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
-import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
+import { useStore } from '../../../lib/store';
+import { startRecording, stopRecording, transcribeAudio } from '../../../lib/speech';
+import { speakBro, cancelSpeech } from '../../../lib/tts';
+import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../../lib/storage';
+import { planIntent, executeIntent, type ConciergePlanItem } from '../../../lib/concierge';
+import { shouldPreferJourney, shouldTreatTripAsLive } from '../../../lib/journeyRouting';
+import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../../lib/profile';
+import { authenticateWithBiometrics } from '../../../lib/biometric';
+import { getLocationContext } from '../../../lib/location';
+import type { StationGeo } from '../../../lib/stationGeo';
+import { fetchRate } from '../../../lib/currency';
+import { formatMoneyAmount, isZeroDecimalCurrency } from '../../../lib/money';
+import type { TripContext } from '../../../lib/trip';
+import { rememberConfirmApproved, trackClientEvent } from '../../../lib/telemetry';
+import { loadPreferredTravelUnit, type TravelUnit } from '../../../lib/travelUnits';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -78,7 +78,7 @@ const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
 const ACE_GUIDANCE_SESSIONS_KEY = 'ace.guidanceSessions';
-const ACE_MARK_ASSET = require('../../assets/ace-mark.png');
+const ACE_MARK_ASSET = require('../../../assets/ace-mark.png');
 
 type BookingReadinessTone = 'ready' | 'warning';
 

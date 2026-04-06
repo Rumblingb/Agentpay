@@ -51,6 +51,7 @@ import { airwallexWebhooksRouter } from './routes/webhooksAirwallex';
 import { sharedTravelRouter } from './routes/sharedTravel';
 import { walletPassRouter } from './routes/walletPass';
 import { rcmRouter } from './routes/rcm';
+import { aceRouter } from './routes/ace/index';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -176,6 +177,9 @@ app.route('/api/shared-travel', sharedTravelRouter);
 
 // RCM vertical scaffold — autonomous billing operations surface
 app.route('/api/rcm', rcmRouter);
+
+// Ace — intent → policy → recommendation → approval → execution → live recovery
+app.route('/ace', aceRouter);
 
 // Apple Wallet .pkpass generation — GET /api/wallet/pass/:intentId
 app.route('/api/wallet/pass', walletPassRouter);
