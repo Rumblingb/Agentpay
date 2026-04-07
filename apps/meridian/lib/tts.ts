@@ -40,7 +40,7 @@ function normalizeAudioSample(sample: PlaybackAudioSample): number {
   return Math.pow(normalized, 0.9);
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 2_500): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -238,28 +238,66 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
     );
     activeSound = sound;
     let playbackStarted = false;
+    let meterPulseInterval: ReturnType<typeof setInterval> | null = null;
 
     try {
       sound.setOnAudioSampleReceived((sample) => {
         options?.onMeter?.(normalizeAudioSample(sample as PlaybackAudioSample));
       });
     } catch {
-      options?.onMeter?.(0);
+      // setOnAudioSampleReceived not supported (Android MediaPlayer).
+      // Fall back to the same pulse approximation used by playSystemVoice so
+      // Ace's face animates on Android during server TTS playback.
+      if (options?.onMeter) {
+        let pulseUp = false;
+        meterPulseInterval = setInterval(() => {
+          pulseUp = !pulseUp;
+          options.onMeter?.(pulseUp ? 0.38 : 0.14);
+        }, 140);
+      }
     }
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const stopMeterPulse = () => {
+        if (meterPulseInterval) {
+          clearInterval(meterPulseInterval);
+          meterPulseInterval = null;
+        }
+      };
+
+      // Watchdog: if shouldPlay:true but audio hasn't started within 600ms,
+      // something is wrong (corrupted file, audio session conflict, etc).
+      // Reject so the catch block falls through to system TTS immediately.
+      const watchdog = setTimeout(() => {
+        if (!playbackStarted && !settled) {
+          settled = true;
+          stopMeterPulse();
+          try { sound.setOnAudioSampleReceived(null); } catch {}
+          options?.onMeter?.(0);
+          void stopActivePlayback().finally(() =>
+            reject(new Error('TTS playback watchdog: no audio start within 600ms')),
+          );
+        }
+      }, 600);
+
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.isPlaying && !playbackStarted) {
           playbackStarted = true;
+          clearTimeout(watchdog);
           options?.onStart?.();
         }
         // Resolve on natural finish OR when unloaded by cancelSpeech() interrupt.
         if ((status.isLoaded && status.didJustFinish) || !status.isLoaded) {
-          try {
-            sound.setOnAudioSampleReceived(null);
-          } catch {}
-          options?.onMeter?.(0);
-          void stopActivePlayback().finally(resolve);
+          clearTimeout(watchdog);
+          if (!settled) {
+            settled = true;
+            stopMeterPulse();
+            try { sound.setOnAudioSampleReceived(null); } catch {}
+            options?.onMeter?.(0);
+            void stopActivePlayback().finally(resolve);
+          }
         }
       });
     });

@@ -253,8 +253,6 @@ function shouldAutoSpeak(params: {
   if (!preview) return false;
   if (params.phase === 'error') return true;
   if (params.phase === 'system') return false;
-  if (params.phase === 'plan' && params.hasPlan && params.needsBiometric) return false;
-  if (params.phase === 'execute' && params.hasPlan) return false;
   return true;
 }
 
@@ -931,9 +929,8 @@ export default function ConverseScreen() {
     const showSub = Keyboard.addListener('keyboardDidShow', () => {
       keyboardVisibleRef.current = true;
       clearHandsFreeListenTimer();
-      cancelSpeech();
-      setIsSpeaking(false);
-      ttsAmplitude.value = 0;
+      // Only stop active recording — do NOT cancel Ace speech. Ace should
+      // finish speaking even when the keyboard appears (common on Android).
       if (phaseRef.current === 'listening') {
         void stopRecording().catch(() => null);
         recordingActiveRef.current = false;

@@ -24,7 +24,7 @@ function missingBroKeyMessage(): string {
   return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {

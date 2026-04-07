@@ -51,6 +51,7 @@ import { airwallexWebhooksRouter } from './routes/webhooksAirwallex';
 import { sharedTravelRouter } from './routes/sharedTravel';
 import { walletPassRouter } from './routes/walletPass';
 import { rcmRouter } from './routes/rcm';
+import { aceIntentsRouter } from './routes/aceIntents';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -187,6 +188,9 @@ app.route('/api/admin', broInsightsRouter);
 app.route('/api/admin/insights', broInsightsRouter);
 // Admin shortcuts — bro-jobs debug lives in concierge router
 app.route('/api/admin', conciergeRouter);
+
+// Ace agentic intent layer — /api/ace/intents/*
+app.route('/api/ace/intents', aceIntentsRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);
