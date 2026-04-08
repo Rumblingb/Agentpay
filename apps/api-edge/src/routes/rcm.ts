@@ -12,6 +12,10 @@ import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb, type Sql } from '../lib/db';
 import {
+  createStripeClient,
+  verifySucceededSetupIntent,
+} from '../lib/stripeSetupIntents';
+import {
   getClaimStatusConnectorAvailability,
   runClaimStatusConnector,
   type ClaimStatusAutoQaRecommendation,
@@ -7774,10 +7778,7 @@ router.post('/lanes/era-835/work-items/:workItemId/resolve', authenticateApiKey,
 // ───────────────────────────────────────────────────────────────────────────
 
 function getRcmStripe(env: Env): Stripe {
-  if (!env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
-  return new Stripe(env.STRIPE_SECRET_KEY, {
-    httpClient: Stripe.createFetchHttpClient(),
-  });
+  return createStripeClient(env);
 }
 
 /** GET /api/rcm/workspaces/:workspaceId/billing — mandate status for a workspace */
@@ -7891,9 +7892,12 @@ router.post('/workspaces/:workspaceId/confirm-billing', authenticateApiKey, asyn
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { principalId, paymentMethodId, maxAmountPence } = body;
+  const { principalId, paymentMethodId, setupIntentId, maxAmountPence } = body;
   if (typeof principalId !== 'string' || !principalId.trim()) {
     return c.json({ error: 'principalId is required' }, 400);
+  }
+  if (typeof setupIntentId !== 'string' || !setupIntentId.trim()) {
+    return c.json({ error: 'setupIntentId is required' }, 400);
   }
   if (typeof paymentMethodId !== 'string' || !paymentMethodId.trim()) {
     return c.json({ error: 'paymentMethodId is required' }, 400);
@@ -7909,14 +7913,13 @@ router.post('/workspaces/:workspaceId/confirm-billing', authenticateApiKey, asyn
     `;
     if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
 
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId.trim());
-    const customerId = pm.customer
-      ? (typeof pm.customer === 'string' ? pm.customer : pm.customer.id)
-      : null;
-
-    if (customerId && !pm.customer) {
-      await stripe.paymentMethods.attach(paymentMethodId.trim(), { customer: customerId });
-    }
+    const verifiedSetupIntent = await verifySucceededSetupIntent(
+      stripe,
+      setupIntentId.trim(),
+      paymentMethodId.trim(),
+    );
+    const pm = await stripe.paymentMethods.retrieve(verifiedSetupIntent.paymentMethodId);
+    const customerId = verifiedSetupIntent.customerId;
 
     const mandateAmount = typeof maxAmountPence === 'number' && Number.isInteger(maxAmountPence)
       ? maxAmountPence
@@ -7933,7 +7936,7 @@ router.post('/workspaces/:workspaceId/confirm-billing', authenticateApiKey, asyn
       ) VALUES (
         ${principalId.trim()},
         ${workspaceId},
-        ${paymentMethodId.trim()},
+        ${verifiedSetupIntent.paymentMethodId},
         ${customerId},
         'rcm_milestones',
         ${mandateAmount}
@@ -7946,12 +7949,26 @@ router.post('/workspaces/:workspaceId/confirm-billing', authenticateApiKey, asyn
       mandateId: row.id,
       workspaceId,
       principalId: principalId.trim(),
-      paymentMethodId: paymentMethodId.trim(),
+      setupIntentId: setupIntentId.trim(),
+      paymentMethodId: verifiedSetupIntent.paymentMethodId,
       last4: pm.card?.last4 ?? null,
       brand: pm.card?.brand ?? null,
       approvedAt: row.approved_at,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'SETUP_INTENT_NOT_SUCCEEDED') {
+      return c.json({ error: 'Setup intent has not completed successfully' }, 409);
+    }
+    if (
+      message === 'SETUP_INTENT_MISSING_CUSTOMER' ||
+      message === 'SETUP_INTENT_MISSING_PAYMENT_METHOD'
+    ) {
+      return c.json({ error: 'Setup intent is missing Stripe billing details' }, 422);
+    }
+    if (message === 'SETUP_INTENT_PAYMENT_METHOD_MISMATCH') {
+      return c.json({ error: 'Payment method does not match the completed setup intent' }, 409);
+    }
     console.error('[rcm] POST /workspaces/:id/confirm-billing error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to confirm billing mandate' }, 500);
   } finally { sql.end().catch(() => {}); }
@@ -7992,6 +8009,45 @@ router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => 
       LIMIT 1
     `;
     if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    const milestones = await sql<Array<{
+      id: string;
+      amount: string | number;
+      status: string;
+      billingRef: string | null;
+      billedAt: Date | null;
+    }>>`
+      SELECT
+        m.id,
+        m.amount,
+        m.status,
+        m.billing_ref AS "billingRef",
+        m.billed_at AS "billedAt"
+      FROM rcm_milestones m
+      JOIN rcm_work_items w ON w.id = m.work_item_id
+      WHERE m.id = ${milestoneId.trim()}
+        AND w.workspace_id = ${workspaceId}
+        AND w.merchant_id = ${merchant.id}
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const milestone = milestones[0];
+    if (!milestone) {
+      return c.json({ error: 'Milestone not found for this workspace' }, 404);
+    }
+    if (milestone.status !== 'released') {
+      return c.json({ error: 'Milestone must be released before it can be charged' }, 409);
+    }
+    if (milestone.billingRef || milestone.billedAt) {
+      return c.json({ error: 'Milestone has already been billed' }, 409);
+    }
+
+    const expectedAmountPence = Math.round(Number(milestone.amount) * 100);
+    if (expectedAmountPence !== (amountPence as number)) {
+      return c.json({
+        error: `Charge amount must match the released milestone amount (${expectedAmountPence} pence)`,
+      }, 422);
+    }
 
     // Find active mandate for this workspace
     const mandates = await sql<Array<{ id: string; stripe_pm_id: string; stripe_customer_id: string | null; max_amount_pence: number | null }>>`

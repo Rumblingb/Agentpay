@@ -65,6 +65,7 @@ interface ApprovalEventRow {
   intent_id: string | null;
   principal_id: string;
   method: string;
+  approval_token_hash: string | null;
   device_hash: string | null;
   amount_pence: number;
   currency: string;
@@ -99,6 +100,13 @@ const VALID_METHODS: ApprovalMethod[] = [
 
 function isValidMethod(value: unknown): value is ApprovalMethod {
   return typeof value === 'string' && (VALID_METHODS as string[]).includes(value);
+}
+
+function requireApprovalSalt(env: Env): string {
+  if (!env.APPROVAL_SALT || !env.APPROVAL_SALT.trim()) {
+    throw new Error('APPROVAL_SALT_NOT_CONFIGURED');
+  }
+  return env.APPROVAL_SALT.trim();
 }
 
 /** Session expires in 5 minutes by default. */
@@ -146,6 +154,8 @@ router.post('/', async (c) => {
 
   const resolvedMethod: ApprovalMethod = isValidMethod(method) ? method : 'biometric_ios';
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const approvalToken = crypto.randomUUID();
+  const approvalTokenHash = await sha256Hex(approvalToken);
 
   const sql = createDb(c.env);
   try {
@@ -154,6 +164,7 @@ router.post('/', async (c) => {
         principal_id,
         intent_id,
         method,
+        approval_token_hash,
         amount_pence,
         currency,
         policy_version,
@@ -162,6 +173,7 @@ router.post('/', async (c) => {
         ${principalId.trim()},
         ${typeof intentId === 'string' && intentId.trim() ? intentId.trim() : null},
         ${resolvedMethod},
+        ${approvalTokenHash},
         ${amount as number},
         ${(currency as string).trim().toUpperCase()},
         ${typeof policyVersion === 'string' && policyVersion.trim() ? policyVersion.trim() : null},
@@ -173,6 +185,7 @@ router.post('/', async (c) => {
     const row = rows[0];
     return c.json({
       sessionId: row.id,
+      approvalToken,
       method: resolvedMethod,
       expiresAt: row.expires_at,
     }, 201);
@@ -207,8 +220,15 @@ router.post('/:sessionId/confirm', async (c) => {
   // Compute device hash if deviceId provided — never store the raw deviceId.
   let deviceHash: string | null = null;
   if (typeof deviceId === 'string' && deviceId.trim()) {
-    const salt = c.env.APPROVAL_SALT ?? 'agentpay-approval-salt';
-    deviceHash = await sha256Hex(deviceId.trim() + salt);
+    try {
+      const salt = requireApprovalSalt(c.env);
+      deviceHash = await sha256Hex(deviceId.trim() + salt);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'APPROVAL_SALT_NOT_CONFIGURED') {
+        return c.json({ error: 'Approval device hashing is not configured' }, 503);
+      }
+      throw err;
+    }
   }
 
   const sql = createDb(c.env);
@@ -224,12 +244,19 @@ router.post('/:sessionId/confirm', async (c) => {
     }
 
     const session = rows[0];
+    const providedApprovalTokenHash = await sha256Hex(approvalToken.trim());
 
     if (session.approved_at) {
       return c.json({ error: 'Approval session already confirmed' }, 409);
     }
     if (new Date(session.expires_at) < new Date()) {
       return c.json({ error: 'Approval session has expired' }, 410);
+    }
+    if (!session.approval_token_hash) {
+      return c.json({ error: 'Approval session is missing its verification token' }, 409);
+    }
+    if (session.approval_token_hash !== providedApprovalTokenHash) {
+      return c.json({ error: 'Approval token is invalid' }, 403);
     }
 
     const updated = await sql<Array<{ id: string; approved_at: Date }>>`

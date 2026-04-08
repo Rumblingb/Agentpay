@@ -46,6 +46,11 @@ import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
+import {
+  createStripeClient,
+  stripeCustomerIdFromRef,
+  verifySucceededSetupIntent,
+} from '../lib/stripeSetupIntents';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,19 +65,6 @@ interface PaymentMethodRow {
   brand: string | null;
   is_default: boolean;
   created_at: Date;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getStripe(env: Env): Stripe {
-  if (!env.STRIPE_SECRET_KEY) {
-    throw new Error('STRIPE_SECRET_KEY not configured');
-  }
-  return new Stripe(env.STRIPE_SECRET_KEY, {
-    httpClient: Stripe.createFetchHttpClient(),
-  });
 }
 
 /**
@@ -131,7 +123,7 @@ router.post('/setup-intent', async (c) => {
     return c.json({ error: 'principalId is required' }, 400);
   }
 
-  const stripe = getStripe(c.env);
+  const stripe = createStripeClient(c.env);
   const sql = createDb(c.env);
   try {
     const customerId = await ensureStripeCustomer(stripe, sql, principalId.trim());
@@ -181,23 +173,35 @@ router.post('/confirm-setup', async (c) => {
   if (typeof principalId !== 'string' || !principalId.trim()) {
     return c.json({ error: 'principalId is required' }, 400);
   }
+  if (typeof setupIntentId !== 'string' || !setupIntentId.trim()) {
+    return c.json({ error: 'setupIntentId is required' }, 400);
+  }
   if (typeof paymentMethodId !== 'string' || !paymentMethodId.trim()) {
     return c.json({ error: 'paymentMethodId is required' }, 400);
   }
 
-  const stripe = getStripe(c.env);
+  const stripe = createStripeClient(c.env);
   const sql = createDb(c.env);
   try {
-    // Retrieve the payment method from Stripe to get card details
-    const pm = await stripe.paymentMethods.retrieve(paymentMethodId.trim());
+    const expectedCustomerId = await ensureStripeCustomer(stripe, sql, principalId.trim());
+    const verifiedSetupIntent = await verifySucceededSetupIntent(
+      stripe,
+      setupIntentId.trim(),
+      paymentMethodId.trim(),
+    );
 
-    const customerId = pm.customer
-      ? (typeof pm.customer === 'string' ? pm.customer : pm.customer.id)
-      : await ensureStripeCustomer(stripe, sql, principalId.trim());
+    if (verifiedSetupIntent.customerId !== expectedCustomerId) {
+      return c.json({ error: 'Setup intent does not belong to this principal' }, 403);
+    }
+
+    const pm = await stripe.paymentMethods.retrieve(verifiedSetupIntent.paymentMethodId);
+    const customerId = stripeCustomerIdFromRef(pm.customer) ?? verifiedSetupIntent.customerId;
 
     // Attach to customer if not already attached
     if (!pm.customer) {
-      await stripe.paymentMethods.attach(paymentMethodId.trim(), { customer: customerId });
+      await stripe.paymentMethods.attach(verifiedSetupIntent.paymentMethodId, {
+        customer: customerId,
+      });
     }
 
     const last4 = pm.card?.last4 ?? null;
@@ -225,28 +229,42 @@ router.post('/confirm-setup', async (c) => {
         is_default
       ) VALUES (
         ${principalId.trim()},
-        ${paymentMethodId.trim()},
+        ${verifiedSetupIntent.paymentMethodId},
         ${customerId},
         ${last4},
         ${brand},
         ${makeDefault}
       )
       ON CONFLICT (stripe_pm_id) DO UPDATE
-        SET is_default = ${makeDefault},
-            stripe_customer_id = ${customerId}
+        SET principal_id = ${principalId.trim()},
+            stripe_customer_id = ${customerId},
+            last4 = ${last4},
+            brand = ${brand},
+            is_default = ${makeDefault}
       RETURNING id, is_default
     `;
 
-    void setupIntentId; // logged by Stripe dashboard; not stored separately
-
     return c.json({
-      paymentMethodId: paymentMethodId.trim(),
+      paymentMethodId: verifiedSetupIntent.paymentMethodId,
+      setupIntentId: setupIntentId.trim(),
       last4,
       brand,
       isDefault: rows[0]?.is_default ?? makeDefault,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'SETUP_INTENT_NOT_SUCCEEDED') {
+      return c.json({ error: 'Setup intent has not completed successfully' }, 409);
+    }
+    if (
+      msg === 'SETUP_INTENT_MISSING_CUSTOMER' ||
+      msg === 'SETUP_INTENT_MISSING_PAYMENT_METHOD'
+    ) {
+      return c.json({ error: 'Setup intent is missing Stripe billing details' }, 422);
+    }
+    if (msg === 'SETUP_INTENT_PAYMENT_METHOD_MISMATCH') {
+      return c.json({ error: 'Payment method does not match the completed setup intent' }, 409);
+    }
     console.error('[paymentsSetup] POST /confirm-setup: error:', msg);
     return c.json({ error: 'Failed to confirm setup' }, 500);
   } finally {
@@ -317,7 +335,7 @@ router.delete('/methods/:methodId', async (c) => {
     const { stripe_pm_id } = rows[0];
 
     // Detach from Stripe
-    const stripe = getStripe(c.env);
+    const stripe = createStripeClient(c.env);
     await stripe.paymentMethods.detach(stripe_pm_id);
 
     // Remove from DB

@@ -826,6 +826,8 @@ model RcmMilestone {
   status          String    @default("pending")
   successCriteria Json?     @default("{}") @map("success_criteria")
   paymentIntentId String?   @unique @map("payment_intent_id") @db.Uuid
+  billingRef      String?   @map("billing_ref")
+  billedAt        DateTime? @map("billed_at") @db.Timestamptz(6)
   releasedAt      DateTime? @map("released_at") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -836,6 +838,60 @@ model RcmMilestone {
   @@index([workItemId])
   @@index([status])
   @@map("rcm_milestones")
+}
+
+model PrincipalMandate {
+  id               String    @id @default(uuid()) @db.Uuid
+  principalId      String    @map("principal_id")
+  workspaceId      String?   @map("workspace_id") @db.Uuid
+  stripePmId       String    @map("stripe_pm_id")
+  stripeCustomerId String?   @map("stripe_customer_id")
+  mandateRef       String?   @map("mandate_ref")
+  scope            String    @default("rcm_milestones")
+  maxAmountPence   Int?      @map("max_amount_pence")
+  approvedAt       DateTime  @default(now()) @map("approved_at") @db.Timestamptz(6)
+  expiresAt        DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace RcmWorkspace? @relation(fields: [workspaceId], references: [id])
+
+  @@index([principalId])
+  @@index([workspaceId])
+  @@map("principal_mandates")
+}
+
+model PrincipalPaymentMethod {
+  id               String   @id @default(uuid()) @db.Uuid
+  principalId      String   @map("principal_id")
+  stripePmId       String   @unique @map("stripe_pm_id")
+  stripeCustomerId String?  @map("stripe_customer_id")
+  last4            String?
+  brand            String?
+  isDefault        Boolean  @default(false) @map("is_default")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([principalId])
+  @@map("principal_payment_methods")
+}
+
+model ApprovalEvent {
+  id                String    @id @default(uuid()) @db.Uuid
+  intentId          String?   @map("intent_id") @db.Uuid
+  principalId       String    @map("principal_id")
+  method            String
+  approvalTokenHash String?   @map("approval_token_hash")
+  deviceHash        String?   @map("device_hash")
+  amountPence       Int       @map("amount_pence")
+  currency          String    @default("GBP")
+  policyVersion     String?   @map("policy_version")
+  approvedAt        DateTime? @map("approved_at") @db.Timestamptz(6)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([principalId])
+  @@index([intentId])
+  @@map("approval_events")
 }
 
 model RcmException {
