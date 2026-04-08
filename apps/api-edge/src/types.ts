@@ -253,6 +253,14 @@ export interface Env {
   /** OpenClaw API key — authenticates fulfillment dispatch requests. npx wrangler secret put OPENCLAW_API_KEY */
   OPENCLAW_API_KEY?: string;
 
+  // ── Approval infrastructure ───────────────────────────────────────────────
+  /**
+   * HMAC salt for device ID hashing in approval sessions.
+   * SHA-256(rawDeviceId + APPROVAL_SALT) is stored — raw device ID never persisted.
+   * GDPR Article 9 compliant. npx wrangler secret put APPROVAL_SALT
+   */
+  APPROVAL_SALT?: string;
+
   // ── Bro app client auth ───────────────────────────────────────────────────
   /**
    * Static key sent by the Bro app in `x-bro-key` header.

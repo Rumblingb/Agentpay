@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import type { Agent, HireResult, WalletInfo } from './api';
+import type { Agent, HireResult, WalletInfo, PaymentMethod } from './api';
 import type { HistoryTurn } from './storage';
 
 export type AppPhase =
@@ -46,6 +46,9 @@ interface MeridianState {
   // Wallet
   wallet: WalletInfo | null;
 
+  // Saved payment methods (Stripe cards)
+  paymentMethods: PaymentMethod[];
+
   // Actions
   hydrate: (params: {
     agentId: string;
@@ -72,6 +75,7 @@ interface MeridianState {
   setCurrentAgent: (agent: Agent | null) => void;
   setCurrentJob: (job: (HireResult & { jobId: string }) | null) => void;
   setWallet: (wallet: WalletInfo) => void;
+  setPaymentMethods: (methods: PaymentMethod[]) => void;
   setError: (error: string | null) => void;
   addTurn: (turn: HistoryTurn) => void;
   clearTurns: () => void;
@@ -107,6 +111,7 @@ export const useStore = create<MeridianState>((set) => ({
   // History + wallet
   turns: [],
   wallet: null,
+  paymentMethods: [],
 
   hydrate: ({ agentId, agentKey, userName, autoConfirmLimitUsdc, onboarded, turns, homeStation, workStation }) =>
     set({
@@ -143,11 +148,13 @@ export const useStore = create<MeridianState>((set) => ({
 
   setWallet: (wallet) => set({ wallet }),
 
+  setPaymentMethods: (paymentMethods) => set({ paymentMethods }),
+
   setError: (error) => set({ error, phase: error ? 'error' : 'idle' }),
 
   addTurn: (turn) => set((s) => ({ turns: [...s.turns, turn].slice(-50) })),
 
   clearTurns: () => set({ turns: [] }),
 
-  reset: () => set(SESSION_INITIAL),
+  reset: () => set({ ...SESSION_INITIAL, wallet: null, paymentMethods: [] }),
 }));

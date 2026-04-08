@@ -609,3 +609,40 @@ export async function listSharedTravelUnits(params: {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Payment methods — saved cards via Stripe Setup Intent
+// ---------------------------------------------------------------------------
+
+export interface PaymentMethod {
+  id: string;
+  paymentMethodId: string;
+  last4: string | null;
+  brand: string | null;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+/** List saved payment methods for a principal. */
+export async function getPaymentMethods(principalId: string): Promise<{ methods: PaymentMethod[] }> {
+  return apiFetch(`/api/payments/methods/${encodeURIComponent(principalId)}`);
+}
+
+/** Create a Stripe Setup Intent — returns clientSecret for the native payment sheet. */
+export async function createSetupIntent(principalId: string): Promise<{
+  clientSecret: string;
+  setupIntentId: string;
+  customerId: string;
+}> {
+  return apiFetch('/api/payments/setup-intent', {
+    method: 'POST',
+    body: JSON.stringify({ principalId }),
+  });
+}
+
+/** Remove a saved payment method by its DB row ID. */
+export async function deletePaymentMethod(methodId: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/api/payments/methods/${encodeURIComponent(methodId)}`, {
+    method: 'DELETE',
+  });
+}

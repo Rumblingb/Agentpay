@@ -1208,22 +1208,9 @@ export default function ConverseScreen() {
         assumptionNote: prepared.assumptionNote,
       };
 
-      // Auto-confirm if total is within the spending limit (no fingerprint needed)
-      if (total > 0 && total <= autoConfirmLimitUsdc && !sharedReadiness.requiresManualConfirm) {
-        executionApprovedAtRef.current = Date.now();
-        logConverseEvent({
-          event: 'confirm_auto_approved',
-          metadata: {
-            amountUsdc: total,
-            fiatAmount,
-            currencyCode: fiatCode,
-          },
-        });
-        await executePhase2(pendingPlanRef.current, 'auto_limit');
-        return;
-      }
-
-      // Above limit — show confirmation card with price + fingerprint gate
+      // Always show the confirmation card — biometric is required for every purchase.
+      // The autoConfirmLimitUsdc preference is kept for future policy use but no longer
+      // bypasses the biometric gate, which is the primary fraud control.
       setConfirmRetryNote(null);
       setPhase('confirming');
       logConverseEvent({

@@ -389,4 +389,145 @@ router.get('/journeys/:intentId', async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /:intentId/execute — Transition approved intent to executing
+// Called by the concierge when it picks up the intent and starts booking.
+// ---------------------------------------------------------------------------
+
+router.post('/:intentId/execute', async (c) => {
+  const intentId = c.req.param('intentId');
+
+  let body: { jobId?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
+
+  const jobId = typeof body.jobId === 'string' && body.jobId.trim() ? body.jobId.trim() : null;
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM ace_intents WHERE id = ${intentId}
+    `;
+
+    if (!rows.length) return c.json({ error: 'Intent not found' }, 404);
+
+    const intent = rows[0];
+    if (intent.status !== 'approved') {
+      return c.json({
+        error: `Intent cannot be executed in status '${intent.status}'. Expected 'approved'.`,
+      }, 409);
+    }
+
+    const patch: Record<string, unknown> = { status: 'executing', updated_at: 'now()' };
+    if (jobId) patch.job_id = jobId;
+
+    await sql`
+      UPDATE ace_intents
+      SET
+        status     = 'executing',
+        updated_at = now()
+        ${jobId ? sql`, actor_id = ${jobId}` : sql``}
+      WHERE id = ${intentId}
+    `;
+
+    return c.json({ intentId, status: 'executing', jobId });
+  } catch (err) {
+    console.error('[aceIntents] POST /:intentId/execute:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to execute intent' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /:intentId/complete — Mark intent completed after successful booking
+// ---------------------------------------------------------------------------
+
+router.post('/:intentId/complete', async (c) => {
+  const intentId = c.req.param('intentId');
+
+  let body: { bookingRef?: unknown; ticketRef?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM ace_intents WHERE id = ${intentId}
+    `;
+
+    if (!rows.length) return c.json({ error: 'Intent not found' }, 404);
+
+    const intent = rows[0];
+    if (!['executing', 'approved'].includes(intent.status)) {
+      return c.json({
+        error: `Intent cannot be completed in status '${intent.status}'.`,
+      }, 409);
+    }
+
+    const completionMeta = {
+      bookingRef: typeof body.bookingRef === 'string' ? body.bookingRef : null,
+      ticketRef: typeof body.ticketRef === 'string' ? body.ticketRef : null,
+      completedAt: new Date().toISOString(),
+    };
+
+    await sql`
+      UPDATE ace_intents
+      SET
+        status              = 'completed',
+        recommendation_json = recommendation_json || ${JSON.stringify(completionMeta)}::jsonb,
+        updated_at          = now()
+      WHERE id = ${intentId}
+    `;
+
+    return c.json({ intentId, status: 'completed', ...completionMeta });
+  } catch (err) {
+    console.error('[aceIntents] POST /:intentId/complete:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to complete intent' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /:intentId/fail — Mark intent failed
+// ---------------------------------------------------------------------------
+
+router.post('/:intentId/fail', async (c) => {
+  const intentId = c.req.param('intentId');
+
+  let body: { reason?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
+
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : 'Unknown error';
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM ace_intents WHERE id = ${intentId}
+    `;
+
+    if (!rows.length) return c.json({ error: 'Intent not found' }, 404);
+
+    const terminal = ['completed', 'failed'];
+    if (terminal.includes(rows[0].status)) {
+      return c.json({ error: `Intent is already in terminal status '${rows[0].status}'.` }, 409);
+    }
+
+    await sql`
+      UPDATE ace_intents
+      SET
+        status              = 'failed',
+        recommendation_json = recommendation_json || ${JSON.stringify({ failureReason: reason, failedAt: new Date().toISOString() })}::jsonb,
+        updated_at          = now()
+      WHERE id = ${intentId}
+    `;
+
+    return c.json({ intentId, status: 'failed', reason });
+  } catch (err) {
+    console.error('[aceIntents] POST /:intentId/fail:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to mark intent as failed' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
 export { router as aceIntentsRouter };

@@ -7,6 +7,7 @@
  */
 
 import { Hono, type Context } from 'hono';
+import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb, type Sql } from '../lib/db';
@@ -7737,6 +7738,330 @@ router.post('/lanes/era-835/work-items/:workItemId/resolve', authenticateApiKey,
   } catch (err: unknown) {
     console.error('[rcm] era-835 resolve error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to resolve ERA 835 work item' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+// ---------------------------------------------------------------------------
+// Billing — Setup Intent + mandate + off-session charge
+//
+// ─── DB migration required ─────────────────────────────────────────────────
+//
+// Run once against your Supabase Direct connection (port 5432):
+//
+// CREATE TABLE IF NOT EXISTS principal_mandates (
+//   id                   uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
+//   principal_id         text    NOT NULL,
+//   workspace_id         uuid    REFERENCES rcm_workspaces(id) ON DELETE CASCADE,
+//   stripe_pm_id         text    NOT NULL,
+//   stripe_customer_id   text,
+//   mandate_ref          text,
+//   scope                text    NOT NULL DEFAULT 'rcm_milestones',
+//   max_amount_pence     integer,
+//   approved_at          timestamptz NOT NULL DEFAULT now(),
+//   expires_at           timestamptz,
+//   revoked_at           timestamptz,
+//   created_at           timestamptz NOT NULL DEFAULT now()
+// );
+//
+// CREATE INDEX IF NOT EXISTS principal_mandates_principal_idx
+//   ON principal_mandates (principal_id);
+// CREATE INDEX IF NOT EXISTS principal_mandates_workspace_idx
+//   ON principal_mandates (workspace_id);
+//
+// Also add to rcm_milestones table if not present:
+//   ALTER TABLE rcm_milestones ADD COLUMN IF NOT EXISTS billing_ref text;
+//   ALTER TABLE rcm_milestones ADD COLUMN IF NOT EXISTS billed_at timestamptz;
+// ───────────────────────────────────────────────────────────────────────────
+
+function getRcmStripe(env: Env): Stripe {
+  if (!env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured');
+  return new Stripe(env.STRIPE_SECRET_KEY, {
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+}
+
+/** GET /api/rcm/workspaces/:workspaceId/billing — mandate status for a workspace */
+router.get('/workspaces/:workspaceId/billing', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  const sql = createDb(c.env);
+  try {
+    // Verify workspace belongs to merchant
+    const ws = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    const mandates = await sql<Array<{
+      id: string; stripe_pm_id: string; scope: string;
+      max_amount_pence: number | null; approved_at: Date;
+      expires_at: Date | null; revoked_at: Date | null; created_at: Date;
+    }>>`
+      SELECT id, stripe_pm_id, scope, max_amount_pence, approved_at, expires_at, revoked_at, created_at
+      FROM principal_mandates
+      WHERE workspace_id = ${workspaceId}
+        AND revoked_at IS NULL
+      ORDER BY created_at DESC
+    `;
+
+    return c.json({ workspaceId, mandates });
+  } catch (err) {
+    console.error('[rcm] GET /workspaces/:id/billing error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch billing status' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+/** POST /api/rcm/workspaces/:workspaceId/setup-billing — create Setup Intent for mandate */
+router.post('/workspaces/:workspaceId/setup-billing', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  let body: { principalId?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
+
+  const { principalId } = body;
+  if (typeof principalId !== 'string' || !principalId.trim()) {
+    return c.json({ error: 'principalId is required' }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const ws = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    // Find or create Stripe customer for this principal
+    const existingCust = await sql<Array<{ stripe_customer_id: string }>>`
+      SELECT stripe_customer_id
+      FROM principal_mandates
+      WHERE principal_id = ${principalId.trim()}
+        AND stripe_customer_id IS NOT NULL
+      LIMIT 1
+    `;
+
+    const stripe = getRcmStripe(c.env);
+    let customerId: string;
+    if (existingCust.length && existingCust[0].stripe_customer_id) {
+      customerId = existingCust[0].stripe_customer_id;
+    } else {
+      const customer = await stripe.customers.create({
+        metadata: { agentpay_principal_id: principalId.trim(), workspace_id: workspaceId },
+      });
+      customerId = customer.id;
+    }
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      usage: 'off_session',
+      metadata: {
+        agentpay_principal_id: principalId.trim(),
+        workspace_id: workspaceId,
+        scope: 'rcm_milestones',
+      },
+    });
+
+    return c.json({
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+      customerId,
+    }, 201);
+  } catch (err) {
+    console.error('[rcm] POST /workspaces/:id/setup-billing error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create setup intent' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+/** POST /api/rcm/workspaces/:workspaceId/confirm-billing — store mandate after setup completes */
+router.post('/workspaces/:workspaceId/confirm-billing', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  let body: { principalId?: unknown; paymentMethodId?: unknown; setupIntentId?: unknown; maxAmountPence?: unknown } = {};
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { principalId, paymentMethodId, maxAmountPence } = body;
+  if (typeof principalId !== 'string' || !principalId.trim()) {
+    return c.json({ error: 'principalId is required' }, 400);
+  }
+  if (typeof paymentMethodId !== 'string' || !paymentMethodId.trim()) {
+    return c.json({ error: 'paymentMethodId is required' }, 400);
+  }
+
+  const stripe = getRcmStripe(c.env);
+  const sql = createDb(c.env);
+  try {
+    const ws = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId.trim());
+    const customerId = pm.customer
+      ? (typeof pm.customer === 'string' ? pm.customer : pm.customer.id)
+      : null;
+
+    if (customerId && !pm.customer) {
+      await stripe.paymentMethods.attach(paymentMethodId.trim(), { customer: customerId });
+    }
+
+    const mandateAmount = typeof maxAmountPence === 'number' && Number.isInteger(maxAmountPence)
+      ? maxAmountPence
+      : null;
+
+    const rows = await sql<Array<{ id: string; approved_at: Date }>>`
+      INSERT INTO principal_mandates (
+        principal_id,
+        workspace_id,
+        stripe_pm_id,
+        stripe_customer_id,
+        scope,
+        max_amount_pence
+      ) VALUES (
+        ${principalId.trim()},
+        ${workspaceId},
+        ${paymentMethodId.trim()},
+        ${customerId},
+        'rcm_milestones',
+        ${mandateAmount}
+      )
+      RETURNING id, approved_at
+    `;
+
+    const row = rows[0];
+    return c.json({
+      mandateId: row.id,
+      workspaceId,
+      principalId: principalId.trim(),
+      paymentMethodId: paymentMethodId.trim(),
+      last4: pm.card?.last4 ?? null,
+      brand: pm.card?.brand ?? null,
+      approvedAt: row.approved_at,
+    });
+  } catch (err) {
+    console.error('[rcm] POST /workspaces/:id/confirm-billing error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to confirm billing mandate' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+/** POST /api/rcm/workspaces/:workspaceId/charge — off-session charge for a completed milestone */
+router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  let body: { milestoneId?: unknown; amountPence?: unknown; currency?: unknown; description?: unknown } = {};
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { milestoneId, amountPence, currency, description } = body;
+  if (typeof milestoneId !== 'string' || !milestoneId.trim()) {
+    return c.json({ error: 'milestoneId is required' }, 400);
+  }
+  if (!Number.isInteger(amountPence) || (amountPence as number) <= 0) {
+    return c.json({ error: 'amountPence must be a positive integer' }, 400);
+  }
+
+  const ccy = typeof currency === 'string' && currency.trim().length === 3
+    ? currency.trim().toLowerCase()
+    : 'gbp';
+  const desc = typeof description === 'string' ? description.trim() : `AgentPay RCM milestone ${milestoneId}`;
+
+  const stripe = getRcmStripe(c.env);
+  const sql = createDb(c.env);
+  try {
+    // Verify workspace ownership
+    const ws = await sql<Array<{ id: string }>>`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    // Find active mandate for this workspace
+    const mandates = await sql<Array<{ id: string; stripe_pm_id: string; stripe_customer_id: string | null; max_amount_pence: number | null }>>`
+      SELECT id, stripe_pm_id, stripe_customer_id, max_amount_pence
+      FROM principal_mandates
+      WHERE workspace_id = ${workspaceId}
+        AND scope = 'rcm_milestones'
+        AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at > now())
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    if (!mandates.length) {
+      return c.json({ error: 'No active billing mandate for this workspace. Call /setup-billing first.' }, 402);
+    }
+
+    const mandate = mandates[0];
+
+    // Check max amount limit
+    if (mandate.max_amount_pence && (amountPence as number) > mandate.max_amount_pence) {
+      return c.json({
+        error: `Charge of ${amountPence} exceeds mandate limit of ${mandate.max_amount_pence}`,
+      }, 422);
+    }
+
+    if (!mandate.stripe_customer_id) {
+      return c.json({ error: 'Mandate has no Stripe customer — re-run setup-billing' }, 422);
+    }
+
+    // Create off-session PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountPence as number,
+      currency: ccy,
+      customer: mandate.stripe_customer_id,
+      payment_method: mandate.stripe_pm_id,
+      off_session: true,
+      confirm: true,
+      description: desc,
+      metadata: {
+        workspace_id: workspaceId,
+        milestone_id: milestoneId.trim(),
+        mandate_id: mandate.id,
+      },
+    });
+
+    // Mark milestone as billed if payment succeeded or requires further action
+    if (paymentIntent.status === 'succeeded') {
+      await sql`
+        UPDATE rcm_milestones
+        SET billing_ref = ${paymentIntent.id},
+            billed_at   = now()
+        WHERE id = ${milestoneId.trim()}
+      `.catch(() => {}); // non-fatal — webhook will also update
+    }
+
+    return c.json({
+      chargeId: paymentIntent.id,
+      status: paymentIntent.status,
+      amountPence: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      milestoneId: milestoneId.trim(),
+    });
+  } catch (err: any) {
+    // Stripe card errors (card_declined, insufficient_funds, etc.) — return 402
+    if (err?.type === 'StripeCardError') {
+      return c.json({ error: err.message, code: err.code }, 402);
+    }
+    console.error('[rcm] POST /workspaces/:id/charge error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to charge milestone' }, 500);
   } finally { sql.end().catch(() => {}); }
 });
 

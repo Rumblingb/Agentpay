@@ -2510,8 +2510,11 @@ async function autoCompleteJob(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ completionSecret, completionProof }),
     });
-  } catch {
-    // Best-effort — the job stays escrow_pending if this fails
+  } catch (err) {
+    console.error('[concierge] autoCompleteJob failed — job stays escrow_pending', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
