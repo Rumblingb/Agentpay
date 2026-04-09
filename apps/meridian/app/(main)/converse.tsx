@@ -48,8 +48,10 @@ import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import type { TripContext } from '../../lib/trip';
-import { rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
+import { getLaunchSessionId, rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
 import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
+import { DEFAULT_VOICE_SESSION_CONFIG, isLiveVoiceSession, loadVoiceSessionConfig } from '../../lib/voiceSession';
+import { connectLiveVoiceSession, type LiveVoiceConnection } from '../../lib/liveVoice';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -765,9 +767,20 @@ export default function ConverseScreen() {
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [voiceSessionConfig, setVoiceSessionConfig] = useState(DEFAULT_VOICE_SESSION_CONFIG);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [liveVoiceConnected, setLiveVoiceConnected] = useState(false);
+  const [liveVoiceConnecting, setLiveVoiceConnecting] = useState(false);
+  const [liveVoiceMicEnabled, setLiveVoiceMicEnabled] = useState(false);
+  const [liveRemoteSpeaking, setLiveRemoteSpeaking] = useState(false);
+  const [liveCaption, setLiveCaption] = useState<string | null>(null);
+  const [liveHeardLine, setLiveHeardLine] = useState<string | null>(null);
   const micAmplitude = useSharedValue(0);
   const ttsAmplitude = useSharedValue(0);
+  const liveVoiceConnectionRef = useRef<LiveVoiceConnection | null>(null);
+  const liveVoiceConnectAttemptedRef = useRef(false);
+  const liveTranscriptBufferRef = useRef('');
+  const liveRemoteMessageIdsRef = useRef(new Set<string>());
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
   const handsFreeListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextSilenceMsRef = useRef(2800);
@@ -801,6 +814,152 @@ export default function ConverseScreen() {
       metadata: params.metadata,
     });
   }, []);
+
+  const disconnectLiveVoice = useCallback(async () => {
+    const current = liveVoiceConnectionRef.current;
+    liveVoiceConnectionRef.current = null;
+    liveTranscriptBufferRef.current = '';
+    setLiveVoiceConnected(false);
+    setLiveVoiceConnecting(false);
+    setLiveVoiceMicEnabled(false);
+    setLiveRemoteSpeaking(false);
+    setLiveCaption(null);
+    setLiveHeardLine(null);
+    if (current) {
+      await current.disconnect().catch(() => {});
+    }
+  }, []);
+
+  const connectLiveVoice = useCallback(async () => {
+    if (!agentId || !isLiveVoiceSession(voiceSessionConfig)) return;
+    if (liveVoiceConnectionRef.current || liveVoiceConnecting) return;
+
+    setLiveVoiceConnecting(true);
+    try {
+      const connection = await connectLiveVoiceSession({
+        hirerId: agentId,
+        sessionId: getLaunchSessionId(),
+        callbacks: {
+          onConnected: () => {
+            setLiveVoiceConnected(true);
+            setLiveVoiceConnecting(false);
+            setLiveVoiceMicEnabled(true);
+            setLiveCaption(null);
+            phaseRef.current = 'listening';
+            setPhase('listening');
+            logConverseEvent({
+              event: 'live_voice_connected',
+              metadata: {
+                provider: voiceSessionConfig.provider,
+                transport: voiceSessionConfig.transport,
+              },
+            });
+          },
+          onDisconnected: () => {
+            liveVoiceConnectionRef.current = null;
+            liveTranscriptBufferRef.current = '';
+            setLiveVoiceConnected(false);
+            setLiveVoiceMicEnabled(false);
+            setLiveRemoteSpeaking(false);
+            setLiveCaption(null);
+            if (phaseRef.current === 'listening') {
+              phaseRef.current = 'idle';
+              setPhase('idle');
+            }
+            logConverseEvent({ event: 'live_voice_disconnected' });
+          },
+          onReconnecting: () => {
+            setLiveVoiceConnecting(true);
+            logConverseEvent({ event: 'live_voice_reconnecting' });
+          },
+          onReconnected: () => {
+            setLiveVoiceConnected(true);
+            setLiveVoiceConnecting(false);
+            logConverseEvent({ event: 'live_voice_reconnected' });
+          },
+          onRemoteSpeakingChanged: (speaking) => {
+            setLiveRemoteSpeaking(speaking);
+          },
+          onChatMessage: async (message, participant) => {
+            if (!participant || participant.identity === agentId) return;
+            if (liveRemoteMessageIdsRef.current.has(message.id)) return;
+            liveRemoteMessageIdsRef.current.add(message.id);
+            const narration = sanitizeAceNarration(message.message);
+            if (!narration) return;
+            setLiveCaption(narration);
+            const meridianTurn = { role: 'meridian' as const, text: narration, ts: Date.now() };
+            addTurn(meridianTurn);
+            await appendHistory(meridianTurn).catch(() => {});
+            logConverseEvent({
+              event: 'live_voice_message_received',
+              metadata: {
+                participantIdentity: participant.identity,
+                textLength: narration.length,
+              },
+            });
+          },
+          onTranscriptionReceived: (segments, participant) => {
+            const joined = segments
+              .map((segment) => segment.text.trim())
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            if (!joined) return;
+
+            if (participant?.identity === agentId) {
+              liveTranscriptBufferRef.current = joined;
+              setLiveHeardLine(joined);
+              logConverseEvent({
+                event: 'live_voice_local_transcript',
+                metadata: {
+                  final: segments.every((segment) => segment.final),
+                  textLength: joined.length,
+                },
+              });
+              return;
+            }
+
+            setLiveCaption(joined);
+            logConverseEvent({
+              event: 'live_voice_remote_transcript',
+              metadata: {
+                final: segments.every((segment) => segment.final),
+                textLength: joined.length,
+                participantIdentity: participant?.identity ?? null,
+              },
+            });
+          },
+          onError: (error) => {
+            liveVoiceConnectionRef.current = null;
+            const message = error.message || 'Live voice failed.';
+            setLiveVoiceConnected(false);
+            setLiveVoiceConnecting(false);
+            setLiveVoiceMicEnabled(false);
+            setLiveRemoteSpeaking(false);
+            setLiveCaption(null);
+            logConverseEvent({
+              event: 'live_voice_error',
+              severity: 'warning',
+              message,
+            });
+          },
+        },
+      });
+
+      liveVoiceConnectionRef.current = connection;
+    } catch (error: any) {
+      liveVoiceConnectionRef.current = null;
+      setLiveVoiceConnecting(false);
+      setLiveVoiceConnected(false);
+      setLiveVoiceMicEnabled(false);
+      setLiveRemoteSpeaking(false);
+      logConverseEvent({
+        event: 'live_voice_connect_failed',
+        severity: 'warning',
+        message: error?.message ?? 'Live voice failed to connect.',
+      });
+    }
+  }, [addTurn, agentId, liveVoiceConnecting, logConverseEvent, setPhase, voiceSessionConfig]);
 
   useEffect(() => {
     if (turns.length === 0) return;
@@ -1261,12 +1420,59 @@ export default function ConverseScreen() {
   // Pre-fetch the opening greeting the moment the screen mounts so the audio
   // file is ready before the 1.2s timer fires — instant first sound.
   useEffect(() => {
-    if (!voiceEnabled) return;
+    let cancelled = false;
+
+    void loadVoiceSessionConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setVoiceSessionConfig(config);
+        void trackClientEvent({
+          event: 'voice_runtime_configured',
+          screen: 'converse',
+          metadata: {
+            mode: config.mode,
+            transport: config.transport,
+            provider: config.provider,
+            ready: config.ready,
+            supportsInterruptions: config.supportsInterruptions,
+            supportsServerVad: config.supportsServerVad,
+            premiumVoice: config.premiumVoice,
+            planningToolsAvailableDuringConversation: config.planningToolsAvailableDuringConversation,
+            bookingToolsLockedUntilConfirm: config.bookingToolsLockedUntilConfirm,
+            diagnostics: config.diagnostics,
+          },
+        });
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!agentId || !voiceEnabled || !isLiveVoiceSession(voiceSessionConfig)) return;
+    if (liveVoiceConnectAttemptedRef.current) return;
+    liveVoiceConnectAttemptedRef.current = true;
+    void connectLiveVoice();
+  }, [agentId, connectLiveVoice, voiceEnabled, voiceSessionConfig]);
+
+  useEffect(() => {
+    if (voiceEnabled) return;
+    void disconnectLiveVoice();
+  }, [disconnectLiveVoice, voiceEnabled]);
+
+  useEffect(() => () => {
+    void disconnectLiveVoice();
+  }, [disconnectLiveVoice]);
+
+  useEffect(() => {
+    if (!voiceEnabled || isLiveVoiceSession(voiceSessionConfig)) return;
     const h = new Date().getHours();
     const line = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
     void preloadAudio(line);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [voiceEnabled, voiceSessionConfig]);
 
   // Always-on: auto-start listening 1.2s after mount once agentId is ready.
   // Skipped if a prefill is pending (it will take priority) or a trip is active.
@@ -1280,6 +1486,10 @@ export default function ConverseScreen() {
         if (liveSession && shouldPreferJourney(liveSession)) return;
         // Only start if we're still idle and the keyboard isn't up
         if (phaseRef.current === 'idle' && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+          if (isLiveVoiceSession(voiceSessionConfig)) {
+            void connectLiveVoice();
+            return;
+          }
           // Speak a brief greeting so the user knows Ace is ready, then
           // speakIfEnabled's restartListening path automatically arms the mic.
           const h = new Date().getHours();
@@ -1289,10 +1499,10 @@ export default function ConverseScreen() {
       })();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [activeTrip, agentId, prefill, voiceEnabled]);
+  }, [activeTrip, agentId, connectLiveVoice, prefill, voiceEnabled, voiceSessionConfig]);
 
   useEffect(() => {
-    if (phase !== 'done' || isSpeaking) return;
+    if (phase !== 'done' || isSpeaking || liveRemoteSpeaking) return;
     const timer = setTimeout(() => {
       if (phaseRef.current !== 'done') return;
       setPhase('idle');
@@ -1307,7 +1517,7 @@ export default function ConverseScreen() {
       }
     }, 4000);
     return () => clearTimeout(timer);
-  }, [activeTrip, isSpeaking, phase, setPhase, voiceEnabled]);
+  }, [activeTrip, isSpeaking, liveRemoteSpeaking, phase, setPhase, voiceEnabled]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -1574,6 +1784,31 @@ export default function ConverseScreen() {
   const finishingRecordingRef = useRef(false);
 
   const finishVoiceCapture = useCallback(async () => {
+    if (isLiveVoiceSession(voiceSessionConfig)) {
+      clearHandsFreeListenTimer();
+      if (liveVoiceConnectionRef.current) {
+        await liveVoiceConnectionRef.current.setMicrophoneEnabled(false).catch(() => {});
+      }
+      if (liveTranscriptBufferRef.current.trim()) {
+        const heard = liveTranscriptBufferRef.current.trim();
+        setTranscript(heard);
+        addTurn({ role: 'user', text: heard, ts: Date.now() });
+        await appendHistory({ role: 'user', text: heard, ts: Date.now() }).catch(() => {});
+        logConverseEvent({
+          event: 'live_voice_local_turn_captured',
+          metadata: { textLength: heard.length },
+        });
+      }
+      liveTranscriptBufferRef.current = '';
+      setLiveVoiceMicEnabled(false);
+      setLiveRemoteSpeaking(false);
+      setLiveHeardLine(null);
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
+
     if (finishingRecordingRef.current) return;
     clearHandsFreeListenTimer();
     if (startingRecordingRef.current && !recordingActiveRef.current) {
@@ -1725,10 +1960,45 @@ export default function ConverseScreen() {
       startingRecordingRef.current = false;
       finishingRecordingRef.current = false;
     }
-  }, [clearHandsFreeListenTimer, logConverseEvent, openTextFallback, runIntentWithUiFallback, setError, setPhase]);
+  }, [addTurn, clearHandsFreeListenTimer, logConverseEvent, openTextFallback, runIntentWithUiFallback, setError, setPhase, setTranscript, voiceSessionConfig]);
 
   const beginVoiceCapture = useCallback(async () => {
     if (!voiceEnabled) return;
+    if (isLiveVoiceSession(voiceSessionConfig)) {
+      const currentPhase = phaseRef.current;
+      clearHandsFreeListenTimer();
+      cancelSpeech();
+      if (currentPhase === 'error') reset();
+      setTextFallbackVisible(false);
+      setError(null);
+      setLiveHeardLine(null);
+      liveTranscriptBufferRef.current = '';
+      voiceCaptureStartedAtRef.current = Date.now();
+      logConverseEvent({
+        event: 'voice_capture_started',
+        metadata: { fromPhase: currentPhase, live: true },
+      });
+      logConverseEvent({
+        event: 'voice_session_start',
+        metadata: {
+          fromPhase: currentPhase,
+          voiceMode: voiceSessionConfig.mode,
+          voiceTransport: voiceSessionConfig.transport,
+          voiceProvider: voiceSessionConfig.provider,
+        },
+      });
+
+      if (!liveVoiceConnectionRef.current) {
+        await connectLiveVoice();
+      } else {
+        await liveVoiceConnectionRef.current.setMicrophoneEnabled(true).catch(() => {});
+        setLiveVoiceMicEnabled(true);
+        phaseRef.current = 'listening';
+        setPhase('listening');
+      }
+      return;
+    }
+
     if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
     const currentPhase = phaseRef.current;
     if (currentPhase !== 'idle' && currentPhase !== 'error') return;
@@ -1746,7 +2016,12 @@ export default function ConverseScreen() {
     });
     logConverseEvent({
       event: 'voice_session_start',
-      metadata: { fromPhase: currentPhase },
+      metadata: {
+        fromPhase: currentPhase,
+        voiceMode: voiceSessionConfig.mode,
+        voiceTransport: voiceSessionConfig.transport,
+        voiceProvider: voiceSessionConfig.provider,
+      },
     });
     startingRecordingRef.current = true;
     try {
@@ -1784,7 +2059,7 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [clearHandsFreeListenTimer, finishVoiceCapture, logConverseEvent, reset, setError, setPhase, voiceEnabled]);
+  }, [clearHandsFreeListenTimer, connectLiveVoice, finishVoiceCapture, logConverseEvent, reset, setError, setPhase, voiceEnabled, voiceSessionConfig]);
 
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;
@@ -1795,6 +2070,19 @@ export default function ConverseScreen() {
 
   const handleOrbTap = useCallback(async () => {
     clearHandsFreeListenTimer();
+    if (isLiveVoiceSession(voiceSessionConfig)) {
+      if (liveVoiceConnecting) return;
+      if (!liveVoiceConnectionRef.current) {
+        await beginVoiceCapture();
+        return;
+      }
+      if (liveVoiceMicEnabled) {
+        await finishVoiceCapture();
+        return;
+      }
+      await beginVoiceCapture();
+      return;
+    }
     if (phase === 'listening') {
       await finishVoiceCapture();
       return;
@@ -1809,7 +2097,7 @@ export default function ConverseScreen() {
     }
     nextSilenceMsRef.current = 2800;
     await beginVoiceCapture();
-  }, [beginVoiceCapture, clearHandsFreeListenTimer, finishVoiceCapture, phase]);
+  }, [beginVoiceCapture, clearHandsFreeListenTimer, finishVoiceCapture, liveVoiceConnecting, liveVoiceMicEnabled, phase, voiceSessionConfig]);
 
   const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
     if (!nearestStation) return;
@@ -1853,22 +2141,25 @@ export default function ConverseScreen() {
   const isIdle     = phase === 'idle';
   const isError    = phase === 'error';
   const isConfirming = phase === 'confirming';
+  const liveVoiceReady = isLiveVoiceSession(voiceSessionConfig);
   const presenceLabel =
-    isSpeaking ? 'Ace is speaking' :
-    phase === 'listening' ? 'Ace is listening' :
+    isSpeaking || liveRemoteSpeaking ? 'Ace is speaking' :
+    liveVoiceConnecting ? 'Ace is joining' :
+    phase === 'listening' ? (liveVoiceReady ? 'Ace is with you' : 'Ace is listening') :
     phase === 'thinking' ? 'Ace is thinking' :
     phase === 'hiring' || phase === 'executing' ? 'Ace is securing your trip' :
     phase === 'done' ? 'Trip secured' :
     phase === 'error' ? 'Ace is waiting' :
-    voiceEnabled ? 'Ace is ready' :
+    voiceEnabled ? (liveVoiceReady ? 'Ace is live' : 'Ace is ready') :
     'Voice paused';
   const presenceHint =
-    isSpeaking ? 'Stay with me. Ace is guiding the next move.' :
-    phase === 'listening' ? 'Say the trip once, naturally.' :
+    isSpeaking || liveRemoteSpeaking ? 'Stay with me. Ace is guiding the next move.' :
+    liveVoiceConnecting ? 'Joining your live concierge session.' :
+    phase === 'listening' ? (liveVoiceReady ? 'Speak naturally. Ace will stay with the thread.' : 'Say the trip once, naturally.') :
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Ace is working the route, timing, and booking.' :
     phase === 'done' ? 'Trip secured. Ace will stay with it.' :
     phase === 'error' ? 'Say it again or continue in text below.' :
-    voiceEnabled ? 'Say the trip when you are ready.' :
+    voiceEnabled ? (liveVoiceReady ? 'Ace is live. Say the trip when you are ready.' : 'Say the trip when you are ready.') :
     'Tap Ace to resume voice.';
   const presenceTone =
     phase === 'listening' ? '#c8e8ff' :
@@ -2223,6 +2514,39 @@ export default function ConverseScreen() {
                   ? `You are nearest to ${nearestStation.name}. Say where to line up next.`
                   : 'Ace is ready when you are.'}
             </Text>
+          </View>
+        )}
+
+        {liveVoiceReady && (liveVoiceConnected || liveVoiceConnecting || liveCaption || liveHeardLine) && (
+          <View style={styles.liveSessionCard}>
+            <View style={styles.liveSessionHeader}>
+              <Text style={styles.liveSessionEyebrow}>Live with Ace</Text>
+              <Text style={styles.liveSessionState}>
+                {liveVoiceConnecting
+                  ? 'Joining'
+                  : liveRemoteSpeaking
+                  ? 'Speaking'
+                  : liveVoiceMicEnabled
+                  ? 'Listening'
+                  : liveVoiceConnected
+                  ? 'Standing by'
+                  : 'Fallback'}
+              </Text>
+            </View>
+            {liveHeardLine ? (
+              <Text style={styles.liveSessionHeard} numberOfLines={2}>
+                You: {liveHeardLine}
+              </Text>
+            ) : null}
+            {liveCaption ? (
+              <Text style={styles.liveSessionCaption} numberOfLines={3}>
+                Ace: {liveCaption}
+              </Text>
+            ) : (
+              <Text style={styles.liveSessionHint}>
+                Ace stays in the room. Planning stays open. Booking opens only when you confirm.
+              </Text>
+            )}
           </View>
         )}
 
@@ -2790,6 +3114,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: '#91a4b8',
+  },
+  liveSessionCard: {
+    marginBottom: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(118, 190, 236, 0.22)',
+    backgroundColor: 'rgba(7, 17, 29, 0.84)',
+  },
+  liveSessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  liveSessionEyebrow: {
+    fontSize: 11,
+    color: '#d9ecff',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+    fontWeight: '700',
+  },
+  liveSessionState: {
+    fontSize: 11,
+    color: '#8ec4e8',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  liveSessionHeard: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#bfd0df',
+    marginBottom: 6,
+  },
+  liveSessionCaption: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#eef6ff',
+    fontWeight: '500',
+  },
+  liveSessionHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#8ea1b5',
   },
   modeCard: {
     borderRadius: 22,

@@ -17,6 +17,138 @@ export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Daniel (onwK4e9ZLuTAKqWW03F9) — deeper/more formal, but noticeably slower to first byte.
 const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
 
+type VoiceSessionMode = 'batch' | 'live';
+type VoiceSessionProvider = 'batch_proxy' | 'livekit' | 'openai_realtime';
+
+type VoiceSessionConnectResponse = {
+  mode: 'live';
+  provider: 'livekit';
+  serverUrl: string;
+  roomName: string;
+  participantIdentity: string;
+  participantToken: string;
+  expiresAt: string;
+  planningToolsAvailableDuringConversation: true;
+  bookingToolsLockedUntilConfirm: true;
+};
+
+function getLiveVoiceProvider(env: Env): VoiceSessionProvider | null {
+  if (env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET) {
+    return 'livekit';
+  }
+  if (env.OPENAI_API_KEY && env.OPENAI_REALTIME_MODEL) {
+    return 'openai_realtime';
+  }
+  return null;
+}
+
+function base64UrlEncode(input: string | Uint8Array): string {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function signHs256(secret: string, data: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+function slugPart(value: string, fallback: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized.slice(0, 32) || fallback;
+}
+
+async function createLiveKitParticipantToken(params: {
+  apiKey: string;
+  apiSecret: string;
+  roomName: string;
+  participantIdentity: string;
+  metadata?: Record<string, unknown>;
+  ttlSeconds?: number;
+}): Promise<{ token: string; expiresAt: string }> {
+  const now = Math.floor(Date.now() / 1000);
+  const ttlSeconds = params.ttlSeconds ?? 60 * 60;
+  const exp = now + ttlSeconds;
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload = {
+    iss: params.apiKey,
+    sub: params.participantIdentity,
+    nbf: now - 10,
+    exp,
+    video: {
+      room: params.roomName,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    },
+    metadata: params.metadata ? JSON.stringify(params.metadata) : undefined,
+  };
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = await signHs256(params.apiSecret, `${encodedHeader}.${encodedPayload}`);
+  return {
+    token: `${encodedHeader}.${encodedPayload}.${signature}`,
+    expiresAt: new Date(exp * 1000).toISOString(),
+  };
+}
+
+function getVoiceSessionManifest(env: Env): {
+  mode: VoiceSessionMode;
+  transport: 'http' | 'webrtc';
+  provider: VoiceSessionProvider;
+  ready: boolean;
+  planningToolsAvailableDuringConversation: boolean;
+  bookingToolsLockedUntilConfirm: boolean;
+  supportsInterruptions: boolean;
+  supportsServerVad: boolean;
+  premiumVoice: 'elevenlabs' | 'system' | 'none';
+  fallback: { stt: 'whisper_proxy'; tts: 'elevenlabs_http' | 'none' };
+  diagnostics: string[];
+} {
+  const liveProvider = getLiveVoiceProvider(env);
+  const diagnostics: string[] = [];
+
+  if (!liveProvider) {
+    diagnostics.push('live_runtime_not_configured');
+    if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+      diagnostics.push('livekit_credentials_missing');
+    }
+    if (!env.OPENAI_REALTIME_MODEL) {
+      diagnostics.push('openai_realtime_model_missing');
+    }
+  }
+
+  if (!env.ELEVENLABS_API_KEY) {
+    diagnostics.push('elevenlabs_unavailable');
+  }
+
+  return {
+    mode: liveProvider ? 'live' : 'batch',
+    transport: liveProvider ? 'webrtc' : 'http',
+    provider: liveProvider ?? 'batch_proxy',
+    ready: !!liveProvider,
+    planningToolsAvailableDuringConversation: true,
+    bookingToolsLockedUntilConfirm: true,
+    supportsInterruptions: !!liveProvider,
+    supportsServerVad: !!liveProvider,
+    premiumVoice: env.ELEVENLABS_API_KEY ? 'elevenlabs' : 'none',
+    fallback: {
+      stt: 'whisper_proxy',
+      tts: env.ELEVENLABS_API_KEY ? 'elevenlabs_http' : 'none',
+    },
+    diagnostics,
+  };
+}
+
 function broLog(event: string, data: Record<string, unknown>) {
   console.log(
     JSON.stringify({
@@ -86,6 +218,72 @@ function isCfWhisperHallucination(text: string): boolean {
   if (lower.split(/\s+/).length === 1 && lower.length <= 4) return true;
   return false;
 }
+
+voiceRouter.get('/session', async (c) => {
+  const unauthorized = requireBroClientKey(c);
+  if (unauthorized) return unauthorized;
+
+  return c.json(getVoiceSessionManifest(c.env));
+});
+
+voiceRouter.post('/session/connect', async (c) => {
+  const unauthorized = requireBroClientKey(c);
+  if (unauthorized) return unauthorized;
+
+  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = c.env;
+  if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return c.json({ error: 'Live voice session is not configured' }, 503);
+  }
+
+  let body: { hirerId?: string; sessionId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const hirerId = body.hirerId?.trim();
+  if (!hirerId) {
+    return c.json({ error: 'hirerId required' }, 400);
+  }
+
+  const roomName = `ace-${slugPart(hirerId, 'guest')}-${slugPart(body.sessionId ?? Date.now().toString(36), 'session')}`;
+  const participantIdentity = `traveler-${slugPart(hirerId, 'guest')}`;
+  const { token, expiresAt } = await createLiveKitParticipantToken({
+    apiKey: LIVEKIT_API_KEY,
+    apiSecret: LIVEKIT_API_SECRET,
+    roomName,
+    participantIdentity,
+    metadata: {
+      hirerId,
+      sessionId: body.sessionId ?? null,
+      role: 'traveler',
+      planningToolsAvailableDuringConversation: true,
+      bookingToolsLockedUntilConfirm: true,
+    },
+  });
+
+  const response: VoiceSessionConnectResponse = {
+    mode: 'live',
+    provider: 'livekit',
+    serverUrl: LIVEKIT_URL,
+    roomName,
+    participantIdentity,
+    participantToken: token,
+    expiresAt,
+    planningToolsAvailableDuringConversation: true,
+    bookingToolsLockedUntilConfirm: true,
+  };
+
+  broLog('live_session_token_issued', {
+    hirerId: hirerId.slice(0, 12),
+    roomName,
+    participantIdentity,
+    expiresAt,
+  });
+
+  return c.json(response);
+});
 
 voiceRouter.post('/transcribe', async (c) => {
   const unauthorized = requireBroClientKey(c);
