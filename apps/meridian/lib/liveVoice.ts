@@ -1,5 +1,13 @@
 import { AudioSession } from '@livekit/react-native';
-import { ConnectionState, Room, RoomEvent, type Participant, type RoomConnectOptions } from 'livekit-client';
+import {
+  ConnectionState,
+  Room,
+  RoomEvent,
+  type ChatMessage,
+  type Participant,
+  type RoomConnectOptions,
+  type TranscriptionSegment,
+} from 'livekit-client';
 import { createLiveVoiceSession } from './api';
 
 export type LiveVoiceCallbacks = {
@@ -11,6 +19,8 @@ export type LiveVoiceCallbacks = {
   onRemoteSpeakingChanged?: (speaking: boolean) => void;
   onParticipantConnected?: (participant: Participant) => void;
   onParticipantDisconnected?: (participant: Participant) => void;
+  onChatMessage?: (message: ChatMessage, participant?: Participant) => void;
+  onTranscriptionReceived?: (segments: TranscriptionSegment[], participant?: Participant) => void;
   onError?: (error: Error) => void;
 };
 
@@ -72,6 +82,12 @@ export async function connectLiveVoiceSession(params: {
     .on(RoomEvent.ParticipantDisconnected, (participant) => {
       callbacks?.onParticipantDisconnected?.(participant);
       emitRemoteSpeaking();
+    })
+    .on(RoomEvent.ChatMessage, (message, participant) => {
+      callbacks?.onChatMessage?.(message, participant);
+    })
+    .on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+      callbacks?.onTranscriptionReceived?.(segments, participant);
     });
 
   try {
