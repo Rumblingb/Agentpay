@@ -123,6 +123,8 @@ async function requestVoiceAudio(text: string): Promise<string | null> {
     return null;
   }
 
+  // ElevenLabs cold-start can take 3–6s. 8s gives enough headroom without
+  // making the fallback to system TTS feel too delayed on genuine failures.
   const response = await fetchWithTimeout(`${BASE}/api/voice/tts`, {
     method: 'POST',
     headers: {
@@ -130,7 +132,7 @@ async function requestVoiceAudio(text: string): Promise<string | null> {
       ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
     },
     body: JSON.stringify({ text }),
-  });
+  }, 8_000);
 
   if (response.status === 204 || response.status === 503 || !response.ok) {
     return null;

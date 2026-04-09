@@ -13,9 +13,9 @@ import type { Env, Variables } from '../types';
 
 export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Daniel — deep, authoritative British male. Calm, measured, butler-like.
-// Alternative: 'JBFqnCBsd6RMkjVDRZzb' (George) if Daniel feels too formal.
-const DEFAULT_ELEVENLABS_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9';
+// George (JBFqnCBsd6RMkjVDRZzb) — warm, natural British male, lowest latency in ElevenLabs library.
+// Daniel (onwK4e9ZLuTAKqWW03F9) — deeper/more formal, but noticeably slower to first byte.
+const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
 
 function broLog(event: string, data: Record<string, unknown>) {
   console.log(
