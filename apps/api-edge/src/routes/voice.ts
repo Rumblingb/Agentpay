@@ -265,11 +265,11 @@ voiceRouter.post('/tts', async (c) => {
         },
         body: JSON.stringify({
           text,
-          model_id: 'eleven_turbo_v2_5',
+          model_id: 'eleven_flash_v2_5',  // fastest ElevenLabs model (~200-400ms TTFB)
           voice_settings: {
-            stability: 0.72,          // consistent, calm — not too varied
-            similarity_boost: 0.45,   // less aggressive cloning, more natural
-            style: 0.18,              // subtle warmth without theatrical flair
+            stability: 0.50,          // more natural variation on Flash
+            similarity_boost: 0.75,   // strong voice character
+            style: 0.00,              // style transfer not effective on Flash — keep at 0
             use_speaker_boost: true,
           },
         }),

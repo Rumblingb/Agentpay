@@ -37,7 +37,7 @@ import { AceBrain } from '../../components/AceBrain';
 import { useSharedValue } from 'react-native-reanimated';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
-import { speakBro, cancelSpeech } from '../../lib/tts';
+import { speakBro, cancelSpeech, preloadAudio } from '../../lib/tts';
 import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
@@ -1257,6 +1257,16 @@ export default function ConverseScreen() {
     });
     void runIntentWithUiFallback(prefill);
   }, [prefill, agentId, logConverseEvent, runIntentWithUiFallback]);
+
+  // Pre-fetch the opening greeting the moment the screen mounts so the audio
+  // file is ready before the 1.2s timer fires — instant first sound.
+  useEffect(() => {
+    if (!voiceEnabled) return;
+    const h = new Date().getHours();
+    const line = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+    void preloadAudio(line);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Always-on: auto-start listening 1.2s after mount once agentId is ready.
   // Skipped if a prefill is pending (it will take priority) or a trip is active.

@@ -16,6 +16,32 @@ let lastTtsEndedAt = 0;
 export function getLastTtsEndedAt(): number {
   return lastTtsEndedAt;
 }
+
+// ── Pre-load cache ──────────────────────────────────────────────────────────
+// Fetches and stores audio for a specific text before speakBro is called so
+// the greeting plays the moment the timer fires rather than waiting for the
+// round-trip fetch.
+let preloadCache: { textKey: string; uri: string } | null = null;
+
+export async function preloadAudio(text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed || !BRO_KEY) return;
+  try {
+    const base64 = await requestVoiceAudio(trimmed);
+    if (!base64) return;
+    // Clean up any previous preload file
+    if (preloadCache?.uri) {
+      FileSystem.deleteAsync(preloadCache.uri, { idempotent: true }).catch(() => {});
+    }
+    const uri = `${FileSystem.cacheDirectory}ace_preload_${Date.now()}.mp3`;
+    await FileSystem.writeAsStringAsync(uri, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    preloadCache = { textKey: trimmed, uri };
+  } catch {
+    // Non-fatal — speakBro fetches fresh on cache miss
+  }
+}
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 interface SpeakBroOptions {
@@ -203,28 +229,29 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
   const startedAt = Date.now();
 
   try {
-    const audioBase64 = await requestVoiceAudio(trimmed);
-
-    if (!audioBase64) {
-      void trackClientEvent({
-        event: 'tts_fallback_system',
-        screen: 'voice',
-        metadata: {
-          latencyMs: Date.now() - startedAt,
-          textLength: trimmed.length,
-        },
+    // Serve from preload cache if this exact text was pre-fetched (e.g. greeting)
+    let uri: string;
+    const cached = preloadCache?.textKey === trimmed ? preloadCache : null;
+    if (cached) {
+      preloadCache = null;
+      uri = cached.uri;
+    } else {
+      const audioBase64 = await requestVoiceAudio(trimmed);
+      if (!audioBase64) {
+        // ElevenLabs unavailable — resolve silently. Premium product never
+        // speaks with a robotic system voice; the face/mic state still updates.
+        options?.onMeter?.(0);
+        void trackClientEvent({
+          event: 'tts_skipped_unavailable',
+          screen: 'voice',
+          metadata: { latencyMs: Date.now() - startedAt, textLength: trimmed.length },
+        });
+        return;
+      }
+      uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
+      await FileSystem.writeAsStringAsync(uri, audioBase64, {
+        encoding: FileSystem.EncodingType.Base64,
       });
-      await playSystemVoice(trimmed, options);
-      void trackClientEvent({
-        event: 'tts_played',
-        screen: 'voice',
-        metadata: {
-          provider: 'system_fallback',
-          latencyMs: Date.now() - startedAt,
-          textLength: trimmed.length,
-        },
-      });
-      return;
     }
 
     await Audio.setAudioModeAsync({
@@ -234,10 +261,6 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       playThroughEarpieceAndroid: false,
     });
 
-    const uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
-    await FileSystem.writeAsStringAsync(uri, audioBase64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
     activeUri = uri;
 
     const { sound } = await Audio.Sound.createAsync(
@@ -279,9 +302,8 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
         }
       };
 
-      // Watchdog: if shouldPlay:true but audio hasn't started within 600ms,
-      // something is wrong (corrupted file, audio session conflict, etc).
-      // Reject so the catch block falls through to system TTS immediately.
+      // Watchdog: audio must start within 1200ms of sound creation.
+      // Flash model files are larger than Turbo; 600ms was too tight.
       const watchdog = setTimeout(() => {
         if (!playbackStarted && !settled) {
           settled = true;
@@ -289,10 +311,10 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
           try { sound.setOnAudioSampleReceived(null); } catch {}
           options?.onMeter?.(0);
           void stopActivePlayback().finally(() =>
-            reject(new Error('TTS playback watchdog: no audio start within 600ms')),
+            reject(new Error('TTS playback watchdog: no audio start within 1200ms')),
           );
         }
-      }, 600);
+      }, 1200);
 
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.isPlaying && !playbackStarted) {
@@ -325,28 +347,15 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
   } catch (error: any) {
     options?.onMeter?.(0);
     await stopActivePlayback();
+    // Silent fail — no robotic iOS fallback. Premium product stays silent
+    // rather than breaking the voice character.
     void trackClientEvent({
       event: 'tts_failed',
       screen: 'voice',
       severity: 'warning',
       message: error?.message ?? 'Server voice playback failed.',
-      metadata: {
-        provider: 'server',
-        textLength: trimmed.length,
-      },
+      metadata: { provider: 'server', textLength: trimmed.length },
     });
-    try {
-      await playSystemVoice(trimmed, options);
-      void trackClientEvent({
-        event: 'tts_played',
-        screen: 'voice',
-        metadata: {
-          provider: 'system_recovery',
-          latencyMs: Date.now() - startedAt,
-          textLength: trimmed.length,
-        },
-      });
-    } catch {}
   }
 }
 
