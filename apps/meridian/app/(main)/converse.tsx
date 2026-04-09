@@ -1995,7 +1995,7 @@ export default function ConverseScreen() {
         contentContainerStyle={[styles.scrollContent, isConfirming && styles.scrollContentConfirming]}
         showsVerticalScrollIndicator={false}
       >
-        {turns.length === 0 && isIdle && (
+        {turns.length === 0 && (isIdle || phase === 'listening') && (
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
               <Text style={styles.emptyGreeting}>

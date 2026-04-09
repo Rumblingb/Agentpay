@@ -56,9 +56,9 @@ let recordingLevelCallback: ((level: number) => void) | null = null;
 function normalizeRecordingMetering(metering: number | null): number {
   if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0;
   // Android AAC reports a compressed dB range (-100 to 0) vs iOS (-160 to 0).
-  // iOS range widened to 65 to match the lowered -45 dB speech threshold
-  // so the visual meter responds proportionally to actual speech energy.
-  const range = Platform.OS === 'android' ? 70 : 65;
+  // iOS range set to 75 to keep visual feedback proportional to the
+  // -55 dB speech detection threshold (catches quiet voices at arm's length).
+  const range = Platform.OS === 'android' ? 70 : 75;
   const normalized = Math.max(0, Math.min(1, (metering + range) / range));
   return Math.pow(normalized, 1.35);
 }
@@ -86,9 +86,10 @@ async function prepareAudioSessionForRecording(): Promise<void> {
   // even though the recording appears to start correctly.
   if (Platform.OS === 'ios') {
     await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    // Brief yield so the audio session state change propagates before
-    // we re-activate with allowsRecordingIOS: true.
-    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    // Give the audio session time to fully deactivate before switching to
+    // recording mode. 60ms was too short — the mic can stay inactive even
+    // though createAsync appears to succeed.
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
     return;
   }
 
@@ -185,10 +186,10 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
       const metering = typeof status.metering === 'number' ? status.metering : null;
       recordingLevelCallback?.(normalizeRecordingMetering(metering));
       // expo-av on iOS reports average power (dBFS), not peak.
-      // Conversational speech at arm's length averages -42 to -50 dBFS,
-      // so -38 was too tight and heardSpeech never fired.
-      // Android AAC metering uses a compressed range (-100→0) so needs -50.
-      const speechThreshold = Platform.OS === 'android' ? -50 : -45;
+      // Quiet conversational speech at arm's length can average -50 to -55 dBFS;
+      // -55 catches the full range without triggering on ambient room noise.
+      // Android AAC metering uses a compressed range (-100→0).
+      const speechThreshold = Platform.OS === 'android' ? -52 : -55;
       if (metering != null && metering > speechThreshold) {
         heardSpeech = true;
         if (silenceTimer) {
