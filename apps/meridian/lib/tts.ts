@@ -10,6 +10,12 @@ const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
 let activeSpeechResolver: (() => void) | null = null;
+let lastTtsEndedAt = 0;
+
+/** Returns the timestamp of the most recent TTS completion (0 if TTS has never played). */
+export function getLastTtsEndedAt(): number {
+  return lastTtsEndedAt;
+}
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 interface SpeakBroOptions {
@@ -75,6 +81,10 @@ async function stopActivePlayback(): Promise<void> {
     FileSystem.deleteAsync(activeUri, { idempotent: true }).catch(() => {});
     activeUri = null;
   }
+
+  // Record that TTS just ended so speech.ts knows the audio session needs
+  // a deactivate/reactivate cycle before the next recording session.
+  lastTtsEndedAt = Date.now();
 
   // On Android, release AudioFocus explicitly after playback so the mic
   // can be claimed without contention on the next recording session.

@@ -15,6 +15,7 @@
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
+import { getLastTtsEndedAt } from './tts';
 export { speak, stopSpeaking } from './tts';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
@@ -82,14 +83,18 @@ async function resetRecordingMode(): Promise<void> {
 async function prepareAudioSessionForRecording(): Promise<void> {
   // On iOS, explicitly deactivate the current audio session (which may be
   // in .playback from a previous TTS playback) before switching to
-  // .playAndRecord. Skipping this step can leave the microphone inactive
-  // even though the recording appears to start correctly.
+  // .playAndRecord. Only do this if TTS has actually played — on first boot
+  // the session is already inactive and the deactivation/wait cycle can
+  // leave the mic cold (causing the bug seen in builds 28/29 vs 33+).
   if (Platform.OS === 'ios') {
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    // Give the audio session time to fully deactivate before switching to
-    // recording mode. 60ms was too short — the mic can stay inactive even
-    // though createAsync appears to succeed.
-    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    const ttsAge = Date.now() - getLastTtsEndedAt();
+    if (getLastTtsEndedAt() > 0 && ttsAge < 10_000) {
+      // TTS played within the last 10 seconds — deactivate to force a clean
+      // session handoff before switching back to .playAndRecord.
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      // Give the audio session time to fully deactivate.
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    }
     return;
   }
 
