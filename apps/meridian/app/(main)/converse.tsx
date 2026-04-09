@@ -1270,8 +1270,11 @@ export default function ConverseScreen() {
         if (liveSession && shouldPreferJourney(liveSession)) return;
         // Only start if we're still idle and the keyboard isn't up
         if (phaseRef.current === 'idle' && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
-          nextSilenceMsRef.current = 2800;
-          void beginVoiceCaptureRef.current?.();
+          // Speak a brief greeting so the user knows Ace is ready, then
+          // speakIfEnabled's restartListening path automatically arms the mic.
+          const h = new Date().getHours();
+          const openingLine = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+          void speakIfEnabledRef.current?.(openingLine, true);
         }
       })();
     }, 1200);
@@ -1776,6 +1779,10 @@ export default function ConverseScreen() {
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;
 
+  // Wire speakIfEnabled into ref so the always-on greeting can use the latest closure
+  const speakIfEnabledRef = useRef<((text: string, restartListening?: boolean) => Promise<void>) | null>(null);
+  speakIfEnabledRef.current = speakIfEnabled;
+
   const handleOrbTap = useCallback(async () => {
     clearHandsFreeListenTimer();
     if (phase === 'listening') {
@@ -1995,7 +2002,7 @@ export default function ConverseScreen() {
         contentContainerStyle={[styles.scrollContent, isConfirming && styles.scrollContentConfirming]}
         showsVerticalScrollIndicator={false}
       >
-        {turns.length === 0 && (isIdle || phase === 'listening') && (
+        {turns.length === 0 && (phase === 'idle' || phase === 'listening') && (
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
               <Text style={styles.emptyGreeting}>
