@@ -121,6 +121,18 @@
       "expo-secure-store",
       "expo-local-authentication",
       [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication"
+          },
+          "ios": {
+            "enableMultitaskingCameraAccess": false
+          }
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
         "expo-build-properties",
         {
           "ios": {

@@ -214,6 +214,16 @@ export interface Env {
   OPENAI_API_KEY?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
   ELEVENLABS_API_KEY?: string;
+  /** LiveKit websocket URL for persistent WebRTC voice sessions. */
+  LIVEKIT_URL?: string;
+  /** LiveKit API key used to mint session access tokens. */
+  LIVEKIT_API_KEY?: string;
+  /** LiveKit API secret paired with LIVEKIT_API_KEY. */
+  LIVEKIT_API_SECRET?: string;
+  /** Optional OpenAI Realtime model name for live speech sessions. */
+  OPENAI_REALTIME_MODEL?: string;
+  /** Optional ElevenLabs voice/agent identifier for live voice rendering. */
+  ELEVENLABS_VOICE_ID?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */

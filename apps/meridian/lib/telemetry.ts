@@ -15,6 +15,10 @@ function enrichMetadata(metadata?: Record<string, unknown>): Record<string, unkn
   };
 }
 
+export function getLaunchSessionId(): string {
+  return launchSessionId;
+}
+
 export function rememberConfirmApproved(intentKey: string | null | undefined, approvedAt = Date.now()): void {
   const safeKey = intentKey?.trim();
   if (!safeKey) return;

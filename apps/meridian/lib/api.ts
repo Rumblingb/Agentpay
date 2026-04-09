@@ -310,8 +310,51 @@ export interface ConciergeExecutionSnapshot {
   updatedAt: string | null;
 }
 
+export interface VoiceSessionConfig {
+  mode: 'batch' | 'live';
+  transport: 'http' | 'webrtc';
+  provider: 'batch_proxy' | 'livekit' | 'openai_realtime';
+  ready: boolean;
+  planningToolsAvailableDuringConversation: boolean;
+  bookingToolsLockedUntilConfirm: boolean;
+  supportsInterruptions: boolean;
+  supportsServerVad: boolean;
+  premiumVoice: 'elevenlabs' | 'system' | 'none';
+  fallback: {
+    stt: 'whisper_proxy';
+    tts: 'elevenlabs_http' | 'none';
+  };
+  diagnostics: string[];
+}
+
+export interface LiveVoiceSessionCredentials {
+  mode: 'live';
+  provider: 'livekit';
+  serverUrl: string;
+  roomName: string;
+  participantIdentity: string;
+  participantToken: string;
+  expiresAt: string;
+  planningToolsAvailableDuringConversation: true;
+  bookingToolsLockedUntilConfirm: true;
+}
+
 export async function getConciergeExecution(jobId: string): Promise<ConciergeExecutionSnapshot> {
   return apiFetch(`/api/concierge/executions/${jobId}`);
+}
+
+export async function getVoiceSessionConfig(): Promise<VoiceSessionConfig> {
+  return apiFetch('/api/voice/session');
+}
+
+export async function createLiveVoiceSession(params: {
+  hirerId: string;
+  sessionId: string;
+}): Promise<LiveVoiceSessionCredentials> {
+  return apiFetch('/api/voice/session/connect', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 }
 
 /** Discover agents (text search) */
