@@ -175,26 +175,6 @@ async function requestVoiceAudio(text: string): Promise<string | null> {
   return arrayBuffer ? arrayBufferToBase64(arrayBuffer) : null;
 }
 
-async function playFallbackSystemVoice(
-  text: string,
-  startedAt: number,
-  reason: string,
-  options?: SpeakBroOptions,
-): Promise<void> {
-  void trackClientEvent({
-    event: 'tts_fallback_system',
-    screen: 'voice',
-    severity: 'warning',
-    message: reason,
-    metadata: {
-      latencyMs: Date.now() - startedAt,
-      textLength: text.length,
-      platform: Platform.OS,
-    },
-  });
-  await playSystemVoice(text, options);
-}
-
 async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise<void> {
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: false,
@@ -258,12 +238,14 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
     } else {
       const audioBase64 = await requestVoiceAudio(trimmed);
       if (!audioBase64) {
-        await playFallbackSystemVoice(
-          trimmed,
-          startedAt,
-          BRO_KEY ? 'elevenlabs_unavailable' : 'bro_key_missing',
-          options,
-        );
+        options?.onMeter?.(0);
+        void trackClientEvent({
+          event: 'tts_skipped_unavailable',
+          screen: 'voice',
+          severity: 'warning',
+          message: BRO_KEY ? 'elevenlabs_unavailable' : 'bro_key_missing',
+          metadata: { latencyMs: Date.now() - startedAt, textLength: trimmed.length },
+        });
         return;
       }
       uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
@@ -372,12 +354,6 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       message: error?.message ?? 'Server voice playback failed.',
       metadata: { provider: 'server', textLength: trimmed.length },
     });
-    await playFallbackSystemVoice(
-      trimmed,
-      startedAt,
-      error?.message ?? 'server_voice_playback_failed',
-      options,
-    );
   }
 }
 
