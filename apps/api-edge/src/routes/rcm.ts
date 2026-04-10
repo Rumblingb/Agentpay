@@ -8121,4 +8121,621 @@ router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => 
   } finally { sql.end().catch(() => {}); }
 });
 
+// ── Voice + Intelligence routes ───────────────────────────────────────────────
+// All routes below use the same authenticateApiKey middleware as the rest of the
+// RCM API.  Claude calls are Haiku for speed; Sonnet when reasoning is complex.
+
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+async function callClaude(
+  apiKey: string,
+  system: string,
+  user: string,
+  maxTokens = 512,
+  model: 'claude-haiku-4-5-20251001' | 'claude-sonnet-4-6' = 'claude-haiku-4-5-20251001',
+): Promise<string> {
+  const resp = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: user }],
+    }),
+  });
+  const data = (await resp.json()) as any;
+  return data?.content?.[0]?.text ?? '';
+}
+
+// ── GET /api/rcm/revenue-pipeline ─────────────────────────────────────────────
+// Revenue funnel: maps work item statuses to billing pipeline stages.
+
+router.get('/revenue-pipeline', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const windowDays = Math.min(parseInt(c.req.query('windowDays') ?? '30', 10) || 30, 180);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{
+      status: string;
+      amount_at_risk: string | null;
+      count: string;
+    }>>`
+      SELECT
+        status,
+        SUM(amount_at_risk)::text         AS amount_at_risk,
+        COUNT(*)::text                     AS count
+      FROM rcm_work_items
+      WHERE merchant_id = ${merchant.id}
+        AND created_at >= NOW() - (${windowDays} || ' days')::interval
+      GROUP BY status
+    `.catch(() => []);
+
+    // Map statuses to pipeline stages
+    const stageMap: Record<string, string> = {
+      new:                    'submitted',
+      routed:                 'received',
+      executing_primary:      'processing',
+      executing_fallback:     'processing',
+      awaiting_qa:            'processing',
+      retry_pending:          'processing',
+      human_review_required:  'pending_info',
+      blocked:                'pending_info',
+      closed_auto:            'recovered',
+      closed_human:           'recovered',
+      rejected:               'denied',
+    };
+
+    const stages: Record<string, { amount: number; count: number }> = {
+      submitted:    { amount: 0, count: 0 },
+      received:     { amount: 0, count: 0 },
+      processing:   { amount: 0, count: 0 },
+      pending_info: { amount: 0, count: 0 },
+      denied:       { amount: 0, count: 0 },
+      recovered:    { amount: 0, count: 0 },
+    };
+
+    for (const row of rows) {
+      const stage = stageMap[row.status] ?? 'submitted';
+      stages[stage].amount += parseFloat(row.amount_at_risk ?? '0') || 0;
+      stages[stage].count  += parseInt(row.count, 10) || 0;
+    }
+
+    // Compute rates
+    const totalSubmitted = stages.submitted.amount + stages.received.amount +
+      stages.processing.amount + stages.pending_info.amount +
+      stages.denied.amount + stages.recovered.amount;
+    const denialRate = totalSubmitted > 0
+      ? Math.round((stages.denied.amount / totalSubmitted) * 1000) / 10
+      : 0;
+    const recoveryRate = (stages.denied.amount + stages.recovered.amount) > 0
+      ? Math.round((stages.recovered.amount / (stages.denied.amount + stages.recovered.amount)) * 1000) / 10
+      : 0;
+
+    return c.json({
+      windowDays,
+      stages: [
+        { key: 'submitted',    label: 'Submitted',    ...stages.submitted },
+        { key: 'received',     label: 'Received',     ...stages.received },
+        { key: 'processing',   label: 'Processing',   ...stages.processing },
+        { key: 'pending_info', label: 'Pending Info', ...stages.pending_info },
+        { key: 'denied',       label: 'Denied',       ...stages.denied },
+        { key: 'recovered',    label: 'Recovered',    ...stages.recovered },
+      ],
+      summary: { denialRate, recoveryRate, totalAmount: Math.round(totalSubmitted) },
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── GET /api/rcm/payer-intelligence ───────────────────────────────────────────
+// Per-payer analytics: denial rate, avg response time, auto-close rate.
+
+router.get('/payer-intelligence', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const windowDays = Math.min(parseInt(c.req.query('windowDays') ?? '30', 10) || 30, 180);
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{
+      payer_name: string;
+      total: string;
+      denied: string;
+      auto_closed: string;
+      human_closed: string;
+      amount_at_risk: string | null;
+    }>>`
+      SELECT
+        COALESCE(payer_name, 'Unknown')           AS payer_name,
+        COUNT(*)::text                             AS total,
+        COUNT(*) FILTER (WHERE status = 'rejected')::text         AS denied,
+        COUNT(*) FILTER (WHERE status = 'closed_auto')::text      AS auto_closed,
+        COUNT(*) FILTER (WHERE status = 'closed_human')::text     AS human_closed,
+        SUM(amount_at_risk)::text                  AS amount_at_risk
+      FROM rcm_work_items
+      WHERE merchant_id = ${merchant.id}
+        AND created_at >= NOW() - (${windowDays} || ' days')::interval
+      GROUP BY payer_name
+      ORDER BY SUM(COALESCE(amount_at_risk, 0)) DESC NULLS LAST
+      LIMIT 20
+    `.catch(() => []);
+
+    const payers = rows.map((row) => {
+      const total    = parseInt(row.total, 10) || 1;
+      const denied   = parseInt(row.denied, 10) || 0;
+      const autoClosed = parseInt(row.auto_closed, 10) || 0;
+      const denialRate    = Math.round((denied / total) * 1000) / 10;
+      const autoClosePct  = Math.round((autoClosed / total) * 1000) / 10;
+
+      return {
+        payerName:       row.payer_name,
+        totalItems:      total,
+        denialRate,
+        autoClosePct,
+        amountAtRisk:    Math.round(parseFloat(row.amount_at_risk ?? '0') || 0),
+      };
+    });
+
+    return c.json({ windowDays, payers });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── GET /api/rcm/automation-health ────────────────────────────────────────────
+// Surfaces confidence tuner outcomes and generates a Haiku recommendation.
+
+router.get('/automation-health', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  try {
+    const [laneRows, recentRows] = await Promise.all([
+      sql<Array<{
+        lane: string;
+        auto_close_total: string;
+        auto_close_overridden: string;
+      }>>`
+        SELECT
+          score_payload->>'lane_key'                        AS lane,
+          SUM((score_payload->>'auto_close_total')::int)::text       AS auto_close_total,
+          SUM((score_payload->>'auto_close_overridden')::int)::text  AS auto_close_overridden
+        FROM rcm_vendor_metrics
+        WHERE period_start >= NOW() - INTERVAL '30 days'
+        GROUP BY score_payload->>'lane_key'
+      `.catch(() => []),
+
+      sql<Array<{
+        status: string;
+        count: string;
+        amount: string | null;
+      }>>`
+        SELECT
+          status,
+          COUNT(*)::text     AS count,
+          SUM(amount_at_risk)::text AS amount
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND updated_at >= NOW() - INTERVAL '7 days'
+        GROUP BY status
+      `.catch(() => []),
+    ]);
+
+    const lanes = laneRows.map((row) => {
+      const total      = parseInt(row.auto_close_total, 10) || 0;
+      const overridden = parseInt(row.auto_close_overridden, 10) || 0;
+      const accuracy   = total > 0 ? Math.round(((total - overridden) / total) * 1000) / 10 : null;
+      return { lane: row.lane, total, overridden, accuracy };
+    });
+
+    const autoClosedCount = parseInt(
+      recentRows.find((r) => r.status === 'closed_auto')?.count ?? '0', 10,
+    );
+    const humanReviewCount = parseInt(
+      recentRows.find((r) => r.status === 'human_review_required')?.count ?? '0', 10,
+    );
+    const totalClosed = autoClosedCount + humanReviewCount;
+    const autoCloseRate = totalClosed > 0
+      ? Math.round((autoClosedCount / totalClosed) * 1000) / 10
+      : null;
+
+    // Generate recommendation with Haiku if API key is present
+    let recommendation: string | null = null;
+    if (c.env.ANTHROPIC_API_KEY && lanes.length > 0) {
+      const lanesSummary = lanes.map(
+        (l) => `${l.lane}: ${l.total} auto-closed, ${l.overridden} overridden (accuracy ${l.accuracy ?? 'n/a'}%)`,
+      ).join('\n');
+      recommendation = await callClaude(
+        c.env.ANTHROPIC_API_KEY,
+        'You analyze medical billing automation performance. Give a single actionable recommendation in 2 sentences max. No fluff.',
+        `Automation stats (last 30 days):\n${lanesSummary}\nAuto-close rate (last 7 days): ${autoCloseRate ?? 'n/a'}%\nHuman reviews (last 7 days): ${humanReviewCount}`,
+        128,
+      ).catch(() => null);
+    }
+
+    return c.json({
+      lanes,
+      summary: { autoClosedCount, humanReviewCount, autoCloseRate },
+      recommendation,
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── GET /api/rcm/daily-briefing ────────────────────────────────────────────────
+// 3–5 sentence AI-generated briefing of today's billing priorities.
+// Cached in response headers for 15 minutes by the dashboard API route.
+
+router.get('/daily-briefing', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI not configured' }, 503);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const [criticalRows, exceptionRows, autoRows] = await Promise.all([
+      sql<Array<{
+        work_type: string;
+        payer_name: string | null;
+        claim_ref: string | null;
+        amount_at_risk: string | null;
+        priority: string;
+        status: string;
+      }>>`
+        SELECT work_type, payer_name, claim_ref, amount_at_risk, priority, status
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND status IN ('human_review_required', 'routed', 'awaiting_qa', 'blocked')
+        ORDER BY
+          CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
+          COALESCE(amount_at_risk, 0) DESC
+        LIMIT 5
+      `.catch(() => []),
+
+      sql<Array<{ severity: string; count: string; amount: string | null }>>`
+        SELECT
+          e.severity,
+          COUNT(*)::text                  AS count,
+          SUM(w.amount_at_risk)::text     AS amount
+        FROM rcm_exception_queue e
+        JOIN rcm_work_items w ON w.id = e.work_item_id
+        WHERE w.merchant_id = ${merchant.id}
+          AND e.resolved_at IS NULL
+        GROUP BY e.severity
+      `.catch(() => []),
+
+      sql<Array<{ count: string; amount: string | null }>>`
+        SELECT COUNT(*)::text AS count, SUM(amount_at_risk)::text AS amount
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND status = 'closed_auto'
+          AND updated_at >= NOW() - INTERVAL '24 hours'
+      `.catch(() => []),
+    ]);
+
+    const criticalSummary = criticalRows.map((r) => {
+      const amount = r.amount_at_risk ? `$${Math.round(parseFloat(r.amount_at_risk))}` : '';
+      return `${r.payer_name ?? r.work_type}${amount ? ` (${amount})` : ''} — ${r.status.replace(/_/g, ' ')}`;
+    }).join('; ');
+
+    const openExceptions = exceptionRows.reduce((sum, r) => sum + parseInt(r.count, 10), 0);
+    const autoCount = parseInt(autoRows[0]?.count ?? '0', 10);
+    const autoAmount = Math.round(parseFloat(autoRows[0]?.amount ?? '0') || 0);
+
+    const context = [
+      criticalRows.length > 0 ? `Items needing attention: ${criticalSummary}.` : 'No critical items pending.',
+      openExceptions > 0 ? `${openExceptions} open exceptions in the queue.` : 'Exception queue is clear.',
+      autoCount > 0 ? `${autoCount} items auto-closed in the last 24 hours ($${autoAmount} recovered).` : '',
+    ].filter(Boolean).join(' ');
+
+    const briefing = await callClaude(
+      c.env.ANTHROPIC_API_KEY,
+      `You write morning briefings for a medical billing manager. 3-5 sentences. Concise, actionable, specific.
+Use billing language (denial codes, payer names). Tell them exactly what to focus on first and why.
+Never say "good morning" or use pleasantries. Start with the most urgent item.`,
+      `Today's billing status:\n${context}`,
+      256,
+    );
+
+    return c.json({
+      briefing,
+      generatedAt: new Date().toISOString(),
+      context: { criticalCount: criticalRows.length, openExceptions, autoClosedToday: autoCount },
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── POST /api/rcm/generate-appeal ─────────────────────────────────────────────
+// Generates a draft appeal letter for a denied claim using Haiku.
+
+router.post('/generate-appeal', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI not configured' }, 503);
+  }
+
+  const body = await c.req.json<{ workItemId: string }>().catch(() => null);
+  if (!body?.workItemId) {
+    return c.json({ error: 'workItemId required' }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const items = await sql<Array<{
+      id: string;
+      work_type: string;
+      payer_name: string | null;
+      claim_ref: string | null;
+      patient_ref: string | null;
+      provider_ref: string | null;
+      amount_at_risk: string | null;
+      metadata: unknown;
+      status: string;
+    }>>`
+      SELECT id, work_type, payer_name, claim_ref, patient_ref, provider_ref,
+             amount_at_risk, metadata, status
+      FROM rcm_work_items
+      WHERE id = ${body.workItemId}
+        AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `.catch(() => []);
+
+    if (items.length === 0) {
+      return c.json({ error: 'Work item not found' }, 404);
+    }
+
+    const item = items[0];
+    const meta = asObject(item.metadata);
+    const denialCode  = String(meta.denialCode ?? meta.denial_code ?? meta.statusCode ?? '');
+    const denialReason = String(meta.denialReason ?? meta.statusLabel ?? meta.proposedResolution ?? '');
+    const amount      = item.amount_at_risk ? `$${Math.round(parseFloat(item.amount_at_risk))}` : 'unspecified';
+
+    const appealLetter = await callClaude(
+      c.env.ANTHROPIC_API_KEY,
+      `You are a medical billing specialist writing insurance appeal letters.
+Write a professional, concise appeal letter in standard format (Date, To, Re, Body, Closing).
+Use formal medical billing language. Reference denial codes correctly.
+Keep it under 300 words. Do not include personal patient details beyond what is provided.
+Use [PLACEHOLDER] for any information not provided.`,
+      `Write an appeal letter for this denied claim:
+Payer: ${item.payer_name ?? '[PAYER]'}
+Claim Ref: ${item.claim_ref ?? '[CLAIM REF]'}
+Patient Ref: ${item.patient_ref ?? '[PATIENT]'}
+Provider Ref: ${item.provider_ref ?? '[PROVIDER NPI]'}
+Amount at Risk: ${amount}
+Denial Code: ${denialCode || '[DENIAL CODE]'}
+Denial Reason: ${denialReason || '[DENIAL REASON]'}
+Work Type: ${item.work_type.replace(/_/g, ' ')}`,
+      512,
+      'claude-sonnet-4-6',
+    );
+
+    return c.json({
+      workItemId: body.workItemId,
+      appealLetter,
+      claimRef: item.claim_ref,
+      payerName: item.payer_name,
+      generatedAt: new Date().toISOString(),
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
+});
+
+// ── POST /api/rcm/voice-intent ────────────────────────────────────────────────
+// Voice command interface for the RCM dashboard.
+//
+// Phase 1 (confirmed = false):
+//   1. Load billing context (top work items, exception count, amount at risk)
+//   2. Send transcript + context to Claude Haiku
+//   3. Return { narration, action?, confirmRequired }
+//
+// Phase 2 (confirmed = true):
+//   1. Execute the action via existing RCM routes
+//   2. Return { narration, executed: true }
+
+router.post('/voice-intent', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI not configured' }, 503);
+  }
+
+  const body = await c.req.json<{
+    transcript: string;
+    workspaceId?: string;
+    confirmed?: boolean;
+    action?: {
+      type: string;
+      workItemId?: string;
+      lane?: string;
+      until?: string;
+      maxAmount?: number;
+      claimRef?: string;
+    };
+  }>().catch(() => null);
+
+  if (!body?.transcript) {
+    return c.json({ error: 'transcript required' }, 400);
+  }
+
+  const { transcript, workspaceId, confirmed = false, action } = body;
+
+  // ── Phase 2: Execute confirmed action ─────────────────────────────────────
+  if (confirmed && action) {
+    const sql = createDb(c.env);
+    try {
+      switch (action.type) {
+        case 'approve_qa': {
+          if (!action.workItemId || !action.lane) break;
+          await sql`
+            UPDATE rcm_work_items
+            SET status = 'closed_auto', updated_at = NOW()
+            WHERE id = ${action.workItemId}
+              AND merchant_id = ${merchant.id}
+              AND status = 'awaiting_qa'
+          `.catch(() => {});
+          const nextItems = await sql<Array<{ claim_ref: string | null; payer_name: string | null }>>`
+            SELECT claim_ref, payer_name FROM rcm_work_items
+            WHERE merchant_id = ${merchant.id}
+              AND status IN ('human_review_required', 'awaiting_qa')
+            ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END
+            LIMIT 1
+          `.catch(() => []);
+          const next = nextItems[0];
+          return c.json({
+            narration: next
+              ? `Approved. Next: ${next.payer_name ?? next.claim_ref ?? 'item'} needs your attention.`
+              : 'Approved and closed. Queue is clear.',
+            executed: true,
+          });
+        }
+
+        case 'escalate': {
+          if (!action.workItemId) break;
+          await sql`
+            UPDATE rcm_work_items
+            SET status = 'human_review_required', updated_at = NOW()
+            WHERE id = ${action.workItemId}
+              AND merchant_id = ${merchant.id}
+          `.catch(() => {});
+          return c.json({ narration: 'Escalated to human review.', executed: true });
+        }
+
+        case 'pause_lane': {
+          // Record pause in metadata — the autonomy loop checks this
+          if (!action.lane) break;
+          await sql`
+            INSERT INTO rcm_vendor_metrics (id, agent_id, period_start, period_end, score_payload, created_at, updated_at)
+            VALUES (
+              ${crypto.randomUUID()},
+              ${'voice_command'},
+              NOW(), NOW() + INTERVAL '7 days',
+              ${JSON.stringify({ pause_lane: action.lane, paused_until: action.until ?? null, merchant_id: merchant.id })}::jsonb,
+              NOW(), NOW()
+            )
+          `.catch(() => {});
+          const until = action.until ? ` until ${action.until}` : '';
+          return c.json({ narration: `${action.lane.replace(/-/g, ' ')} automation paused${until}.`, executed: true });
+        }
+
+        default:
+          break;
+      }
+
+      return c.json({ narration: 'Action could not be completed.', executed: false });
+    } finally {
+      await sql.end().catch(() => {});
+    }
+  }
+
+  // ── Phase 1: Understand intent + load context ──────────────────────────────
+  const sql = createDb(c.env);
+  let context = '';
+  try {
+    const [urgentRows, statsRow] = await Promise.all([
+      sql<Array<{
+        id: string;
+        work_type: string;
+        payer_name: string | null;
+        claim_ref: string | null;
+        amount_at_risk: string | null;
+        priority: string;
+        status: string;
+      }>>`
+        SELECT id, work_type, payer_name, claim_ref, amount_at_risk, priority, status
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND status IN ('human_review_required', 'routed', 'awaiting_qa', 'blocked', 'retry_pending')
+          ${workspaceId ? sql`AND workspace_id = ${workspaceId}` : sql``}
+        ORDER BY
+          CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
+          COALESCE(amount_at_risk, 0) DESC
+        LIMIT 5
+      `.catch(() => []),
+
+      sql<Array<{ open_exceptions: string; amount_at_risk: string | null }>>`
+        SELECT
+          COUNT(*)::text                  AS open_exceptions,
+          SUM(w.amount_at_risk)::text     AS amount_at_risk
+        FROM rcm_exception_queue e
+        JOIN rcm_work_items w ON w.id = e.work_item_id
+        WHERE w.merchant_id = ${merchant.id}
+          AND e.resolved_at IS NULL
+      `.catch(() => []),
+    ]);
+
+    const urgent = urgentRows.map((r) => {
+      const amt = r.amount_at_risk ? `$${Math.round(parseFloat(r.amount_at_risk))}` : '';
+      return `[${r.id.slice(0, 8)}] ${r.payer_name ?? r.work_type} ${r.claim_ref ?? ''} ${amt} — ${r.status} (${r.priority})`;
+    });
+
+    const stat = statsRow[0];
+    context = [
+      urgent.length > 0 ? `Open items:\n${urgent.join('\n')}` : 'No open items.',
+      stat ? `Open exceptions: ${stat.open_exceptions}, total at risk: $${Math.round(parseFloat(stat.amount_at_risk ?? '0') || 0)}` : '',
+    ].filter(Boolean).join('\n');
+  } finally {
+    await sql.end().catch(() => {});
+  }
+
+  const systemPrompt = `You are the billing intelligence for this medical practice. You understand denial codes, CPT/ICD-10, payer policies, prior auth, appeals, and ERA/835.
+
+BILLING CONTEXT (live data):
+${context}
+
+RULES:
+- Never give generic advice. Every answer must cite a specific item ID, amount, or action from the context.
+- Speak in billing language: "CO-97", "timely filing", "medical necessity", "split billing", "HETS 270/271".
+- Under 30 words in narration. The manager is busy.
+- If the request is an action (approve, escalate, pause), return a JSON object with type, confirmRequired: true, and the action details.
+- If the request is a query, return only the narration field.
+- Never guess on a claim decision — say "I'll flag for review" if unsure.
+
+RESPONSE FORMAT (JSON):
+  For queries:  { "narration": "..." }
+  For actions:  { "narration": "...", "confirmRequired": true, "action": { "type": "approve_qa"|"escalate"|"pause_lane"|"get_status", "workItemId"?: "...", "lane"?: "...", "until"?: "..." } }
+
+EXAMPLE RESPONSES:
+  Query "what needs attention?":
+    { "narration": "3 items need you: Blue Shield $42K (CO-4), Aetna eligibility $18K, United prior auth $7K expiring Friday." }
+  Action "approve QA for item abc12345":
+    { "narration": "Close item abc12345 as auto-approved? Confirm?", "confirmRequired": true, "action": { "type": "approve_qa", "workItemId": "abc12345", "lane": "claim-status" } }
+  Action "pause prior auth automation":
+    { "narration": "Pause prior-auth auto-runs? Confirm?", "confirmRequired": true, "action": { "type": "pause_lane", "lane": "prior-auth-follow-up" } }`;
+
+  const rawResponse = await callClaude(
+    c.env.ANTHROPIC_API_KEY,
+    systemPrompt,
+    transcript,
+    256,
+  ).catch(() => '{"narration":"I couldn\'t process that — try again."}');
+
+  // Parse JSON response from Claude
+  let parsed: { narration: string; confirmRequired?: boolean; action?: Record<string, unknown> };
+  try {
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch?.[0] ?? rawResponse);
+  } catch {
+    parsed = { narration: rawResponse.slice(0, 120) };
+  }
+
+  return c.json({
+    narration: parsed.narration ?? '',
+    confirmRequired: parsed.confirmRequired ?? false,
+    action: parsed.action ?? null,
+  });
+});
+
 export { router as rcmRouter };
