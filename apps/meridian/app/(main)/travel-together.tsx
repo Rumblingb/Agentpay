@@ -14,6 +14,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { C } from '../../lib/theme';
+import { loadProfileRaw, type TravelProfile } from '../../lib/profile';
 import { loadCredentials } from '../../lib/storage';
 import { acceptSharedTravelInvite, createSharedTravelInvite, listSharedTravelUnits, type SharedTravelRemoteUnit } from '../../lib/api';
 import {
@@ -96,6 +97,42 @@ function inviteQrUrl(inviteToken: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(url)}&format=png&margin=2`;
 }
 
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name.trim();
+}
+
+function buildTravelUnitFromProfile(profile: TravelProfile): TravelUnit | null {
+  const familyMembers = (profile.familyMembers ?? []).filter((member) => member.name.trim());
+  if (familyMembers.length === 0) return null;
+
+  const selfMember = makeBlankMember('self');
+  selfMember.name = firstName(profile.legalName) || 'You';
+
+  const members = familyMembers.map((member) => {
+    const role: TravelUnitMemberRole =
+      member.relationship === 'adult'
+        ? familyMembers.length === 1 ? 'partner' : 'adult'
+        : member.relationship;
+    return {
+      ...makeBlankMember(role),
+      name: member.name.trim(),
+      role,
+      state: 'guest' as const,
+    };
+  });
+
+  return {
+    id: makeTravelUnitId(),
+    name: familyMembers.length === 1 ? `${selfMember.name} & ${firstName(familyMembers[0].name)}` : 'Family',
+    type: familyMembers.length === 1 ? 'couple' : 'family',
+    members: [selfMember, ...members],
+    primaryPayerMemberId: selfMember.id,
+    notes: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export default function TravelTogetherScreen() {
   const params = useLocalSearchParams<{ invite?: string }>();
   const [units, setUnits] = useState<TravelUnit[]>([]);
@@ -109,14 +146,16 @@ export default function TravelTogetherScreen() {
   const [remoteNotice, setRemoteNotice] = useState<string | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteUnits, setRemoteUnits] = useState<SharedTravelRemoteUnit[]>([]);
+  const [profile, setProfile] = useState<TravelProfile | null>(null);
 
   const refresh = useCallback(() => {
-    void Promise.all([loadTravelUnits(), loadPreferredTravelUnitId(), loadCredentials()])
-      .then(async ([loadedUnits, loadedPreferredId, creds]) => {
+    void Promise.all([loadTravelUnits(), loadPreferredTravelUnitId(), loadCredentials(), loadProfileRaw().catch(() => null)])
+      .then(async ([loadedUnits, loadedPreferredId, creds, loadedProfile]) => {
         const nextUnits = loadedUnits.length > 0 ? loadedUnits : [makeBlankUnit()];
         setUnits(nextUnits);
         setPreferredId(loadedPreferredId);
         setAgentCreds(creds);
+        setProfile(loadedProfile);
         setSelectedId((current) => current && nextUnits.some((unit) => unit.id === current) ? current : nextUnits[0]?.id ?? null);
 
         if (creds) {
@@ -163,6 +202,36 @@ export default function TravelTogetherScreen() {
     });
     setSelectedId(nextUnit.id);
   }, []);
+
+  const savedCompanions = (profile?.familyMembers ?? []).filter((member) => member.name.trim());
+
+  const handleImportSavedCompanions = useCallback(async () => {
+    if (!profile) {
+      Alert.alert('Profile not ready', 'Save your family or companion details first so Ace can import them here.');
+      return;
+    }
+
+    const importedUnit = buildTravelUnitFromProfile(profile);
+    if (!importedUnit) {
+      Alert.alert('No saved companions yet', 'Add a partner, child, or family member to your profile first.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await saveTravelUnit(importedUnit);
+      await savePreferredTravelUnitId(importedUnit.id);
+      replaceSelectedUnit(importedUnit);
+      setPreferredId(importedUnit.id);
+      setRemoteNotice(
+        importedUnit.type === 'couple'
+          ? `${importedUnit.name} is now your usual shared travel unit.`
+          : 'Your saved family is now ready as a shared travel unit.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [profile, replaceSelectedUnit]);
 
   const handleSave = useCallback(async () => {
     if (!selectedUnit) return;
@@ -410,6 +479,22 @@ export default function TravelTogetherScreen() {
             Ace can start reasoning about `us`, preferred payers, and family-safe routes now. Real account linking and mutual approval can plug into this later without changing the experience.
           </Text>
         </View>
+
+        {savedCompanions.length > 0 && (
+          <View style={styles.importCard}>
+            <View style={styles.importHeader}>
+              <View style={styles.importCopy}>
+                <Text style={styles.importTitle}>Bring in saved companions</Text>
+                <Text style={styles.importBody}>
+                  Ace already knows {savedCompanions.length === 1 ? `${savedCompanions[0].name} from your profile` : `${savedCompanions.length} saved companions from your profile`}. Import them once so shared booking and natural voice phrasing work cleanly.
+                </Text>
+              </View>
+              <Pressable onPress={() => { void handleImportSavedCompanions(); }} style={styles.importBtn} disabled={saving}>
+                <Text style={styles.importBtnText}>{saving ? 'Working...' : 'Import'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         <View style={styles.linkCard}>
           <Text style={styles.linkTitle}>Link another Ace account</Text>
@@ -741,6 +826,13 @@ const styles = StyleSheet.create({
   infoCard: { backgroundColor: C.surface2, borderWidth: 1, borderColor: C.borderMd, borderRadius: 14, padding: 14, marginBottom: 18 },
   infoTitle: { fontSize: 13, fontWeight: '700', color: C.textPrimary, marginBottom: 6 },
   infoBody: { fontSize: 12, color: C.textSecondary, lineHeight: 18 },
+  importCard: { backgroundColor: '#0a1624', borderWidth: 1, borderColor: '#17314a', borderRadius: 14, padding: 14, marginBottom: 18 },
+  importHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  importCopy: { flex: 1 },
+  importTitle: { fontSize: 13, fontWeight: '700', color: '#edf6ff', marginBottom: 6 },
+  importBody: { fontSize: 12, color: '#a9bfd4', lineHeight: 18 },
+  importBtn: { borderRadius: 12, backgroundColor: '#1d4ed8', paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+  importBtnText: { fontSize: 12, fontWeight: '700', color: '#eff6ff' },
   linkCard: { backgroundColor: '#120914', borderWidth: 1, borderColor: '#4a1d67', borderRadius: 14, padding: 14, marginBottom: 18 },
   linkTitle: { fontSize: 13, fontWeight: '700', color: '#f5d0fe', marginBottom: 6 },
   linkBody: { fontSize: 12, color: '#e9d5ff', lineHeight: 18, marginBottom: 12 },

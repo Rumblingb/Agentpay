@@ -41,7 +41,7 @@ import { speakBro, cancelSpeech, preloadAudio } from '../../lib/tts';
 import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
-import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
+import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type FamilyMember, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getLocationContext } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
@@ -101,6 +101,17 @@ type FollowUpContext = {
   originalRequest: string;
   aceQuestion: string;
   plan: ConciergePlanItem[];
+};
+
+type PassengerIntentTraveller = {
+  name: string;
+  relationship: 'adult' | 'child' | 'infant';
+};
+
+type PassengerIntent = {
+  mode: BookingMode;
+  travellers: PassengerIntentTraveller[];
+  summaryLine: string | null;
 };
 
 function looksLikeOptionSelection(text: string): boolean {
@@ -423,6 +434,136 @@ function referencesSharedTravel(text: string): boolean {
     /\bwith the kids\b/i,
     /\bwith my partner\b/i,
   ].some((pattern) => pattern.test(text));
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name.trim();
+}
+
+function nameAppearsInText(text: string, name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const normalizedText = ` ${text.toLowerCase()} `;
+  const fullNamePattern = new RegExp(`(^|[^a-z])${escapeRegExp(trimmed.toLowerCase())}([^a-z]|$)`, 'i');
+  if (fullNamePattern.test(normalizedText)) return true;
+
+  const givenName = firstName(trimmed);
+  if (givenName.length < 3 || givenName.toLowerCase() === 'you') return false;
+  const givenNamePattern = new RegExp(`(^|[^a-z])${escapeRegExp(givenName.toLowerCase())}([^a-z]|$)`, 'i');
+  return givenNamePattern.test(normalizedText);
+}
+
+function familyMemberToTraveller(member: FamilyMember): PassengerIntentTraveller {
+  return {
+    name: member.name.trim(),
+    relationship: member.relationship,
+  };
+}
+
+function travelUnitMemberToTraveller(member: TravelUnit['members'][number]): PassengerIntentTraveller | null {
+  if (member.role === 'self') {
+    return {
+      name: 'You',
+      relationship: 'adult',
+    };
+  }
+
+  const name = member.name.trim();
+  if (!name) return null;
+  return {
+    name,
+    relationship: member.role === 'child' || member.role === 'infant' ? member.role : 'adult',
+  };
+}
+
+function dedupeTravellers(travellers: PassengerIntentTraveller[]): PassengerIntentTraveller[] {
+  const seen = new Set<string>();
+  const unique: PassengerIntentTraveller[] = [];
+  for (const traveller of travellers) {
+    const key = `${traveller.name.trim().toLowerCase()}::${traveller.relationship}`;
+    if (!traveller.name.trim() || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(traveller);
+  }
+  return unique;
+}
+
+function describeTravellers(travellers: PassengerIntentTraveller[]): string {
+  if (travellers.length === 0) return 'you';
+  const labels = travellers.map((traveller) => traveller.name === 'You' ? 'you' : traveller.name);
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')}, and ${labels.at(-1)}`;
+}
+
+function buildPassengerIntentPlanningNote(intent: PassengerIntent): string {
+  if (intent.mode !== 'shared' || intent.travellers.length <= 1 || !intent.summaryLine) {
+    return `
+
+Ace traveller context:
+- This request is for the device owner only.
+- Do not assume saved companions or family members are travelling unless the customer names them or asks for a shared trip.`;
+  }
+  return `
+
+Ace traveller context:
+- ${intent.summaryLine}
+- Treat pricing, availability, and booking scope as a ${intent.travellers.length}-traveller request for ${describeTravellers(intent.travellers)}.`;
+}
+
+function inferPassengerIntent(params: {
+  text: string;
+  bookingMode: BookingMode;
+  preferredTravelUnit: TravelUnit | null;
+  familyMembers: FamilyMember[];
+}): PassengerIntent {
+  const familyTravellers = params.familyMembers
+    .filter((member) => member.name.trim())
+    .map(familyMemberToTraveller);
+  const sharedUnitTravellers = params.preferredTravelUnit?.members
+    .map(travelUnitMemberToTraveller)
+    .filter((traveller): traveller is PassengerIntentTraveller => !!traveller) ?? [];
+  const matchedFamilyTravellers = familyTravellers.filter((traveller) => nameAppearsInText(params.text, traveller.name));
+  const matchedSharedTravellers = sharedUnitTravellers.filter((traveller) => traveller.name !== 'You' && nameAppearsInText(params.text, traveller.name));
+  const namedTravellers = dedupeTravellers([{ name: 'You', relationship: 'adult' }, ...matchedSharedTravellers, ...matchedFamilyTravellers]);
+
+  if (namedTravellers.length > 1) {
+    return {
+      mode: 'shared',
+      travellers: namedTravellers,
+      summaryLine: `The customer explicitly asked Ace to book for ${describeTravellers(namedTravellers)}.`,
+    };
+  }
+
+  if (params.preferredTravelUnit && (params.bookingMode === 'shared' || referencesSharedTravel(params.text))) {
+    const travellers = dedupeTravellers(sharedUnitTravellers);
+    if (travellers.length > 1) {
+      return {
+        mode: 'shared',
+        travellers,
+        summaryLine: `Use the saved shared travel unit ${params.preferredTravelUnit.name} for this booking.`,
+      };
+    }
+  }
+
+  if (referencesSharedTravel(params.text) && familyTravellers.length > 0) {
+    const travellers = dedupeTravellers([{ name: 'You', relationship: 'adult' }, ...familyTravellers]);
+    return {
+      mode: 'shared',
+      travellers,
+      summaryLine: `The customer asked Ace to book shared travel for ${describeTravellers(travellers)}.`,
+    };
+  }
+
+  return {
+    mode: 'solo',
+    travellers: [{ name: 'You', relationship: 'adult' }],
+    summaryLine: null,
+  };
 }
 
 function buildSharedTravelUnitContext(unit: TravelUnit): Record<string, unknown> {
@@ -1313,12 +1454,10 @@ export default function ConverseScreen() {
     const followUpContext = shouldUseFollowUpContext(displayText, followUpContextRef.current)
       ? followUpContextRef.current
       : null;
-    const planningTranscript = buildFollowUpPlanningTranscript({
+    const basePlanningTranscript = buildFollowUpPlanningTranscript({
       reply: prepared.planningTranscript,
       context: followUpContext,
     });
-    const usingSharedTravel =
-      !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
 
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
@@ -1326,25 +1465,27 @@ export default function ConverseScreen() {
     setTranscript(displayText);
     setPhase('thinking');
     const planStartedAt = Date.now();
-    logConverseEvent({
-      event: 'plan_requested',
-      metadata: {
-        bookingMode: usingSharedTravel ? 'shared' : 'solo',
-        textLength: displayText.length,
-        usedFollowUpContext: !!followUpContext,
-        usedLocationAssumption: !!prepared.assumptionNote,
-      },
-    });
 
     // Load travel profile for Phase 1 — preferences only, no identity data.
     // Full profile (legalName, email, phone, documents) is loaded AFTER biometric
     // confirmation in handleBiometricConfirm. This ensures sensitive data never
     // reaches memory before the user explicitly authorises the booking.
     let profile: TravelProfile | null = null;
+    let passengerIntent: PassengerIntent = {
+      mode: 'solo',
+      travellers: [{ name: 'You', relationship: 'adult' }],
+      summaryLine: null,
+    };
     let travelProfile: Record<string, unknown> | undefined;
     try {
       if (await hasProfile()) {
         profile = await loadProfileRaw();
+        passengerIntent = inferPassengerIntent({
+          text: displayText,
+          bookingMode,
+          preferredTravelUnit,
+          familyMembers: profile?.familyMembers ?? [],
+        });
         if (profile) {
           // Phase 1: non-identity prefs only — railcard/class/nationality for narration personalisation.
           // familyMembers included (no documents or contact details) so Claude can resolve names.
@@ -1363,8 +1504,10 @@ export default function ConverseScreen() {
               railcard:     m.railcard,
               nationality:  m.nationality,
             })),
+            requestedTravellers: passengerIntent.travellers,
+            requestedTravelMode: passengerIntent.mode,
           };
-          if (usingSharedTravel && preferredTravelUnit) {
+          if (passengerIntent.mode === 'shared' && preferredTravelUnit) {
             travelProfile.sharedTravelUnit = buildSharedTravelUnitContext(preferredTravelUnit);
           }
         }
@@ -1373,9 +1516,39 @@ export default function ConverseScreen() {
       // No profile stored — proceed without
     }
 
+    if (!profile) {
+      passengerIntent = inferPassengerIntent({
+        text: displayText,
+        bookingMode,
+        preferredTravelUnit,
+        familyMembers: [],
+      });
+    }
+
+    const planningTranscript = `${basePlanningTranscript}${buildPassengerIntentPlanningNote(passengerIntent)}`;
+    const usingSharedTravel = passengerIntent.mode === 'shared' && passengerIntent.travellers.length > 1;
+
+    logConverseEvent({
+      event: 'plan_requested',
+      metadata: {
+        bookingMode: usingSharedTravel ? 'shared' : 'solo',
+        textLength: displayText.length,
+        usedFollowUpContext: !!followUpContext,
+        usedLocationAssumption: !!prepared.assumptionNote,
+        travellerCount: passengerIntent.travellers.length,
+      },
+    });
+
     if (!travelProfile && usingSharedTravel && preferredTravelUnit) {
       travelProfile = {
         sharedTravelUnit: buildSharedTravelUnitContext(preferredTravelUnit),
+        requestedTravellers: passengerIntent.travellers,
+        requestedTravelMode: passengerIntent.mode,
+      };
+    } else if (!travelProfile) {
+      travelProfile = {
+        requestedTravellers: passengerIntent.travellers,
+        requestedTravelMode: passengerIntent.mode,
       };
     }
 
@@ -2363,6 +2536,12 @@ export default function ConverseScreen() {
 
   // Last route suggestion — "Same route as last time?"
   const recentTurns = turns.filter((turn) => turn.role === 'meridian').slice(-4);
+  const voiceFirstIdle = turns.length === 0 && voiceEnabled && !textFallbackVisible && (phase === 'idle' || phase === 'listening');
+  const showActiveTripCard = !!activeTrip;
+  const showUsualRouteCard = !activeTrip && !!usualRoute;
+  const showMemoryCard = !activeTrip && !usualRoute && !!routeMemory && !!memorySuggestion;
+  const showSharedUnitCard = !activeTrip && !usualRoute && !routeMemory && !!preferredTravelUnit;
+  const showTravelModeCard = !activeTrip && !usualRoute && !routeMemory && !preferredTravelUnit && !!travelModeReminder;
   return (
     <SafeAreaView style={styles.safe}>
       <Atmosphere />
@@ -2447,7 +2626,7 @@ export default function ConverseScreen() {
                 </View>
               )}
             </View>
-              {activeTrip && (
+              {showActiveTripCard && (
                 <Pressable
                   onPress={() => {
                     router.push({
@@ -2486,7 +2665,7 @@ export default function ConverseScreen() {
                   })()}
                 </Pressable>
               )}
-            {usualRoute && (
+            {showUsualRouteCard && (
               <Pressable
                 onPress={() => { void runIntentWithUiFallback(`${usualRoute.origin} to ${usualRoute.destination}`); }}
                 style={styles.usualRouteCard}
@@ -2502,7 +2681,7 @@ export default function ConverseScreen() {
                 )}
               </Pressable>
             )}
-            {!usualRoute && routeMemory && memorySuggestion && (
+            {showMemoryCard && (
               <Pressable
                 onPress={() => { void runIntentWithUiFallback(memorySuggestion); }}
                 style={styles.usualRouteCard}
@@ -2518,7 +2697,7 @@ export default function ConverseScreen() {
                 )}
               </Pressable>
             )}
-            {preferredTravelUnit && (
+            {showSharedUnitCard && (
               <View style={styles.sharedUnitCard}>
                 <View style={styles.sharedUnitHeader}>
                   <Ionicons name="people-circle-outline" size={16} color="#cbe8ff" />
@@ -2546,7 +2725,7 @@ export default function ConverseScreen() {
                 </View>
               </View>
             )}
-            {travelModeReminder && (
+            {travelModeReminder && (!voiceFirstIdle || showTravelModeCard) && (
               <View style={styles.travelModePromptCard}>
                 <View style={styles.travelModePromptHeader}>
                   <Text style={styles.travelModePromptEyebrow}>{travelModeReminder.eyebrow}</Text>
@@ -2571,12 +2750,14 @@ export default function ConverseScreen() {
                 </View>
               </View>
             )}
+            {!voiceFirstIdle && (
             <Pressable onPress={() => router.push('/(main)/trips')} style={styles.myTripsBtn}>
               <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
               <Text style={styles.myTripsBtnText}>Journeys</Text>
               <Ionicons name="chevron-forward-outline" size={13} color="#334155" style={{ marginLeft: 'auto' }} />
             </Pressable>
-            {primarySuggestion && (
+            )}
+            {primarySuggestion && !voiceFirstIdle && (
               <View style={styles.suggestionsCard}>
                 <View style={styles.suggestionsHeader}>
                   <Text style={styles.suggestionsEyebrow}>Try this</Text>
@@ -2681,8 +2862,11 @@ export default function ConverseScreen() {
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
           const code    = pendingPlanRef.current?.fiatCode ?? currencyCode;
           const plan    = pendingPlanRef.current?.plan ?? [];
-          // Family members from Phase 1 profile (non-sensitive — names + relationships only)
-          const tpFam   = (pendingPlanRef.current?.travelProfile?.familyMembers as Array<{ name: string; relationship: string; railcard?: string }> | undefined) ?? [];
+          const requestedTravellers = ((pendingPlanRef.current?.travelProfile?.requestedTravellers as Array<{
+            name: string;
+            relationship: 'adult' | 'child' | 'infant';
+          }> | undefined) ?? [])
+            .filter((traveller) => traveller.name?.trim());
           const sharedMembers = ((pendingPlanRef.current?.travelProfile?.sharedTravelUnit as {
             members?: Array<{ name: string; role: 'self' | 'partner' | 'adult' | 'child' | 'infant' }>;
           } | undefined)?.members ?? [])
@@ -2691,11 +2875,11 @@ export default function ConverseScreen() {
               name: member.role === 'self' ? 'You' : member.name,
               relationship: member.role === 'child' || member.role === 'infant' ? member.role : 'adult' as const,
             }));
-          const passengers = sharedMembers.length > 0
-            ? sharedMembers
-            : tpFam.length > 0
-              ? [{ name: 'You', relationship: 'adult' as const }, ...tpFam]
-              : null;
+          const passengers = requestedTravellers.length > 0
+            ? requestedTravellers
+            : sharedMembers.length > 0
+              ? sharedMembers
+              : [{ name: 'You', relationship: 'adult' as const }];
           const adultCount = passengers?.filter((p) => p.relationship !== 'child' && p.relationship !== 'infant').length ?? 1;
           const childCount = passengers?.filter((p) => p.relationship === 'child').length ?? 0;
           const travellerCount = passengers?.length ?? 1;
