@@ -11,7 +11,9 @@
  *   GET  /api/payments/methods/:principalId    — list saved payment methods
  *   DELETE /api/payments/methods/:methodId     — remove a payment method
  *
- * Auth: all routes require a valid merchant API key (authenticateApiKey).
+ * Auth:
+ *   - first-party Ace app via x-bro-key
+ *   - merchant API key via authenticateApiKey
  *
  * Flow:
  *   1. Client calls POST /setup-intent → gets clientSecret
@@ -100,7 +102,14 @@ async function ensureStripeCustomer(stripe: Stripe, sql: ReturnType<typeof impor
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-router.use('*', authenticateApiKey);
+router.use('*', async (c, next) => {
+  const broKey = c.req.header('x-bro-key') ?? '';
+  if (c.env.BRO_CLIENT_KEY && broKey === c.env.BRO_CLIENT_KEY) {
+    await next();
+    return;
+  }
+  return authenticateApiKey(c, next);
+});
 
 // ---------------------------------------------------------------------------
 // POST /setup-intent — Create a Stripe Setup Intent

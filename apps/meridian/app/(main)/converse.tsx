@@ -2011,7 +2011,14 @@ export default function ConverseScreen() {
     // This is the first time legalName, email, phone, and documents enter memory.
     try {
       const fullProfile = await loadProfileAuthenticated();
-      if (fullProfile) pending.fullProfile = fullProfile as unknown as Record<string, unknown>;
+      if (fullProfile) {
+        pending.fullProfile = {
+          ...(fullProfile as unknown as Record<string, unknown>),
+          requestedTravellers: pending.travelProfile?.requestedTravellers,
+          requestedTravelMode: pending.travelProfile?.requestedTravelMode,
+          sharedTravelUnit: pending.travelProfile?.sharedTravelUnit,
+        };
+      }
     } catch {
       // Biometric already succeeded — proceed without full profile if load fails
     }

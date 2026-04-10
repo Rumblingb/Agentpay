@@ -155,3 +155,12 @@ If there is tension between:
 - and a cleaner product seam
 
 choose the cleaner seam.
+
+## graphify
+
+If `graphify-out/` exists for this project, treat it as the preferred map before falling back to raw-file search.
+
+Rules:
+- Before answering architecture or codebase questions, read `graphify-out/GRAPH_REPORT.md` when it exists for god nodes and community structure.
+- If `graphify-out/wiki/index.md` exists, navigate it instead of reading raw files.
+- After modifying code files, refresh the graph only when graphify output already exists or graphify is actively being used for this repo.

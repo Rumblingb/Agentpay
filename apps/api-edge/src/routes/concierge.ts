@@ -572,10 +572,18 @@ conciergeRouter.post('/intent', async (c) => {
     : '';
 
   // ── Family / group context ────────────────────────────────────────────────
+  const requestedTravellers = travelProfile?.requestedTravellers as Array<{
+    name: string;
+    relationship: 'adult' | 'child' | 'infant';
+  }> | undefined;
   const familyMembers = travelProfile?.familyMembers as Array<{
     id: string; name: string; relationship: string;
     dateOfBirth?: string; railcard?: string; documentNumber?: string; documentExpiry?: string; nationality?: string;
   }> | undefined;
+
+  const requestedTravellerContext = requestedTravellers && requestedTravellers.length > 0
+    ? `\nRequested party for this trip: ${requestedTravellers.map((traveller) => `${traveller.name} (${traveller.relationship})`).join('; ')}. Only plan and price for this party. Do not silently expand to every saved family member unless the customer explicitly asked for that larger group.`
+    : '\nRequested party for this trip: device owner only unless the customer explicitly asked for a companion or shared trip.';
 
   const familyContext = familyMembers && familyMembers.length > 0
     ? (() => {
@@ -593,11 +601,11 @@ conciergeRouter.post('/intent', async (c) => {
         const adultCount   = 1 + familyMembers.filter(m => m.relationship === 'adult').length;
         const childCount   = familyMembers.filter(m => m.relationship === 'child').length;
         const hasFamilyRailcard = adultCount >= 2 && childCount >= 1 && childCount <= 4;
-        return `\nUser's family: ${lines.join('; ')}.${hasFamilyRailcard ? ' Family & Friends Railcard applies — 1/3 off adult fares, 60% off child fares. Apply automatically and mention the saving.' : ''}`;
+        return `\nSaved family memory: ${lines.join('; ')}.${hasFamilyRailcard ? ' Family & Friends Railcard applies — 1/3 off adult fares, 60% off child fares when the requested party qualifies. Apply it only when the active travellers fit.' : ''}`;
       })()
     : '';
 
-  const systemPrompt = `You are Ace — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
+  const systemPrompt = `You are Ace — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${requestedTravellerContext}${familyContext}
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -809,12 +817,26 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               }];
             }
 
-            // Add family members as additional passengers
+            const requestedParty = travelProfile?.requestedTravellers as Array<{
+              name: string;
+              relationship: 'adult' | 'child' | 'infant';
+            }> | undefined;
+
+            const requestedAdditionalNames = new Set(
+              (requestedParty ?? [])
+                .map((traveller) => traveller.name?.trim().toLowerCase())
+                .filter((name) => name && name !== 'you'),
+            );
+
+            // Add only the explicitly requested saved family members as additional passengers
             const familyMems = travelProfile?.familyMembers as Array<{
               name: string; relationship: string;
               dateOfBirth?: string; documentNumber?: string; documentExpiry?: string; nationality?: string;
             }> | undefined;
-            const additionalPassengers: DuffelPassenger[] = (familyMems ?? []).map((m) => {
+            const selectedFamilyMems = requestedAdditionalNames.size > 0
+              ? (familyMems ?? []).filter((member) => requestedAdditionalNames.has(member.name.trim().toLowerCase()))
+              : [];
+            const additionalPassengers: DuffelPassenger[] = selectedFamilyMems.map((m) => {
               const mParts = m.name.trim().split(/\s+/);
               const p: DuffelPassenger = {
                 given_name:  mParts[0] ?? m.name,

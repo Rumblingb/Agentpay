@@ -157,11 +157,12 @@ export default function WalletScreen() {
                 </View>
               ))}
 
-              {/* Add card — opens Setup Intent flow once @stripe/stripe-react-native is installed */}
-              <Pressable style={styles.addCardBtn} onPress={() => Alert.alert('Add Card', 'Complete Stripe setup to enable native card entry.\nInstall @stripe/stripe-react-native and wire createSetupIntent() from lib/api.ts.')}>
-                <Ionicons name="add-circle-outline" size={16} color="#6366f1" />
-                <Text style={styles.addCardText}>Add payment card</Text>
-              </Pressable>
+              <View style={styles.addCardNotice}>
+                <Ionicons name="information-circle-outline" size={16} color="#8ea4bc" />
+                <Text style={styles.addCardNoticeText}>
+                  Saved cards are being finished for this device. For now, keep your Ace balance topped up and bookings can still move cleanly.
+                </Text>
+              </View>
             </View>
 
             {/* Top-up instructions */}
@@ -248,16 +249,16 @@ const styles = StyleSheet.create({
   },
   cardLabel:    { fontSize: 14, color: '#d1d5db', fontWeight: '500' },
   defaultBadge: { fontSize: 11, color: '#6366f1', marginTop: 2 },
-  addCardBtn: {
+  addCardNotice: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     paddingTop: 12,
     marginTop: 4,
     borderTopWidth: 1,
     borderTopColor: '#1a1a1a',
   },
-  addCardText:    { fontSize: 14, color: '#6366f1' },
+  addCardNoticeText: { flex: 1, fontSize: 13, lineHeight: 18, color: '#8ea4bc' },
   depositCard: {
     backgroundColor: '#111111',
     borderRadius: 14,

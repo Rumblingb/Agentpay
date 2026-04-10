@@ -11,6 +11,7 @@ const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
 function requiresBroKey(path: string): boolean {
   return (
     path.startsWith('/api/concierge/') ||
+    path.startsWith('/api/payments/') ||
     path.startsWith('/api/shared-travel/') ||
     path.startsWith('/api/trip-rooms/') ||
     path.startsWith('/api/support/')
@@ -92,6 +93,11 @@ export interface BroTravelProfile {
   currentLat?: number;
   currentLon?: number;
   familyMembers?: BroFamilyMember[];
+  requestedTravellers?: Array<{
+    name: string;
+    relationship: 'adult' | 'child' | 'infant';
+  }>;
+  requestedTravelMode?: 'solo' | 'shared';
   sharedTravelUnit?: {
     id: string;
     name: string;
