@@ -50,6 +50,7 @@ import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
 import type { TripContext } from '../../lib/trip';
 import { rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
 import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
+import { hasBroClientKey, isMissingBroKeyError, missingBroKeyMessage } from '../../lib/runtimeConfig';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -786,6 +787,7 @@ export default function ConverseScreen() {
   const [guidanceSessions, setGuidanceSessions] = useState(0);
   const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
   const presencePulse = useRef(new Animated.Value(0.84)).current;
+  const liveVoiceConfigured = hasBroClientKey();
 
   const logConverseEvent = useCallback((params: {
     event: string;
@@ -984,7 +986,7 @@ export default function ConverseScreen() {
   }, [phase, currencyCode]);
 
   const armHandsFreeListen = useCallback((silenceMs: number) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled || !liveVoiceConfigured) return;
     if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
     if (keyboardVisibleRef.current || textFallbackVisibleRef.current) return;
     if (activeTrip && shouldTreatTripAsLive(activeTrip)) return;
@@ -1004,14 +1006,15 @@ export default function ConverseScreen() {
         void beginVoiceCaptureRef.current?.();
       }
     }, 80);
-  }, [activeTrip, clearHandsFreeListenTimer, setPhase, voiceEnabled]);
+  }, [activeTrip, clearHandsFreeListenTimer, liveVoiceConfigured, setPhase, voiceEnabled]);
 
   const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled || !liveVoiceConfigured) return;
     clearHandsFreeListenTimer();
     let speakingStarted = false;
+    let result = { played: false };
     try {
-      await speakBro(sanitizeAceNarration(text), {
+      result = await speakBro(sanitizeAceNarration(text), {
         onStart: () => {
           if (speakingStarted) return;
           speakingStarted = true;
@@ -1027,10 +1030,10 @@ export default function ConverseScreen() {
       const cur = phaseRef.current;
       // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
       if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
-        armHandsFreeListen(1600);
+        armHandsFreeListen(result.played ? 1600 : 900);
       }
     }
-  }, [armHandsFreeListen, clearHandsFreeListenTimer, voiceEnabled]);
+  }, [armHandsFreeListen, clearHandsFreeListenTimer, liveVoiceConfigured, voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
     clearHandsFreeListenTimer();
@@ -1261,7 +1264,7 @@ export default function ConverseScreen() {
   // Pre-fetch the opening greeting the moment the screen mounts so the audio
   // file is ready before the 1.2s timer fires — instant first sound.
   useEffect(() => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled || !liveVoiceConfigured) return;
     const h = new Date().getHours();
     const line = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
     void preloadAudio(line);
@@ -1272,7 +1275,7 @@ export default function ConverseScreen() {
   // Skipped if a prefill is pending (it will take priority) or a trip is active.
   const alwaysOnFiredRef = useRef(false);
   useEffect(() => {
-    if (alwaysOnFiredRef.current || !voiceEnabled || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
+    if (alwaysOnFiredRef.current || !voiceEnabled || !liveVoiceConfigured || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
     alwaysOnFiredRef.current = true;
     const timer = setTimeout(() => {
       void (async () => {
@@ -1289,7 +1292,7 @@ export default function ConverseScreen() {
       })();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [activeTrip, agentId, prefill, voiceEnabled]);
+  }, [activeTrip, agentId, liveVoiceConfigured, prefill, voiceEnabled]);
 
   useEffect(() => {
     if (phase !== 'done' || isSpeaking) return;
@@ -1630,7 +1633,9 @@ export default function ConverseScreen() {
         if (!__DEV__) {
           nextMessage = 'Ace missed that. Say it again, or type the trip below.';
         }
-        if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
+        if (isMissingBroKeyError(e)) {
+          nextMessage = missingBroKeyMessage();
+        } else if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
           nextMessage = 'Ace did not catch that in time. Say it again, or type it below.';
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
           nextMessage = 'Voice service is unavailable right now. You can type the trip below.';
@@ -1729,6 +1734,19 @@ export default function ConverseScreen() {
 
   const beginVoiceCapture = useCallback(async () => {
     if (!voiceEnabled) return;
+    if (!liveVoiceConfigured) {
+      const message = missingBroKeyMessage();
+      clearHandsFreeListenTimer();
+      phaseRef.current = 'error';
+      setPhase('error');
+      openTextFallback(message);
+      logConverseEvent({
+        event: 'voice_config_missing',
+        severity: 'warning',
+        message,
+      });
+      return;
+    }
     if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
     const currentPhase = phaseRef.current;
     if (currentPhase !== 'idle' && currentPhase !== 'error') return;
@@ -1784,7 +1802,7 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [clearHandsFreeListenTimer, finishVoiceCapture, logConverseEvent, reset, setError, setPhase, voiceEnabled]);
+  }, [clearHandsFreeListenTimer, finishVoiceCapture, liveVoiceConfigured, logConverseEvent, openTextFallback, reset, setPhase, voiceEnabled]);
 
   // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
   beginVoiceCaptureRef.current = beginVoiceCapture;
@@ -1854,6 +1872,7 @@ export default function ConverseScreen() {
   const isError    = phase === 'error';
   const isConfirming = phase === 'confirming';
   const presenceLabel =
+    !liveVoiceConfigured ? 'Ace is refreshing voice' :
     isSpeaking ? 'Ace is speaking' :
     phase === 'listening' ? 'Ace is listening' :
     phase === 'thinking' ? 'Ace is thinking' :
@@ -1863,6 +1882,7 @@ export default function ConverseScreen() {
     voiceEnabled ? 'Ace is ready' :
     'Voice paused';
   const presenceHint =
+    !liveVoiceConfigured ? 'Type the trip below while live voice is refreshed.' :
     isSpeaking ? 'Stay with me. Ace is guiding the next move.' :
     phase === 'listening' ? 'Say the trip once, naturally.' :
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Ace is working the route, timing, and booking.' :
@@ -2217,7 +2237,9 @@ export default function ConverseScreen() {
           <View style={styles.greetingStrip}>
             <Text style={styles.greetingStripTitle}>{personalGreeting}</Text>
             <Text style={styles.greetingStripBody}>
-              {routeMemory
+              {!liveVoiceConfigured
+                ? 'Ace is being refreshed for live voice. Type the trip below for now.'
+                : routeMemory
                 ? `Ace still remembers ${routeMemory.origin} to ${routeMemory.destination}.`
                 : nearestStation
                   ? `You are nearest to ${nearestStation.name}. Say where to line up next.`

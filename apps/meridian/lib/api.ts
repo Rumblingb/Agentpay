@@ -4,9 +4,10 @@
  */
 
 import type { NearbyPlace, ProactiveCard, RouteData, TripContext } from '../../../packages/bro-trip/index';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, createMissingBroKeyError } from './runtimeConfig';
 
-const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
 
 function requiresBroKey(path: string): boolean {
   return (
@@ -15,10 +16,6 @@ function requiresBroKey(path: string): boolean {
     path.startsWith('/api/trip-rooms/') ||
     path.startsWith('/api/support/')
   );
-}
-
-function missingBroKeyMessage(): string {
-  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<Response> {
@@ -36,7 +33,7 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (!BRO_KEY && requiresBroKey(path)) {
-    throw new Error(missingBroKeyMessage());
+    throw createMissingBroKeyError();
   }
 
   let res: Response;

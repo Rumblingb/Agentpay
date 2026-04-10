@@ -16,14 +16,11 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import { getLastTtsEndedAt } from './tts';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, createMissingBroKeyError } from './runtimeConfig';
 export { speak, stopSpeaking } from './tts';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
-
-function missingBroKeyMessage(): string {
-  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
-}
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
@@ -87,13 +84,16 @@ async function prepareAudioSessionForRecording(): Promise<void> {
   // the session is already inactive and the deactivation/wait cycle can
   // leave the mic cold (causing the bug seen in builds 28/29 vs 33+).
   if (Platform.OS === 'ios') {
-    const ttsAge = Date.now() - getLastTtsEndedAt();
-    if (getLastTtsEndedAt() > 0 && ttsAge < 10_000) {
-      // TTS played within the last 10 seconds — deactivate to force a clean
-      // session handoff before switching back to .playAndRecord.
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      // Give the audio session time to fully deactivate.
-      await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    const lastTtsEndedAt = getLastTtsEndedAt();
+    const ttsAge = Date.now() - lastTtsEndedAt;
+    if (lastTtsEndedAt > 0 && ttsAge < 10_000) {
+      // speakBro left the session in .playback (allowsRecordingIOS: false,
+      // playsInSilentModeIOS: true). Do NOT call setAudioModeAsync(false) here —
+      // without playsInSilentModeIOS it collapses to .ambient, and the
+      // .ambient → .playAndRecord transition leaves the mic cold.
+      // The .playback → .playAndRecord path works reliably; just wait for the
+      // hardware to release from playback before startRecording re-arms it.
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
     return;
   }
@@ -258,7 +258,7 @@ export async function stopRecording(): Promise<string | null> {
 
 export async function transcribeAudio(uri: string): Promise<string> {
   if (!BRO_KEY) {
-    throw new Error(missingBroKeyMessage());
+    throw createMissingBroKeyError();
   }
 
   let info: FileSystem.FileInfo;
@@ -305,7 +305,7 @@ export async function transcribeAudio(uri: string): Promise<string> {
   }
 
   if (res.status === 401 || res.status === 403) {
-    throw new Error(missingBroKeyMessage());
+    throw createMissingBroKeyError();
   }
   if (!res.ok) throw new Error(`Transcription failed (${res.status})`);
   const data = (await res.json()) as { transcript?: string; error?: string };

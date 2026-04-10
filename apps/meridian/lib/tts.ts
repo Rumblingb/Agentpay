@@ -3,9 +3,10 @@ import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
 import { trackClientEvent } from './telemetry';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, hasBroClientKey } from './runtimeConfig';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
 
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
@@ -49,6 +50,12 @@ interface SpeakBroOptions {
   onMeter?: (level: number) => void;
 }
 
+export type SpeakBroResult = {
+  played: boolean;
+  provider: 'server' | 'none';
+  reason?: 'empty' | 'missing_key' | 'server_unavailable' | 'playback_failed';
+};
+
 type PlaybackAudioSample = {
   channels: Array<{ frames: number[] }>;
 };
@@ -86,6 +93,8 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 }
 
 async function stopActivePlayback(): Promise<void> {
+  const hadPlayback = Boolean(activeSound || activeSpeechResolver || activeUri);
+
   if (activeSound) {
     try {
       await activeSound.stopAsync();
@@ -108,13 +117,13 @@ async function stopActivePlayback(): Promise<void> {
     activeUri = null;
   }
 
-  // Record that TTS just ended so speech.ts knows the audio session needs
-  // a deactivate/reactivate cycle before the next recording session.
-  lastTtsEndedAt = Date.now();
+  if (hadPlayback) {
+    lastTtsEndedAt = Date.now();
+  }
 
   // On Android, release AudioFocus explicitly after playback so the mic
   // can be claimed without contention on the next recording session.
-  if (Platform.OS === 'android') {
+  if (hadPlayback && Platform.OS === 'android') {
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -218,11 +227,11 @@ async function playSystemVoice(text: string, options?: SpeakBroOptions): Promise
   });
 }
 
-export async function speakBro(text: string, options?: SpeakBroOptions): Promise<void> {
+export async function speakBro(text: string, options?: SpeakBroOptions): Promise<SpeakBroResult> {
   const trimmed = text.trim();
   if (!trimmed) {
     options?.onMeter?.(0);
-    return;
+    return { played: false, provider: 'none', reason: 'empty' };
   }
 
   await stopActivePlayback();
@@ -238,15 +247,19 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
     } else {
       const audioBase64 = await requestVoiceAudio(trimmed);
       if (!audioBase64) {
-        // ElevenLabs unavailable — resolve silently. Premium product never
-        // speaks with a robotic system voice; the face/mic state still updates.
+        const reason = hasBroClientKey() ? 'server_unavailable' : 'missing_key';
         options?.onMeter?.(0);
         void trackClientEvent({
           event: 'tts_skipped_unavailable',
           screen: 'voice',
-          metadata: { latencyMs: Date.now() - startedAt, textLength: trimmed.length },
+          severity: reason === 'missing_key' ? 'warning' : undefined,
+          metadata: {
+            latencyMs: Date.now() - startedAt,
+            reason,
+            textLength: trimmed.length,
+          },
         });
-        return;
+        return { played: false, provider: 'none', reason };
       }
       uri = `${FileSystem.cacheDirectory}ace_voice_${Date.now()}.mp3`;
       await FileSystem.writeAsStringAsync(uri, audioBase64, {
@@ -344,11 +357,10 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
         textLength: trimmed.length,
       },
     });
+    return { played: true, provider: 'server' };
   } catch (error: any) {
     options?.onMeter?.(0);
     await stopActivePlayback();
-    // Silent fail — no robotic iOS fallback. Premium product stays silent
-    // rather than breaking the voice character.
     void trackClientEvent({
       event: 'tts_failed',
       screen: 'voice',
@@ -356,6 +368,7 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
       message: error?.message ?? 'Server voice playback failed.',
       metadata: { provider: 'server', textLength: trimmed.length },
     });
+    return { played: false, provider: 'none', reason: 'playback_failed' };
   }
 }
 

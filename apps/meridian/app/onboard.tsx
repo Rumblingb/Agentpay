@@ -57,15 +57,12 @@ import { getBiometricLabel } from '../lib/biometric';
 import { requestNotificationPermission } from '../lib/notifications';
 import { startRecording, stopRecording, transcribeAudio } from '../lib/speech';
 import { speak, stopSpeaking } from '../lib/tts';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, missingBroKeyMessage } from '../lib/runtimeConfig';
 import { AceBrain } from '../components/AceBrain';
 import type { AppPhase } from '../lib/store';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
-
-function missingBroKeyMessage(): string {
-  return 'Ace needs a quick update before it can handle live trips. Install the latest Ace build and try again.';
-}
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
   const controller = new AbortController();
