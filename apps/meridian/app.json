@@ -76,6 +76,7 @@
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Ace uses your microphone to capture voice requests.",
         "NSSpeechRecognitionUsageDescription": "Ace uses speech recognition to understand your requests.",
+        "NSCameraUsageDescription": "Ace uses the camera only when you add travel documents or scan booking details.",
         "NSFaceIDUsageDescription": "Ace uses Face ID to protect your stored credentials.",
         "NSLocationWhenInUseUsageDescription": "Ace uses your location to find your nearest station and suggest quick routes.",
         "ITSAppUsesNonExemptEncryption": false
