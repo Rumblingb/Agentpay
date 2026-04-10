@@ -5,17 +5,23 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
+  BarChart2,
   Bot,
   Building2,
   CheckCircle2,
   ChevronDown,
   Cpu,
   DollarSign,
+  FileText,
   Layers,
   Loader2,
   Mic,
   MicOff,
   Shield,
+  Sparkles,
+  TrendingUp,
+  X,
   Zap,
 } from 'lucide-react';
 
@@ -24,7 +30,7 @@ import {
 type PanelState = 'ok' | 'error';
 type Lane = 'claim-status' | 'eligibility';
 type LaneMode = 'auto' | 'auto_notify' | 'human';
-type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces' | 'agent';
+type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces' | 'agent' | 'pipeline' | 'intel';
 type Operation =
   | 'run-primary'
   | 'run-fallback'
@@ -202,11 +208,105 @@ type ManagerSnapshot = {
 
 type ActionResponse = { message?: string; error?: string };
 
+type DailyBriefing = {
+  briefing: string;
+  generatedAt: string;
+  context?: Record<string, unknown>;
+};
+
+type RevenuePipelineStage = {
+  stage: string;
+  label: string;
+  count: number;
+  amount: number;
+};
+
+type RevenuePipeline = {
+  windowDays: number;
+  stages: RevenuePipelineStage[];
+  summary: { denialRate: number; recoveryRate: number; totalAmount: number };
+};
+
+type PayerRow = {
+  payerName: string;
+  totalItems: number;
+  denialRate: number;
+  autoClosePct: number;
+  amountAtRisk: number;
+};
+
+type PayerIntelligence = {
+  windowDays: number;
+  payers: PayerRow[];
+};
+
+type AutomationHealth = {
+  lanes: Array<{ lane: string; accuracy: number; falsePositives: number; threshold: number }>;
+  summary: { autoClosedCorrectly: number; falsePositivesCaught: number; savedAmount: number };
+  recommendation: string;
+};
+
+type VoiceIntentResponse = {
+  narration: string;
+  confirmRequired?: boolean;
+  action?: Record<string, unknown>;
+  executed?: boolean;
+};
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
   const res = await fetch('/api/rcm/manager', { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to load billing snapshot');
+  return res.json();
+}
+
+async function fetchDailyBriefing(): Promise<DailyBriefing> {
+  const res = await fetch('/api/rcm/daily-briefing');
+  if (!res.ok) throw new Error('briefing unavailable');
+  return res.json();
+}
+
+async function fetchRevenuePipeline(windowDays = 30): Promise<RevenuePipeline> {
+  const res = await fetch(`/api/rcm/revenue-pipeline?windowDays=${windowDays}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('pipeline unavailable');
+  return res.json();
+}
+
+async function fetchPayerIntelligence(windowDays = 30): Promise<PayerIntelligence> {
+  const res = await fetch(`/api/rcm/payer-intelligence?windowDays=${windowDays}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('payer intelligence unavailable');
+  return res.json();
+}
+
+async function fetchAutomationHealth(): Promise<AutomationHealth> {
+  const res = await fetch('/api/rcm/automation-health', { cache: 'no-store' });
+  if (!res.ok) throw new Error('automation health unavailable');
+  return res.json();
+}
+
+async function postVoiceIntent(payload: {
+  transcript: string;
+  workspaceId?: string;
+  confirmed?: boolean;
+  action?: Record<string, unknown>;
+}): Promise<VoiceIntentResponse> {
+  const res = await fetch('/api/rcm/voice-intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({ narration: 'Could not process voice command.' })) as VoiceIntentResponse;
+  return data;
+}
+
+async function postGenerateAppeal(workItemId: string): Promise<{ appealLetter: string; claimRef?: string; payerName?: string }> {
+  const res = await fetch('/api/rcm/generate-appeal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workItemId }),
+  });
+  if (!res.ok) throw new Error('Appeal generation failed');
   return res.json();
 }
 
@@ -510,14 +610,16 @@ type ExceptionCardProps = {
   item: ClaimStatusException | EligibilityException;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
+  onAppeal?: (workItemId: string) => void;
 };
 
-function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProps) {
+function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: ExceptionCardProps) {
   const actions = exceptionActions(lane, item);
   const { bg, border, text } = severityStyle(item.severity);
   const ref = lane === 'claim-status'
     ? (item as ClaimStatusException).claimRef
     : (item as EligibilityException).memberId;
+  const isDenial = item.exceptionType?.includes('denial') || item.summary?.toLowerCase().includes('denial') || item.summary?.toLowerCase().includes('denied');
 
   return (
     <div style={{ borderRadius: 10, background: bg, border: `1px solid ${border}`, padding: '14px 16px' }}>
@@ -546,6 +648,21 @@ function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProp
         {actions.map(p => (
           <ActionBtn key={actionKey(p)} payload={p} pending={checkPending(p)} onClick={onAction} />
         ))}
+        {isDenial && onAppeal && (
+          <button
+            onClick={() => onAppeal(item.workItemId)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '5px 11px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+              letterSpacing: '0.05em', textTransform: 'uppercase',
+              cursor: 'pointer', border: '1px solid rgba(99,102,241,0.25)',
+              background: 'rgba(99,102,241,0.08)', color: '#818cf8',
+            }}
+          >
+            <FileText size={10} />
+            Appeal
+          </button>
+        )}
         {item.slaAt && (
           <span style={{ marginLeft: 'auto', fontSize: 11, color: '#444' }}>SLA {fmtDate(item.slaAt)}</span>
         )}
@@ -931,53 +1048,67 @@ function useDashboardTts() {
   }, []);
 }
 
-// ── Voice FAB ──────────────────────────────────────────────────────────────────
+// ── Voice FAB (AI-powered) ─────────────────────────────────────────────────────
 
 function VoiceFAB({
-  onSwitchTab, autoClosedCount, autoClosedPct, trustScore,
+  workspaceId,
 }: {
-  onSwitchTab: (t: ActiveTab) => void;
-  autoClosedCount: number;
-  autoClosedPct: number;
-  trustScore: number;
+  workspaceId?: string;
 }) {
   const [listening, setListening] = useState(false);
-  const [label, setLabel] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [narration, setNarration] = useState('');
+  const [pendingAction, setPendingAction] = useState<{ narration: string; action: Record<string, unknown> } | null>(null);
   const recRef = useRef<{ stop: () => void } | null>(null);
   const speak = useDashboardTts();
+  const queryClient = useQueryClient();
 
-  const handle = useCallback((text: string) => {
-    const t = text.toLowerCase();
-    let hint = '';
-    let reply = '';
-
-    if (t.includes('claim') || t.includes('denial')) {
-      onSwitchTab('claims'); reply = "Showing claim checks."; hint = "Claim checks";
-    } else if (t.includes('eligib') || t.includes('coverage')) {
-      onSwitchTab('eligibility'); reply = "Showing coverage checks."; hint = "Coverage checks";
-    } else if (t.includes('connector') || t.includes('payer')) {
-      onSwitchTab('connectors'); reply = "Showing payer network."; hint = "Payer network";
-    } else if (t.includes('practice') || t.includes('workspace')) {
-      onSwitchTab('workspaces'); reply = "Showing practices."; hint = "Practices";
-    } else if (t.includes('agent') || t.includes('authority')) {
-      onSwitchTab('agent'); reply = "Showing agent authority."; hint = "Agent authority";
-    } else if (t.includes('resolved') || t.includes('handled') || t.includes('how many')) {
-      reply = `Ace has auto-resolved ${autoClosedCount} items — ${autoClosedPct} percent this period.`;
-      hint = `${autoClosedCount} items, ${autoClosedPct}% auto`;
-    } else if (t.includes('trust') || t.includes('score')) {
-      reply = `Your billing agent trust score is ${trustScore} out of 100.`;
-      hint = `Trust score: ${trustScore}/100`;
-    } else {
-      reply = "Try: show claims, how many resolved, or trust score.";
-      hint = "Try again";
+  const handle = useCallback(async (transcript: string) => {
+    setProcessing(true);
+    setNarration('');
+    try {
+      const result = await postVoiceIntent({ transcript, workspaceId });
+      speak(result.narration);
+      if (result.confirmRequired && result.action) {
+        setPendingAction({ narration: result.narration, action: result.action });
+        setNarration(result.narration);
+      } else {
+        setNarration(result.narration);
+        // Refresh data if an action was executed
+        if (result.executed) {
+          queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
+        }
+        setTimeout(() => setNarration(''), 6000);
+      }
+    } catch {
+      const fallback = "I couldn't process that. Try: what needs attention, or pause prior auth.";
+      speak(fallback);
+      setNarration(fallback);
+      setTimeout(() => setNarration(''), 4000);
+    } finally {
+      setProcessing(false);
     }
+  }, [workspaceId, speak, queryClient]);
 
-    speak(reply);
-    setLabel(hint);
-    setTimeout(() => setLabel(''), 4000);
-  }, [autoClosedCount, autoClosedPct, trustScore, onSwitchTab, speak]);
+  async function confirmAction() {
+    if (!pendingAction) return;
+    setProcessing(true);
+    try {
+      const result = await postVoiceIntent({ transcript: '', workspaceId, confirmed: true, action: pendingAction.action });
+      speak(result.narration);
+      setNarration(result.narration);
+      queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
+    } catch {
+      speak("Action failed. Please try again.");
+    } finally {
+      setPendingAction(null);
+      setProcessing(false);
+      setTimeout(() => setNarration(''), 5000);
+    }
+  }
 
   function toggle() {
+    if (processing) return;
     if (listening) {
       recRef.current?.stop();
       setListening(false);
@@ -990,7 +1121,7 @@ function VoiceFAB({
     const rec = new SR() as any;
     rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => handle(e.results[0][0].transcript as string);
+    rec.onresult = (e: any) => { handle(e.results[0][0].transcript as string); };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
     recRef.current = rec;
@@ -1000,33 +1131,437 @@ function VoiceFAB({
 
   return (
     <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-      {label && (
+      {(narration || pendingAction) && (
         <div style={{
-          padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#34d399',
-          background: '#0d0d0d', border: '1px solid rgba(16,185,129,0.15)',
-          maxWidth: 200, textAlign: 'right',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          padding: '10px 14px', borderRadius: 10, fontSize: 12, color: '#e0e0e0',
+          background: '#0d0d0d', border: '1px solid #1e1e1e',
+          maxWidth: 260, lineHeight: 1.55,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}>
-          {label}
+          <p style={{ margin: '0 0 8px' }}>{narration || pendingAction?.narration}</p>
+          {pendingAction && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={confirmAction}
+                disabled={processing}
+                style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
+                  background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)',
+                  color: '#34d399', cursor: 'pointer',
+                }}
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => { setPendingAction(null); setNarration(''); }}
+                style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 11,
+                  background: 'transparent', border: '1px solid #1e1e1e', color: '#555', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       )}
       <button
         onClick={toggle}
-        title={listening ? 'Stop' : 'Talk to Ace'}
+        title={listening ? 'Stop' : 'Ask your billing AI'}
         style={{
-          width: 50, height: 50, borderRadius: '50%', border: 'none', cursor: 'pointer',
+          width: 50, height: 50, borderRadius: '50%', border: 'none', cursor: processing ? 'wait' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: listening ? '#10b981' : '#111',
+          background: listening ? '#10b981' : processing ? '#1a1a1a' : '#111',
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           animation: listening ? 'ace-pulse 1.4s ease-in-out infinite' : 'none',
           transition: 'background 0.2s',
         }}
       >
-        {listening
-          ? <MicOff size={18} style={{ color: '#000' }} />
-          : <Mic size={18} style={{ color: '#444' }} />
+        {processing
+          ? <Loader2 size={18} style={{ color: '#444' }} className="animate-spin" />
+          : listening
+            ? <MicOff size={18} style={{ color: '#000' }} />
+            : <Mic size={18} style={{ color: '#444' }} />
         }
       </button>
+    </div>
+  );
+}
+
+// ── Daily briefing panel ───────────────────────────────────────────────────────
+
+function DailyBriefingPanel() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['rcm-daily-briefing'],
+    queryFn: fetchDailyBriefing,
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+  });
+
+  if (isError) return null;
+
+  return (
+    <div style={{
+      marginBottom: 16, padding: '14px 18px', borderRadius: 10,
+      background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.12)',
+      display: 'flex', gap: 14, alignItems: 'flex-start',
+    }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+        background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 0 12px rgba(99,102,241,0.25)',
+      }}>
+        <Sparkles size={14} style={{ color: '#fff' }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            Today&apos;s Briefing
+          </span>
+          {data?.generatedAt && (
+            <span style={{ fontSize: 10, color: '#333' }}>
+              {new Date(data.generatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
+        {isLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#444' }}>
+            <Loader2 size={11} className="animate-spin" />
+            Generating briefing…
+          </div>
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: '#aaa', lineHeight: 1.65 }}>
+            {data?.briefing ?? 'Briefing unavailable.'}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Revenue pipeline panel ─────────────────────────────────────────────────────
+
+const PIPELINE_STAGES = [
+  { key: 'submitted', color: '#38bdf8' },
+  { key: 'received', color: '#818cf8' },
+  { key: 'processing', color: '#a78bfa' },
+  { key: 'pending_info', color: '#f59e0b' },
+  { key: 'denied', color: '#f43f5e' },
+  { key: 'appealed', color: '#fb923c' },
+  { key: 'recovered', color: '#10b981' },
+];
+
+function RevenuePipelinePanel() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['rcm-revenue-pipeline'],
+    queryFn: () => fetchRevenuePipeline(30),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const maxAmount = Math.max(1, ...(data?.stages ?? []).map(s => s.amount));
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>
+        Revenue recovery pipeline · last 30 days
+      </div>
+
+      {isError && <WarnBanner text="Pipeline data temporarily unavailable." />}
+
+      {isLoading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#444', padding: '20px 0' }}>
+          <Loader2 size={12} className="animate-spin" />
+          Loading pipeline…
+        </div>
+      )}
+
+      {!isLoading && !isError && data && (
+        <>
+          {/* Funnel bars */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', marginBottom: 20, height: 120 }}>
+            {PIPELINE_STAGES.map(({ key, color }) => {
+              const stage = data.stages.find(s => s.stage === key);
+              const amount = stage?.amount ?? 0;
+              const count = stage?.count ?? 0;
+              const label = stage?.label ?? key.replace(/_/g, ' ');
+              const pct = Math.max(4, Math.round((amount / maxAmount) * 100));
+              return (
+                <div key={key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color, textAlign: 'center' }}>
+                    {fmt$(amount)}
+                  </div>
+                  <div
+                    title={`${label}: ${count} items · ${fmt$(amount)}`}
+                    style={{
+                      width: '100%', height: `${pct}%`, borderRadius: 4, background: color,
+                      opacity: 0.8, transition: 'height 0.4s ease',
+                      minHeight: 4,
+                    }}
+                  />
+                  <div style={{ fontSize: 9, color: '#555', textAlign: 'center', lineHeight: 1.3 }}>
+                    {label.split(' ').map((w: string, i: number) => <span key={i} style={{ display: 'block' }}>{w}</span>)}
+                  </div>
+                  <div style={{ fontSize: 9, color: '#444' }}>{count}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Summary row */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
+            padding: '14px 16px', borderRadius: 10, background: '#080808', border: '1px solid #161616',
+          }}>
+            {[
+              { label: 'Total in pipeline', value: fmt$(data.summary.totalAmount), accent: '#38bdf8' },
+              { label: 'Denial rate', value: `${data.summary.denialRate.toFixed(1)}%`, accent: data.summary.denialRate > 10 ? '#f43f5e' : '#f59e0b' },
+              { label: 'Recovery rate', value: `${data.summary.recoveryRate.toFixed(1)}%`, accent: '#10b981' },
+            ].map(stat => (
+              <div key={stat.label}>
+                <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+                  {stat.label}
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: stat.accent, letterSpacing: '-0.02em' }}>
+                  {stat.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Payer intelligence panel ───────────────────────────────────────────────────
+
+function PayerIntelligencePanel() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['rcm-payer-intelligence'],
+    queryFn: () => fetchPayerIntelligence(30),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>
+        Payer performance · last 30 days
+      </div>
+
+      {isError && <WarnBanner text="Payer intelligence temporarily unavailable." />}
+
+      {isLoading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#444', padding: '20px 0' }}>
+          <Loader2 size={12} className="animate-spin" />
+          Loading payer data…
+        </div>
+      )}
+
+      {!isLoading && !isError && data && (
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #161616' }}>
+          {/* Header */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1.2fr',
+            padding: '10px 16px', background: '#0d0d0d', borderBottom: '1px solid #161616',
+          }}>
+            {['Payer', 'Items', 'Denial rate', 'Auto-close', 'At risk'].map(h => (
+              <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</div>
+            ))}
+          </div>
+
+          {data.payers.length === 0 && (
+            <div style={{ padding: '20px 16px', fontSize: 12, color: '#444', textAlign: 'center' }}>
+              No payer data for this period.
+            </div>
+          )}
+
+          {data.payers.map((row, i) => {
+            const denialColor = row.denialRate > 15 ? '#f43f5e' : row.denialRate > 8 ? '#f59e0b' : '#10b981';
+            const autoColor = row.autoClosePct > 70 ? '#10b981' : row.autoClosePct > 40 ? '#f59e0b' : '#f43f5e';
+            return (
+              <div
+                key={row.payerName}
+                style={{
+                  display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1.2fr',
+                  padding: '12px 16px', background: '#080808',
+                  borderBottom: i < data.payers.length - 1 ? '1px solid #111' : 'none',
+                  alignItems: 'center',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>{row.payerName}</div>
+                <div style={{ fontSize: 12, color: '#888' }}>{row.totalItems}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: denialColor }}>{row.denialRate.toFixed(1)}%</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: autoColor }}>{row.autoClosePct.toFixed(0)}%</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#e0e0e0' }}>{fmt$(row.amountAtRisk)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Automation health card ─────────────────────────────────────────────────────
+
+function AutomationHealthCard() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['rcm-automation-health'],
+    queryFn: fetchAutomationHealth,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed || isError || isLoading) return null;
+  if (!data?.recommendation) return null;
+
+  return (
+    <div style={{
+      marginTop: 16, padding: '14px 16px', borderRadius: 10,
+      background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.15)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <TrendingUp size={13} style={{ color: '#f59e0b' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#fcd34d', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Automation Intelligence
+            </span>
+          </div>
+          <p style={{ margin: 0, fontSize: 12, color: '#888', lineHeight: 1.6 }}>
+            {data.recommendation}
+          </p>
+          {data.summary && (
+            <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
+              {[
+                { label: 'Auto-closed correctly', value: String(data.summary.autoClosedCorrectly) },
+                { label: 'False positives caught', value: String(data.summary.falsePositivesCaught) },
+                { label: 'Saved by review', value: fmt$(data.summary.savedAmount) },
+              ].map(s => (
+                <div key={s.label}>
+                  <div style={{ fontSize: 9, color: '#444', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{s.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e0e0' }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => setDismissed(true)}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#333', padding: 4, flexShrink: 0 }}
+        >
+          <X size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Appeal modal ───────────────────────────────────────────────────────────────
+
+function AppealModal({
+  workItemId, onClose,
+}: {
+  workItemId: string;
+  onClose: () => void;
+}) {
+  const [letter, setLetter] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    postGenerateAppeal(workItemId)
+      .then(r => { if (!cancelled) { setLetter(r.appealLetter); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setError('Could not generate appeal letter.'); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [workItemId]);
+
+  function copyToClipboard() {
+    navigator.clipboard.writeText(letter).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9998,
+      background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20,
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 640, borderRadius: 14,
+        background: '#0c0c0c', border: '1px solid #1e1e1e',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.8)',
+        display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', borderBottom: '1px solid #161616',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <FileText size={14} style={{ color: '#818cf8' }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#e0e0e0' }}>Appeal Letter</span>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#555', padding: 4 }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#555', fontSize: 13 }}>
+              <Loader2 size={14} className="animate-spin" />
+              Generating appeal letter…
+            </div>
+          )}
+          {error && <div style={{ fontSize: 13, color: '#fb7185' }}>{error}</div>}
+          {letter && (
+            <pre style={{
+              margin: 0, fontSize: 12, color: '#aaa', lineHeight: 1.7,
+              whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, monospace',
+            }}>
+              {letter}
+            </pre>
+          )}
+        </div>
+
+        {letter && (
+          <div style={{ padding: '12px 20px', borderTop: '1px solid #161616', display: 'flex', gap: 8 }}>
+            <button
+              onClick={copyToClipboard}
+              style={{
+                padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                background: copied ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)',
+                border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : 'rgba(99,102,241,0.2)'}`,
+                color: copied ? '#34d399' : '#818cf8',
+                cursor: 'pointer',
+              }}
+            >
+              {copied ? 'Copied!' : 'Copy to clipboard'}
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                background: 'transparent', border: '1px solid #1e1e1e', color: '#555',
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1041,6 +1576,7 @@ export default function RcmManagerClient() {
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy>(DEFAULT_POLICY);
   const [policyInit, setPolicyInit] = useState(false);
+  const [appealWorkItemId, setAppealWorkItemId] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
@@ -1118,6 +1654,8 @@ export default function RcmManagerClient() {
   const TABS: { id: ActiveTab; label: string; icon: React.ElementType; count?: number }[] = [
     { id: 'claims', label: 'Claim checks', icon: Layers, count: workItems.length || undefined },
     { id: 'eligibility', label: 'Coverage checks', icon: Shield, count: eligWI.length || undefined },
+    { id: 'pipeline', label: 'Pipeline', icon: BarChart2 },
+    { id: 'intel', label: 'Payer intel', icon: TrendingUp },
     { id: 'connectors', label: 'Connectors', icon: Cpu },
     { id: 'workspaces', label: 'Practices', icon: Building2, count: workspaces.length || undefined },
     { id: 'agent', label: 'Agent', icon: Bot },
@@ -1188,6 +1726,7 @@ export default function RcmManagerClient() {
                 item={item}
                 checkPending={isPending}
                 onAction={trigger}
+                onAppeal={setAppealWorkItemId}
               />
             ))}
           </div>
@@ -1273,6 +1812,9 @@ export default function RcmManagerClient() {
         onReview={() => setActiveTab('claims')}
       />
 
+      {/* Daily briefing */}
+      <DailyBriefingPanel />
+
       {/* Tab bar */}
       <div style={{
         display: 'flex', gap: 3, marginBottom: 18,
@@ -1315,6 +1857,10 @@ export default function RcmManagerClient() {
       {/* Tab content */}
       {(activeTab === 'claims' || activeTab === 'eligibility') && renderLane(activeTab)}
 
+      {activeTab === 'pipeline' && <RevenuePipelinePanel />}
+
+      {activeTab === 'intel' && <PayerIntelligencePanel />}
+
       {activeTab === 'connectors' && (
         <ConnectorGrid
           connectors={[...connectors, ...eligCon]}
@@ -1333,28 +1879,34 @@ export default function RcmManagerClient() {
       )}
 
       {activeTab === 'agent' && (
-        <AgentConsole
-          workspace={workspaces[0] ?? null}
-          policy={policy}
-          onPolicyChange={(p) => {
-            setPolicy(p);
-            if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
-          }}
-          autoClosedPct={q?.autoClosedPct ?? 0}
-          avgConfidencePct={q?.avgConfidencePct ?? null}
-          humanInterventionPct={q?.humanInterventionPct ?? 0}
-          autoClosedCount={q?.autoClosedCount ?? 0}
-          isLoading={isLoading}
+        <>
+          <AgentConsole
+            workspace={workspaces[0] ?? null}
+            policy={policy}
+            onPolicyChange={(p) => {
+              setPolicy(p);
+              if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
+            }}
+            autoClosedPct={q?.autoClosedPct ?? 0}
+            avgConfidencePct={q?.avgConfidencePct ?? null}
+            humanInterventionPct={q?.humanInterventionPct ?? 0}
+            autoClosedCount={q?.autoClosedCount ?? 0}
+            isLoading={isLoading}
+          />
+          <AutomationHealthCard />
+        </>
+      )}
+
+      {/* Appeal modal */}
+      {appealWorkItemId && (
+        <AppealModal
+          workItemId={appealWorkItemId}
+          onClose={() => setAppealWorkItemId(null)}
         />
       )}
 
-      {/* Voice FAB */}
-      <VoiceFAB
-        onSwitchTab={setActiveTab}
-        autoClosedCount={q?.autoClosedCount ?? 0}
-        autoClosedPct={q?.autoClosedPct ?? 0}
-        trustScore={trustScore}
-      />
+      {/* Voice FAB (AI-powered) */}
+      <VoiceFAB workspaceId={workspaces[0]?.workspaceId} />
 
     </div>
   );
