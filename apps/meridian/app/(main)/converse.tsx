@@ -495,6 +495,19 @@ function buildSharedTravelReadiness(unit: TravelUnit | null): SharedTravelReadin
   };
 }
 
+function buildPassengerDisplay(
+  passengers: Array<{ name: string; relationship: string }> | null,
+  fallback: string,
+): string {
+  if (!passengers || passengers.length === 0) return fallback;
+  const names = passengers
+    .map((passenger) => passenger.name?.trim())
+    .filter(Boolean);
+  if (names.length === 0) return fallback;
+  if (names.length <= 3) return names.join(', ');
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+}
+
 function getCountdown(departureTime: string | null | undefined): string | null {
   if (!departureTime) return null;
   const d = new Date(departureTime);
@@ -2276,6 +2289,10 @@ export default function ConverseScreen() {
 
   const heroResponse = bookingMode === 'shared'
     ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
+    : !preferredTravelUnit && familyMemberCount >= 2
+    ? 'I can move just for you now, or set up family mode once so “for the family” becomes natural.'
+    : !preferredTravelUnit && familyMemberCount === 1
+    ? 'I can move just for you now, or set up couple mode once so “for us” becomes natural.'
     : routeMemory
     ? `I can line up ${routeMemory.origin} to ${routeMemory.destination} again, or take you somewhere new.`
     : nearestStation
@@ -2291,16 +2308,15 @@ export default function ConverseScreen() {
       ? `Ace has seen this route ${routeMemory.count} times and can line it up before you ask tomorrow.`
       : `Ace remembers this route and can line it up quickly when you need it.`
     : null;
-  const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;
-  const shouldNudgeTravelSetup =
-    !preferredTravelUnit
-    && !travelModePromptDismissed
-    && guidanceSessions >= 2
-    && guidanceSessions % 4 === 0;
   const inferredTravelShape =
     familyMemberCount >= 2 ? 'family'
     : familyMemberCount === 1 ? 'couple'
     : 'single';
+  const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;
+  const shouldNudgeTravelSetup =
+    !preferredTravelUnit
+    && !travelModePromptDismissed
+    && inferredTravelShape !== 'single';
   const travelModeReminder = preferredTravelUnit
     ? shouldShowTravelModeReminder
     ? {
@@ -2738,6 +2754,12 @@ export default function ConverseScreen() {
           const companionSummary = travellerCount > 1
             ? `${travellerCount} travellers${childCount > 0 ? `, including ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}`
             : null;
+          const passengerDisplay = buildPassengerDisplay(passengers, travellerCount > 1 ? `${travellerCount} travellers` : 'You');
+          const bookingScopeLabel = bookingMode === 'shared'
+            ? `Holding this for ${preferredTravelUnit?.name ?? companionSummary ?? passengerDisplay}.`
+            : travellerCount > 1
+            ? `Holding this just on your device for ${passengerDisplay}.`
+            : 'Holding this just for you.';
           const hotel = plan.length === 1 ? plan[0]?.hotelDetails?.bestOption : undefined;
           const isMultiLeg = plan.length > 1;
           const itinerarySummary = isMultiLeg
@@ -2765,6 +2787,15 @@ export default function ConverseScreen() {
               {confirmMeta ? (
                 <Text style={styles.confirmMeta}>{confirmMeta}</Text>
               ) : null}
+              <View style={styles.confirmScopeCard}>
+                <Ionicons name={travellerCount > 1 ? 'people-outline' : 'person-outline'} size={13} color="#cfe4f6" />
+                <View style={styles.confirmScopeCopy}>
+                  <Text style={styles.confirmScopeTitle}>
+                    {travellerCount > 1 ? `Travellers: ${passengerDisplay}` : 'Traveller: You'}
+                  </Text>
+                  <Text style={styles.confirmScopeBody}>{bookingScopeLabel}</Text>
+                </View>
+              </View>
               {brief && brief.cues.length > 0 && (
                 <View style={styles.confirmCueRow}>
                   {brief.cues.map((cue, idx) => (
@@ -3644,6 +3675,33 @@ const styles = StyleSheet.create({
     color: '#a8c4d8',
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  confirmScopeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(9, 17, 28, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 14,
+  },
+  confirmScopeCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  confirmScopeTitle: {
+    fontSize: 12,
+    color: '#eef5fb',
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  confirmScopeBody: {
+    fontSize: 12,
+    color: '#9db1c5',
+    lineHeight: 17,
   },
   confirmBtn: {
     borderRadius: 18,
