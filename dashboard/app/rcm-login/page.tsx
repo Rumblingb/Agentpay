@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -74,7 +74,7 @@ function Logo() {
 
 type Mode = 'login' | 'forgot-request' | 'forgot-sent';
 
-export default function RcmLoginPage() {
+function RcmLoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -394,5 +394,15 @@ export default function RcmLoginPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function RcmLoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ background: '#050505', minHeight: '100vh' }} />
+    }>
+      <RcmLoginInner />
+    </Suspense>
   );
 }

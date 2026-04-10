@@ -1,6 +1,6 @@
 /**
  * RCM Daily Briefing Cron — fires within the hourly `0 * * * *` slot,
- * gated to UTC hour 7 (7:00–7:59 AM UTC).
+ * gated to UTC hour 14 (2:00–2:59 PM UTC / 10:00 AM ET).
  *
  * For each merchant with at least one active RCM workspace, queries the
  * same work-item / exception data used by GET /api/rcm/daily-briefing,
@@ -17,7 +17,7 @@ type BriefingExcRow = { severity: string; count: string };
 type BriefingCountRow = { count: string };
 
 export async function runRcmDailyBriefing(env: Env): Promise<void> {
-  if (new Date().getUTCHours() !== 7) return;
+  if (new Date().getUTCHours() !== 14) return;
   if (!env.RESEND_API_KEY) { console.warn('[rcm-briefing-cron] RESEND_API_KEY not set — skipping'); return; }
 
   const sql = createDb(env);

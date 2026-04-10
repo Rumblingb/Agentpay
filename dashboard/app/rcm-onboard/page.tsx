@@ -297,6 +297,17 @@ export default function RcmOnboardPage() {
   return (
     <div style={{ background: '#050505', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
 
+      {/* Step 2 of 2 indicator */}
+      <div className="fade-up" style={{ width: '100%', maxWidth: 520, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ width: 20, height: 4, borderRadius: 2, background: '#10b981' }} />
+            <div style={{ width: 20, height: 4, borderRadius: 2, background: '#10b981' }} />
+          </div>
+          <span style={{ fontSize: 11, color: '#555', fontWeight: 500 }}>Step 2 of 2 — Set up workspace</span>
+        </div>
+      </div>
+
       {/* Progress */}
       <div className="fade-up" style={{ width: '100%', maxWidth: 520, marginBottom: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

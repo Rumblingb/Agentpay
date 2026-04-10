@@ -55,6 +55,12 @@ import {
   type PriorAuthConnectorKey,
   type PriorAuthConnectorExecutionInput,
 } from '../lib/rcmPriorAuthConnector';
+import {
+  storeCredential,
+  revokeCredential,
+  type CredentialType,
+  type PlaintextCredential,
+} from '../lib/rcmCredentialVault';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -8111,10 +8117,11 @@ router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => 
       currency: paymentIntent.currency,
       milestoneId: milestoneId.trim(),
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Stripe card errors (card_declined, insufficient_funds, etc.) — return 402
-    if (err?.type === 'StripeCardError') {
-      return c.json({ error: err.message, code: err.code }, 402);
+    if (err && typeof err === 'object' && 'type' in err && err.type === 'StripeCardError') {
+      const stripeErr = err as unknown as { message: string; code?: string };
+      return c.json({ error: stripeErr.message, code: stripeErr.code }, 402);
     }
     console.error('[rcm] POST /workspaces/:id/charge error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to charge milestone' }, 500);
@@ -8300,7 +8307,7 @@ router.get('/payer-intelligence', authenticateApiKey, async (c) => {
       FROM rcm_work_items
       WHERE merchant_id = ${merchant.id}
         AND payer_name IS NOT NULL
-        AND created_at > NOW() - (${windowDays} || ' days')::INTERVAL
+        AND created_at > NOW() - (${windowDays} * INTERVAL '1 day')
       GROUP BY payer_name
       ORDER BY amount_at_risk DESC
       LIMIT 15
@@ -8322,13 +8329,6 @@ router.get('/payer-intelligence', authenticateApiKey, async (c) => {
 });
 
 // ── Credential vault routes ───────────────────────────────────────────────────
-
-import {
-  storeCredential,
-  revokeCredential,
-  type CredentialType,
-  type PlaintextCredential,
-} from '../lib/rcmCredentialVault';
 
 type VaultRow = {
   id: string; workspace_id: string; credential_type: string;

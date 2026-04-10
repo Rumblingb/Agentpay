@@ -22,7 +22,7 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PanelState = 'ok' | 'error';
-type Lane = 'claim-status' | 'eligibility';
+type Lane = 'claim-status' | 'eligibility' | 'denial-follow-up' | 'prior-auth' | 'era-835' | 'charge-capture' | 'drg-review';
 type LaneMode = 'auto' | 'auto_notify' | 'human';
 type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces' | 'agent';
 type Operation =
@@ -376,8 +376,13 @@ function BriefingStrip({
       ? `${autoCount} item${autoCount !== 1 ? 's' : ''} auto-resolved today · ${autoClosedPct}% autonomous rate`
       : 'Queue is clear';
 
-  const displayText = briefing?.summary ?? fallbackText;
   const isFallback = !briefing || briefing.fallback;
+  const actionableFallback = snapshotLoading ? null
+    : humanReviewCount > 0
+      ? `${humanReviewCount} item${humanReviewCount !== 1 ? 's' : ''} need your attention today.`
+      : 'No urgent items — Ace is running smoothly.';
+
+  const displayText = isFallback ? (actionableFallback ?? fallbackText) : (briefing?.summary ?? fallbackText);
 
   const needsTruncate = (displayText?.length ?? 0) > 200;
   const shown = needsTruncate && !expanded
@@ -661,6 +666,12 @@ function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: Excepti
 
 // ── Connector grid — A2A payer readiness ──────────────────────────────────────
 
+const CONNECTOR_STATUS_LABELS: Record<string, string> = {
+  live: 'Live',
+  simulation: 'AI\u2011assisted',
+  manual_fallback: 'Manual queue',
+};
+
 function ConnectorGrid({
   connectors, claimErr, eligErr, isLoading, credentials, onConnect, onRevoke,
 }: {
@@ -683,7 +694,7 @@ function ConnectorGrid({
         </div>
         {simCount > 0 && !isLoading && (
           <span style={{ fontSize: 11, color: '#f59e0b' }}>
-            {simCount} connecting — agent adjudication incoming
+            {simCount} AI\u2011assisted — direct API connection coming
           </span>
         )}
       </div>
@@ -696,8 +707,8 @@ function ConnectorGrid({
         }}>
           <Zap size={12} style={{ color: '#10b981', flexShrink: 0 }} />
           <span style={{ fontSize: 12, color: '#555' }}>
-            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} agent-ready</span>
-            {' '}payer{liveCount !== 1 ? 's' : ''} — claims bypass the legacy queue and process via direct API.
+            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} live</span>
+            {' '}payer{liveCount !== 1 ? 's' : ''} — claims process via direct API.
           </span>
         </div>
       )}
@@ -710,7 +721,7 @@ function ConnectorGrid({
         {connectors.map(c => {
           const isLive = c.status === 'live';
           const isSim = c.status === 'simulation';
-          const statusLabel = isLive ? 'Agent-ready' : isSim ? 'Connecting' : 'Legacy queue';
+          const statusLabel = CONNECTOR_STATUS_LABELS[c.status] ?? c.status;
           const color = isLive ? '#34d399' : isSim ? '#fcd34d' : '#555';
           const bg = isLive ? 'rgba(16,185,129,0.08)' : isSim ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)';
           const bdr = isLive ? 'rgba(16,185,129,0.2)' : isSim ? 'rgba(245,158,11,0.15)' : '#1a1a1a';
@@ -1240,17 +1251,31 @@ function AppealModal({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {text && (
-              <button
-                onClick={copy}
-                style={{
-                  padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                  background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
-                  color: copied ? '#34d399' : '#888', cursor: 'pointer',
-                }}
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <>
+                <button
+                  onClick={copy}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
+                    color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                  }}
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={`data:text/plain;charset=utf-8,${encodeURIComponent(text ?? '')}`}
+                  download="appeal-letter.txt"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid #1c1c1c',
+                    color: '#888', textDecoration: 'none', cursor: 'pointer',
+                  }}
+                >
+                  Download .txt
+                </a>
+              </>
             )}
             <button
               onClick={onClose}
@@ -1510,6 +1535,7 @@ function VoiceFAB({
 export default function RcmManagerClient() {
   const queryClient = useQueryClient();
   const [flash, setFlash] = useState<{ tone: 'ok' | 'err'; msg: string } | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('claims');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -1572,11 +1598,11 @@ export default function RcmManagerClient() {
     mutationFn: runManagerAction,
     onMutate: (p) => { setFlash(null); setActiveActionKey(actionKey(p)); },
     onSuccess: (r) => {
-      setFlash({ tone: 'ok', msg: r.message ?? 'Action completed.' });
+      setToastMsg(r.message ?? 'Action completed.');
       queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
       queryClient.invalidateQueries({ queryKey: ['rcm-briefing'] });
     },
-    onError: (e: Error) => setFlash({ tone: 'err', msg: e.message }),
+    onError: (e: Error) => setToastMsg(e.message),
     onSettled: () => setActiveActionKey(null),
   });
 
@@ -1585,6 +1611,12 @@ export default function RcmManagerClient() {
     const t = setTimeout(() => setFlash(null), 4000);
     return () => clearTimeout(t);
   }, [flash]);
+
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(null), 3000);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
 
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | undefined;
@@ -1699,6 +1731,36 @@ export default function RcmManagerClient() {
       : data?.panelStatus.eligibilityExceptions === 'error';
     const protocol = isClaims ? 'X12 276/277' : 'HETS 270/271';
 
+    const showFreshState = !isLoading && !queueErr && !exErr && items.length === 0 && exItems.length === 0;
+
+    if (showFreshState) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: '56px 24px', borderRadius: 14,
+          background: '#080808', border: '1px dashed #1e293b', textAlign: 'center',
+        }}>
+          <Zap size={28} style={{ color: '#1e293b', marginBottom: 16 }} />
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#3a3a3a', marginBottom: 8 }}>
+            Ace is ready. No claims yet.
+          </div>
+          <div style={{ fontSize: 12, color: '#2a2a2a', maxWidth: 360, lineHeight: 1.7, marginBottom: 20 }}>
+            Connect a payer credential in the Connectors tab to start. Ace will begin monitoring claims automatically.
+          </div>
+          <button
+            onClick={() => setActiveTab('connectors')}
+            style={{
+              padding: '9px 18px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+              color: '#34d399', cursor: 'pointer',
+            }}
+          >
+            Go to Connectors →
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
         <div>
@@ -1790,6 +1852,19 @@ export default function RcmManagerClient() {
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
           {flash.msg}
+        </div>
+      )}
+
+      {/* Action snackbar (bottom-center) */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10,
+          padding: '12px 20px', color: '#f8fafc', fontSize: 13, zIndex: 9999,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}>
+          {toastMsg}
         </div>
       )}
 
