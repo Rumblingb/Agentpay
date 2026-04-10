@@ -61,6 +61,7 @@ import {
   type CredentialType,
   type PlaintextCredential,
 } from '../lib/rcmCredentialVault';
+import { hmacSign, hmacVerify } from '../lib/hmac';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -8438,6 +8439,301 @@ router.delete('/credentials/:credentialId', authenticateApiKey, async (c) => {
     console.error('[rcm] DELETE /credentials error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to revoke credential' }, 500);
   } finally { sql?.end().catch(() => {}); }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 1: POST /api/rcm/workspaces/:workspaceId/import-claims
+// ---------------------------------------------------------------------------
+
+router.post('/workspaces/:workspaceId/import-claims', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { workspaceId } = c.req.param();
+  let sql: Sql | null = null;
+  try {
+    const body = await c.req.json<{
+      claims?: Array<{
+        title?: string;
+        payerName?: string;
+        claimRef?: string;
+        patientRef?: string;
+        providerRef?: string;
+        amountAtRisk?: number;
+        priority?: string;
+        dueAt?: string;
+      }>;
+    }>();
+
+    const claims = Array.isArray(body?.claims) ? body.claims : [];
+
+    if (claims.length > 200) {
+      return c.json({ error: 'Maximum 200 claims per import' }, 400);
+    }
+
+    sql = createDb(c.env);
+
+    const wsRows = await sql`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+    `;
+    if (wsRows.length === 0) {
+      return c.json({ error: 'Workspace not found' }, 404);
+    }
+
+    let imported = 0;
+    const errors: Array<{ index: number; reason: string }> = [];
+    const validPriorities = ['urgent', 'high', 'normal', 'low'];
+
+    for (let i = 0; i < claims.length; i++) {
+      const claim = claims[i];
+      if (!claim.title?.trim()) {
+        errors.push({ index: i, reason: 'Missing title' });
+        continue;
+      }
+      const priority = validPriorities.includes(claim.priority ?? '') ? claim.priority! : 'normal';
+      await sql`
+        INSERT INTO rcm_work_items (
+          id, workspace_id, merchant_id, work_type, billing_domain,
+          title, payer_name, claim_ref, patient_ref, provider_ref,
+          amount_at_risk, priority, status, requires_human_review,
+          source_system, created_at, updated_at
+        ) VALUES (
+          ${crypto.randomUUID()},
+          ${workspaceId},
+          ${merchant.id},
+          ${'claim_status'},
+          ${'medical'},
+          ${claim.title.trim()},
+          ${claim.payerName?.trim() ?? null},
+          ${claim.claimRef?.trim() ?? null},
+          ${claim.patientRef?.trim() ?? null},
+          ${claim.providerRef?.trim() ?? null},
+          ${claim.amountAtRisk ?? null},
+          ${priority},
+          ${'open'},
+          ${false},
+          ${'csv_import'},
+          NOW(),
+          NOW()
+        )
+      `;
+      imported++;
+    }
+
+    return c.json({ imported, errors });
+  } catch (err) {
+    console.error('[rcm] POST /import-claims error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Import failed' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 2: POST /api/rcm/team/invite
+// ---------------------------------------------------------------------------
+
+router.post('/team/invite', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+
+  function randomHex(bytes: number): string {
+    const arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return Array.from(arr)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  function isValidEmailLocal(s: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  }
+
+  try {
+    const body = await c.req.json<{ email?: string; role?: string }>();
+    const email = (body?.email ?? '').trim().toLowerCase();
+    if (!email || !isValidEmailLocal(email)) {
+      return c.json({ error: 'Valid email is required' }, 400);
+    }
+
+    const validRoles = ['admin', 'member', 'viewer'];
+    const role = validRoles.includes(body?.role ?? '') ? body!.role! : 'member';
+
+    const nonce = randomHex(12);
+    const expiresAt = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
+    const payload = `inv:v1:${merchant.id}:${email}:${role}:${expiresAt}:${nonce}`;
+    const mac = await hmacSign(payload, c.env.AGENTPAY_SIGNING_SECRET);
+    const token = `${payload}:${mac}`;
+
+    const inviteUrl = `https://app.agentpay.so/rcm-signup?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+
+    if (c.env.RESEND_API_KEY) {
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: 'Ace Billing <notifications@agentpay.so>',
+          to: [email],
+          subject: "You've been invited to Ace Billing",
+          html: `
+<!DOCTYPE html>
+<html>
+<body style="background:#000;color:#f8fafc;font-family:system-ui,sans-serif;padding:32px;margin:0">
+  <div style="max-width:480px;margin:0 auto">
+    <h2 style="color:#f8fafc;margin-bottom:16px">You've been invited to Ace Billing</h2>
+    <p style="color:#94a3b8;margin-bottom:24px">
+      You've been invited to join <strong style="color:#f8fafc">${merchant.name}</strong>'s billing workspace.
+      Accept the invite to get started.
+    </p>
+    <a href="${inviteUrl}" style="display:inline-block;background:#4ade80;color:#000;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">
+      Accept Invite
+    </a>
+    <p style="color:#475569;font-size:12px;margin-top:24px">
+      This invite expires in 7 days. If you didn't expect this, you can ignore this email.
+    </p>
+  </div>
+</body>
+</html>`,
+        }),
+      }).catch(() => console.warn('[rcm] invite email failed'));
+    }
+
+    return c.json({ ok: true, inviteUrl });
+  } catch (err) {
+    console.error('[rcm] POST /team/invite error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Invite failed' }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 3: GET /api/rcm/team/members
+// ---------------------------------------------------------------------------
+
+router.get('/team/members', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    const members = await sql`
+      SELECT id, name, email, created_at AS "createdAt"
+      FROM merchants
+      WHERE parent_merchant_id = ${merchant.id}
+        AND is_active = true
+      ORDER BY created_at
+    `;
+    return c.json({ members });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('parent_merchant_id') || msg.includes('column') || (err as { code?: string })?.code === '42703') {
+      return c.json({ members: [] });
+    }
+    console.error('[rcm] GET /team/members error:', msg);
+    return c.json({ error: 'Failed to fetch members' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 4: DELETE /api/rcm/team/members/:memberId
+// ---------------------------------------------------------------------------
+
+router.delete('/team/members/:memberId', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { memberId } = c.req.param();
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    const rows = await sql`
+      SELECT id FROM merchants
+      WHERE id = ${memberId}
+        AND parent_merchant_id = ${merchant.id}
+        AND is_active = true
+    `;
+    if (rows.length === 0) {
+      return c.json({ error: 'Member not found' }, 404);
+    }
+    await sql`
+      UPDATE merchants SET parent_merchant_id = NULL WHERE id = ${memberId}
+    `;
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error('[rcm] DELETE /team/members error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to remove member' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 5: GET /api/rcm/payer/npi
+// ---------------------------------------------------------------------------
+
+router.get('/payer/npi', authenticateApiKey, async (c) => {
+  const npi = (c.req.query('npi') ?? '').trim();
+  if (!/^\d{10}$/.test(npi)) {
+    return c.json({ error: 'NPI must be exactly 10 digits' }, 400);
+  }
+  try {
+    const res = await fetch(
+      `https://npiregistry.cms.hhs.gov/api/?number=${npi}&version=2.1`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!res.ok) {
+      return c.json({ error: 'NPI lookup failed' }, 500);
+    }
+    const data = await res.json<{
+      result_count: number;
+      results?: Array<{
+        number: string;
+        enumeration_type: string;
+        basic: {
+          first_name?: string;
+          last_name?: string;
+          organization_name?: string;
+          credential?: string;
+          status: string;
+        };
+        taxonomies?: Array<{ primary: boolean; desc: string }>;
+        addresses?: Array<{
+          address_purpose: string;
+          address_1?: string;
+          city?: string;
+          state?: string;
+          postal_code?: string;
+        }>;
+      }>;
+    }>();
+
+    if (!data.result_count || !data.results?.length) {
+      return c.json({ error: 'NPI not found' }, 404);
+    }
+
+    const r = data.results[0];
+    const basic = r.basic;
+    const name =
+      basic.organization_name ??
+      [basic.first_name, basic.last_name].filter(Boolean).join(' ');
+    const primaryTaxonomy = r.taxonomies?.find((t) => t.primary)?.desc ?? null;
+    const addr = r.addresses?.find((a) => a.address_purpose === 'LOCATION') ?? r.addresses?.[0];
+    const address = addr
+      ? [addr.address_1, addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ')
+      : null;
+
+    return c.json({
+      npi: r.number,
+      entityType: r.enumeration_type === 'NPI-1' ? '1' : '2',
+      name,
+      credential: basic.credential ?? null,
+      primaryTaxonomy,
+      address,
+      status: basic.status,
+    });
+  } catch (err) {
+    console.error('[rcm] GET /payer/npi error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'NPI lookup failed' }, 500);
+  }
 });
 
 export { router as rcmRouter };

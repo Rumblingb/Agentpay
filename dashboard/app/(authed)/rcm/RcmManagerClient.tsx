@@ -206,6 +206,9 @@ type ManagerSnapshot = {
 
 type ActionResponse = { message?: string; error?: string };
 
+type TeamMember = { id: string; name: string; email: string; createdAt: string };
+type ImportRow = { title?: string; payerName?: string; claimRef?: string; patientRef?: string; providerRef?: string; amountAtRisk?: string; priority?: string; dueAt?: string };
+
 type BriefingData = { fallback: boolean; summary: string };
 type PayerRow = { payerName: string; totalItems: number; denialRate: number; autoClosePct: number; amountAtRisk: number };
 type PayerIntelData = { payers: PayerRow[] };
@@ -281,6 +284,26 @@ async function fetchAppeal(workItemId: string): Promise<{ appeal?: string; error
     body: JSON.stringify({ workItemId }),
   });
   return res.json().catch(() => ({ error: 'Failed to parse response' }));
+}
+
+async function fetchTeamMembers(): Promise<TeamMember[]> {
+  const res = await fetch('/api/rcm/team');
+  if (!res.ok) return [];
+  const data = await res.json() as { members?: TeamMember[] };
+  return data.members ?? [];
+}
+
+async function inviteTeamMember(payload: { email: string; role: string }): Promise<{ ok?: boolean; inviteUrl?: string; error?: string }> {
+  const res = await fetch('/api/rcm/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json().catch(() => ({ error: 'Failed' }));
+}
+
+async function removeTeamMember(id: string): Promise<void> {
+  await fetch(`/api/rcm/team/${id}`, { method: 'DELETE' });
 }
 
 function hydratePolicy(workspaceId: string, serverPolicy?: ApprovalPolicy): ApprovalPolicy {
@@ -1057,6 +1080,444 @@ function AgentConsole({
   );
 }
 
+// ── Team section (inside Agent tab) ──────────────────────────────────────────
+
+function TeamSection({ activeTab }: { activeTab: ActiveTab }) {
+  const [expanded, setExpanded] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviting, setInviting] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const { data: members, isLoading: membersLoading, refetch: refetchMembers } = useQuery<TeamMember[]>({
+    queryKey: ['rcm-team'],
+    queryFn: fetchTeamMembers,
+    enabled: activeTab === 'agent' && expanded,
+    staleTime: 60_000,
+  });
+
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteError('');
+    setInviteUrl(null);
+    const result = await inviteTeamMember({ email: inviteEmail.trim(), role: inviteRole });
+    setInviting(false);
+    if (result.error) {
+      setInviteError(result.error);
+    } else {
+      setInviteUrl(result.inviteUrl ?? null);
+      setInvitedEmail(inviteEmail.trim());
+      setInviteEmail('');
+      refetchMembers();
+    }
+  }
+
+  async function handleRemove(id: string) {
+    await removeTeamMember(id);
+    refetchMembers();
+  }
+
+  function copyLink() {
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: '#0d0d0d', border: '1px solid #1c1c1c',
+    borderRadius: 8, color: '#ededef', fontSize: 13, padding: '10px 12px',
+    outline: 'none', fontFamily: 'Inter, system-ui, sans-serif',
+  };
+
+  return (
+    <div style={{ marginTop: 20, borderTop: '1px solid #111', paddingTop: 16 }}>
+      <button
+        onClick={() => setExpanded(x => !x)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Team
+        </span>
+        <ChevronDown
+          size={13}
+          style={{ color: '#333', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}
+        />
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 12 }}>
+          {/* Members list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+            {membersLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[1, 2].map(n => (
+                  <div key={n} style={{ height: 40, borderRadius: 8, background: '#0d0d0d', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+                ))}
+              </div>
+            )}
+            {!membersLoading && (members ?? []).length === 0 && (
+              <EmptyState text="No team members yet." />
+            )}
+            {!membersLoading && (members ?? []).map(m => {
+              const initials = m.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+              return (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 12px', borderRadius: 8, background: '#080808', border: '1px solid #161616',
+                }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                    background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, color: '#94a3b8',
+                  }}>
+                    {initials}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.email} · Joined {fmtDate(m.createdAt)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemove(m.id)}
+                    style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', borderRadius: 4 }}
+                    title="Remove member"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Invite form */}
+          <div style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+              Invite a team member
+            </div>
+            <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="email"
+                  placeholder="colleague@example.com"
+                  value={inviteEmail}
+                  onChange={e => setInviteEmail(e.target.value)}
+                  style={{ ...inputStyle, flex: 1 }}
+                  required
+                />
+                <select
+                  value={inviteRole}
+                  onChange={e => setInviteRole(e.target.value)}
+                  style={{ ...inputStyle, paddingRight: 10, cursor: 'pointer' }}
+                >
+                  <option value="admin">Admin</option>
+                  <option value="member">Member</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </div>
+              {inviteError && <div style={{ fontSize: 12, color: '#fb7185' }}>{inviteError}</div>}
+              <button
+                type="submit"
+                disabled={inviting}
+                style={{
+                  padding: '10px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: inviting ? '#059669' : '#10b981', color: '#000',
+                  border: 'none', cursor: inviting ? 'not-allowed' : 'pointer', opacity: inviting ? 0.8 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                {inviting && <Loader2 size={12} className="animate-spin" />}
+                {inviting ? 'Sending…' : 'Send invite →'}
+              </button>
+            </form>
+
+            {inviteUrl && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: '#555', marginBottom: 6 }}>
+                  Share this link with {invitedEmail}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    readOnly
+                    value={inviteUrl}
+                    style={{ ...inputStyle, flex: 1, fontSize: 11, color: '#94a3b8' }}
+                  />
+                  <button
+                    onClick={copyLink}
+                    style={{
+                      padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, flexShrink: 0,
+                      background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
+                      color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+function parseImportCsv(raw: string): ImportRow[] {
+  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
+  const normalise = (h: string): keyof ImportRow | null => {
+    if (h === 'title') return 'title';
+    if (h === 'payer_name' || h === 'payername') return 'payerName';
+    if (h === 'claim_ref' || h === 'claimref') return 'claimRef';
+    if (h === 'patient_ref' || h === 'patientref') return 'patientRef';
+    if (h === 'provider_ref' || h === 'providerref') return 'providerRef';
+    if (h === 'amount_at_risk' || h === 'amountatrisk') return 'amountAtRisk';
+    if (h === 'priority') return 'priority';
+    if (h === 'due_at' || h === 'dueat') return 'dueAt';
+    return null;
+  };
+
+  return lines.slice(1).map(line => {
+    const cells = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const row: ImportRow = {};
+    headers.forEach((h, i) => {
+      const key = normalise(h);
+      if (key) (row as Record<string, string>)[key] = cells[i] ?? '';
+    });
+    return row;
+  });
+}
+
+function ImportModal({
+  workspaceId,
+  onDone,
+  onClose,
+}: {
+  workspaceId: string | null;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<'pick' | 'preview' | 'result'>('pick');
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [resultMsg, setResultMsg] = useState('');
+  const [resultError, setResultError] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const validRows = rows.filter(r => r.title?.trim());
+  const skippedCount = rows.length - validRows.length;
+
+  function handleFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const text = e.target?.result as string;
+      const parsed = parseImportCsv(text);
+      setRows(parsed);
+      setStep('preview');
+    };
+    reader.readAsText(file);
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  async function runImport() {
+    if (!workspaceId) { setResultError('No workspace found.'); setStep('result'); return; }
+    setImporting(true);
+    setStep('result');
+    try {
+      const res = await fetch('/api/rcm/import-claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, claims: validRows }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; error?: string };
+      if (!res.ok) {
+        setResultError(data.error ?? 'Import failed.');
+      } else {
+        setResultMsg(data.message ?? `Imported ${validRows.length} claim${validRows.length !== 1 ? 's' : ''} successfully.`);
+      }
+    } catch {
+      setResultError('Network error — import failed.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#0d0d0d', border: '1px solid #1c1c1c',
+    borderRadius: 8, color: '#ededef', fontSize: 13, padding: '10px 12px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, system-ui, sans-serif',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 580, background: '#0a0a0a', border: '1px solid #1c1c1c', borderRadius: 14, overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.7)' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #141414', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#ededef' }}>Import claims</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+              {step === 'pick' ? 'Upload a CSV file' : step === 'preview' ? 'Review before importing' : 'Import complete'}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          {/* Step 1 — file picker */}
+          {step === 'pick' && (
+            <div>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragging ? '#10b981' : '#1e293b'}`,
+                  borderRadius: 12, padding: '40px 24px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', transition: 'border-color 0.15s',
+                  background: dragging ? 'rgba(16,185,129,0.03)' : 'transparent',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 13, color: '#555', lineHeight: 1.6 }}>
+                  Drop a CSV file here or click to browse
+                </div>
+                <div style={{ fontSize: 11, color: '#333', marginTop: 6 }}>
+                  Expected columns: title, payer_name, claim_ref, amount_at_risk, priority, due_at
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={onInputChange} />
+            </div>
+          )}
+
+          {/* Step 2 — preview */}
+          {step === 'preview' && (
+            <div>
+              <div style={{ marginBottom: 12, fontSize: 12, color: '#94a3b8' }}>
+                {skippedCount > 0
+                  ? `${rows.length} claims, ${skippedCount} will be skipped — missing title`
+                  : `${validRows.length} claim${validRows.length !== 1 ? 's' : ''} ready to import`}
+              </div>
+              <div style={{ borderRadius: 8, border: '1px solid #141414', overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr', padding: '7px 12px', background: '#090909', borderBottom: '1px solid #141414' }}>
+                  {['Title', 'Payer', 'Amount', 'Priority'].map(h => (
+                    <span key={h} style={{ fontSize: 10, fontWeight: 600, color: '#333', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{h}</span>
+                  ))}
+                </div>
+                {rows.slice(0, 5).map((row, i) => {
+                  const invalid = !row.title?.trim();
+                  return (
+                    <div key={i} style={{
+                      display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
+                      padding: '8px 12px',
+                      background: invalid ? 'rgba(244,63,94,0.05)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                      borderBottom: i < Math.min(rows.length, 5) - 1 ? '1px solid #0f0f0f' : 'none',
+                    }}>
+                      <span style={{ fontSize: 12, color: invalid ? '#fb7185' : '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.title?.trim() || <em style={{ color: '#555' }}>missing title</em>}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.payerName || '—'}</span>
+                      <span style={{ fontSize: 12, color: '#555' }}>{row.amountAtRisk || '—'}</span>
+                      <span style={{ fontSize: 12, color: '#555' }}>{row.priority || '—'}</span>
+                    </div>
+                  );
+                })}
+                {rows.length > 5 && (
+                  <div style={{ padding: '7px 12px', fontSize: 11, color: '#333' }}>
+                    +{rows.length - 5} more rows not shown
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { setStep('pick'); setRows([]); }}
+                  style={{ padding: '10px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'transparent', border: '1px solid #1c1c1c', color: '#555', cursor: 'pointer' }}
+                >
+                  Back
+                </button>
+                <button
+                  onClick={runImport}
+                  disabled={validRows.length === 0}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: validRows.length === 0 ? '#111' : '#10b981', color: validRows.length === 0 ? '#333' : '#000',
+                    border: 'none', cursor: validRows.length === 0 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Import {validRows.length} claim{validRows.length !== 1 ? 's' : ''} →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3 — result */}
+          {step === 'result' && (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              {importing ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#555', fontSize: 13 }}>
+                  <Loader2 size={14} className="animate-spin" />
+                  Importing…
+                </div>
+              ) : resultError ? (
+                <div>
+                  <div style={{ fontSize: 13, color: '#fb7185', marginBottom: 16 }}>{resultError}</div>
+                  <button onClick={onClose} style={inputStyle as React.CSSProperties}>Dismiss</button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 13, color: '#34d399', marginBottom: 16 }}>{resultMsg}</div>
+                  <button
+                    onClick={onDone}
+                    style={{ padding: '10px 24px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#34d399', cursor: 'pointer' }}
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Connect modal ─────────────────────────────────────────────────────────────
 
 function ConnectModal({
@@ -1546,6 +2007,7 @@ export default function RcmManagerClient() {
   const [appealLoading, setAppealLoading] = useState(false);
   const [appealError, setAppealError] = useState<string | null>(null);
   const [connectTarget, setConnectTarget] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [showExpiryBanner, setShowExpiryBanner] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
@@ -1768,7 +2230,22 @@ export default function RcmManagerClient() {
             <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Work queue
             </span>
-            <span style={{ fontSize: 10, color: '#2a2a2a', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{protocol}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {isClaims && (
+                <button
+                  onClick={() => setImportOpen(true)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)',
+                    color: '#34d399', cursor: 'pointer',
+                  }}
+                >
+                  + Import claims
+                </button>
+              )}
+              <span style={{ fontSize: 10, color: '#2a2a2a', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{protocol}</span>
+            </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {queueErr && <WarnBanner text="Queue temporarily unavailable — not a clear-queue signal." />}
@@ -1996,19 +2473,22 @@ export default function RcmManagerClient() {
       )}
 
       {activeTab === 'agent' && (
-        <AgentConsole
-          workspace={workspaces[0] ?? null}
-          policy={policy}
-          onPolicyChange={(p) => {
-            setPolicy(p);
-            if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
-          }}
-          autoClosedPct={q?.autoClosedPct ?? 0}
-          avgConfidencePct={q?.avgConfidencePct ?? null}
-          humanInterventionPct={q?.humanInterventionPct ?? 0}
-          autoClosedCount={q?.autoClosedCount ?? 0}
-          isLoading={isLoading}
-        />
+        <>
+          <AgentConsole
+            workspace={workspaces[0] ?? null}
+            policy={policy}
+            onPolicyChange={(p) => {
+              setPolicy(p);
+              if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
+            }}
+            autoClosedPct={q?.autoClosedPct ?? 0}
+            avgConfidencePct={q?.avgConfidencePct ?? null}
+            humanInterventionPct={q?.humanInterventionPct ?? 0}
+            autoClosedCount={q?.autoClosedCount ?? 0}
+            isLoading={isLoading}
+          />
+          <TeamSection activeTab={activeTab} />
+        </>
       )}
 
       {/* Connect credential modal */}
@@ -2028,6 +2508,15 @@ export default function RcmManagerClient() {
           loading={appealLoading}
           error={appealError}
           onClose={closeAppeal}
+        />
+      )}
+
+      {/* Import claims modal */}
+      {importOpen && (
+        <ImportModal
+          workspaceId={primaryWorkspaceId}
+          onDone={() => { setImportOpen(false); queryClient.invalidateQueries({ queryKey: ['rcm-manager'] }); }}
+          onClose={() => setImportOpen(false)}
         />
       )}
 

@@ -155,6 +155,11 @@ export interface Env {
   /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
   ADMIN_EMAIL?: string;
 
+  /** Availity clearinghouse OAuth2 client ID — enables real-time eligibility checks */
+  AVAILITY_CLIENT_ID?: string;
+  /** Availity clearinghouse OAuth2 client secret */
+  AVAILITY_CLIENT_SECRET?: string;
+
   // ── Google Maps (server key — IP-restricted, never ship in app) ──────────
   /**
    * Google Maps server API key — Powers Places (New), Routes, Geocoding web services.
@@ -408,6 +413,7 @@ export interface MerchantContext {
   email: string;
   walletAddress: string;
   webhookUrl: string | null;
+  parentMerchantId?: string | null;
 }
 
 /** Hono Variables type — passed as the second generic to Hono<{...}>. */

@@ -116,16 +116,18 @@ export async function authenticateApiKey(
       createdAt: Date;
       apiKeyHash: string;
       apiKeySalt: string;
+      parentMerchantId: string | null;
     }>;
 
     try {
       rows = await sql<typeof rows>`
         SELECT id, name, email,
-               wallet_address  AS "walletAddress",
-               webhook_url     AS "webhookUrl",
-               created_at      AS "createdAt",
-               api_key_hash    AS "apiKeyHash",
-               api_key_salt    AS "apiKeySalt"
+               wallet_address     AS "walletAddress",
+               webhook_url        AS "webhookUrl",
+               created_at         AS "createdAt",
+               api_key_hash       AS "apiKeyHash",
+               api_key_salt       AS "apiKeySalt",
+               parent_merchant_id AS "parentMerchantId"
         FROM merchants
         WHERE key_prefix = ${keyPrefix}
           AND is_active = true
@@ -162,6 +164,7 @@ export async function authenticateApiKey(
           email: row.email,
           walletAddress: row.walletAddress,
           webhookUrl: row.webhookUrl ?? null,
+          parentMerchantId: row.parentMerchantId ?? null,
         });
         await next();
         return;
