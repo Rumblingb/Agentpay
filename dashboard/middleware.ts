@@ -15,7 +15,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/network') ||
     pathname === '/registry' ||
     pathname === '/trust' ||
-    pathname === '/build';
+    pathname === '/build' ||
+    pathname === '/for-billing' ||
+    pathname === '/rcm-signup' ||
+    pathname === '/rcm-onboard';
 
   if (!isAuthenticated && !isPublicPage) {
     return new Response(null, {
