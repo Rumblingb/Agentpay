@@ -195,6 +195,7 @@ export default function RcmOnboardPage() {
   const [npiOpen, setNpiOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [workspaceError, setWorkspaceError] = useState('');
   const [muted, setMuted] = useState(false);
   const spokenRef = useRef<Set<number>>(new Set());
   const npiRef = useRef<HTMLInputElement>(null);
@@ -267,12 +268,19 @@ export default function RcmOnboardPage() {
       if (!res.ok && res.status !== 404) {
         const d = await res.json().catch(() => ({})) as { error?: string };
         if (d.error && !d.error.includes('not found')) {
-          setError(d.error);
+          setWorkspaceError(d.error);
           setLoading(false);
+          // Non-blocking — continue to dashboard after 3s
+          try {
+            localStorage.setItem('ace_rcm_onboard', JSON.stringify({ ...answers, npi, completedAt: Date.now() }));
+          } catch {}
+          speak("Your agent is now active. Let me show you your dashboard.");
+          setTimeout(() => router.push('/rcm'), 3000);
           return;
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn('[rcm-onboard] workspace creation network error:', err);
       // Non-fatal — continue to dashboard
     }
 
@@ -484,6 +492,17 @@ export default function RcmOnboardPage() {
                 )}
                 {loading ? 'Setting up your workspace\u2026' : 'Finish setup \u2192'}
               </button>
+
+              {workspaceError && (
+                <div style={{
+                  marginTop: 14, padding: '12px 14px',
+                  background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
+                  borderRadius: 8, fontSize: 12, color: '#fbbf24', lineHeight: 1.6,
+                }}>
+                  Workspace setup had an issue — don&apos;t worry, you can complete it from your dashboard.
+                  <span style={{ display: 'block', marginTop: 4, color: '#a16207', fontSize: 11 }}>{workspaceError}</span>
+                </div>
+              )}
 
               <p style={{ fontSize: 11, color: '#444', marginTop: 14, lineHeight: 1.6 }}>
                 Your NPI is used only for eligibility verification and claim submission. Stored encrypted and never shared.

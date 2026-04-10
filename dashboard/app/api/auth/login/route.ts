@@ -41,14 +41,14 @@ export async function POST(request: NextRequest) {
 
     if (backendRes.status === 401) {
       return NextResponse.json(
-        { error: 'Invalid credentials. Check your API key and make sure it was registered via POST /api/merchants/register.' },
+        { error: 'Invalid email or access key. Check the welcome email from notifications@agentpay.so for your access key.' },
         { status: 401 },
       );
     }
 
     if (!backendRes.ok) {
       return NextResponse.json(
-        { error: `Backend returned an unexpected error (${backendRes.status}). Please try again.` },
+        { error: 'Sign-in failed. Please try again in a moment.' },
         { status: 502 },
       );
     }
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       profile = await backendRes.json();
     } catch {
       return NextResponse.json(
-        { error: 'Unexpected response from the backend. Please try again.' },
+        { error: 'Sign-in failed. Please try again in a moment.' },
         { status: 502 },
       );
     }

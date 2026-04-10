@@ -874,15 +874,61 @@ router.post('/recover/request', async (c) => {
     const mac = await hmacSign(payload, signingSecret);
     const recoveryToken = `${payload}:${mac}`;
 
-    // In production: send recoveryToken via email to the merchant.
-    // Currently: log server-side and return in response body until email service exists.
     console.info('[merchants] recovery token issued', { merchantId, email: email.toLowerCase(), expiresAt });
 
-    return c.json({
-      ...GENERIC_RESPONSE,
-      recoveryToken,
-      note: 'DEVELOPMENT MODE: token returned in response. In production this will be emailed only.',
-    });
+    // Send recovery email via Resend (fire-and-forget — never fail the request if email fails)
+    const resendKey = c.env.RESEND_API_KEY;
+    if (resendKey) {
+      const encodedEmail = encodeURIComponent(email.toLowerCase());
+      const encodedToken = encodeURIComponent(recoveryToken);
+      const recoveryUrl = `https://app.agentpay.so/rcm-login?email=${encodedEmail}&token=${encodedToken}`;
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${resendKey}`,
+        },
+        body: JSON.stringify({
+          from: 'Ace Billing <notifications@agentpay.so>',
+          to: [email.toLowerCase()],
+          subject: 'Recover access to Ace Billing',
+          html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#000;font-family:Inter,system-ui,sans-serif;color:#f8fafc;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#000;padding:40px 20px;">
+  <tr><td align="center">
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+      <tr><td style="padding-bottom:24px;">
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#10b981,#059669);text-align:center;vertical-align:middle;">
+            <span style="font-size:16px;color:#000;">&#x2666;</span>
+          </td>
+          <td style="padding-left:10px;font-size:17px;font-weight:700;letter-spacing:-0.03em;color:#f8fafc;">Ace</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding-bottom:12px;">
+        <h1 style="margin:0;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:#f8fafc;">Recover access to Ace Billing</h1>
+      </td></tr>
+      <tr><td style="padding-bottom:24px;">
+        <p style="margin:0;font-size:15px;color:#94a3b8;line-height:1.6;">Click the button below to recover access. This link expires in 15 minutes.</p>
+      </td></tr>
+      <tr><td style="padding-bottom:32px;">
+        <a href="${recoveryUrl}" style="display:inline-block;background:#4ade80;color:#000;font-size:14px;font-weight:700;text-decoration:none;padding:13px 24px;border-radius:12px;letter-spacing:-0.01em;">Recover access &rarr;</a>
+      </td></tr>
+      <tr><td>
+        <p style="margin:0;font-size:12px;color:#334155;line-height:1.5;">If you didn&rsquo;t request this, ignore this email.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`,
+        }),
+      }).catch((err: unknown) => {
+        console.warn('[merchants] recover/request Resend email failed:', err instanceof Error ? err.message : err);
+      });
+    } else {
+      console.warn('[merchants] recover/request: RESEND_API_KEY not set — recovery email not sent');
+    }
+
+    return c.json(GENERIC_RESPONSE);
   } catch (err: unknown) {
     console.error('[merchants] recover/request error:', err instanceof Error ? err.message : err);
     return c.json(GENERIC_RESPONSE); // never reveal internal errors

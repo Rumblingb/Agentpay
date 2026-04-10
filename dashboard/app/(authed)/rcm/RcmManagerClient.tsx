@@ -1520,6 +1520,7 @@ export default function RcmManagerClient() {
   const [appealLoading, setAppealLoading] = useState(false);
   const [appealError, setAppealError] = useState<string | null>(null);
   const [connectTarget, setConnectTarget] = useState<string | null>(null);
+  const [showExpiryBanner, setShowExpiryBanner] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
@@ -1584,6 +1585,24 @@ export default function RcmManagerClient() {
     const t = setTimeout(() => setFlash(null), 4000);
     return () => clearTimeout(t);
   }, [flash]);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    fetch('/api/me')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { sessionExpiresAt?: number } | null) => {
+        if (!d?.sessionExpiresAt) return;
+        const msRemaining = d.sessionExpiresAt * 1000 - Date.now();
+        const WARN_MS = 30 * 60 * 1000;
+        if (msRemaining < WARN_MS) {
+          setShowExpiryBanner(true);
+        } else {
+          t = setTimeout(() => setShowExpiryBanner(true), msRemaining - WARN_MS);
+        }
+      })
+      .catch(() => {});
+    return () => { if (t !== undefined) clearTimeout(t); };
+  }, []);
 
   function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
   function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
@@ -1735,6 +1754,30 @@ export default function RcmManagerClient() {
 
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+
+      {/* Session expiry warning */}
+      {showExpiryBanner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)',
+          borderRadius: 8, padding: '12px 24px', marginBottom: 16,
+          fontSize: 13, color: '#fbbf24', gap: 12,
+        }}>
+          <span>Your session expires soon — sign in again to stay connected.</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+            <a href="/rcm-login" style={{ color: '#fbbf24', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Sign in again →
+            </a>
+            <button
+              onClick={() => setShowExpiryBanner(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fbbf24', padding: 0, lineHeight: 1, fontSize: 16 }}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Flash toast */}
       {flash && (
