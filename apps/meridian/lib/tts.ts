@@ -6,6 +6,7 @@ import { trackClientEvent } from './telemetry';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
 const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
+const PLAYBACK_START_TIMEOUT_MS = Platform.OS === 'ios' ? 4000 : 2000;
 
 let activeSound: Audio.Sound | null = null;
 let activeUri: string | null = null;
@@ -266,7 +267,7 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
     const { sound } = await Audio.Sound.createAsync(
       { uri },
       {
-        shouldPlay: true,
+        shouldPlay: false,
         volume: 1.0,
         androidImplementation: 'MediaPlayer',
       },
@@ -302,8 +303,9 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
         }
       };
 
-      // Watchdog: audio must start within 1200ms of sound creation.
-      // Flash model files are larger than Turbo; 600ms was too tight.
+      // Give iOS more time to bind the route and begin playback after the
+      // file is written to cache. If Ace still has not started by then,
+      // surface it as a real failure instead of resolving silently.
       const watchdog = setTimeout(() => {
         if (!playbackStarted && !settled) {
           settled = true;
@@ -311,10 +313,10 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
           try { sound.setOnAudioSampleReceived(null); } catch {}
           options?.onMeter?.(0);
           void stopActivePlayback().finally(() =>
-            reject(new Error('TTS playback watchdog: no audio start within 1200ms')),
+            reject(new Error(`TTS playback watchdog: no audio start within ${PLAYBACK_START_TIMEOUT_MS}ms`)),
           );
         }
-      }, 1200);
+      }, PLAYBACK_START_TIMEOUT_MS);
 
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.isPlaying && !playbackStarted) {
@@ -333,6 +335,18 @@ export async function speakBro(text: string, options?: SpeakBroOptions): Promise
             void stopActivePlayback().finally(resolve);
           }
         }
+      });
+
+      void sound.playAsync().catch((error) => {
+        clearTimeout(watchdog);
+        if (settled) return;
+        settled = true;
+        stopMeterPulse();
+        try { sound.setOnAudioSampleReceived(null); } catch {}
+        options?.onMeter?.(0);
+        void stopActivePlayback().finally(() =>
+          reject(error instanceof Error ? error : new Error(String(error))),
+        );
       });
     });
     void trackClientEvent({

@@ -1398,32 +1398,6 @@ export default function ConverseScreen() {
     }, 80);
   }, [activeTrip, clearHandsFreeListenTimer, setPhase, voiceEnabled]);
 
-  const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
-    if (!voiceEnabled) return;
-    clearHandsFreeListenTimer();
-    let speakingStarted = false;
-    try {
-      await speakBro(sanitizeAceNarration(text), {
-        onStart: () => {
-          if (speakingStarted) return;
-          speakingStarted = true;
-          setIsSpeaking(true);
-        },
-        onMeter: (v: number) => { ttsAmplitude.value = v; },
-      });
-    } finally {
-      setIsSpeaking(false);
-      ttsAmplitude.value = 0;
-    }
-    if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
-      const cur = phaseRef.current;
-      // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
-      if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
-        armHandsFreeListen(1600);
-      }
-    }
-  }, [armHandsFreeListen, clearHandsFreeListenTimer, voiceEnabled]);
-
   const openTextFallback = useCallback((message: string, seed?: string) => {
     clearHandsFreeListenTimer();
     cancelSpeech();
@@ -1443,6 +1417,38 @@ export default function ConverseScreen() {
       setTextFallbackDraft(seed);
     }
   }, [clearHandsFreeListenTimer, setError, setPhase]);
+
+  const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
+    if (!voiceEnabled) return;
+    clearHandsFreeListenTimer();
+    let speakingStarted = false;
+    try {
+      await speakBro(sanitizeAceNarration(text), {
+        onStart: () => {
+          if (speakingStarted) return;
+          speakingStarted = true;
+          setIsSpeaking(true);
+        },
+        onMeter: (v: number) => { ttsAmplitude.value = v; },
+      });
+    } finally {
+      setIsSpeaking(false);
+      ttsAmplitude.value = 0;
+    }
+    if (!speakingStarted) {
+      openTextFallback(
+        'Ace voice is unavailable right now. Type the trip once below and Ace will keep the journey moving.',
+      );
+      return;
+    }
+    if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+      const cur = phaseRef.current;
+      // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
+      if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
+        armHandsFreeListen(1600);
+      }
+    }
+  }, [armHandsFreeListen, clearHandsFreeListenTimer, openTextFallback, voiceEnabled]);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -2135,10 +2141,10 @@ export default function ConverseScreen() {
         });
         let nextMessage = __DEV__ ? `STT: ${rawMessage}` : 'Voice error — try again.';
         if (!__DEV__) {
-          nextMessage = 'Ace missed that. Say it again, or type the trip below.';
+          nextMessage = 'I did not catch the trip clearly. Say it once more, or type it below.';
         }
         if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
-          nextMessage = 'Ace did not catch that in time. Say it again, or type it below.';
+          nextMessage = 'I did not catch that in time. Say it once more, or type it below.';
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
           nextMessage = 'Voice service is unavailable right now. You can type the trip below.';
         } else if (msg.includes('503') || msg.includes('not configured')) {
@@ -2212,7 +2218,7 @@ export default function ConverseScreen() {
         message: rawMessage,
         metadata: { phase: 'capture' },
       });
-      let nextMessage = 'Ace missed that. Say it again, or type the trip below.';
+      let nextMessage = 'I did not catch the trip clearly. Say it once more, or type it below.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -2429,7 +2435,7 @@ export default function ConverseScreen() {
     phase === 'listening' ? (liveVoiceReady ? 'Speak naturally. Ace will stay with the thread.' : 'Say the trip once, naturally.') :
     phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Ace is working the route, timing, and booking.' :
     phase === 'done' ? 'Trip secured. Ace will stay with it.' :
-    phase === 'error' ? 'Say it again or continue in text below.' :
+    phase === 'error' ? 'Say it once more, or continue in text below.' :
     voiceEnabled ? (liveVoiceReady ? 'Ace is live. Say the trip when you are ready.' : 'Say the trip when you are ready.') :
     'Tap Ace to resume voice.';
   const presenceTone =

@@ -4,17 +4,17 @@ export const DEFAULT_VOICE_SESSION_CONFIG: VoiceSessionConfig = {
   mode: 'batch',
   transport: 'http',
   provider: 'batch_proxy',
-  ready: false,
+  ready: true,
   planningToolsAvailableDuringConversation: true,
   bookingToolsLockedUntilConfirm: true,
   supportsInterruptions: false,
   supportsServerVad: false,
-  premiumVoice: 'none',
+  premiumVoice: 'elevenlabs',
   fallback: {
     stt: 'whisper_proxy',
-    tts: 'none',
+    tts: 'elevenlabs_http',
   },
-  diagnostics: ['session_manifest_unavailable'],
+  diagnostics: ['session_manifest_unavailable_batch_retained'],
 };
 
 let cachedVoiceSessionConfig: VoiceSessionConfig | null = null;
