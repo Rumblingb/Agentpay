@@ -33,6 +33,9 @@ type VoiceSessionConnectResponse = {
 };
 
 function getLiveVoiceProvider(env: Env): VoiceSessionProvider | null {
+  if (env.LIVE_VOICE_RUNTIME_ENABLED !== 'true') {
+    return null;
+  }
   if (env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET) {
     return 'livekit';
   }
@@ -117,14 +120,18 @@ function getVoiceSessionManifest(env: Env): {
   const liveProvider = getLiveVoiceProvider(env);
   const diagnostics: string[] = [];
 
-  if (!liveProvider) {
+  if (env.LIVE_VOICE_RUNTIME_ENABLED !== 'true') {
+    diagnostics.push('live_runtime_disabled');
+  } else if (!liveProvider) {
     diagnostics.push('live_runtime_not_configured');
-    if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
-      diagnostics.push('livekit_credentials_missing');
-    }
-    if (!env.OPENAI_REALTIME_MODEL) {
-      diagnostics.push('openai_realtime_model_missing');
-    }
+  }
+
+  if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
+    diagnostics.push('livekit_credentials_missing');
+  }
+
+  if (!env.OPENAI_REALTIME_MODEL) {
+    diagnostics.push('openai_realtime_model_missing');
   }
 
   if (!env.ELEVENLABS_API_KEY) {
@@ -229,6 +236,10 @@ voiceRouter.get('/session', async (c) => {
 voiceRouter.post('/session/connect', async (c) => {
   const unauthorized = requireBroClientKey(c);
   if (unauthorized) return unauthorized;
+
+  if (c.env.LIVE_VOICE_RUNTIME_ENABLED !== 'true') {
+    return c.json({ error: 'Live voice runtime is disabled' }, 503);
+  }
 
   const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = c.env;
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {

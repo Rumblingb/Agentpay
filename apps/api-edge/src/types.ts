@@ -220,6 +220,8 @@ export interface Env {
   LIVEKIT_API_KEY?: string;
   /** LiveKit API secret paired with LIVEKIT_API_KEY. */
   LIVEKIT_API_SECRET?: string;
+  /** Explicit gate for the live voice runtime. Keep false until an Ace participant actually joins rooms and publishes audio. */
+  LIVE_VOICE_RUNTIME_ENABLED?: string;
   /** Optional OpenAI Realtime model name for live speech sessions. */
   OPENAI_REALTIME_MODEL?: string;
   /** Optional ElevenLabs voice/agent identifier for live voice rendering. */

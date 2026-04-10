@@ -1,4 +1,6 @@
 import { AudioSession } from '@livekit/react-native';
+import { Audio } from 'expo-av';
+import { Platform } from 'react-native';
 import {
   ConnectionState,
   Room,
@@ -9,6 +11,41 @@ import {
   type TranscriptionSegment,
 } from 'livekit-client';
 import { createLiveVoiceSession } from './api';
+
+async function prepareLiveVoiceAudio(): Promise<void> {
+  const { granted } = await Audio.requestPermissionsAsync();
+  if (!granted) {
+    throw new Error('Microphone permission denied.');
+  }
+
+  if (Platform.OS === 'android') {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch {
+      // Non-fatal. LiveKit will still attempt to claim the communication route.
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  }
+}
+
+async function releaseLiveVoiceAudio(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
+    });
+  } catch {
+    // Ignore teardown errors. The next voice path will reset the route again.
+  }
+}
 
 export type LiveVoiceCallbacks = {
   onConnected?: () => void;
@@ -91,6 +128,7 @@ export async function connectLiveVoiceSession(params: {
     });
 
   try {
+    await prepareLiveVoiceAudio();
     await AudioSession.startAudioSession();
     room.prepareConnection(credentials.serverUrl, credentials.participantToken);
     const connectOptions: RoomConnectOptions = {
@@ -108,6 +146,7 @@ export async function connectLiveVoiceSession(params: {
       await room.disconnect();
     } catch {}
     await AudioSession.stopAudioSession().catch(() => {});
+    await releaseLiveVoiceAudio();
     throw error;
   }
 
@@ -122,6 +161,7 @@ export async function connectLiveVoiceSession(params: {
         await room.disconnect();
       } finally {
         await AudioSession.stopAudioSession().catch(() => {});
+        await releaseLiveVoiceAudio();
       }
     },
     setMicrophoneEnabled: async (enabled: boolean) => {

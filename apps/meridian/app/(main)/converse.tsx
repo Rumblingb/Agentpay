@@ -780,8 +780,11 @@ export default function ConverseScreen() {
   const liveVoiceConnectionRef = useRef<LiveVoiceConnection | null>(null);
   const liveVoiceConnectAttemptedRef = useRef(false);
   const liveTranscriptBufferRef = useRef('');
+  const liveRemotePresenceSeenRef = useRef(false);
   const liveRemoteMessageIdsRef = useRef(new Set<string>());
+  const liveVoicePresenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
+  const speakIfEnabledRef = useRef<((text: string, restartListening?: boolean) => Promise<void>) | null>(null);
   const handsFreeListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextSilenceMsRef = useRef(2800);
   const keyboardVisibleRef = useRef(false);
@@ -815,10 +818,65 @@ export default function ConverseScreen() {
     });
   }, []);
 
-  const disconnectLiveVoice = useCallback(async () => {
+  const clearLiveVoicePresenceTimer = useCallback(() => {
+    if (liveVoicePresenceTimerRef.current) {
+      clearTimeout(liveVoicePresenceTimerRef.current);
+      liveVoicePresenceTimerRef.current = null;
+    }
+  }, []);
+
+  const surfaceLiveVoiceFallback = useCallback((message?: string) => {
+    const nextMessage = message?.trim() || 'Live voice is unavailable right now. Type the trip below and Ace will keep moving.';
+    clearLiveVoicePresenceTimer();
+    liveVoiceConnectionRef.current = null;
+    liveTranscriptBufferRef.current = '';
+    liveRemotePresenceSeenRef.current = false;
+    setLiveVoiceConnected(false);
+    setLiveVoiceConnecting(false);
+    setLiveVoiceMicEnabled(false);
+    setLiveRemoteSpeaking(false);
+    setLiveCaption(null);
+    setLiveHeardLine(null);
+    setVoiceSessionConfig(DEFAULT_VOICE_SESSION_CONFIG);
+    phaseRef.current = 'error';
+    setPhase('error');
+    setError(nextMessage);
+    setTextFallbackVisible(true);
+  }, [clearLiveVoicePresenceTimer, setError, setPhase]);
+
+  const degradeLiveVoiceToBatch = useCallback(async () => {
+    clearLiveVoicePresenceTimer();
     const current = liveVoiceConnectionRef.current;
     liveVoiceConnectionRef.current = null;
     liveTranscriptBufferRef.current = '';
+    liveRemotePresenceSeenRef.current = false;
+    setLiveVoiceConnected(false);
+    setLiveVoiceConnecting(false);
+    setLiveVoiceMicEnabled(false);
+    setLiveRemoteSpeaking(false);
+    setLiveCaption(null);
+    setLiveHeardLine(null);
+    setVoiceSessionConfig(DEFAULT_VOICE_SESSION_CONFIG);
+    setError(null);
+    setTextFallbackVisible(false);
+    phaseRef.current = 'idle';
+    setPhase('idle');
+
+    if (current) {
+      await current.disconnect().catch(() => {});
+    }
+
+    const hour = new Date().getHours();
+    const openingLine = hour < 12 ? 'Good morning.' : hour < 17 ? 'Good afternoon.' : 'Good evening.';
+    await speakIfEnabledRef.current?.(openingLine, true);
+  }, [clearLiveVoicePresenceTimer, setError, setPhase]);
+
+  const disconnectLiveVoice = useCallback(async () => {
+    const current = liveVoiceConnectionRef.current;
+    clearLiveVoicePresenceTimer();
+    liveVoiceConnectionRef.current = null;
+    liveTranscriptBufferRef.current = '';
+    liveRemotePresenceSeenRef.current = false;
     setLiveVoiceConnected(false);
     setLiveVoiceConnecting(false);
     setLiveVoiceMicEnabled(false);
@@ -828,12 +886,14 @@ export default function ConverseScreen() {
     if (current) {
       await current.disconnect().catch(() => {});
     }
-  }, []);
+  }, [clearLiveVoicePresenceTimer]);
 
   const connectLiveVoice = useCallback(async () => {
     if (!agentId || !isLiveVoiceSession(voiceSessionConfig)) return;
     if (liveVoiceConnectionRef.current || liveVoiceConnecting) return;
 
+    clearLiveVoicePresenceTimer();
+    liveRemotePresenceSeenRef.current = false;
     setLiveVoiceConnecting(true);
     try {
       const connection = await connectLiveVoiceSession({
@@ -854,10 +914,22 @@ export default function ConverseScreen() {
                 transport: voiceSessionConfig.transport,
               },
             });
+            clearLiveVoicePresenceTimer();
+            liveVoicePresenceTimerRef.current = setTimeout(() => {
+              if (liveRemotePresenceSeenRef.current) return;
+              logConverseEvent({
+                event: 'live_voice_room_empty',
+                severity: 'warning',
+                message: 'Live room connected without an Ace participant. Falling back to batch voice.',
+              });
+              void degradeLiveVoiceToBatch();
+            }, 2500);
           },
           onDisconnected: () => {
             liveVoiceConnectionRef.current = null;
             liveTranscriptBufferRef.current = '';
+            clearLiveVoicePresenceTimer();
+            liveRemotePresenceSeenRef.current = false;
             setLiveVoiceConnected(false);
             setLiveVoiceMicEnabled(false);
             setLiveRemoteSpeaking(false);
@@ -875,15 +947,23 @@ export default function ConverseScreen() {
           onReconnected: () => {
             setLiveVoiceConnected(true);
             setLiveVoiceConnecting(false);
+            clearLiveVoicePresenceTimer();
             logConverseEvent({ event: 'live_voice_reconnected' });
           },
           onRemoteSpeakingChanged: (speaking) => {
+            if (speaking) {
+              liveRemotePresenceSeenRef.current = true;
+              clearLiveVoicePresenceTimer();
+            }
             setLiveRemoteSpeaking(speaking);
           },
           onChatMessage: async (message, participant) => {
-            if (!participant || participant.identity === agentId) return;
+            const localParticipantIdentity = liveVoiceConnectionRef.current?.participantIdentity;
+            if (!participant || participant.identity === localParticipantIdentity) return;
             if (liveRemoteMessageIdsRef.current.has(message.id)) return;
             liveRemoteMessageIdsRef.current.add(message.id);
+            liveRemotePresenceSeenRef.current = true;
+            clearLiveVoicePresenceTimer();
             const narration = sanitizeAceNarration(message.message);
             if (!narration) return;
             setLiveCaption(narration);
@@ -899,6 +979,7 @@ export default function ConverseScreen() {
             });
           },
           onTranscriptionReceived: (segments, participant) => {
+            const localParticipantIdentity = liveVoiceConnectionRef.current?.participantIdentity;
             const joined = segments
               .map((segment) => segment.text.trim())
               .filter(Boolean)
@@ -906,7 +987,7 @@ export default function ConverseScreen() {
               .trim();
             if (!joined) return;
 
-            if (participant?.identity === agentId) {
+            if (participant?.identity === localParticipantIdentity) {
               liveTranscriptBufferRef.current = joined;
               setLiveHeardLine(joined);
               logConverseEvent({
@@ -919,6 +1000,8 @@ export default function ConverseScreen() {
               return;
             }
 
+            liveRemotePresenceSeenRef.current = true;
+            clearLiveVoicePresenceTimer();
             setLiveCaption(joined);
             logConverseEvent({
               event: 'live_voice_remote_transcript',
@@ -931,16 +1014,12 @@ export default function ConverseScreen() {
           },
           onError: (error) => {
             liveVoiceConnectionRef.current = null;
-            const message = error.message || 'Live voice failed.';
-            setLiveVoiceConnected(false);
-            setLiveVoiceConnecting(false);
-            setLiveVoiceMicEnabled(false);
-            setLiveRemoteSpeaking(false);
-            setLiveCaption(null);
+            const message = 'Live voice is unavailable right now. Type the trip below and Ace will keep moving.';
+            surfaceLiveVoiceFallback(message);
             logConverseEvent({
               event: 'live_voice_error',
               severity: 'warning',
-              message,
+              message: error.message || message,
             });
           },
         },
@@ -949,17 +1028,17 @@ export default function ConverseScreen() {
       liveVoiceConnectionRef.current = connection;
     } catch (error: any) {
       liveVoiceConnectionRef.current = null;
-      setLiveVoiceConnecting(false);
-      setLiveVoiceConnected(false);
-      setLiveVoiceMicEnabled(false);
-      setLiveRemoteSpeaking(false);
+      clearLiveVoicePresenceTimer();
+      liveRemotePresenceSeenRef.current = false;
+      const message = 'Ace could not open live voice just now. Type the trip below and it will still handle the route.';
+      surfaceLiveVoiceFallback(message);
       logConverseEvent({
         event: 'live_voice_connect_failed',
         severity: 'warning',
-        message: error?.message ?? 'Live voice failed to connect.',
+        message: error?.message ?? message,
       });
     }
-  }, [addTurn, agentId, liveVoiceConnecting, logConverseEvent, setPhase, voiceSessionConfig]);
+  }, [addTurn, agentId, clearLiveVoicePresenceTimer, degradeLiveVoiceToBatch, liveVoiceConnecting, logConverseEvent, setPhase, surfaceLiveVoiceFallback, voiceSessionConfig]);
 
   useEffect(() => {
     if (turns.length === 0) return;
@@ -2065,7 +2144,6 @@ export default function ConverseScreen() {
   beginVoiceCaptureRef.current = beginVoiceCapture;
 
   // Wire speakIfEnabled into ref so the always-on greeting can use the latest closure
-  const speakIfEnabledRef = useRef<((text: string, restartListening?: boolean) => Promise<void>) | null>(null);
   speakIfEnabledRef.current = speakIfEnabled;
 
   const handleOrbTap = useCallback(async () => {
@@ -2802,14 +2880,14 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        {textFallbackVisible && (
+        {(textFallbackVisible || isError) && (
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
               <Ionicons name="create-outline" size={14} color="#cbe8ff" />
               <Text style={styles.textFallbackTitle}>Continue in text</Text>
             </View>
             <Text style={styles.textFallbackBody}>
-              Keep it short. Ace will still handle the rest.
+              Type the trip once. Ace will still handle the route, timing, and confirmation from here.
             </Text>
             <TextInput
               value={textFallbackDraft}
