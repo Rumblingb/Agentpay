@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Activity,
   AlertTriangle,
+  Bot,
   Building2,
   CheckCircle2,
   ChevronDown,
@@ -11,14 +13,18 @@ import {
   DollarSign,
   Layers,
   Loader2,
+  Mic,
+  MicOff,
   Shield,
+  Zap,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PanelState = 'ok' | 'error';
 type Lane = 'claim-status' | 'eligibility';
-type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces';
+type LaneMode = 'auto' | 'auto_notify' | 'human';
+type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces' | 'agent';
 type Operation =
   | 'run-primary'
   | 'run-fallback'
@@ -26,6 +32,34 @@ type Operation =
   | 'escalate-qa'
   | 'take-over'
   | 'mark-blocked';
+
+type ApprovalPolicy = {
+  autoThresholdUsd: number;
+  laneModes: Partial<Record<string, LaneMode>>;
+  pausedUntil: string | null;
+  version: number;
+};
+
+const DEFAULT_POLICY: ApprovalPolicy = {
+  autoThresholdUsd: 500,
+  laneModes: {
+    'claim-status': 'auto',
+    'eligibility': 'auto',
+    'denial-follow-up': 'auto_notify',
+    'prior-auth': 'human',
+    'era-835': 'auto',
+  },
+  pausedUntil: null,
+  version: 1,
+};
+
+const LANE_LABELS: Record<string, string> = {
+  'claim-status': 'Claim checks',
+  'eligibility': 'Coverage checks',
+  'denial-follow-up': 'Denial follow-up',
+  'prior-auth': 'Prior auth',
+  'era-835': 'ERA / 835',
+};
 
 type Connector = {
   key: string;
@@ -48,6 +82,7 @@ type Workspace = {
   openWorkItems: number;
   humanReviewCount: number;
   amountAtRiskOpen: number;
+  approvalPolicy?: ApprovalPolicy;
 };
 
 type ClaimStatusWorkItem = {
@@ -186,6 +221,23 @@ async function runManagerAction(payload: ManagerActionRequest): Promise<ActionRe
   return data;
 }
 
+async function persistPolicy(workspaceId: string, policy: ApprovalPolicy): Promise<void> {
+  try { localStorage.setItem(`ace_policy_${workspaceId}`, JSON.stringify(policy)); } catch {}
+  await fetch('/api/rcm/workspace-policy', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId, approvalPolicy: policy }),
+  }).catch(() => {});
+}
+
+function hydratePolicy(workspaceId: string, serverPolicy?: ApprovalPolicy): ApprovalPolicy {
+  try {
+    const raw = localStorage.getItem(`ace_policy_${workspaceId}`);
+    if (raw) return { ...DEFAULT_POLICY, ...JSON.parse(raw) as ApprovalPolicy };
+  } catch {}
+  return serverPolicy ?? DEFAULT_POLICY;
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function fmt$(v: number | null | undefined): string {
@@ -244,6 +296,65 @@ function exceptionActions(lane: Lane, item: ClaimStatusException | EligibilityEx
   ];
 }
 
+// ── Digest strip ───────────────────────────────────────────────────────────────
+
+function DigestStrip({
+  autoCount, humanReviewCount, autoClosedPct, isLoading, onReview,
+}: {
+  autoCount: number;
+  humanReviewCount: number;
+  autoClosedPct: number;
+  isLoading: boolean;
+  onReview: () => void;
+}) {
+  if (isLoading) return null;
+  return (
+    <div style={{
+      marginBottom: 16, padding: '11px 18px', borderRadius: 10,
+      background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%', background: '#10b981',
+            animation: 'ace-pulse 1.4s ease-in-out infinite',
+          }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981', letterSpacing: '-0.01em' }}>Ace</span>
+        </div>
+        <span style={{ fontSize: 12, color: '#555' }}>
+          handled today:{' '}
+          <span style={{ color: '#bbb' }}>
+            {autoCount > 0 ? `${autoCount} item${autoCount !== 1 ? 's' : ''} auto-resolved` : 'queue clear'}
+          </span>
+          {autoClosedPct > 0 && (
+            <span style={{ color: '#444' }}> · {autoClosedPct}% autonomous rate</span>
+          )}
+        </span>
+      </div>
+      {humanReviewCount > 0 ? (
+        <button
+          onClick={onReview}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+            background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)',
+            color: '#fb7185', cursor: 'pointer',
+          }}
+        >
+          <AlertTriangle size={10} />
+          {humanReviewCount} need{humanReviewCount === 1 ? 's' : ''} your input
+        </button>
+      ) : (
+        <span style={{ fontSize: 11, color: '#333', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <CheckCircle2 size={10} style={{ color: '#10b981' }} />
+          Nothing needs your input
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Shared display components ─────────────────────────────────────────────────
 
 function WarnBanner({ text, style: extra }: { text: string; style?: React.CSSProperties }) {
@@ -272,9 +383,7 @@ function EmptyState({ text }: { text: string }) {
 // ── Action button ─────────────────────────────────────────────────────────────
 
 function ActionBtn({
-  payload,
-  pending,
-  onClick,
+  payload, pending, onClick,
 }: {
   payload: ManagerActionRequest;
   pending: boolean;
@@ -301,8 +410,7 @@ function ActionBtn({
         background: isGreen ? 'rgba(16,185,129,0.1)' : isAmber ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)',
         borderColor: isGreen ? 'rgba(16,185,129,0.25)' : isAmber ? 'rgba(245,158,11,0.2)' : '#1e1e1e',
         color: isGreen ? '#34d399' : isAmber ? '#fcd34d' : '#888',
-        opacity: pending ? 0.6 : 1,
-        transition: 'opacity 0.15s',
+        opacity: pending ? 0.6 : 1, transition: 'opacity 0.15s',
       }}
     >
       {pending && <Loader2 size={10} className="animate-spin" />}
@@ -446,45 +554,73 @@ function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProp
   );
 }
 
-// ── Connector grid ─────────────────────────────────────────────────────────────
+// ── Connector grid — A2A payer readiness ──────────────────────────────────────
 
 function ConnectorGrid({
-  connectors,
-  claimErr,
-  eligErr,
-  isLoading,
+  connectors, claimErr, eligErr, isLoading,
 }: {
   connectors: Connector[];
   claimErr: boolean;
   eligErr: boolean;
   isLoading: boolean;
 }) {
+  const liveCount = connectors.filter(c => c.status === 'live').length;
+  const simCount = connectors.filter(c => c.status === 'simulation').length;
+
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-        Connector health
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Payer network
+        </div>
+        {simCount > 0 && !isLoading && (
+          <span style={{ fontSize: 11, color: '#f59e0b' }}>
+            {simCount} connecting — agent adjudication incoming
+          </span>
+        )}
       </div>
+
+      {liveCount > 0 && !isLoading && (
+        <div style={{
+          marginBottom: 14, padding: '10px 14px', borderRadius: 8,
+          background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <Zap size={12} style={{ color: '#10b981', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#555' }}>
+            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} agent-ready</span>
+            {' '}payer{liveCount !== 1 ? 's' : ''} — claims bypass the legacy queue and process via direct API.
+          </span>
+        </div>
+      )}
+
       {(claimErr || eligErr) && (
         <WarnBanner text="One or more connector panels failed to refresh." style={{ marginBottom: 12 }} />
       )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
         {connectors.map(c => {
           const isLive = c.status === 'live';
           const isSim = c.status === 'simulation';
+          const label = isLive ? 'Agent-ready' : isSim ? 'Connecting' : 'Legacy queue';
+          const color = isLive ? '#34d399' : isSim ? '#fcd34d' : '#555';
+          const bg = isLive ? 'rgba(16,185,129,0.08)' : isSim ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)';
+          const bdr = isLive ? 'rgba(16,185,129,0.2)' : isSim ? 'rgba(245,158,11,0.15)' : '#1a1a1a';
+          const speed = isLive ? '~24h via API' : isSim ? 'Connecting...' : '3–5 business days';
+
           return (
             <div key={c.key} style={{ padding: '14px 16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>{c.label}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: isLive ? '#10b981' : isSim ? '#f59e0b' : '#3a3a3a' }} />
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em',
-                    color: isLive ? '#34d399' : isSim ? '#fcd34d' : '#888',
-                  }}>
-                    {c.status.replace(/_/g, ' ')}
-                  </span>
-                </div>
+                <span style={{
+                  padding: '2px 9px', borderRadius: 20,
+                  background: bg, border: `1px solid ${bdr}`,
+                  fontSize: 10, fontWeight: 600, color, letterSpacing: '0.04em',
+                }}>
+                  {label}
+                </span>
               </div>
+              <div style={{ fontSize: 11, color: '#444', marginBottom: 8 }}>{speed}</div>
               <div style={{ fontSize: 11, color: '#555', lineHeight: 1.5 }}>{c.notes}</div>
               {c.capabilities.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
@@ -510,9 +646,7 @@ function ConnectorGrid({
 // ── Workspace grid ─────────────────────────────────────────────────────────────
 
 function WorkspaceGrid({
-  workspaces,
-  unavailable,
-  isLoading,
+  workspaces, unavailable, isLoading,
 }: {
   workspaces: Workspace[];
   unavailable: boolean;
@@ -553,6 +687,350 @@ function WorkspaceGrid({
   );
 }
 
+// ── Agent console ─────────────────────────────────────────────────────────────
+
+function modeBadge(m: LaneMode): { label: string; color: string; bg: string; border: string } {
+  if (m === 'auto') return { label: 'Fully auto', color: '#34d399', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.2)' };
+  if (m === 'auto_notify') return { label: 'Auto + notify', color: '#fcd34d', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' };
+  return { label: 'Human review', color: '#fb7185', bg: 'rgba(244,63,94,0.06)', border: 'rgba(244,63,94,0.15)' };
+}
+
+function AgentConsole({
+  workspace, policy, onPolicyChange,
+  autoClosedPct, avgConfidencePct, humanInterventionPct, autoClosedCount, isLoading,
+}: {
+  workspace: Workspace | null;
+  policy: ApprovalPolicy;
+  onPolicyChange: (p: ApprovalPolicy) => void;
+  autoClosedPct: number;
+  avgConfidencePct: number | null;
+  humanInterventionPct: number;
+  autoClosedCount: number;
+  isLoading: boolean;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const conf = avgConfidencePct ?? 70;
+  const trustScore = Math.round(autoClosedPct * 0.5 + conf * 0.3 + (100 - humanInterventionPct) * 0.2);
+  const grade = trustScore >= 80 ? 'A' : trustScore >= 70 ? 'B' : trustScore >= 60 ? 'C' : trustScore >= 50 ? 'D' : 'F';
+  const gradeColor = grade === 'A' ? '#10b981' : grade === 'B' ? '#34d399' : grade === 'C' ? '#f59e0b' : '#f43f5e';
+
+  const agentId = workspace
+    ? `agt_rcm_${workspace.workspaceId.replace(/-/g, '').slice(0, 10)}`
+    : 'agt_rcm_—';
+
+  const isPaused = policy.pausedUntil !== null;
+
+  async function applyPolicy(next: ApprovalPolicy) {
+    onPolicyChange(next);
+    setSaving(true);
+    if (workspace) await persistPolicy(workspace.workspaceId, next);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  if (isLoading) return <EmptyState text="Loading agent data..." />;
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16, alignItems: 'start' }}>
+
+      {/* Left — identity + trust score */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: '20px', borderRadius: 12, background: '#080808', border: '1px solid #161616' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+              background: isPaused ? '#111' : 'linear-gradient(135deg, #059669, #10b981)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: isPaused ? 'none' : '0 0 16px rgba(16,185,129,0.2)',
+              transition: 'all 0.2s',
+            }}>
+              <Bot size={20} style={{ color: isPaused ? '#444' : '#000' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#ededef' }}>Ace — Billing Agent</div>
+              <div style={{ fontSize: 11, color: '#333', marginTop: 2, fontFamily: 'monospace' }}>{agentId}</div>
+            </div>
+          </div>
+
+          {isPaused && (
+            <div style={{
+              marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+              background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.15)',
+              fontSize: 11, color: '#fb7185',
+            }}>
+              Autonomous actions paused until {fmtDate(policy.pausedUntil)}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                Agent trust score
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 40, fontWeight: 800, color: '#ededef', letterSpacing: '-0.04em', lineHeight: 1 }}>
+                  {trustScore}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: gradeColor }}>
+                  / 100 · {grade}
+                </span>
+              </div>
+            </div>
+            <Activity size={18} style={{ color: '#1c1c1c', marginBottom: 4 }} />
+          </div>
+          <div style={{ height: 3, background: '#141414', borderRadius: 2, overflow: 'hidden', marginBottom: 14 }}>
+            <div style={{ height: '100%', width: `${trustScore}%`, background: gradeColor, borderRadius: 2, transition: 'width 0.6s ease' }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            {[
+              { label: 'Auto-resolved', value: `${autoClosedPct}%` },
+              { label: 'Confidence', value: avgConfidencePct !== null ? `${avgConfidencePct}%` : '—' },
+              { label: 'Items handled', value: String(autoClosedCount) },
+            ].map(s => (
+              <div key={s.label}>
+                <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{s.label}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#e0e0e0', marginTop: 3 }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={() => applyPolicy({ ...policy, pausedUntil: isPaused ? null : new Date(Date.now() + 86_400_000).toISOString() })}
+          style={{
+            width: '100%', padding: '11px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+            cursor: 'pointer', border: '1px solid', transition: 'all 0.15s',
+            background: isPaused ? 'rgba(16,185,129,0.06)' : 'rgba(244,63,94,0.06)',
+            borderColor: isPaused ? 'rgba(16,185,129,0.2)' : 'rgba(244,63,94,0.15)',
+            color: isPaused ? '#34d399' : '#fb7185',
+          }}
+        >
+          {isPaused ? '▶ Resume autonomous actions' : '⏸ Pause autonomous actions (24h)'}
+        </button>
+      </div>
+
+      {/* Right — authority controls */}
+      <div style={{ padding: '20px', borderRadius: 12, background: '#080808', border: '1px solid #161616' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#ededef' }}>Agent authority</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>Control what Ace handles autonomously</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving && <Loader2 size={12} className="animate-spin" style={{ color: '#444' }} />}
+            {saved && !saving && <span style={{ fontSize: 11, color: '#10b981' }}>Saved</span>}
+          </div>
+        </div>
+
+        {/* Dollar threshold */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: '#555', marginBottom: 8 }}>
+            Auto-handle items under{' '}
+            <span style={{ color: '#ededef', fontWeight: 600 }}>{fmt$(policy.autoThresholdUsd)}</span>
+          </div>
+          <input
+            type="range" min={0} max={5000} step={100}
+            value={policy.autoThresholdUsd}
+            onChange={e => applyPolicy({ ...policy, autoThresholdUsd: Number(e.target.value) })}
+            style={{ width: '100%', accentColor: '#10b981' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#2a2a2a', marginTop: 4 }}>
+            <span>$0</span><span>$5,000</span>
+          </div>
+        </div>
+
+        {/* Per-lane toggles */}
+        <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+          Per-lane authority
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {Object.entries(LANE_LABELS).map(([lane, label]) => {
+            const current: LaneMode = (policy.laneModes[lane] as LaneMode) ?? 'auto';
+            const cb = modeBadge(current);
+            return (
+              <div key={lane} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '9px 12px', borderRadius: 8, background: '#0d0d0d', border: '1px solid #161616',
+              }}>
+                <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500 }}>{label}</span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['auto', 'auto_notify', 'human'] as LaneMode[]).map(m => {
+                    const mb = modeBadge(m);
+                    const active = current === m;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => applyPolicy({ ...policy, laneModes: { ...policy.laneModes, [lane]: m } })}
+                        title={mb.label}
+                        style={{
+                          padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                          cursor: 'pointer', border: '1px solid', transition: 'all 0.12s',
+                          background: active ? mb.bg : 'transparent',
+                          borderColor: active ? mb.border : '#1c1c1c',
+                          color: active ? mb.color : '#2a2a2a',
+                        }}
+                      >
+                        {mb.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.08)', fontSize: 11, color: '#444', lineHeight: 1.65 }}>
+          <span style={{ color: '#34d399', fontWeight: 600 }}>Fully auto</span> — Ace acts immediately{' · '}
+          <span style={{ color: '#fcd34d', fontWeight: 600 }}>Auto + notify</span> — Ace acts, you get an alert{' · '}
+          <span style={{ color: '#fb7185', fontWeight: 600 }}>Human review</span> — Ace queues it for you
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TTS (voice FAB) ───────────────────────────────────────────────────────────
+
+function useDashboardTts() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  return useCallback(async (text: string) => {
+    try {
+      const res = await fetch('/api/tts-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error('non-ok');
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const d = await res.json() as { fallback?: boolean };
+        if (d.fallback && typeof window !== 'undefined' && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        }
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      }
+    }
+  }, []);
+}
+
+// ── Voice FAB ──────────────────────────────────────────────────────────────────
+
+function VoiceFAB({
+  onSwitchTab, autoClosedCount, autoClosedPct, trustScore,
+}: {
+  onSwitchTab: (t: ActiveTab) => void;
+  autoClosedCount: number;
+  autoClosedPct: number;
+  trustScore: number;
+}) {
+  const [listening, setListening] = useState(false);
+  const [label, setLabel] = useState('');
+  const recRef = useRef<{ stop: () => void } | null>(null);
+  const speak = useDashboardTts();
+
+  const handle = useCallback((text: string) => {
+    const t = text.toLowerCase();
+    let hint = '';
+    let reply = '';
+
+    if (t.includes('claim') || t.includes('denial')) {
+      onSwitchTab('claims'); reply = "Showing claim checks."; hint = "Claim checks";
+    } else if (t.includes('eligib') || t.includes('coverage')) {
+      onSwitchTab('eligibility'); reply = "Showing coverage checks."; hint = "Coverage checks";
+    } else if (t.includes('connector') || t.includes('payer')) {
+      onSwitchTab('connectors'); reply = "Showing payer network."; hint = "Payer network";
+    } else if (t.includes('practice') || t.includes('workspace')) {
+      onSwitchTab('workspaces'); reply = "Showing practices."; hint = "Practices";
+    } else if (t.includes('agent') || t.includes('authority')) {
+      onSwitchTab('agent'); reply = "Showing agent authority."; hint = "Agent authority";
+    } else if (t.includes('resolved') || t.includes('handled') || t.includes('how many')) {
+      reply = `Ace has auto-resolved ${autoClosedCount} items — ${autoClosedPct} percent this period.`;
+      hint = `${autoClosedCount} items, ${autoClosedPct}% auto`;
+    } else if (t.includes('trust') || t.includes('score')) {
+      reply = `Your billing agent trust score is ${trustScore} out of 100.`;
+      hint = `Trust score: ${trustScore}/100`;
+    } else {
+      reply = "Try: show claims, how many resolved, or trust score.";
+      hint = "Try again";
+    }
+
+    speak(reply);
+    setLabel(hint);
+    setTimeout(() => setLabel(''), 4000);
+  }, [autoClosedCount, autoClosedPct, trustScore, onSwitchTab, speak]);
+
+  function toggle() {
+    if (listening) {
+      recRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    if (!SR) { speak("Voice commands require Chrome or Safari."); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec = new SR() as any;
+    rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => handle(e.results[0][0].transcript as string);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    rec.start();
+    setListening(true);
+  }
+
+  return (
+    <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+      {label && (
+        <div style={{
+          padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#34d399',
+          background: '#0d0d0d', border: '1px solid rgba(16,185,129,0.15)',
+          maxWidth: 200, textAlign: 'right',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}>
+          {label}
+        </div>
+      )}
+      <button
+        onClick={toggle}
+        title={listening ? 'Stop' : 'Talk to Ace'}
+        style={{
+          width: 50, height: 50, borderRadius: '50%', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: listening ? '#10b981' : '#111',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          animation: listening ? 'ace-pulse 1.4s ease-in-out infinite' : 'none',
+          transition: 'background 0.2s',
+        }}
+      >
+        {listening
+          ? <MicOff size={18} style={{ color: '#000' }} />
+          : <Mic size={18} style={{ color: '#444' }} />
+        }
+      </button>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RcmManagerClient() {
@@ -561,12 +1039,21 @@ export default function RcmManagerClient() {
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('claims');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<ApprovalPolicy>(DEFAULT_POLICY);
+  const [policyInit, setPolicyInit] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
     queryFn: fetchRcmManagerSnapshot,
     refetchInterval: 30_000,
   });
+
+  useEffect(() => {
+    if (policyInit || !data) return;
+    const ws = data.workspaces.items[0];
+    if (ws) setPolicy(hydratePolicy(ws.workspaceId, ws.approvalPolicy));
+    setPolicyInit(true);
+  }, [data, policyInit]);
 
   const actionMutation = useMutation({
     mutationFn: runManagerAction,
@@ -597,27 +1084,27 @@ export default function RcmManagerClient() {
   const eligEx = data?.eligibilityExceptions?.items ?? [];
   const eligCon = data?.eligibilityConnectors?.connectors ?? [];
 
+  const conf = q?.avgConfidencePct ?? 70;
+  const trustScore = Math.round((q?.autoClosedPct ?? 0) * 0.5 + conf * 0.3 + (100 - (q?.humanInterventionPct ?? 0)) * 0.2);
+
   const kpis = [
     {
       label: 'In progress',
       value: isLoading ? '—' : String(q?.totalOpen ?? 0),
       sub: isLoading ? '' : `${q?.totalWorkItems ?? 0} total`,
-      icon: Layers,
-      accent: '#38bdf8',
+      icon: Layers, accent: '#38bdf8',
     },
     {
       label: 'Ace auto-closed',
       value: isLoading ? '—' : `${q?.autoClosedPct ?? 0}%`,
       sub: isLoading ? '' : `${q?.autoClosedCount ?? 0} items`,
-      icon: CheckCircle2,
-      accent: '#10b981',
+      icon: CheckCircle2, accent: '#10b981',
     },
     {
       label: 'Revenue protected',
       value: isLoading ? '—' : fmt$(q?.amountAtRiskOpen),
       sub: isLoading ? '' : `${data?.workspaces.count ?? 0} practices`,
-      icon: DollarSign,
-      accent: '#8b5cf6',
+      icon: DollarSign, accent: '#8b5cf6',
     },
     {
       label: 'Need attention',
@@ -633,6 +1120,7 @@ export default function RcmManagerClient() {
     { id: 'eligibility', label: 'Coverage checks', icon: Shield, count: eligWI.length || undefined },
     { id: 'connectors', label: 'Connectors', icon: Cpu },
     { id: 'workspaces', label: 'Practices', icon: Building2, count: workspaces.length || undefined },
+    { id: 'agent', label: 'Agent', icon: Bot },
   ];
 
   if (isError) {
@@ -643,7 +1131,6 @@ export default function RcmManagerClient() {
     );
   }
 
-  // Lane tab content — inline render (not a component) so it uses parent scope safely
   const renderLane = (tab: 'claims' | 'eligibility') => {
     const isClaims = tab === 'claims';
     const lane: Lane = isClaims ? 'claim-status' : 'eligibility';
@@ -659,7 +1146,6 @@ export default function RcmManagerClient() {
 
     return (
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
-        {/* Queue */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -683,7 +1169,6 @@ export default function RcmManagerClient() {
             ))}
           </div>
         </div>
-        {/* Exceptions */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -760,7 +1245,7 @@ export default function RcmManagerClient() {
       {/* KPI strip */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-        marginBottom: 20, borderRadius: 12,
+        marginBottom: 16, borderRadius: 12,
         border: '1px solid #161616', background: '#080808', overflow: 'hidden',
       }}>
         {kpis.map((kpi, i) => (
@@ -779,22 +1264,14 @@ export default function RcmManagerClient() {
         ))}
       </div>
 
-      {/* Automation insight */}
-      {data && !isLoading && (q?.autoClosedPct ?? 0) > 0 && (
-        <div style={{
-          marginBottom: 20, padding: '10px 16px', borderRadius: 8,
-          background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <CheckCircle2 size={13} style={{ color: '#10b981', flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: '#555' }}>
-            Ace auto-closed{' '}
-            <span style={{ color: '#34d399', fontWeight: 600 }}>{q?.autoClosedCount ?? 0} items</span>
-            {' '}({q?.autoClosedPct ?? 0}%) this period — your team only touched{' '}
-            <span style={{ color: '#aaa', fontWeight: 600 }}>{q?.humanClosedCount ?? 0}</span>.
-          </span>
-        </div>
-      )}
+      {/* Digest strip */}
+      <DigestStrip
+        autoCount={q?.autoClosedCount ?? 0}
+        humanReviewCount={q?.humanReviewCount ?? 0}
+        autoClosedPct={q?.autoClosedPct ?? 0}
+        isLoading={isLoading}
+        onReview={() => setActiveTab('claims')}
+      />
 
       {/* Tab bar */}
       <div style={{
@@ -854,6 +1331,30 @@ export default function RcmManagerClient() {
           isLoading={isLoading}
         />
       )}
+
+      {activeTab === 'agent' && (
+        <AgentConsole
+          workspace={workspaces[0] ?? null}
+          policy={policy}
+          onPolicyChange={(p) => {
+            setPolicy(p);
+            if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
+          }}
+          autoClosedPct={q?.autoClosedPct ?? 0}
+          avgConfidencePct={q?.avgConfidencePct ?? null}
+          humanInterventionPct={q?.humanInterventionPct ?? 0}
+          autoClosedCount={q?.autoClosedCount ?? 0}
+          isLoading={isLoading}
+        />
+      )}
+
+      {/* Voice FAB */}
+      <VoiceFAB
+        onSwitchTab={setActiveTab}
+        autoClosedCount={q?.autoClosedCount ?? 0}
+        autoClosedPct={q?.autoClosedPct ?? 0}
+        trustScore={trustScore}
+      />
 
     </div>
   );

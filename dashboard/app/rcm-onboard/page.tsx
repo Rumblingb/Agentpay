@@ -42,12 +42,12 @@ function getSteps(answers: OnboardState): { field: keyof OnboardState | null; qu
     : "Ace will activate the right lanes for your specific problem.";
 
   return [
-    { field: null, question: "Hi, I'm Ace. Let's get your billing office set up — takes about 5 minutes.", hint: "I'll ask a few quick questions to configure your workspace." },
+    { field: null, question: "Hi, I'm Ace. Let me get your authorization set up — this takes about 5 minutes.", hint: "I need a few things to start working on your behalf." },
     { field: 'specialty', question: "What's your practice specialty?", hint: "This helps Ace apply the right payer rules and denial patterns." },
     { field: 'volume', question: "How many claims do you submit each month?", hint: "Volume helps Ace prioritize your queue correctly." },
     { field: 'mainPayer', question: "Which payer gives you the most trouble?", hint: specialtyHint },
     { field: 'mainProblem', question: "What's your biggest billing challenge right now?", hint: problemHint },
-    { field: 'npi', question: "What's your NPI number?", hint: "This lets Ace verify eligibility and submit claims on your behalf." },
+    { field: 'npi', question: "Authorize Ace to act on your behalf", hint: "Your NPI is how Ace identifies your practice with payers. Required to submit and verify claims." },
   ];
 }
 
@@ -259,7 +259,7 @@ export default function RcmOnboardPage() {
       localStorage.setItem('ace_rcm_onboard', JSON.stringify({ ...answers, npi, completedAt: Date.now() }));
     } catch {}
 
-    speak("You're all set. Let me show you your dashboard.");
+    speak("Your agent is now active. Let me show you your dashboard.");
     setTimeout(() => router.push('/rcm'), 1800);
   }
 

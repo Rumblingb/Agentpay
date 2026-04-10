@@ -168,10 +168,10 @@ export default function RcmSignupPage() {
         </div>
 
         <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', color: '#ededef', margin: '0 0 8px' }}>
-          Create your free workspace
+          Activate your billing agent
         </h1>
         <p style={{ fontSize: 14, color: '#737373', margin: '0 0 32px', lineHeight: 1.6 }}>
-          Ace walks you through the rest. No credit card, no IT setup.
+          {"You'll"} have an AI agent working your revenue cycle in 10 minutes. No credit card, no IT setup.
         </p>
 
         {/* API error banner */}
@@ -236,7 +236,7 @@ export default function RcmSignupPage() {
                 <path d="M8 2a6 6 0 0 1 6 6" stroke="#000" strokeWidth="2" strokeLinecap="round"/>
               </svg>
             )}
-            {loading ? 'Creating workspace…' : 'Create free workspace →'}
+            {loading ? 'Activating agent\u2026' : 'Activate agent \u2192'}
           </button>
         </form>
 
