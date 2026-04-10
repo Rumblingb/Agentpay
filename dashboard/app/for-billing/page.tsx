@@ -40,7 +40,7 @@ function useVoiceDemo() {
   const [response, setResponse] = useState('');
   const [supported, setSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -49,11 +49,10 @@ function useVoiceDemo() {
     }
   }, []);
 
-  const aceSpeak = useCallback((text: string, onEnd?: () => void) => {
+  const browserSpeak = useCallback((text: string, onEnd?: () => void) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) { onEnd?.(); return; }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    // Prefer a British English voice to approximate Ace's character
     const loadVoice = () => {
       const voices = window.speechSynthesis.getVoices();
       const voice = voices.find(v => v.lang === 'en-GB' && !v.name.includes('Google'))
@@ -62,16 +61,42 @@ function useVoiceDemo() {
       if (voice) utter.voice = voice;
     };
     loadVoice();
-    if (window.speechSynthesis.getVoices().length === 0) {
-      window.speechSynthesis.onvoiceschanged = loadVoice;
-    }
+    if (window.speechSynthesis.getVoices().length === 0) window.speechSynthesis.onvoiceschanged = loadVoice;
     utter.rate = 0.92;
     utter.pitch = 0.88;
     utter.volume = 1;
     utter.onend = () => onEnd?.();
-    synthRef.current = utter;
     window.speechSynthesis.speak(utter);
   }, []);
+
+  const aceSpeak = useCallback(async (text: string, onEnd?: () => void) => {
+    // Stop any currently playing audio
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    window.speechSynthesis?.cancel();
+
+    try {
+      const res = await fetch('/api/tts-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      // 503 with fallback:true means key not configured — use browser TTS
+      if (res.status === 503) {
+        browserSpeak(text, onEnd);
+        return;
+      }
+      if (!res.ok) throw new Error('tts failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; onEnd?.(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); audioRef.current = null; onEnd?.(); };
+      await audio.play();
+    } catch {
+      browserSpeak(text, onEnd);
+    }
+  }, [browserSpeak]);
 
   const startDemo = useCallback(() => {
     setState('ace-speaking');
@@ -104,6 +129,7 @@ function useVoiceDemo() {
   const reset = useCallback(() => {
     window.speechSynthesis?.cancel();
     recognitionRef.current?.stop();
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setState('idle');
     setTranscript('');
     setResponse('');
