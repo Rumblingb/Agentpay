@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronDown,
   Cpu,
   DollarSign,
   Layers,
@@ -13,8 +14,11 @@ import {
   Shield,
 } from 'lucide-react';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 type PanelState = 'ok' | 'error';
 type Lane = 'claim-status' | 'eligibility';
+type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces';
 type Operation =
   | 'run-primary'
   | 'run-fallback'
@@ -130,9 +134,7 @@ type ManagerSnapshot = {
       autoClosedPct: number;
       humanInterventionPct: number;
     };
-    workspaces: {
-      count: number;
-    };
+    workspaces: { count: number };
     firstLane: {
       key: string;
       label: string;
@@ -142,32 +144,13 @@ type ManagerSnapshot = {
       openExceptions: number;
     };
   };
-  workspaces: {
-    items: Workspace[];
-    count: number;
-  };
-  workItems: {
-    items: ClaimStatusWorkItem[];
-    count: number;
-  };
-  exceptions: {
-    items: ClaimStatusException[];
-    count: number;
-  };
-  connectors: {
-    connectors: Connector[];
-  };
-  eligibilityWorkItems: {
-    items: EligibilityWorkItem[];
-    count: number;
-  };
-  eligibilityExceptions: {
-    items: EligibilityException[];
-    count: number;
-  };
-  eligibilityConnectors: {
-    connectors: Connector[];
-  };
+  workspaces: { items: Workspace[]; count: number };
+  workItems: { items: ClaimStatusWorkItem[]; count: number };
+  exceptions: { items: ClaimStatusException[]; count: number };
+  connectors: { connectors: Connector[] };
+  eligibilityWorkItems: { items: EligibilityWorkItem[]; count: number };
+  eligibilityExceptions: { items: EligibilityException[]; count: number };
+  eligibilityConnectors: { connectors: Connector[] };
   partial: boolean;
   warnings: string[];
   panelStatus: {
@@ -182,14 +165,13 @@ type ManagerSnapshot = {
   };
 };
 
-type ActionResponse = {
-  message?: string;
-  error?: string;
-};
+type ActionResponse = { message?: string; error?: string };
+
+// ── API ───────────────────────────────────────────────────────────────────────
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
   const res = await fetch('/api/rcm/manager', { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to load RCM manager snapshot');
+  if (!res.ok) throw new Error('Failed to load billing snapshot');
   return res.json();
 }
 
@@ -200,858 +182,679 @@ async function runManagerAction(payload: ManagerActionRequest): Promise<ActionRe
     body: JSON.stringify(payload),
   });
   const data = (await res.json().catch(() => ({}))) as ActionResponse;
-  if (!res.ok) {
-    throw new Error(data.error ?? data.message ?? 'Failed to run CRM action');
-  }
+  if (!res.ok) throw new Error(data.error ?? data.message ?? 'Action failed');
   return data;
 }
 
-function formatCurrency(value: number | null | undefined): string {
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function fmt$(v: number | null | undefined): string {
   return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value ?? 0);
+    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+  }).format(v ?? 0);
 }
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '-';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '-';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(parsed);
+function fmtDate(v: string | null | undefined): string {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
 }
 
-function labelize(value: string): string {
-  return value.replace(/_/g, ' ');
-}
+function humanize(s: string): string { return s.replace(/_/g, ' '); }
 
 function joinMeta(...parts: Array<string | null | undefined>): string {
-  return parts.filter((part): part is string => Boolean(part && part.trim())).join(' / ');
+  return parts.filter((p): p is string => Boolean(p?.trim())).join(' · ');
 }
 
-function toneForPriority(priority: string): string {
-  switch (priority) {
-    case 'urgent':
-      return 'text-rose-300 border-rose-500/30 bg-rose-500/10';
-    case 'high':
-      return 'text-amber-300 border-amber-500/30 bg-amber-500/10';
-    case 'normal':
-      return 'text-sky-300 border-sky-500/30 bg-sky-500/10';
-    default:
-      return 'text-slate-300 border-slate-500/30 bg-slate-500/10';
-  }
+function priorityAccent(p: string): string {
+  if (p === 'urgent') return '#f43f5e';
+  if (p === 'high') return '#f59e0b';
+  if (p === 'normal') return '#38bdf8';
+  return '#3a3a3a';
 }
 
-function toneForSeverity(severity: string): string {
-  switch (severity) {
-    case 'critical':
-      return 'text-rose-300 border-rose-500/30 bg-rose-500/10';
-    case 'high':
-      return 'text-amber-300 border-amber-500/30 bg-amber-500/10';
-    default:
-      return 'text-slate-300 border-slate-500/30 bg-slate-500/10';
-  }
+function severityStyle(s: string): { bg: string; border: string; text: string } {
+  if (s === 'critical') return { bg: 'rgba(244,63,94,0.08)', border: 'rgba(244,63,94,0.2)', text: '#fb7185' };
+  if (s === 'high') return { bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)', text: '#fcd34d' };
+  return { bg: 'rgba(100,116,139,0.06)', border: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
 }
 
-function actionKey(payload: ManagerActionRequest): string {
-  return `${payload.lane}:${payload.operation}:${payload.workItemId}`;
+function actionKey(p: ManagerActionRequest): string {
+  return `${p.lane}:${p.operation}:${p.workItemId}`;
 }
 
-function buttonTone(operation: Operation): string {
-  switch (operation) {
-    case 'approve-qa':
-    case 'take-over':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/15';
-    case 'escalate-qa':
-    case 'mark-blocked':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/15';
-    default:
-      return 'border-slate-700 bg-slate-900/70 text-slate-200 hover:border-slate-500 hover:bg-slate-900';
-  }
-}
-
-function labelForOperation(operation: Operation): string {
-  switch (operation) {
-    case 'run-primary':
-      return 'Run primary';
-    case 'run-fallback':
-      return 'Run fallback';
-    case 'approve-qa':
-      return 'Approve';
-    case 'escalate-qa':
-      return 'Escalate';
-    case 'take-over':
-      return 'Take over';
-    case 'mark-blocked':
-      return 'Mark blocked';
-    default:
-      return 'Run';
-  }
-}
-
-function workItemActions(
-  lane: Lane,
-  item: ClaimStatusWorkItem | EligibilityWorkItem,
-): ManagerActionRequest[] {
-  if (item.status === 'routed') {
+function workItemActions(lane: Lane, item: ClaimStatusWorkItem | EligibilityWorkItem): ManagerActionRequest[] {
+  if (item.status === 'routed')
     return [{ lane, operation: 'run-primary', workItemId: item.workItemId }];
-  }
-
-  if (item.status === 'retry_pending') {
+  if (item.status === 'retry_pending')
     return [{ lane, operation: 'run-fallback', workItemId: item.workItemId }];
-  }
-
-  if (item.status === 'awaiting_qa') {
+  if (item.status === 'awaiting_qa')
     return [
       { lane, operation: 'approve-qa', workItemId: item.workItemId },
-      {
-        lane,
-        operation: 'escalate-qa',
-        workItemId: item.workItemId,
-        summary: `${item.title} needs manual review from the CRM manager.`,
-      },
+      { lane, operation: 'escalate-qa', workItemId: item.workItemId, summary: `${item.title} needs manual review.` },
     ];
-  }
-
   return [];
 }
 
-function exceptionActions(
-  lane: Lane,
-  item: ClaimStatusException | EligibilityException,
-): ManagerActionRequest[] {
+function exceptionActions(lane: Lane, item: ClaimStatusException | EligibilityException): ManagerActionRequest[] {
   return [
-    {
-      lane,
-      operation: 'take-over',
-      workItemId: item.workItemId,
-      summary: item.summary,
-    },
-    {
-      lane,
-      operation: 'mark-blocked',
-      workItemId: item.workItemId,
-      summary: item.summary,
-    },
+    { lane, operation: 'take-over', workItemId: item.workItemId, summary: item.summary },
+    { lane, operation: 'mark-blocked', workItemId: item.workItemId, summary: item.summary },
   ];
 }
 
-function ConnectorStatusBadge({ status }: { status: string }) {
-  const tone =
-    status === 'live'
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-      : status === 'simulation'
-        ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
-        : 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+// ── Shared display components ─────────────────────────────────────────────────
 
+function WarnBanner({ text, style: extra }: { text: string; style?: React.CSSProperties }) {
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] ${tone}`}>
-      {status.replace(/_/g, ' ')}
-    </span>
+    <div style={{
+      padding: '10px 14px', borderRadius: 8, fontSize: 12,
+      background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', color: '#fcd34d',
+      ...extra,
+    }}>
+      {text}
+    </div>
   );
 }
 
-function SectionStatusNotice({
-  tone,
-  message,
-}: {
-  tone: 'warning' | 'danger' | 'success';
-  message: string;
-}) {
-  const toneClass =
-    tone === 'success'
-      ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200'
-      : tone === 'warning'
-      ? 'border-amber-500/20 bg-amber-500/5 text-amber-200'
-      : 'border-rose-500/20 bg-rose-500/5 text-rose-200';
-
-  return <div className={`rounded-2xl border p-4 text-[13px] ${toneClass}`}>{message}</div>;
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div style={{
+      padding: '20px 14px', borderRadius: 10, textAlign: 'center',
+      background: '#080808', border: '1px dashed #1a1a1a', fontSize: 12, color: '#444',
+    }}>
+      {text}
+    </div>
+  );
 }
 
-function ActionButton({
+// ── Action button ─────────────────────────────────────────────────────────────
+
+function ActionBtn({
   payload,
   pending,
   onClick,
 }: {
   payload: ManagerActionRequest;
   pending: boolean;
-  onClick: (payload: ManagerActionRequest) => void;
+  onClick: (p: ManagerActionRequest) => void;
 }) {
+  const isGreen = payload.operation === 'approve-qa' || payload.operation === 'take-over';
+  const isAmber = payload.operation === 'escalate-qa' || payload.operation === 'mark-blocked';
+  const label =
+    payload.operation === 'run-primary' ? 'Run' :
+    payload.operation === 'run-fallback' ? 'Fallback' :
+    payload.operation === 'approve-qa' ? 'Approve' :
+    payload.operation === 'escalate-qa' ? 'Escalate' :
+    payload.operation === 'take-over' ? 'Take over' : 'Block';
+
   return (
     <button
       onClick={() => onClick(payload)}
       disabled={pending}
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-60 ${buttonTone(payload.operation)}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '5px 11px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+        letterSpacing: '0.05em', textTransform: 'uppercase',
+        cursor: pending ? 'not-allowed' : 'pointer', border: '1px solid',
+        background: isGreen ? 'rgba(16,185,129,0.1)' : isAmber ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)',
+        borderColor: isGreen ? 'rgba(16,185,129,0.25)' : isAmber ? 'rgba(245,158,11,0.2)' : '#1e1e1e',
+        color: isGreen ? '#34d399' : isAmber ? '#fcd34d' : '#888',
+        opacity: pending ? 0.6 : 1,
+        transition: 'opacity 0.15s',
+      }}
     >
-      {pending && <Loader2 size={12} className="animate-spin" />}
-      {labelForOperation(payload.operation)}
+      {pending && <Loader2 size={10} className="animate-spin" />}
+      {label}
     </button>
   );
 }
 
+// ── Work item row ─────────────────────────────────────────────────────────────
+
+type WorkItemRowProps = {
+  lane: Lane;
+  item: ClaimStatusWorkItem | EligibilityWorkItem;
+  expandedId: string | null;
+  onExpand: (id: string | null) => void;
+  checkPending: (p: ManagerActionRequest) => boolean;
+  onAction: (p: ManagerActionRequest) => void;
+};
+
+function WorkItemRow({ lane, item, expandedId, onExpand, checkPending, onAction }: WorkItemRowProps) {
+  const expanded = expandedId === item.workItemId;
+  const actions = workItemActions(lane, item);
+  const accent = priorityAccent(item.priority);
+  const ref = lane === 'claim-status'
+    ? (item as ClaimStatusWorkItem).claimRef
+    : (item as EligibilityWorkItem).memberId;
+
+  return (
+    <div style={{ borderRadius: 10, background: '#080808', border: '1px solid #161616', overflow: 'hidden' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}
+        onClick={() => onExpand(expanded ? null : item.workItemId)}
+      >
+        <div style={{ width: 3, height: 34, borderRadius: 2, background: accent, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.title}
+          </div>
+          <div style={{ fontSize: 11, color: '#444', marginTop: 2 }}>
+            {joinMeta(item.workspaceName, item.payerName, ref)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {item.requiresHumanReview && (
+            <span style={{
+              padding: '2px 7px', borderRadius: 4,
+              background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.18)',
+              color: '#fb7185', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            }}>
+              Review
+            </span>
+          )}
+          <span style={{
+            padding: '2px 7px', borderRadius: 4,
+            background: '#0d0d0d', border: '1px solid #1a1a1a',
+            color: '#666', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+          }}>
+            {humanize(item.status)}
+          </span>
+          <div style={{ textAlign: 'right', minWidth: 72 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e0e0' }}>{fmt$(item.amountAtRisk)}</div>
+            {item.confidencePct !== null && (
+              <div style={{ fontSize: 10, color: '#444', marginTop: 1 }}>{item.confidencePct}% conf</div>
+            )}
+          </div>
+          <ChevronDown
+            size={13}
+            style={{ color: '#333', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s', flexShrink: 0 }}
+          />
+        </div>
+      </div>
+      {expanded && (
+        <div style={{ padding: '10px 14px 12px 29px', borderTop: '1px solid #111', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {actions.length > 0 ? (
+            <>
+              <span style={{ fontSize: 11, color: '#444' }}>Action:</span>
+              {actions.map(p => (
+                <ActionBtn key={actionKey(p)} payload={p} pending={checkPending(p)} onClick={onAction} />
+              ))}
+            </>
+          ) : (
+            <span style={{ fontSize: 11, color: '#444' }}>No actions available.</span>
+          )}
+          {item.dueAt && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: '#444' }}>Due {fmtDate(item.dueAt)}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Exception card ─────────────────────────────────────────────────────────────
+
+type ExceptionCardProps = {
+  lane: Lane;
+  item: ClaimStatusException | EligibilityException;
+  checkPending: (p: ManagerActionRequest) => boolean;
+  onAction: (p: ManagerActionRequest) => void;
+};
+
+function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProps) {
+  const actions = exceptionActions(lane, item);
+  const { bg, border, text } = severityStyle(item.severity);
+  const ref = lane === 'claim-status'
+    ? (item as ClaimStatusException).claimRef
+    : (item as EligibilityException).memberId;
+
+  return (
+    <div style={{ borderRadius: 10, background: bg, border: `1px solid ${border}`, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', lineHeight: 1.4 }}>{item.summary}</div>
+          <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>
+            {joinMeta(item.workspaceName, item.payerName, ref)}
+          </div>
+        </div>
+        <span style={{
+          padding: '2px 8px', borderRadius: 4,
+          background: 'rgba(255,255,255,0.04)', border: `1px solid ${border}`,
+          color: text, fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', flexShrink: 0,
+        }}>
+          {item.severity}
+        </span>
+      </div>
+      {item.recommendedHumanAction && (
+        <div style={{ marginTop: 10, fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+          <span style={{ color: '#555' }}>Recommended: </span>
+          {item.recommendedHumanAction}
+        </div>
+      )}
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {actions.map(p => (
+          <ActionBtn key={actionKey(p)} payload={p} pending={checkPending(p)} onClick={onAction} />
+        ))}
+        {item.slaAt && (
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#444' }}>SLA {fmtDate(item.slaAt)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Connector grid ─────────────────────────────────────────────────────────────
+
+function ConnectorGrid({
+  connectors,
+  claimErr,
+  eligErr,
+  isLoading,
+}: {
+  connectors: Connector[];
+  claimErr: boolean;
+  eligErr: boolean;
+  isLoading: boolean;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+        Connector health
+      </div>
+      {(claimErr || eligErr) && (
+        <WarnBanner text="One or more connector panels failed to refresh." style={{ marginBottom: 12 }} />
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+        {connectors.map(c => {
+          const isLive = c.status === 'live';
+          const isSim = c.status === 'simulation';
+          return (
+            <div key={c.key} style={{ padding: '14px 16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>{c.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: isLive ? '#10b981' : isSim ? '#f59e0b' : '#3a3a3a' }} />
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em',
+                    color: isLive ? '#34d399' : isSim ? '#fcd34d' : '#888',
+                  }}>
+                    {c.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: '#555', lineHeight: 1.5 }}>{c.notes}</div>
+              {c.capabilities.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+                  {c.capabilities.map(cap => (
+                    <span key={cap} style={{
+                      padding: '2px 6px', borderRadius: 4, background: '#0d0d0d', border: '1px solid #1a1a1a',
+                      fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em',
+                    }}>
+                      {cap.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {connectors.length === 0 && !isLoading && <EmptyState text="No connectors configured." />}
+      </div>
+    </div>
+  );
+}
+
+// ── Workspace grid ─────────────────────────────────────────────────────────────
+
+function WorkspaceGrid({
+  workspaces,
+  unavailable,
+  isLoading,
+}: {
+  workspaces: Workspace[];
+  unavailable: boolean;
+  isLoading: boolean;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+        Active practices
+      </div>
+      {unavailable && <WarnBanner text="Workspace roster unavailable." />}
+      {!unavailable && !isLoading && workspaces.length === 0 && <EmptyState text="No practices active." />}
+      {!unavailable && workspaces.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
+          {workspaces.map(ws => (
+            <div key={ws.workspaceId} style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>{ws.name}</div>
+              <div style={{ fontSize: 11, color: '#555', marginTop: 3 }}>
+                {[ws.workspaceType, ws.specialty].filter(Boolean).join(' · ')}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 16 }}>
+                {[
+                  { label: 'Open', value: String(ws.openWorkItems) },
+                  { label: 'Review', value: String(ws.humanReviewCount) },
+                  { label: 'At risk', value: fmt$(ws.amountAtRiskOpen) },
+                ].map(stat => (
+                  <div key={stat.label}>
+                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{stat.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#e0e0e0', marginTop: 3 }}>{stat.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function RcmManagerClient() {
   const queryClient = useQueryClient();
-  const [flash, setFlash] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [flash, setFlash] = useState<{ tone: 'ok' | 'err'; msg: string } | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('claims');
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
     queryFn: fetchRcmManagerSnapshot,
-    refetchInterval: 30000,
+    refetchInterval: 30_000,
   });
 
   const actionMutation = useMutation({
     mutationFn: runManagerAction,
-    onMutate: (payload) => {
-      setFlash(null);
-      setActiveActionKey(actionKey(payload));
-    },
-    onSuccess: (result) => {
-      setFlash({
-        tone: 'success',
-        message: result.message ?? 'CRM action completed.',
-      });
+    onMutate: (p) => { setFlash(null); setActiveActionKey(actionKey(p)); },
+    onSuccess: (r) => {
+      setFlash({ tone: 'ok', msg: r.message ?? 'Action completed.' });
       queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
     },
-    onError: (error: Error) => {
-      setFlash({ tone: 'error', message: error.message });
-    },
-    onSettled: () => {
-      setActiveActionKey(null);
-    },
+    onError: (e: Error) => setFlash({ tone: 'err', msg: e.message }),
+    onSettled: () => setActiveActionKey(null),
   });
 
-  const queue = data?.overview.queue;
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 4000);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
+  function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
+
+  const q = data?.overview.queue;
   const workspaces = data?.workspaces.items ?? [];
   const workItems = data?.workItems.items ?? [];
   const exceptions = data?.exceptions.items ?? [];
   const connectors = data?.connectors.connectors ?? [];
-  const eligibilityWorkItems = data?.eligibilityWorkItems?.items ?? [];
-  const eligibilityExceptions = data?.eligibilityExceptions?.items ?? [];
-  const eligibilityConnectors = data?.eligibilityConnectors?.connectors ?? [];
+  const eligWI = data?.eligibilityWorkItems?.items ?? [];
+  const eligEx = data?.eligibilityExceptions?.items ?? [];
+  const eligCon = data?.eligibilityConnectors?.connectors ?? [];
 
-  const claimStatusWorkItemsUnavailable = data?.panelStatus.claimStatusWorkItems === 'error';
-  const claimStatusExceptionsUnavailable = data?.panelStatus.claimStatusExceptions === 'error';
-  const claimStatusConnectorsUnavailable = data?.panelStatus.claimStatusConnectors === 'error';
-  const eligibilityWorkItemsUnavailable = data?.panelStatus.eligibilityWorkItems === 'error';
-  const eligibilityExceptionsUnavailable = data?.panelStatus.eligibilityExceptions === 'error';
-  const eligibilityConnectorsUnavailable = data?.panelStatus.eligibilityConnectors === 'error';
-  const workspacesUnavailable = data?.panelStatus.workspaces === 'error';
+  const kpis = [
+    {
+      label: 'In progress',
+      value: isLoading ? '—' : String(q?.totalOpen ?? 0),
+      sub: isLoading ? '' : `${q?.totalWorkItems ?? 0} total`,
+      icon: Layers,
+      accent: '#38bdf8',
+    },
+    {
+      label: 'Ace auto-closed',
+      value: isLoading ? '—' : `${q?.autoClosedPct ?? 0}%`,
+      sub: isLoading ? '' : `${q?.autoClosedCount ?? 0} items`,
+      icon: CheckCircle2,
+      accent: '#10b981',
+    },
+    {
+      label: 'Revenue protected',
+      value: isLoading ? '—' : fmt$(q?.amountAtRiskOpen),
+      sub: isLoading ? '' : `${data?.workspaces.count ?? 0} practices`,
+      icon: DollarSign,
+      accent: '#8b5cf6',
+    },
+    {
+      label: 'Need attention',
+      value: isLoading ? '—' : String(q?.openExceptionCount ?? 0),
+      sub: isLoading ? '' : (q?.highSeverityExceptionCount ? `${q.highSeverityExceptionCount} critical` : 'none critical'),
+      icon: AlertTriangle,
+      accent: (q?.openExceptionCount ?? 0) > 0 ? '#f43f5e' : '#3a3a3a',
+    },
+  ];
 
-  function triggerAction(payload: ManagerActionRequest) {
-    actionMutation.mutate(payload);
-  }
-
-  function isPending(payload: ManagerActionRequest): boolean {
-    return activeActionKey === actionKey(payload);
-  }
+  const TABS: { id: ActiveTab; label: string; icon: React.ElementType; count?: number }[] = [
+    { id: 'claims', label: 'Claim checks', icon: Layers, count: workItems.length || undefined },
+    { id: 'eligibility', label: 'Coverage checks', icon: Shield, count: eligWI.length || undefined },
+    { id: 'connectors', label: 'Connectors', icon: Cpu },
+    { id: 'workspaces', label: 'Practices', icon: Building2, count: workspaces.length || undefined },
+  ];
 
   if (isError) {
     return (
-      <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-rose-500/20 bg-rose-500/5 p-8 text-[14px] text-rose-300">
-        Manager snapshot failed to load. Check API connectivity.
+      <div style={{ padding: 28, borderRadius: 10, background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.15)', color: '#fb7185', fontSize: 14 }}>
+        Could not load billing dashboard. Check API connectivity.
       </div>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {flash && (
-        <SectionStatusNotice
-          tone={flash.tone === 'success' ? 'success' : 'danger'}
-          message={flash.message}
-        />
-      )}
+  // Lane tab content — inline render (not a component) so it uses parent scope safely
+  const renderLane = (tab: 'claims' | 'eligibility') => {
+    const isClaims = tab === 'claims';
+    const lane: Lane = isClaims ? 'claim-status' : 'eligibility';
+    const items = isClaims ? workItems : eligWI;
+    const exItems = isClaims ? exceptions : eligEx;
+    const queueErr = isClaims
+      ? data?.panelStatus.claimStatusWorkItems === 'error'
+      : data?.panelStatus.eligibilityWorkItems === 'error';
+    const exErr = isClaims
+      ? data?.panelStatus.claimStatusExceptions === 'error'
+      : data?.panelStatus.eligibilityExceptions === 'error';
+    const protocol = isClaims ? 'X12 276/277' : 'HETS 270/271';
 
-      {data?.partial && data.warnings.length > 0 && (
-        <SectionStatusNotice
-          tone="warning"
-          message={`Some CRM panels are temporarily unavailable: ${data.warnings.join(' / ')}`}
-        />
-      )}
-
-      <div
-        className="rounded-3xl border p-6"
-        style={{
-          background: 'linear-gradient(135deg, rgba(17,24,39,0.96), rgba(10,15,28,0.92))',
-          borderColor: '#1f2937',
-        }}
-      >
-        <div className="flex items-start justify-between gap-6">
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4b5563]">
-              AgentPay RCM
-            </div>
-            <h1 className="text-[26px] font-semibold tracking-[-0.03em] text-white">
-              Autonomous billing operations
-            </h1>
-            <p className="max-w-xl text-[13px] leading-6 text-[#64748b]">
-              Agents work the queue. Humans review exceptions.
-            </p>
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
+        {/* Queue */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Work queue
+            </span>
+            <span style={{ fontSize: 10, color: '#2a2a2a', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{protocol}</span>
           </div>
-
-          <div className="grid min-w-[260px] gap-3">
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-400">
-                Active lanes
-              </div>
-              <div className="mt-2 text-[15px] font-semibold text-white">
-                Claim status / Eligibility
-              </div>
-              {data && (
-                <div className="mt-1 text-[12px] text-[#a7f3d0]">
-                  {queue?.totalOpen ?? 0} open / {queue?.openExceptionCount ?? 0} exceptions
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-[#1f2937] bg-[#0b1220] p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-                Auto-close rate
-              </div>
-              <div className="mt-2 text-[22px] font-semibold tracking-[-0.03em] text-white">
-                {isLoading ? (
-                  <Loader2 size={16} className="animate-spin text-[#64748b]" />
-                ) : (
-                  `${queue?.autoClosedPct ?? 0}%`
-                )}
-              </div>
-              {!isLoading && (
-                <div className="mt-1 text-[12px] text-[#64748b]">
-                  {queue?.autoClosedCount ?? 0} closed autonomously
-                </div>
-              )}
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {queueErr && <WarnBanner text="Queue temporarily unavailable — not a clear-queue signal." />}
+            {!queueErr && !isLoading && items.length === 0 && <EmptyState text="Queue is clear" />}
+            {!queueErr && items.map(item => (
+              <WorkItemRow
+                key={item.workItemId}
+                lane={lane}
+                item={item}
+                expandedId={expandedItem}
+                onExpand={setExpandedItem}
+                checkPending={isPending}
+                onAction={trigger}
+              />
+            ))}
+          </div>
+        </div>
+        {/* Exceptions */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Needs your attention
+            </span>
+            {exItems.length > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#fb7185' }}>{exItems.length} open</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {exErr && <WarnBanner text="Exception panel temporarily unavailable." />}
+            {!exErr && !isLoading && exItems.length === 0 && <EmptyState text="No open exceptions" />}
+            {!exErr && exItems.map(item => (
+              <ExceptionCard
+                key={item.exceptionId}
+                lane={lane}
+                item={item}
+                checkPending={isPending}
+                onAction={trigger}
+              />
+            ))}
           </div>
         </div>
       </div>
+    );
+  };
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: 'Open Queue',
-            value: isLoading ? '-' : String(queue?.totalOpen ?? 0),
-            subtext: `${queue?.totalWorkItems ?? 0} total work items`,
-            icon: Layers,
-            tone: 'text-sky-400',
-          },
-          {
-            label: 'Auto-Close Rate',
-            value: isLoading ? '-' : `${queue?.autoClosedPct ?? 0}%`,
-            subtext: `${queue?.autoClosedCount ?? 0} autonomous closures`,
-            icon: CheckCircle2,
-            tone: 'text-emerald-400',
-          },
-          {
-            label: 'Exception Pressure',
-            value: isLoading ? '-' : String(queue?.openExceptionCount ?? 0),
-            subtext: `${queue?.highSeverityExceptionCount ?? 0} high severity`,
-            icon: AlertTriangle,
-            tone: 'text-amber-400',
-          },
-          {
-            label: 'Amount at Risk',
-            value: isLoading ? '-' : formatCurrency(queue?.amountAtRiskOpen),
-            subtext: `${data?.workspaces.count ?? workspaces.length} active workspaces`,
-            icon: DollarSign,
-            tone: 'text-violet-400',
-          },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="rounded-2xl border p-5"
-            style={{ background: '#0b1220', borderColor: '#1f2937' }}
-          >
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-                {card.label}
-              </div>
-              <card.icon size={16} className={card.tone} />
+  return (
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+
+      {/* Flash toast */}
+      {flash && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999,
+          padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+          background: flash.tone === 'ok' ? 'rgba(16,185,129,0.1)' : 'rgba(244,63,94,0.08)',
+          border: `1px solid ${flash.tone === 'ok' ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.2)'}`,
+          color: flash.tone === 'ok' ? '#34d399' : '#fb7185',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          {flash.msg}
+        </div>
+      )}
+
+      {/* Partial-load warning */}
+      {data?.partial && data.warnings.length > 0 && (
+        <WarnBanner
+          text={`Some panels are temporarily unavailable: ${data.warnings.join(' · ')}`}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#e8e8e8', letterSpacing: '-0.02em' }}>
+              Billing operations
+            </h1>
+          </div>
+          <p style={{ margin: '3px 0 0 16px', fontSize: 11, color: '#444' }}>
+            Ace is working the queue · auto-refreshes every 30s
+          </p>
+        </div>
+        {isLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#444' }}>
+            <Loader2 size={12} className="animate-spin" />
+            Loading
+          </div>
+        )}
+      </div>
+
+      {/* KPI strip */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+        marginBottom: 20, borderRadius: 12,
+        border: '1px solid #161616', background: '#080808', overflow: 'hidden',
+      }}>
+        {kpis.map((kpi, i) => (
+          <div key={kpi.label} style={{ padding: '18px 22px', borderRight: i < 3 ? '1px solid #161616' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                {kpi.label}
+              </span>
+              <kpi.icon size={13} style={{ color: kpi.accent }} />
             </div>
-            <div className="mt-3 text-[28px] font-semibold tracking-[-0.03em] text-white">
-              {card.value}
+            <div style={{ fontSize: 26, fontWeight: 700, color: '#e8e8e8', letterSpacing: '-0.03em', lineHeight: 1 }}>
+              {kpi.value}
             </div>
-            <div className="mt-2 text-[13px] text-[#64748b]">{card.subtext}</div>
+            <div style={{ fontSize: 11, color: '#444', marginTop: 5 }}>{kpi.sub}</div>
           </div>
         ))}
       </div>
 
-      <div
-        className="rounded-2xl border p-5"
-        style={{ background: '#0b1220', borderColor: '#1f2937' }}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white">
-            <Layers size={16} className="text-sky-400" />
-            <h2 className="text-[16px] font-semibold">Claim status</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {isLoading && <Loader2 size={14} className="animate-spin text-[#64748b]" />}
-            <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-sky-300">
-              X12 276/277
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Work queue
-            </div>
-            {claimStatusWorkItemsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Claim-status queue is unavailable right now. The lane has not refreshed, so this is not a clear-queue signal."
-              />
-            )}
-            {!claimStatusWorkItemsUnavailable && !isLoading && workItems.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] text-[#64748b]">
-                Queue is clear.
-              </div>
-            )}
-            {!claimStatusWorkItemsUnavailable &&
-              workItems.map((item) => {
-                const actions = workItemActions('claim-status', item);
-                return (
-                  <div
-                    key={item.workItemId}
-                    className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="text-[14px] font-semibold text-white">{item.title}</div>
-                        <div className="text-[12px] text-[#64748b]">
-                          {joinMeta(item.workspaceName, item.payerName, item.claimRef)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <span
-                          className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${toneForPriority(item.priority)}`}
-                        >
-                          {labelize(item.priority)}
-                        </span>
-                        <span className="rounded-full border border-[#22304a] bg-[#0f172a] px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-[#cbd5e1]">
-                          {labelize(item.status)}
-                        </span>
-                        {item.requiresHumanReview && (
-                          <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-rose-300">
-                            Human review
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 text-[12px] text-[#cbd5e1] md:grid-cols-3">
-                      <div>
-                        <div className="text-[#64748b]">At risk</div>
-                        <div>{formatCurrency(item.amountAtRisk)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[#64748b]">Confidence</div>
-                        <div>{item.confidencePct === null ? 'Pending' : `${item.confidencePct}%`}</div>
-                      </div>
-                      <div>
-                        <div className="text-[#64748b]">Due</div>
-                        <div>{formatDate(item.dueAt)}</div>
-                      </div>
-                    </div>
-                    {actions.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {actions.map((payload) => (
-                          <ActionButton
-                            key={actionKey(payload)}
-                            payload={payload}
-                            pending={isPending(payload)}
-                            onClick={triggerAction}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Exceptions
-            </div>
-            {claimStatusExceptionsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Claim-status exceptions are unavailable right now. This is not a no-exception signal."
-              />
-            )}
-            {!claimStatusExceptionsUnavailable && !isLoading && exceptions.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] text-[#64748b]">
-                No open exceptions.
-              </div>
-            )}
-            {!claimStatusExceptionsUnavailable &&
-              exceptions.map((item) => {
-                const actions = exceptionActions('claim-status', item);
-                return (
-                  <div
-                    key={item.exceptionId}
-                    className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[13px] font-semibold text-white">{item.summary}</div>
-                        <div className="mt-1 text-[12px] text-[#64748b]">
-                          {joinMeta(item.workspaceName, item.payerName, item.claimRef)}
-                        </div>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] ${toneForSeverity(item.severity)}`}
-                      >
-                        {labelize(item.severity)}
-                      </span>
-                    </div>
-                    <div className="mt-3 space-y-1 text-[12px]">
-                      <div>
-                        <span className="text-[#64748b]">Type: </span>
-                        <span className="text-[#cbd5e1]">{labelize(item.exceptionType)}</span>
-                      </div>
-                      <div>
-                        <span className="text-[#64748b]">Action: </span>
-                        <span className="text-[#cbd5e1]">
-                          {item.recommendedHumanAction ?? 'Review case'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[#64748b]">SLA: </span>
-                        <span className="text-[#cbd5e1]">{formatDate(item.slaAt)}</span>
-                      </div>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {actions.map((payload) => (
-                        <ActionButton
-                          key={actionKey(payload)}
-                          payload={payload}
-                          pending={isPending(payload)}
-                          onClick={triggerAction}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Connectors
-            </div>
-            {claimStatusConnectorsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Claim-status connector health is unavailable right now."
-              />
-            )}
-            {!claimStatusConnectorsUnavailable &&
-              connectors.map((connector) => (
-                <div
-                  key={connector.key}
-                  className="rounded-2xl border border-[#162033] bg-[#0a1120] p-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[12px] font-semibold text-[#93c5fd]">
-                      {connector.label}
-                    </div>
-                    <ConnectorStatusBadge status={connector.status} />
-                  </div>
-                  <div className="mt-1 text-[12px] text-[#64748b]">{connector.notes}</div>
-                  {connector.capabilities.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {connector.capabilities.map((cap) => (
-                        <span
-                          key={cap}
-                          className="rounded-full border border-[#22304a] bg-[#0f172a] px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-[#94a3b8]"
-                        >
-                          {cap.replace(/_/g, ' ')}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="rounded-2xl border p-5"
-        style={{ background: '#0b1220', borderColor: '#1f2937' }}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white">
-            <Shield size={16} className="text-violet-400" />
-            <h2 className="text-[16px] font-semibold">Eligibility</h2>
-          </div>
-          <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-violet-300">
-            HETS 270/271
+      {/* Automation insight */}
+      {data && !isLoading && (q?.autoClosedPct ?? 0) > 0 && (
+        <div style={{
+          marginBottom: 20, padding: '10px 16px', borderRadius: 8,
+          background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <CheckCircle2 size={13} style={{ color: '#10b981', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#555' }}>
+            Ace auto-closed{' '}
+            <span style={{ color: '#34d399', fontWeight: 600 }}>{q?.autoClosedCount ?? 0} items</span>
+            {' '}({q?.autoClosedPct ?? 0}%) this period — your team only touched{' '}
+            <span style={{ color: '#aaa', fontWeight: 600 }}>{q?.humanClosedCount ?? 0}</span>.
           </span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Work queue
-            </div>
-            {eligibilityWorkItemsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Eligibility queue is unavailable right now. The lane has not refreshed, so this is not a clear-queue signal."
-              />
-            )}
-            {!eligibilityWorkItemsUnavailable && !isLoading && eligibilityWorkItems.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] text-[#64748b]">
-                Queue is clear.
-              </div>
-            )}
-            {!eligibilityWorkItemsUnavailable &&
-              eligibilityWorkItems.map((item) => {
-                const actions = workItemActions('eligibility', item);
-                return (
-                  <div
-                    key={item.workItemId}
-                    className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="text-[14px] font-semibold text-white">{item.title}</div>
-                        <div className="text-[12px] text-[#64748b]">
-                          {joinMeta(item.workspaceName, item.payerName, item.memberId)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <span
-                          className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.12em] ${toneForPriority(item.priority)}`}
-                        >
-                          {labelize(item.priority)}
-                        </span>
-                        <span className="rounded-full border border-[#22304a] bg-[#0f172a] px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-[#cbd5e1]">
-                          {labelize(item.status)}
-                        </span>
-                        {item.requiresHumanReview && (
-                          <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.12em] text-rose-300">
-                            Human review
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 text-[12px] text-[#cbd5e1] md:grid-cols-3">
-                      <div>
-                        <div className="text-[#64748b]">At risk</div>
-                        <div>{formatCurrency(item.amountAtRisk)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[#64748b]">Confidence</div>
-                        <div>{item.confidencePct === null ? 'Pending' : `${item.confidencePct}%`}</div>
-                      </div>
-                      <div>
-                        <div className="text-[#64748b]">Due</div>
-                        <div>{formatDate(item.dueAt)}</div>
-                      </div>
-                    </div>
-                    {actions.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {actions.map((payload) => (
-                          <ActionButton
-                            key={actionKey(payload)}
-                            payload={payload}
-                            pending={isPending(payload)}
-                            onClick={triggerAction}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Exceptions
-            </div>
-            {eligibilityExceptionsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Eligibility exceptions are unavailable right now. This is not a no-exception signal."
-              />
-            )}
-            {!eligibilityExceptionsUnavailable &&
-              !isLoading &&
-              eligibilityExceptions.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-4 text-[13px] text-[#64748b]">
-                  No open exceptions.
-                </div>
-              )}
-            {!eligibilityExceptionsUnavailable &&
-              eligibilityExceptions.map((item) => {
-                const actions = exceptionActions('eligibility', item);
-                return (
-                  <div
-                    key={item.exceptionId}
-                    className="rounded-2xl border border-[#162033] bg-[#0a1120] p-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-[13px] font-semibold text-white">{item.summary}</div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] ${toneForSeverity(item.severity)}`}
-                      >
-                        {labelize(item.severity)}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[12px] text-[#64748b]">
-                      {joinMeta(item.workspaceName, item.payerName, item.memberId)}
-                    </div>
-                    <div className="mt-2 text-[12px]">
-                      <span className="text-[#64748b]">Action: </span>
-                      <span className="text-[#cbd5e1]">
-                        {item.recommendedHumanAction ?? 'Review case'}
-                      </span>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {actions.map((payload) => (
-                        <ActionButton
-                          key={actionKey(payload)}
-                          payload={payload}
-                          pending={isPending(payload)}
-                          onClick={triggerAction}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Connectors
-            </div>
-            {eligibilityConnectorsUnavailable && (
-              <SectionStatusNotice
-                tone="warning"
-                message="Eligibility connector health is unavailable right now."
-              />
-            )}
-            {!eligibilityConnectorsUnavailable &&
-              eligibilityConnectors.map((connector) => (
-                <div
-                  key={connector.key}
-                  className="rounded-2xl border border-[#162033] bg-[#0a1120] p-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[12px] font-semibold text-[#93c5fd]">
-                      {connector.label}
-                    </div>
-                    <ConnectorStatusBadge status={connector.status} />
-                  </div>
-                  <div className="mt-1 text-[12px] text-[#64748b]">{connector.notes}</div>
-                </div>
-              ))}
-          </div>
-        </div>
-      </div>
-
-      {(connectors.length > 0 ||
-        eligibilityConnectors.length > 0 ||
-        claimStatusConnectorsUnavailable ||
-        eligibilityConnectorsUnavailable) && (
-        <div
-          className="rounded-2xl border p-5"
-          style={{ background: '#0b1220', borderColor: '#1f2937' }}
-        >
-          <div className="flex items-center gap-2 text-white">
-            <Cpu size={16} className="text-sky-400" />
-            <h2 className="text-[16px] font-semibold">Connector status</h2>
-          </div>
-          {(claimStatusConnectorsUnavailable || eligibilityConnectorsUnavailable) && (
-            <div className="mt-4">
-              <SectionStatusNotice
-                tone="warning"
-                message="One or more connector health panels failed to refresh. The visible cards below are only the lanes that returned successfully."
-              />
-            </div>
-          )}
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {[...connectors, ...eligibilityConnectors].map((connector) => (
-              <div
-                key={connector.key}
-                className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-[13px] font-semibold text-[#93c5fd]">{connector.label}</div>
-                  <ConnectorStatusBadge status={connector.status} />
-                </div>
-                <div className="mt-2 text-[12px] text-[#64748b]">{connector.notes}</div>
-                {connector.capabilities.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {connector.capabilities.map((cap) => (
-                      <span
-                        key={cap}
-                        className="rounded-full border border-[#22304a] bg-[#0f172a] px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-[#94a3b8]"
-                      >
-                        {cap.replace(/_/g, ' ')}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
-      <div
-        className="rounded-2xl border p-5"
-        style={{ background: '#0b1220', borderColor: '#1f2937' }}
-      >
-        <div className="flex items-center gap-2 text-white">
-          <Building2 size={16} className="text-emerald-400" />
-          <h2 className="text-[16px] font-semibold">Workspaces</h2>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {workspacesUnavailable ? (
-            <SectionStatusNotice
-              tone="warning"
-              message="Workspace roster is unavailable right now."
-            />
-          ) : !isLoading && workspaces.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#22304a] bg-[#0a1120] p-5 text-[13px] text-[#64748b]">
-              No workspaces active.
-            </div>
-          ) : (
-            workspaces.map((workspace) => (
-              <div
-                key={workspace.workspaceId}
-                className="rounded-2xl border border-[#162033] bg-[#0a1120] p-4"
-              >
-                <div className="text-[14px] font-semibold text-white">{workspace.name}</div>
-                <div className="mt-1 text-[12px] text-[#64748b]">
-                  {joinMeta(workspace.workspaceType, workspace.specialty)}
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-[12px]">
-                  <div>
-                    <div className="text-[#64748b]">Open</div>
-                    <div className="text-[#cbd5e1]">{workspace.openWorkItems}</div>
-                  </div>
-                  <div>
-                    <div className="text-[#64748b]">Review</div>
-                    <div className="text-[#cbd5e1]">{workspace.humanReviewCount}</div>
-                  </div>
-                  <div>
-                    <div className="text-[#64748b]">At risk</div>
-                    <div className="text-[#cbd5e1]">
-                      {formatCurrency(workspace.amountAtRiskOpen)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+      {/* Tab bar */}
+      <div style={{
+        display: 'flex', gap: 3, marginBottom: 18,
+        padding: 4, background: '#080808', borderRadius: 10,
+        border: '1px solid #161616', width: 'fit-content',
+      }}>
+        {TABS.map(tab => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '7px 13px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                background: active ? '#0f0f0f' : 'transparent',
+                color: active ? '#e0e0e0' : '#555',
+                boxShadow: active ? '0 1px 4px rgba(0,0,0,0.4)' : 'none',
+              }}
+            >
+              <tab.icon size={12} />
+              {tab.label}
+              {tab.count !== undefined && tab.count > 0 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 18, height: 18, borderRadius: 9, padding: '0 4px',
+                  fontSize: 10, fontWeight: 700,
+                  background: active ? '#10b981' : '#1a1a1a',
+                  color: active ? '#000' : '#777',
+                }}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      {/* Tab content */}
+      {(activeTab === 'claims' || activeTab === 'eligibility') && renderLane(activeTab)}
+
+      {activeTab === 'connectors' && (
+        <ConnectorGrid
+          connectors={[...connectors, ...eligCon]}
+          claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
+          eligErr={data?.panelStatus.eligibilityConnectors === 'error'}
+          isLoading={isLoading}
+        />
+      )}
+
+      {activeTab === 'workspaces' && (
+        <WorkspaceGrid
+          workspaces={workspaces}
+          unavailable={data?.panelStatus.workspaces === 'error'}
+          isLoading={isLoading}
+        />
+      )}
+
     </div>
   );
 }
