@@ -24,6 +24,7 @@ import {
   Animated,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +90,9 @@ export default function MapScreen() {
     : [];
 
   const mode = routeData ? 'navigate' : 'explore';
+  const mapProviderProps = Platform.OS === 'android'
+    ? { provider: PROVIDER_GOOGLE, customMapStyle: DARK_MAP_STYLE }
+    : {};
 
   // Route state
   const polylineCoords = routeData ? decodePolyline(routeData.polylineEncoded) : [];
@@ -195,8 +199,7 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
-        provider={PROVIDER_GOOGLE}
-        customMapStyle={DARK_MAP_STYLE}
+        {...mapProviderProps}
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}
