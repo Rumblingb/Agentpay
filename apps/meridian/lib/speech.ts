@@ -260,7 +260,6 @@ export async function transcribeAudio(uri: string): Promise<string> {
   if (!BRO_KEY) {
     throw createMissingBroKeyError();
   }
-
   let info: FileSystem.FileInfo;
   try {
     info = await FileSystem.getInfoAsync(uri);
