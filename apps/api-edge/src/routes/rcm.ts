@@ -8321,4 +8321,123 @@ router.get('/payer-intelligence', authenticateApiKey, async (c) => {
   } finally { sql?.end().catch(() => {}); }
 });
 
+// ── Credential vault routes ───────────────────────────────────────────────────
+
+import {
+  storeCredential,
+  revokeCredential,
+  type CredentialType,
+  type PlaintextCredential,
+} from '../lib/rcmCredentialVault';
+
+type VaultRow = {
+  id: string; workspace_id: string; credential_type: string;
+  payer_name: string; payer_id: string | null; portal_url: string | null;
+  meta: Record<string, unknown> | null; created_at: string; updated_at: string;
+  rotated_at: string | null; expires_at: string | null;
+};
+
+// GET /api/rcm/workspaces/:workspaceId/credentials
+router.get('/workspaces/:workspaceId/credentials', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { workspaceId } = c.req.param();
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    const ws = await sql`SELECT id FROM rcm_workspaces WHERE id = ${workspaceId} AND merchant_id = ${merchant.id} LIMIT 1`;
+    if (ws.length === 0) return c.json({ error: 'Workspace not found' }, 404);
+
+    const rows = await sql<VaultRow[]>`
+      SELECT id, workspace_id, credential_type, payer_name, payer_id, portal_url,
+             meta, created_at, updated_at, rotated_at, expires_at
+      FROM rcm_credential_vault
+      WHERE workspace_id = ${workspaceId}
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY payer_name
+    `;
+    return c.json({ credentials: rows });
+  } catch (err) {
+    console.error('[rcm] GET /credentials error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to load credentials' }, 500);
+  } finally { sql?.end().catch(() => {}); }
+});
+
+// POST /api/rcm/workspaces/:workspaceId/credentials
+router.post('/workspaces/:workspaceId/credentials', authenticateApiKey, async (c) => {
+  const env = c.env as Env;
+  const merchant = c.get('merchant');
+  const { workspaceId } = c.req.param();
+
+  if (!env.RCM_VAULT_ENCRYPTION_KEY) return c.json({ error: 'Vault not configured on this server' }, 503);
+
+  let body: {
+    credentialType?: CredentialType;
+    payerName?: string;
+    payerId?: string;
+    portalUrl?: string;
+    plaintextData?: PlaintextCredential;
+  };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  if (!body.payerName?.trim()) return c.json({ error: 'payerName required' }, 400);
+  if (!body.plaintextData || Object.keys(body.plaintextData).length === 0)
+    return c.json({ error: 'plaintextData required' }, 400);
+
+  const credentialType: CredentialType = body.credentialType ?? 'payer_portal';
+  const allowed: CredentialType[] = ['payer_portal', 'dde', 'x12_edi', 'api_key'];
+  if (!allowed.includes(credentialType)) return c.json({ error: 'Invalid credentialType' }, 400);
+
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(env);
+    const ws = await sql`SELECT id FROM rcm_workspaces WHERE id = ${workspaceId} AND merchant_id = ${merchant.id} LIMIT 1`;
+    if (ws.length === 0) return c.json({ error: 'Workspace not found' }, 404);
+    sql.end().catch(() => {});
+    sql = null;
+
+    const id = await storeCredential(env, {
+      workspaceId,
+      credentialType,
+      payerName: body.payerName.trim(),
+      payerId: body.payerId,
+      portalUrl: body.portalUrl,
+      plaintextData: body.plaintextData,
+    });
+
+    return c.json({ id }, 201);
+  } catch (err) {
+    console.error('[rcm] POST /credentials error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to store credential' }, 500);
+  } finally { sql?.end().catch(() => {}); }
+});
+
+// DELETE /api/rcm/credentials/:credentialId
+router.delete('/credentials/:credentialId', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { credentialId } = c.req.param();
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    // Verify ownership via workspace → merchant join before revoking
+    const rows = await sql`
+      SELECT cv.id
+      FROM rcm_credential_vault cv
+      JOIN rcm_workspaces ws ON ws.id = cv.workspace_id
+      WHERE cv.id = ${credentialId}
+        AND ws.merchant_id = ${merchant.id}
+        AND (cv.expires_at IS NULL OR cv.expires_at > NOW())
+      LIMIT 1
+    `;
+    if (rows.length === 0) return c.json({ error: 'Credential not found' }, 404);
+    sql.end().catch(() => {});
+    sql = null;
+
+    await revokeCredential(c.env as Env, credentialId);
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error('[rcm] DELETE /credentials error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to revoke credential' }, 500);
+  } finally { sql?.end().catch(() => {}); }
+});
+
 export { router as rcmRouter };

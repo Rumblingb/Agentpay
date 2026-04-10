@@ -206,6 +206,16 @@ type BriefingData = { fallback: boolean; summary: string };
 type PayerRow = { payerName: string; totalItems: number; denialRate: number; autoClosePct: number; amountAtRisk: number };
 type PayerIntelData = { payers: PayerRow[] };
 
+type CredentialType = 'payer_portal' | 'api_key' | 'x12_edi' | 'dde';
+type StoredCredential = {
+  id: string;
+  credentialType: CredentialType;
+  payerName: string;
+  portalUrl: string | null;
+  createdAt: string;
+  rotatedAt: string | null;
+};
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
@@ -232,6 +242,32 @@ async function persistPolicy(workspaceId: string, policy: ApprovalPolicy): Promi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspaceId, approvalPolicy: policy }),
   }).catch(() => {});
+}
+
+async function fetchCredentials(workspaceId: string): Promise<StoredCredential[]> {
+  const res = await fetch(`/api/rcm/payer-vault?workspaceId=${encodeURIComponent(workspaceId)}`);
+  if (!res.ok) return [];
+  const data = await res.json() as { credentials?: StoredCredential[] };
+  return data.credentials ?? [];
+}
+
+async function saveCredential(payload: {
+  workspaceId: string;
+  credentialType: CredentialType;
+  payerName: string;
+  portalUrl?: string;
+  plaintextData: Record<string, string>;
+}): Promise<{ id?: string; error?: string }> {
+  const res = await fetch('/api/rcm/payer-vault', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json().catch(() => ({ error: 'Parse error' }));
+}
+
+async function deleteCredential(id: string): Promise<void> {
+  await fetch(`/api/rcm/payer-vault/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 async function fetchAppeal(workItemId: string): Promise<{ appeal?: string; error?: string }> {
@@ -622,12 +658,15 @@ function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: Excepti
 // ── Connector grid — A2A payer readiness ──────────────────────────────────────
 
 function ConnectorGrid({
-  connectors, claimErr, eligErr, isLoading,
+  connectors, claimErr, eligErr, isLoading, credentials, onConnect, onRevoke,
 }: {
   connectors: Connector[];
   claimErr: boolean;
   eligErr: boolean;
   isLoading: boolean;
+  credentials: StoredCredential[];
+  onConnect: (payerName: string) => void;
+  onRevoke: (credentialId: string, payerName: string) => void;
 }) {
   const liveCount = connectors.filter(c => c.status === 'live').length;
   const simCount = connectors.filter(c => c.status === 'simulation').length;
@@ -667,11 +706,12 @@ function ConnectorGrid({
         {connectors.map(c => {
           const isLive = c.status === 'live';
           const isSim = c.status === 'simulation';
-          const label = isLive ? 'Agent-ready' : isSim ? 'Connecting' : 'Legacy queue';
+          const statusLabel = isLive ? 'Agent-ready' : isSim ? 'Connecting' : 'Legacy queue';
           const color = isLive ? '#34d399' : isSim ? '#fcd34d' : '#555';
           const bg = isLive ? 'rgba(16,185,129,0.08)' : isSim ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)';
           const bdr = isLive ? 'rgba(16,185,129,0.2)' : isSim ? 'rgba(245,158,11,0.15)' : '#1a1a1a';
           const speed = isLive ? '~24h via API' : isSim ? 'Connecting...' : '3–5 business days';
+          const cred = credentials.find(cr => cr.payerName.toLowerCase() === c.label.toLowerCase());
 
           return (
             <div key={c.key} style={{ padding: '14px 16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
@@ -682,7 +722,7 @@ function ConnectorGrid({
                   background: bg, border: `1px solid ${bdr}`,
                   fontSize: 10, fontWeight: 600, color, letterSpacing: '0.04em',
                 }}>
-                  {label}
+                  {statusLabel}
                 </span>
               </div>
               <div style={{ fontSize: 11, color: '#444', marginBottom: 8 }}>{speed}</div>
@@ -699,6 +739,36 @@ function ConnectorGrid({
                   ))}
                 </div>
               )}
+              {/* Credential row */}
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #111', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                {cred ? (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>Credentials stored</span>
+                      <span style={{ fontSize: 10, color: '#333' }}>· {cred.credentialType.replace(/_/g, ' ')}</span>
+                    </div>
+                    <button
+                      onClick={() => onRevoke(cred.id, c.label)}
+                      style={{ fontSize: 10, fontWeight: 600, color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}
+                    >
+                      Revoke
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => onConnect(c.label)}
+                    style={{
+                      fontSize: 11, fontWeight: 600, color: '#888',
+                      background: 'rgba(255,255,255,0.03)', border: '1px solid #1c1c1c',
+                      borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    + Connect
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -954,6 +1024,154 @@ function AgentConsole({
           <span style={{ color: '#fcd34d', fontWeight: 600 }}>Auto + notify</span> — Ace acts, you get an alert{' · '}
           <span style={{ color: '#fb7185', fontWeight: 600 }}>Human review</span> — Ace queues it for you
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Connect modal ─────────────────────────────────────────────────────────────
+
+function ConnectModal({
+  payerName, workspaceId, onSuccess, onClose,
+}: {
+  payerName: string;
+  workspaceId: string;
+  onSuccess: () => void;
+  onClose: () => void;
+}) {
+  const [credType, setCredType] = useState<CredentialType>('payer_portal');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [portalUrl, setPortalUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    const plaintextData: Record<string, string> = {};
+    if (credType === 'payer_portal' || credType === 'dde') {
+      if (!username.trim()) { setError('Username is required.'); return; }
+      if (!password.trim()) { setError('Password is required.'); return; }
+      plaintextData.username = username.trim();
+      plaintextData.password = password.trim();
+    } else {
+      if (!apiKey.trim()) { setError('API key / EDI key is required.'); return; }
+      plaintextData.apiKey = apiKey.trim();
+    }
+
+    setSaving(true);
+    const result = await saveCredential({
+      workspaceId,
+      credentialType: credType,
+      payerName,
+      portalUrl: portalUrl.trim() || undefined,
+      plaintextData,
+    });
+    setSaving(false);
+
+    if (result.error) { setError(result.error); return; }
+    onSuccess();
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#0d0d0d', border: '1px solid #1c1c1c',
+    borderRadius: 8, color: '#ededef', fontSize: 13, padding: '10px 12px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, system-ui, sans-serif',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 460, background: '#0a0a0a', border: '1px solid #1c1c1c', borderRadius: 14, overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.7)' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #141414', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#ededef' }}>Connect payer</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>{payerName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <form onSubmit={submit} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Credential type */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Connection type</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([['payer_portal', 'Portal login'], ['api_key', 'API key'], ['x12_edi', 'X12 EDI'], ['dde', 'DDE']] as [CredentialType, string][]).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setCredType(val)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    background: credType === val ? 'rgba(16,185,129,0.1)' : 'transparent',
+                    border: `1px solid ${credType === val ? 'rgba(16,185,129,0.3)' : '#1c1c1c'}`,
+                    color: credType === val ? '#34d399' : '#555',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Portal URL (all types) */}
+          <div>
+            <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              Portal URL <span style={{ color: '#333', textTransform: 'none', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input type="url" value={portalUrl} onChange={e => setPortalUrl(e.target.value)} placeholder="https://provider.availity.com" style={inputStyle} />
+          </div>
+
+          {/* Fields by type */}
+          {(credType === 'payer_portal' || credType === 'dde') ? (
+            <>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Username / NPI</label>
+                <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="your_username" autoComplete="off" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Password</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" style={inputStyle} />
+              </div>
+            </>
+          ) : (
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                {credType === 'x12_edi' ? 'Submitter ID / key' : 'API key'}
+              </label>
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="••••••••••••" autoComplete="new-password" style={inputStyle} />
+            </div>
+          )}
+
+          {error && <div style={{ fontSize: 12, color: '#fb7185' }}>{error}</div>}
+
+          <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.08)', fontSize: 11, color: '#444', lineHeight: 1.6 }}>
+            Credentials are encrypted with AES-256-GCM before storage. Ace never logs plaintext.
+          </div>
+
+          <button
+            type="submit"
+            disabled={saving}
+            style={{
+              padding: '12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+              background: saving ? '#059669' : '#10b981', color: '#000',
+              border: 'none', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.8 : 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}
+          >
+            {saving && <Loader2 size={13} className="animate-spin" />}
+            {saving ? 'Encrypting & saving…' : 'Save credentials →'}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -1284,6 +1502,7 @@ export default function RcmManagerClient() {
   const [appealText, setAppealText] = useState<string | null>(null);
   const [appealLoading, setAppealLoading] = useState(false);
   const [appealError, setAppealError] = useState<string | null>(null);
+  const [connectTarget, setConnectTarget] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
@@ -1300,6 +1519,16 @@ export default function RcmManagerClient() {
     },
     staleTime: 3_600_000,
     retry: false,
+  });
+
+  const primaryWorkspaceId = data?.workspaces.items[0]?.workspaceId ?? null;
+
+  const { data: credentialsData, refetch: refetchCredentials } = useQuery<StoredCredential[]>({
+    queryKey: ['rcm-credentials', primaryWorkspaceId],
+    queryFn: () => primaryWorkspaceId ? fetchCredentials(primaryWorkspaceId) : Promise.resolve([]),
+    staleTime: 60_000,
+    retry: false,
+    enabled: activeTab === 'connectors' && !!primaryWorkspaceId,
   });
 
   const { data: payerIntelData, isLoading: payerIntelLoading } = useQuery<PayerIntelData>({
@@ -1341,6 +1570,12 @@ export default function RcmManagerClient() {
 
   function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
   function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
+
+  async function handleRevoke(credentialId: string, payerName: string) {
+    await deleteCredential(credentialId);
+    refetchCredentials();
+    setFlash({ tone: 'ok', msg: `${payerName} disconnected.` });
+  }
 
   async function handleAppeal(workItemId: string) {
     setAppealWorkItemId(workItemId);
@@ -1609,6 +1844,9 @@ export default function RcmManagerClient() {
             claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
             eligErr={data?.panelStatus.eligibilityConnectors === 'error'}
             isLoading={isLoading}
+            credentials={credentialsData ?? []}
+            onConnect={setConnectTarget}
+            onRevoke={handleRevoke}
           />
           <PayerIntelligence data={payerIntelData} loading={payerIntelLoading} />
         </>
@@ -1635,6 +1873,16 @@ export default function RcmManagerClient() {
           humanInterventionPct={q?.humanInterventionPct ?? 0}
           autoClosedCount={q?.autoClosedCount ?? 0}
           isLoading={isLoading}
+        />
+      )}
+
+      {/* Connect credential modal */}
+      {connectTarget && primaryWorkspaceId && (
+        <ConnectModal
+          payerName={connectTarget}
+          workspaceId={primaryWorkspaceId}
+          onSuccess={() => { setConnectTarget(null); refetchCredentials(); setFlash({ tone: 'ok', msg: `${connectTarget} connected.` }); }}
+          onClose={() => setConnectTarget(null)}
         />
       )}
 
