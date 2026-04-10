@@ -8121,4 +8121,204 @@ router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => 
   } finally { sql.end().catch(() => {}); }
 });
 
+// ── RCM AI helper ─────────────────────────────────────────────────────────────
+
+async function rcmAI(
+  apiKey: string,
+  system: string,
+  user: string,
+  model: 'claude-haiku-4-5-20251001' | 'claude-sonnet-4-6',
+  maxTokens: number,
+): Promise<string> {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: user }],
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const data = await resp.json() as { content?: Array<{ text: string }> };
+  return data?.content?.[0]?.text ?? '';
+}
+
+// ── GET /api/rcm/daily-briefing ───────────────────────────────────────────────
+
+type BriefingUrgentRow = { title: string; payer_name: string | null; amount_at_risk: string | null; priority: string };
+type BriefingExcRow = { severity: string; count: string };
+type BriefingCountRow = { count: string };
+
+router.get('/daily-briefing', authenticateApiKey, async (c) => {
+  const env = c.env as Env;
+  const merchant = c.get('merchant');
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(env);
+    const [urgentItems, exceptionStats, autoClosedLast24h] = await Promise.all([
+      sql<BriefingUrgentRow[]>`
+        SELECT title, payer_name, amount_at_risk, priority
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND status IN ('human_review_required','awaiting_qa','blocked')
+          AND priority IN ('urgent','high')
+        ORDER BY
+          CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,
+          amount_at_risk DESC NULLS LAST
+        LIMIT 5
+      `,
+      sql<BriefingExcRow[]>`
+        SELECT e.severity, COUNT(*)::text AS count
+        FROM rcm_exceptions e
+        JOIN rcm_work_items w ON e.work_item_id = w.work_item_id
+        WHERE w.merchant_id = ${merchant.id}
+          AND e.resolved_at IS NULL
+        GROUP BY e.severity
+      `,
+      sql<BriefingCountRow[]>`
+        SELECT COUNT(*)::text AS count
+        FROM rcm_work_items
+        WHERE merchant_id = ${merchant.id}
+          AND status = 'auto_closed'
+          AND updated_at > NOW() - INTERVAL '24 hours'
+      `,
+    ]);
+
+    const autoCount = Number(autoClosedLast24h[0]?.count ?? 0);
+    const criticalExc = Number(exceptionStats.find(e => e.severity === 'critical')?.count ?? 0);
+    const highExc = Number(exceptionStats.find(e => e.severity === 'high')?.count ?? 0);
+
+    if (!env.ANTHROPIC_API_KEY) {
+      return c.json({
+        fallback: true,
+        summary: `${urgentItems.length} item${urgentItems.length !== 1 ? 's' : ''} need attention · ${autoCount} auto-resolved today`,
+      });
+    }
+
+    const itemsSummary = urgentItems.length > 0
+      ? urgentItems.map(i => `- ${i.title}${i.payer_name ? ` (${i.payer_name})` : ''}, $${i.amount_at_risk ?? 0}, ${i.priority}`).join('\n')
+      : 'No urgent items.';
+
+    const text = await rcmAI(
+      env.ANTHROPIC_API_KEY,
+      'You write morning briefings for a medical billing manager. 3–5 sentences. Start with most urgent. Concise, specific, no pleasantries.',
+      `Today:\nUrgent/high items needing attention (${urgentItems.length}):\n${itemsSummary}\n\nOpen exceptions: ${criticalExc} critical, ${highExc} high\nAuto-resolved in last 24h: ${autoCount}`,
+      'claude-haiku-4-5-20251001',
+      256,
+    );
+
+    return c.json({ fallback: false, summary: text });
+  } catch (err) {
+    console.error('[rcm] GET /daily-briefing error:', err instanceof Error ? err.message : err);
+    return c.json({ fallback: true, summary: 'Briefing temporarily unavailable.' });
+  } finally { sql?.end().catch(() => {}); }
+});
+
+// ── POST /api/rcm/generate-appeal ─────────────────────────────────────────────
+
+type AppealWorkItemRow = {
+  title: string; payer_name: string | null; claim_ref: string | null;
+  patient_ref: string | null; provider_ref: string | null;
+  amount_at_risk: string | null; metadata: Record<string, string> | null;
+};
+
+router.post('/generate-appeal', authenticateApiKey, async (c) => {
+  const env = c.env as Env;
+  const merchant = c.get('merchant');
+
+  if (!env.ANTHROPIC_API_KEY) return c.json({ error: 'AI not configured' }, 503);
+
+  let body: { workItemId?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  if (!body.workItemId) return c.json({ error: 'workItemId required' }, 400);
+
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(env);
+    const rows = await sql<AppealWorkItemRow[]>`
+      SELECT title, payer_name, claim_ref, patient_ref, provider_ref, amount_at_risk, metadata
+      FROM rcm_work_items
+      WHERE work_item_id = ${body.workItemId}
+        AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (rows.length === 0) return c.json({ error: 'Work item not found' }, 404);
+
+    const item = rows[0];
+    const meta = item.metadata ?? {};
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const appealText = await rcmAI(
+      env.ANTHROPIC_API_KEY,
+      'You are a medical billing specialist. Write a professional insurance appeal letter. Under 300 words. Standard format: Date, To, Re, Body, Closing. Use [PLACEHOLDER] for missing info.',
+      `Write an appeal letter:\nDate: ${today}\nPayer: ${item.payer_name ?? '[PAYER NAME]'}\nClaim ref: ${item.claim_ref ?? '[CLAIM REF]'}\nPatient: ${item.patient_ref ?? '[PATIENT ID]'}\nProvider: ${item.provider_ref ?? '[PROVIDER]'}\nAmount: $${item.amount_at_risk ?? 0}\nDenial code: ${meta['denialCode'] ?? '[DENIAL CODE]'}\nDenial reason: ${meta['denialReason'] ?? item.title}`,
+      'claude-sonnet-4-6',
+      600,
+    );
+
+    return c.json({ appeal: appealText });
+  } catch (err) {
+    console.error('[rcm] POST /generate-appeal error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to generate appeal' }, 500);
+  } finally { sql?.end().catch(() => {}); }
+});
+
+// ── GET /api/rcm/payer-intelligence ──────────────────────────────────────────
+
+type PayerIntelRow = {
+  payer_name: string; total_items: number; denial_rate: number;
+  auto_close_pct: number; amount_at_risk: number;
+};
+
+router.get('/payer-intelligence', authenticateApiKey, async (c) => {
+  const env = c.env as Env;
+  const merchant = c.get('merchant');
+  const windowDays = Math.min(parseInt(c.req.query('windowDays') ?? '30', 10) || 30, 90);
+
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(env);
+    const rows = await sql<PayerIntelRow[]>`
+      SELECT
+        payer_name,
+        COUNT(*)::int AS total_items,
+        ROUND(
+          100.0 * COUNT(*) FILTER (WHERE status IN ('rejected','human_review_required'))
+          / NULLIF(COUNT(*), 0)
+        , 1)::float AS denial_rate,
+        ROUND(
+          100.0 * COUNT(*) FILTER (WHERE status = 'auto_closed')
+          / NULLIF(COUNT(*), 0)
+        , 1)::float AS auto_close_pct,
+        COALESCE(SUM(amount_at_risk), 0)::float AS amount_at_risk
+      FROM rcm_work_items
+      WHERE merchant_id = ${merchant.id}
+        AND payer_name IS NOT NULL
+        AND created_at > NOW() - (${windowDays} || ' days')::INTERVAL
+      GROUP BY payer_name
+      ORDER BY amount_at_risk DESC
+      LIMIT 15
+    `;
+
+    const payers = rows.map(r => ({
+      payerName: r.payer_name,
+      totalItems: r.total_items,
+      denialRate: r.denial_rate ?? 0,
+      autoClosePct: r.auto_close_pct ?? 0,
+      amountAtRisk: r.amount_at_risk ?? 0,
+    }));
+
+    return c.json({ payers, windowDays });
+  } catch (err) {
+    console.error('[rcm] GET /payer-intelligence error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to load payer intelligence' }, 500);
+  } finally { sql?.end().catch(() => {}); }
+});
+
 export { router as rcmRouter };

@@ -202,6 +202,10 @@ type ManagerSnapshot = {
 
 type ActionResponse = { message?: string; error?: string };
 
+type BriefingData = { fallback: boolean; summary: string };
+type PayerRow = { payerName: string; totalItems: number; denialRate: number; autoClosePct: number; amountAtRisk: number };
+type PayerIntelData = { payers: PayerRow[] };
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 async function fetchRcmManagerSnapshot(): Promise<ManagerSnapshot> {
@@ -228,6 +232,15 @@ async function persistPolicy(workspaceId: string, policy: ApprovalPolicy): Promi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspaceId, approvalPolicy: policy }),
   }).catch(() => {});
+}
+
+async function fetchAppeal(workItemId: string): Promise<{ appeal?: string; error?: string }> {
+  const res = await fetch('/api/rcm/generate-appeal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workItemId }),
+  });
+  return res.json().catch(() => ({ error: 'Failed to parse response' }));
 }
 
 function hydratePolicy(workspaceId: string, serverPolicy?: ApprovalPolicy): ApprovalPolicy {
@@ -296,61 +309,92 @@ function exceptionActions(lane: Lane, item: ClaimStatusException | EligibilityEx
   ];
 }
 
-// ── Digest strip ───────────────────────────────────────────────────────────────
+// ── Briefing strip ─────────────────────────────────────────────────────────────
 
-function DigestStrip({
-  autoCount, humanReviewCount, autoClosedPct, isLoading, onReview,
+function BriefingStrip({
+  briefing, briefingLoading,
+  humanReviewCount, autoCount, autoClosedPct, snapshotLoading, onReview,
 }: {
-  autoCount: number;
+  briefing: BriefingData | null | undefined;
+  briefingLoading: boolean;
   humanReviewCount: number;
+  autoCount: number;
   autoClosedPct: number;
-  isLoading: boolean;
+  snapshotLoading: boolean;
   onReview: () => void;
 }) {
-  if (isLoading) return null;
+  const [expanded, setExpanded] = useState(false);
+
+  const fallbackText = snapshotLoading ? null
+    : autoCount > 0
+      ? `${autoCount} item${autoCount !== 1 ? 's' : ''} auto-resolved today · ${autoClosedPct}% autonomous rate`
+      : 'Queue is clear';
+
+  const displayText = briefing?.summary ?? fallbackText;
+  const isFallback = !briefing || briefing.fallback;
+
+  const needsTruncate = (displayText?.length ?? 0) > 200;
+  const shown = needsTruncate && !expanded
+    ? `${displayText!.slice(0, 200)}\u2026`
+    : displayText;
+
   return (
     <div style={{
-      marginBottom: 16, padding: '11px 18px', borderRadius: 10,
+      marginBottom: 16, padding: '12px 16px', borderRadius: 10,
       background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.1)',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 6, height: 6, borderRadius: '50%', background: '#10b981',
-            animation: 'ace-pulse 1.4s ease-in-out infinite',
-          }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#10b981', letterSpacing: '-0.01em' }}>Ace</span>
-        </div>
-        <span style={{ fontSize: 12, color: '#555' }}>
-          handled today:{' '}
-          <span style={{ color: '#bbb' }}>
-            {autoCount > 0 ? `${autoCount} item${autoCount !== 1 ? 's' : ''} auto-resolved` : 'queue clear'}
-          </span>
-          {autoClosedPct > 0 && (
-            <span style={{ color: '#444' }}> · {autoClosedPct}% autonomous rate</span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, marginTop: 1 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#10b981',
+              animation: 'ace-pulse 1.4s ease-in-out infinite',
+            }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981', letterSpacing: '-0.01em' }}>Ace</span>
+          </div>
+
+          {briefingLoading && !displayText ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+              <div style={{ width: 120, height: 10, borderRadius: 4, background: '#111', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+              <div style={{ width: 80, height: 10, borderRadius: 4, background: '#111', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+            </div>
+          ) : (
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 12, color: isFallback ? '#555' : '#aaa', lineHeight: 1.6 }}>
+                {shown}
+              </span>
+              {needsTruncate && (
+                <button
+                  onClick={() => setExpanded(x => !x)}
+                  style={{ marginLeft: 6, fontSize: 11, color: '#444', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  {expanded ? 'less' : 'more'}
+                </button>
+              )}
+            </div>
           )}
-        </span>
+        </div>
+
+        {!snapshotLoading && (humanReviewCount > 0 ? (
+          <button
+            onClick={onReview}
+            style={{
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+              background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)',
+              color: '#fb7185', cursor: 'pointer',
+            }}
+          >
+            <AlertTriangle size={10} />
+            {humanReviewCount} need{humanReviewCount === 1 ? 's' : ''} your input
+          </button>
+        ) : (
+          <span style={{ flexShrink: 0, fontSize: 11, color: '#333', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <CheckCircle2 size={10} style={{ color: '#10b981' }} />
+            Nothing needs your input
+          </span>
+        ))}
       </div>
-      {humanReviewCount > 0 ? (
-        <button
-          onClick={onReview}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-            background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)',
-            color: '#fb7185', cursor: 'pointer',
-          }}
-        >
-          <AlertTriangle size={10} />
-          {humanReviewCount} need{humanReviewCount === 1 ? 's' : ''} your input
-        </button>
-      ) : (
-        <span style={{ fontSize: 11, color: '#333', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <CheckCircle2 size={10} style={{ color: '#10b981' }} />
-          Nothing needs your input
-        </span>
-      )}
     </div>
   );
 }
@@ -510,9 +554,10 @@ type ExceptionCardProps = {
   item: ClaimStatusException | EligibilityException;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
+  onAppeal?: (workItemId: string) => void;
 };
 
-function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProps) {
+function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: ExceptionCardProps) {
   const actions = exceptionActions(lane, item);
   const { bg, border, text } = severityStyle(item.severity);
   const ref = lane === 'claim-status'
@@ -546,6 +591,20 @@ function ExceptionCard({ lane, item, checkPending, onAction }: ExceptionCardProp
         {actions.map(p => (
           <ActionBtn key={actionKey(p)} payload={p} pending={checkPending(p)} onClick={onAction} />
         ))}
+        {onAppeal && (item.exceptionType?.toLowerCase().includes('denial') || item.severity === 'critical') && lane === 'claim-status' && (
+          <button
+            onClick={() => onAppeal(item.workItemId)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '5px 11px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+              letterSpacing: '0.05em', textTransform: 'uppercase', cursor: 'pointer',
+              background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)',
+              color: '#a78bfa',
+            }}
+          >
+            Appeal
+          </button>
+        )}
         {item.slaAt && (
           <span style={{ marginLeft: 'auto', fontSize: 11, color: '#444' }}>SLA {fmtDate(item.slaAt)}</span>
         )}
@@ -894,6 +953,176 @@ function AgentConsole({
   );
 }
 
+// ── Appeal modal ──────────────────────────────────────────────────────────────
+
+function AppealModal({
+  text, loading, error, onClose,
+}: {
+  text: string | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 600, maxHeight: '80vh',
+          background: '#0a0a0a', border: '1px solid #1c1c1c', borderRadius: 14,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.7)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #141414', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#ededef' }}>Appeal letter</div>
+            <div style={{ fontSize: 11, color: '#444', marginTop: 2 }}>Drafted by Ace · Review before sending</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {text && (
+              <button
+                onClick={copy}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                  background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
+                  color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                }}
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+          {loading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#555', fontSize: 13 }}>
+              <Loader2 size={14} className="animate-spin" />
+              Drafting appeal\u2026
+            </div>
+          )}
+          {error && (
+            <div style={{ fontSize: 13, color: '#fb7185' }}>{error}</div>
+          )}
+          {text && !loading && (
+            <pre style={{
+              margin: 0, fontSize: 12, color: '#ccc', lineHeight: 1.8,
+              fontFamily: 'Inter, system-ui, sans-serif', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {text}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Payer intelligence ────────────────────────────────────────────────────────
+
+function PayerIntelligence({ data, loading }: { data: PayerIntelData | undefined; loading: boolean }) {
+  const [open, setOpen] = useState(false);
+  const payers = (data?.payers ?? []).slice(0, 10);
+
+  return (
+    <div style={{ marginTop: 20, borderTop: '1px solid #111', paddingTop: 16 }}>
+      <button
+        onClick={() => setOpen(x => !x)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Payer analytics
+        </span>
+        <ChevronDown
+          size={13}
+          style={{ color: '#333', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}
+        />
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[1, 2, 3].map(n => (
+                <div key={n} style={{ height: 32, borderRadius: 6, background: '#0d0d0d', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+              ))}
+            </div>
+          )}
+          {!loading && payers.length === 0 && (
+            <EmptyState text="No payer data for this period." />
+          )}
+          {!loading && payers.length > 0 && (
+            <div style={{ borderRadius: 8, border: '1px solid #141414', overflow: 'hidden' }}>
+              {/* Table header */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.2fr',
+                padding: '8px 14px', background: '#090909', borderBottom: '1px solid #141414',
+              }}>
+                {['Payer', 'Denial rate', 'Auto-close', '$ at risk'].map(h => (
+                  <span key={h} style={{ fontSize: 10, fontWeight: 600, color: '#333', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {h}
+                  </span>
+                ))}
+              </div>
+              {payers.map((p, i) => (
+                <div key={p.payerName} style={{
+                  display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.2fr',
+                  padding: '9px 14px',
+                  background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                  borderBottom: i < payers.length - 1 ? '1px solid #0f0f0f' : 'none',
+                }}>
+                  <span style={{ fontSize: 12, color: '#ccc', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.payerName}
+                  </span>
+                  <span style={{ fontSize: 12, color: p.denialRate > 20 ? '#f59e0b' : '#555', fontWeight: p.denialRate > 20 ? 600 : 400 }}>
+                    {p.denialRate.toFixed(1)}%
+                  </span>
+                  <span style={{ fontSize: 12, color: p.autoClosePct > 60 ? '#34d399' : '#555', fontWeight: p.autoClosePct > 60 ? 600 : 400 }}>
+                    {p.autoClosePct.toFixed(1)}%
+                  </span>
+                  <span style={{ fontSize: 12, color: '#888' }}>
+                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(p.amountAtRisk)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TTS (voice FAB) ───────────────────────────────────────────────────────────
 
 function useDashboardTts() {
@@ -1041,11 +1270,38 @@ export default function RcmManagerClient() {
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy>(DEFAULT_POLICY);
   const [policyInit, setPolicyInit] = useState(false);
+  const [appealWorkItemId, setAppealWorkItemId] = useState<string | null>(null);
+  const [appealText, setAppealText] = useState<string | null>(null);
+  const [appealLoading, setAppealLoading] = useState(false);
+  const [appealError, setAppealError] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
     queryFn: fetchRcmManagerSnapshot,
     refetchInterval: 30_000,
+  });
+
+  const { data: briefingData, isLoading: briefingLoading } = useQuery<BriefingData>({
+    queryKey: ['rcm-briefing'],
+    queryFn: async () => {
+      const res = await fetch('/api/rcm/daily-briefing');
+      if (!res.ok) return { fallback: true, summary: 'Briefing temporarily unavailable.' };
+      return res.json();
+    },
+    staleTime: 3_600_000,
+    retry: false,
+  });
+
+  const { data: payerIntelData, isLoading: payerIntelLoading } = useQuery<PayerIntelData>({
+    queryKey: ['rcm-payer-intel'],
+    queryFn: async () => {
+      const res = await fetch('/api/rcm/payer-intelligence');
+      if (!res.ok) return { payers: [] };
+      return res.json();
+    },
+    staleTime: 900_000,
+    retry: false,
+    enabled: activeTab === 'connectors',
   });
 
   useEffect(() => {
@@ -1074,6 +1330,23 @@ export default function RcmManagerClient() {
 
   function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
   function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
+
+  async function handleAppeal(workItemId: string) {
+    setAppealWorkItemId(workItemId);
+    setAppealText(null);
+    setAppealError(null);
+    setAppealLoading(true);
+    const result = await fetchAppeal(workItemId);
+    setAppealLoading(false);
+    if (result.error) setAppealError(result.error);
+    else setAppealText(result.appeal ?? null);
+  }
+
+  function closeAppeal() {
+    setAppealWorkItemId(null);
+    setAppealText(null);
+    setAppealError(null);
+  }
 
   const q = data?.overview.queue;
   const workspaces = data?.workspaces.items ?? [];
@@ -1188,6 +1461,7 @@ export default function RcmManagerClient() {
                 item={item}
                 checkPending={isPending}
                 onAction={trigger}
+                onAppeal={handleAppeal}
               />
             ))}
           </div>
@@ -1264,12 +1538,14 @@ export default function RcmManagerClient() {
         ))}
       </div>
 
-      {/* Digest strip */}
-      <DigestStrip
-        autoCount={q?.autoClosedCount ?? 0}
+      {/* Briefing strip */}
+      <BriefingStrip
+        briefing={briefingData}
+        briefingLoading={briefingLoading}
         humanReviewCount={q?.humanReviewCount ?? 0}
+        autoCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
-        isLoading={isLoading}
+        snapshotLoading={isLoading}
         onReview={() => setActiveTab('claims')}
       />
 
@@ -1316,12 +1592,15 @@ export default function RcmManagerClient() {
       {(activeTab === 'claims' || activeTab === 'eligibility') && renderLane(activeTab)}
 
       {activeTab === 'connectors' && (
-        <ConnectorGrid
-          connectors={[...connectors, ...eligCon]}
-          claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
-          eligErr={data?.panelStatus.eligibilityConnectors === 'error'}
-          isLoading={isLoading}
-        />
+        <>
+          <ConnectorGrid
+            connectors={[...connectors, ...eligCon]}
+            claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
+            eligErr={data?.panelStatus.eligibilityConnectors === 'error'}
+            isLoading={isLoading}
+          />
+          <PayerIntelligence data={payerIntelData} loading={payerIntelLoading} />
+        </>
       )}
 
       {activeTab === 'workspaces' && (
@@ -1345,6 +1624,16 @@ export default function RcmManagerClient() {
           humanInterventionPct={q?.humanInterventionPct ?? 0}
           autoClosedCount={q?.autoClosedCount ?? 0}
           isLoading={isLoading}
+        />
+      )}
+
+      {/* Appeal modal */}
+      {appealWorkItemId && (
+        <AppealModal
+          text={appealText}
+          loading={appealLoading}
+          error={appealError}
+          onClose={closeAppeal}
         />
       )}
 
