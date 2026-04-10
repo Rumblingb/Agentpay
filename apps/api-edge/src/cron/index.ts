@@ -29,6 +29,7 @@ import { runFlightWatch } from './flightWatch';
 import { runMondayPattern } from './mondayPattern';
 import { runBookingRecoveryCron } from './bookingRecovery';
 import { runRcmAutonomyLoop } from './rcmAutonomyLoop';
+import { runRcmDailyBriefing } from './rcmDailyBriefing';
 
 /**
  * Routes a scheduled cron event to the correct handler by its cron expression.
@@ -61,6 +62,7 @@ export async function scheduledHandler(
 
     case '0 * * * *':
       ctx.waitUntil(runMondayPattern(env));
+      ctx.waitUntil(runRcmDailyBriefing(env));
       break;
 
     default:
