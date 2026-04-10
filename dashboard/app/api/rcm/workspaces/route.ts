@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
       name: body.practiceName ?? body.name ?? 'My Practice',
       specialty: body.specialty ?? null,
+      workspaceType: body.workspaceType ?? 'professional_rcm',
       config: {
         claimsPerMonth: body.claimsPerMonth,
         mainPayer: body.mainPayer,

@@ -48,6 +48,8 @@ const DEFAULT_POLICY: ApprovalPolicy = {
     'denial-follow-up': 'auto_notify',
     'prior-auth': 'human',
     'era-835': 'auto',
+    'charge-capture': 'human',
+    'drg-review': 'human',
   },
   pausedUntil: null,
   version: 1,
@@ -59,6 +61,8 @@ const LANE_LABELS: Record<string, string> = {
   'denial-follow-up': 'Denial follow-up',
   'prior-auth': 'Prior auth',
   'era-835': 'ERA / 835',
+  'charge-capture': 'Charge capture',
+  'drg-review': 'DRG / coding review',
 };
 
 type Connector = {
@@ -798,9 +802,22 @@ function WorkspaceGrid({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
           {workspaces.map(ws => (
             <div key={ws.workspaceId} style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>{ws.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>{ws.name}</div>
+                {ws.workspaceType === 'institutional' && (
+                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', background: '#1e293b', color: '#94a3b8', padding: '2px 6px', borderRadius: 4 }}>
+                    UB-04
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 11, color: '#555', marginTop: 3 }}>
-                {[ws.workspaceType, ws.specialty].filter(Boolean).join(' · ')}
+                {[
+                  ws.workspaceType === 'institutional' ? 'Institutional'
+                    : ws.workspaceType === 'professional_rcm' ? 'Professional'
+                    : ws.workspaceType === 'facility_rcm' ? 'Facility'
+                    : ws.workspaceType,
+                  ws.specialty,
+                ].filter(Boolean).join(' · ')}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 16 }}>
                 {[

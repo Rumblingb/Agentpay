@@ -85,6 +85,64 @@ export async function POST(req: NextRequest) {
   ];
   if (process.env.NODE_ENV === 'production') cookieParts.push('Secure');
 
+  // Send welcome email with the API key so the customer can sign back in after session expiry.
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) {
+    fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${resendKey}`,
+      },
+      body: JSON.stringify({
+        from: 'Ace Billing <notifications@agentpay.so>',
+        to: [email],
+        subject: 'Welcome to Ace — save your access key',
+        html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#000;font-family:Inter,system-ui,sans-serif;color:#f8fafc;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#000;padding:40px 20px;">
+  <tr><td align="center">
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+      <tr><td style="padding-bottom:24px;">
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#10b981,#059669);text-align:center;vertical-align:middle;">
+            <span style="font-size:16px;color:#000;">&#x2666;</span>
+          </td>
+          <td style="padding-left:10px;font-size:17px;font-weight:700;letter-spacing:-0.03em;color:#f8fafc;">Ace</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding-bottom:12px;">
+        <h1 style="margin:0;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:#f8fafc;">Welcome to Ace Billing</h1>
+      </td></tr>
+      <tr><td style="padding-bottom:24px;">
+        <p style="margin:0;font-size:15px;color:#94a3b8;line-height:1.6;">You&rsquo;re set up. Here&rsquo;s your access key &mdash; save it somewhere safe. You&rsquo;ll need it to sign in.</p>
+      </td></tr>
+      <tr><td style="padding-bottom:8px;">
+        <p style="margin:0 0 8px;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">Your access key</p>
+        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;">
+          <code style="font-family:ui-monospace,monospace;font-size:13px;color:#4ade80;word-break:break-all;">${apiKey}</code>
+        </div>
+      </td></tr>
+      <tr><td style="padding-bottom:32px;">
+        <p style="margin:8px 0 0;font-size:13px;color:#64748b;line-height:1.5;">To sign in: go to <strong style="color:#94a3b8;">app.agentpay.so/rcm-login</strong> and enter your email and this key.</p>
+      </td></tr>
+      <tr><td style="padding-bottom:40px;">
+        <a href="https://app.agentpay.so/rcm" style="display:inline-block;background:#4ade80;color:#000;font-size:14px;font-weight:700;text-decoration:none;padding:13px 24px;border-radius:12px;letter-spacing:-0.01em;">Go to your dashboard &rarr;</a>
+      </td></tr>
+      <tr><td>
+        <p style="margin:0;font-size:12px;color:#334155;line-height:1.5;">Ace Billing &middot; AgentPay &middot; If you didn&rsquo;t sign up, ignore this email.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`,
+      }),
+    }).catch((err: unknown) => {
+      console.warn('[rcm-signup] Resend email failed:', err);
+    });
+  } else {
+    console.warn('[rcm-signup] RESEND_API_KEY not set — welcome email not sent');
+  }
+
   return NextResponse.json(
     { success: true },
     { status: 201, headers: { 'Set-Cookie': cookieParts.join('; ') } },

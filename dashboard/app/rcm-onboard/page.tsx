@@ -15,14 +15,28 @@ interface OnboardState {
   npi: string;
 }
 
-const SPECIALTIES = ['Primary care', 'Cardiology', 'Orthopedics', 'Neurology', 'Dermatology', 'OB/GYN', 'Mental health', 'Urgent care', 'Other'];
-const VOLUMES = ['Under 50 claims/month', '50–200 claims/month', '200–500 claims/month', '500+ claims/month'];
+const SPECIALTY_GROUPS = [
+  {
+    group: 'Physician practices',
+    items: ['Primary care', 'Cardiology', 'Orthopedics', 'Neurology', 'Dermatology', 'OB/GYN', 'Mental health', 'Urgent care'],
+  },
+  {
+    group: 'Hospital & facility',
+    items: ['Acute Care Hospital', 'Critical Access Hospital', 'Ambulatory Surgery Center', 'Skilled Nursing Facility', 'Inpatient Rehabilitation', 'Behavioral Health (Inpatient)', 'Long-Term Acute Care'],
+  },
+];
+
+const HOSPITAL_SPECIALTIES = new Set(SPECIALTY_GROUPS[1].items);
+
+const VOLUMES = ['Under 50 claims or encounters/month', '50–200 claims or encounters/month', '200–500 claims or encounters/month', '500+ claims or encounters/month'];
 const PAYERS = ['Medicare', 'Medicaid', 'Blue Cross Blue Shield', 'United Healthcare', 'Aetna', 'Cigna', 'Humana', 'Other'];
 const PROBLEMS = [
   { key: 'eligibility', label: 'Eligibility verification takes too long' },
   { key: 'denials', label: 'Too many denied claims to keep up with' },
   { key: 'prior-auth', label: 'Prior authorizations are eating our time' },
   { key: 'ar', label: 'Aging AR / slow collections' },
+  { key: 'drg', label: 'DRG denials / coding disputes' },
+  { key: 'charge-capture', label: 'Charge capture / late charges' },
   { key: 'all', label: 'All of the above' },
 ];
 
@@ -47,7 +61,13 @@ function getSteps(answers: OnboardState): { field: keyof OnboardState | null; qu
     { field: 'volume', question: "How many claims do you submit each month?", hint: "Volume helps Ace prioritize your queue correctly." },
     { field: 'mainPayer', question: "Which payer gives you the most trouble?", hint: specialtyHint },
     { field: 'mainProblem', question: "What's your biggest billing challenge right now?", hint: problemHint },
-    { field: 'npi', question: "Authorize Ace to act on your behalf", hint: "Your NPI is how Ace identifies your practice with payers. Required to submit and verify claims." },
+    {
+      field: 'npi',
+      question: "Authorize Ace to act on your behalf",
+      hint: HOSPITAL_SPECIALTIES.has(answers.specialty)
+        ? "Your billing NPI identifies your facility with payers. Some payers also require your CCN (CMS Certification Number)."
+        : "Your NPI is how Ace identifies your practice with payers. Required to submit and verify claims.",
+    },
   ];
 }
 
@@ -237,6 +257,7 @@ export default function RcmOnboardPage() {
         body: JSON.stringify({
           practiceName,
           specialty: answers.specialty,
+          workspaceType: HOSPITAL_SPECIALTIES.has(answers.specialty) ? 'institutional' : 'professional_rcm',
           claimsPerMonth: answers.volume,
           mainPayer: answers.mainPayer,
           mainProblem: answers.mainProblem,
@@ -355,9 +376,18 @@ export default function RcmOnboardPage() {
 
           {/* Step 1: Specialty */}
           {step === 1 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {SPECIALTIES.map(s => (
-                <PillButton key={s} label={s} selected={answers.specialty === s} onClick={() => select('specialty', s)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {SPECIALTY_GROUPS.map(group => (
+                <div key={group.group}>
+                  <div style={{ fontSize: 10, color: '#555', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+                    {group.group}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {group.items.map(s => (
+                      <PillButton key={s} label={s} selected={answers.specialty === s} onClick={() => select('specialty', s)} />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
