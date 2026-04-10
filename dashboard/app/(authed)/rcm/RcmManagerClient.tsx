@@ -244,11 +244,17 @@ async function fetchAppeal(workItemId: string): Promise<{ appeal?: string; error
 }
 
 function hydratePolicy(workspaceId: string, serverPolicy?: ApprovalPolicy): ApprovalPolicy {
+  if (serverPolicy) {
+    // Server is source of truth — write through to localStorage so offline fallback stays fresh
+    try { localStorage.setItem(`ace_policy_${workspaceId}`, JSON.stringify(serverPolicy)); } catch {}
+    return serverPolicy;
+  }
+  // Offline fallback only when server didn't return a policy
   try {
     const raw = localStorage.getItem(`ace_policy_${workspaceId}`);
     if (raw) return { ...DEFAULT_POLICY, ...JSON.parse(raw) as ApprovalPolicy };
   } catch {}
-  return serverPolicy ?? DEFAULT_POLICY;
+  return DEFAULT_POLICY;
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -1163,12 +1169,13 @@ function useDashboardTts() {
 // ── Voice FAB ──────────────────────────────────────────────────────────────────
 
 function VoiceFAB({
-  onSwitchTab, autoClosedCount, autoClosedPct, trustScore,
+  onSwitchTab, autoClosedCount, autoClosedPct, trustScore, briefingSummary,
 }: {
   onSwitchTab: (t: ActiveTab) => void;
   autoClosedCount: number;
   autoClosedPct: number;
   trustScore: number;
+  briefingSummary: string | null;
 }) {
   const [listening, setListening] = useState(false);
   const [label, setLabel] = useState('');
@@ -1180,7 +1187,10 @@ function VoiceFAB({
     let hint = '';
     let reply = '';
 
-    if (t.includes('claim') || t.includes('denial')) {
+    if (t.includes('brief') || t.includes('what needs') || t.includes('morning update')) {
+      reply = briefingSummary ?? `${autoClosedCount} items auto-resolved. ${autoClosedCount > 0 ? 'Queue is moving.' : 'Queue is clear.'}`;
+      hint = "Briefing";
+    } else if (t.includes('claim') || t.includes('denial')) {
       onSwitchTab('claims'); reply = "Showing claim checks."; hint = "Claim checks";
     } else if (t.includes('eligib') || t.includes('coverage')) {
       onSwitchTab('eligibility'); reply = "Showing coverage checks."; hint = "Coverage checks";
@@ -1317,6 +1327,7 @@ export default function RcmManagerClient() {
     onSuccess: (r) => {
       setFlash({ tone: 'ok', msg: r.message ?? 'Action completed.' });
       queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
+      queryClient.invalidateQueries({ queryKey: ['rcm-briefing'] });
     },
     onError: (e: Error) => setFlash({ tone: 'err', msg: e.message }),
     onSettled: () => setActiveActionKey(null),
@@ -1643,6 +1654,7 @@ export default function RcmManagerClient() {
         autoClosedCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
         trustScore={trustScore}
+        briefingSummary={briefingData?.summary ?? null}
       />
 
     </div>
