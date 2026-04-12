@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Bot,
   Building2,
   CheckCircle2,
@@ -16,6 +17,8 @@ import {
   Mic,
   MicOff,
   Shield,
+  Sparkles,
+  Volume2,
   Zap,
 } from 'lucide-react';
 
@@ -1401,6 +1404,305 @@ function useDashboardTts() {
   }, []);
 }
 
+type AceSuggestedOption = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  tab: ActiveTab;
+  cta: string;
+  tone: 'critical' | 'action' | 'monitor';
+};
+
+function buildAceSuggestedOptions({
+  queue,
+  workspaces,
+  claimExceptions,
+  eligibilityExceptions,
+  claimItems,
+  eligibilityItems,
+  connectors,
+}: {
+  queue: ManagerSnapshot['overview']['queue'] | undefined;
+  workspaces: Workspace[];
+  claimExceptions: ClaimStatusException[];
+  eligibilityExceptions: EligibilityException[];
+  claimItems: ClaimStatusWorkItem[];
+  eligibilityItems: EligibilityWorkItem[];
+  connectors: Connector[];
+}): AceSuggestedOption[] {
+  const options: AceSuggestedOption[] = [];
+
+  const criticalClaim = claimExceptions.find((item) => item.severity === 'critical') ?? claimExceptions[0];
+  const criticalEligibility = eligibilityExceptions.find((item) => item.severity === 'critical') ?? eligibilityExceptions[0];
+  const reviewTarget = (queue?.humanReviewCount ?? 0) > 0
+    ? claimItems.find((item) => item.requiresHumanReview) ?? eligibilityItems.find((item) => item.requiresHumanReview)
+    : null;
+  const nonLiveConnectors = connectors.filter((connector) => connector.status !== 'live');
+  const topWorkspace = [...workspaces].sort((a, b) => b.amountAtRiskOpen - a.amountAtRiskOpen)[0];
+
+  if (criticalClaim) {
+    options.push({
+      id: 'claim-exception',
+      eyebrow: 'Needs decision',
+      title: 'Review the top denial block',
+      detail: `${criticalClaim.payerName ?? 'Payer'} needs attention${criticalClaim.claimRef ? ` on ${criticalClaim.claimRef}` : ''}. ${criticalClaim.summary}`,
+      tab: 'claims',
+      cta: 'Open claim checks',
+      tone: criticalClaim.severity === 'critical' ? 'critical' : 'action',
+    });
+  } else if (criticalEligibility) {
+    options.push({
+      id: 'eligibility-exception',
+      eyebrow: 'Coverage issue',
+      title: 'Clear the highest-risk eligibility miss',
+      detail: `${criticalEligibility.payerName ?? 'Payer'} needs a manual check. ${criticalEligibility.summary}`,
+      tab: 'eligibility',
+      cta: 'Open coverage checks',
+      tone: criticalEligibility.severity === 'critical' ? 'critical' : 'action',
+    });
+  }
+
+  if (reviewTarget) {
+    options.push({
+      id: 'review-queue',
+      eyebrow: 'Human review',
+      title: `${queue?.humanReviewCount ?? 0} item${queue?.humanReviewCount === 1 ? '' : 's'} waiting for approval`,
+      detail: `${reviewTarget.workspaceName} is holding the next decision. Surface the queue instead of making operators hunt for it.`,
+      tab: 'claimRef' in reviewTarget ? 'claims' : 'eligibility',
+      cta: 'Review queue',
+      tone: 'action',
+    });
+  }
+
+  if (nonLiveConnectors.length > 0) {
+    options.push({
+      id: 'connectors',
+      eyebrow: 'Setup gap',
+      title: `Connect ${nonLiveConnectors.length} payer lane${nonLiveConnectors.length === 1 ? '' : 's'}`,
+      detail: `${nonLiveConnectors[0]?.label ?? 'A payer'} is still in simulation or manual mode, so Ace cannot behave like a full operator there yet.`,
+      tab: 'connectors',
+      cta: 'Open payer network',
+      tone: 'action',
+    });
+  }
+
+  if (topWorkspace && topWorkspace.amountAtRiskOpen > 0) {
+    options.push({
+      id: 'workspace-risk',
+      eyebrow: 'At risk',
+      title: `Protect ${fmt$(topWorkspace.amountAtRiskOpen)} in ${topWorkspace.name}`,
+      detail: `${topWorkspace.openWorkItems} open items and ${topWorkspace.humanReviewCount} manual reviews are sitting in the highest-risk practice.`,
+      tab: 'workspaces',
+      cta: 'Open practices',
+      tone: 'monitor',
+    });
+  }
+
+  if ((queue?.autoClosedPct ?? 0) < 70) {
+    options.push({
+      id: 'agent-authority',
+      eyebrow: 'Autonomy tuning',
+      title: 'Tighten Ace authority by lane',
+      detail: `Autonomous close rate is ${queue?.autoClosedPct ?? 0}%. Adjust thresholds before scaling new workspaces.`,
+      tab: 'agent',
+      cta: 'Open agent controls',
+      tone: 'monitor',
+    });
+  }
+
+  if (options.length === 0) {
+    options.push({
+      id: 'monitor',
+      eyebrow: 'Queue clear',
+      title: 'Keep Ace in monitor mode',
+      detail: 'No urgent actions surfaced. Use the agent tab to widen authority or keep the current guardrails.',
+      tab: 'agent',
+      cta: 'Open agent controls',
+      tone: 'monitor',
+    });
+  }
+
+  return options.slice(0, 3);
+}
+
+function AceOperatorDeck({
+  activeTab,
+  onSwitchTab,
+  briefingSummary,
+  queue,
+  firstLaneLabel,
+  workspaces,
+  claimExceptions,
+  eligibilityExceptions,
+  claimItems,
+  eligibilityItems,
+  connectors,
+  isLoading,
+}: {
+  activeTab: ActiveTab;
+  onSwitchTab: (tab: ActiveTab) => void;
+  briefingSummary: string | null;
+  queue: ManagerSnapshot['overview']['queue'] | undefined;
+  firstLaneLabel: string | undefined;
+  workspaces: Workspace[];
+  claimExceptions: ClaimStatusException[];
+  eligibilityExceptions: EligibilityException[];
+  claimItems: ClaimStatusWorkItem[];
+  eligibilityItems: EligibilityWorkItem[];
+  connectors: Connector[];
+  isLoading: boolean;
+}) {
+  const speak = useDashboardTts();
+  const [speaking, setSpeaking] = useState(false);
+  const options = buildAceSuggestedOptions({
+    queue,
+    workspaces,
+    claimExceptions,
+    eligibilityExceptions,
+    claimItems,
+    eligibilityItems,
+    connectors,
+  });
+
+  const liveConnectorCount = connectors.filter((connector) => connector.status === 'live').length;
+  const summary = briefingSummary
+    ?? `${queue?.humanReviewCount ?? 0} items need operator review. ${queue?.autoClosedCount ?? 0} handled automatically. ${firstLaneLabel ?? 'Claim checks'} is the primary lane.`;
+
+  async function playBriefing() {
+    setSpeaking(true);
+    await speak(summary);
+    setTimeout(() => setSpeaking(false), 1800);
+  }
+
+  const toneStyles: Record<AceSuggestedOption['tone'], { border: string; bg: string; text: string }> = {
+    critical: { border: 'rgba(244,63,94,0.24)', bg: 'rgba(244,63,94,0.08)', text: '#fb7185' },
+    action: { border: 'rgba(16,185,129,0.2)', bg: 'rgba(16,185,129,0.05)', text: '#34d399' },
+    monitor: { border: 'rgba(148,163,184,0.16)', bg: 'rgba(148,163,184,0.05)', text: '#cbd5e1' },
+  };
+
+  return (
+    <section style={{ marginBottom: 18 }}>
+      <div className="ace-operator-grid" style={{
+        display: 'grid', gridTemplateColumns: '1.1fr 1fr 1.2fr', gap: 14,
+        padding: 16, borderRadius: 16, border: '1px solid #161616', background: 'linear-gradient(180deg, rgba(8,8,8,0.96), rgba(5,5,5,0.98))',
+      }}>
+        <div style={{ padding: 16, borderRadius: 14, background: 'radial-gradient(circle at top, rgba(16,185,129,0.12), rgba(8,8,8,0.94) 58%)', border: '1px solid rgba(16,185,129,0.12)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: speaking ? '#34d399' : '#10b981', boxShadow: speaking ? '0 0 18px rgba(52,211,153,0.45)' : '0 0 12px rgba(16,185,129,0.28)' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399', letterSpacing: '0.08em', textTransform: 'uppercase' }}>ACE operator unit</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            <div style={{ position: 'relative', width: 104, height: 104, flexShrink: 0 }}>
+              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid rgba(16,185,129,0.14)', transform: speaking ? 'scale(1.06)' : 'scale(1)', transition: 'transform 180ms ease' }} />
+              <div style={{ position: 'absolute', inset: 10, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.22), rgba(16,185,129,0.32) 35%, rgba(5,5,5,0.98) 75%)', border: '1px solid rgba(16,185,129,0.18)', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' }} />
+              <div style={{ position: 'absolute', left: 33, right: 33, top: 40, height: 7, borderRadius: 999, background: 'rgba(255,255,255,0.74)' }} />
+              <div style={{ position: 'absolute', left: 28, right: 28, bottom: 26, height: speaking ? 18 : 8, borderRadius: 999, background: 'linear-gradient(180deg, rgba(16,185,129,0.95), rgba(5,5,5,0.95))', transition: 'height 180ms ease' }} />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#f5f5f5', letterSpacing: '-0.03em' }}>Ace is working like an operator, not a static dashboard.</div>
+              <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6, marginTop: 8 }}>
+                Useful next actions are surfaced automatically, with voice on top and queue state underneath. This is the closest grounded path to an OpenClaw-style unit using the billing product that already exists.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+            {[
+              `${queue?.humanReviewCount ?? 0} review`,
+              `${queue?.openExceptionCount ?? 0} exceptions`,
+              `${liveConnectorCount} live payers`,
+            ].map((pill) => (
+              <span key={pill} style={{ padding: '6px 10px', borderRadius: 999, fontSize: 11, color: '#b6c2be', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                {pill}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: 16, borderRadius: 14, background: '#090909', border: '1px solid #141414', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#666', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Voice briefing</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#ededed', marginTop: 4 }}>What Ace would say right now</div>
+            </div>
+            <button
+              onClick={playBriefing}
+              disabled={isLoading}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)',
+                background: speaking ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.06)', color: '#34d399',
+                cursor: isLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <Volume2 size={14} />
+              {speaking ? 'Speaking…' : 'Hear briefing'}
+            </button>
+          </div>
+
+          <div style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid #141414', fontSize: 13, color: '#bdbdbd', lineHeight: 1.65, minHeight: 116 }}>
+            {summary}
+          </div>
+
+          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { label: 'Primary lane', value: firstLaneLabel ?? 'Claim checks' },
+              { label: 'Autonomous close rate', value: `${queue?.autoClosedPct ?? 0}%` },
+              { label: 'Revenue protected', value: fmt$(queue?.amountAtRiskOpen) },
+              { label: 'Practice count', value: String(workspaces.length) },
+            ].map((item) => (
+              <div key={item.label} style={{ padding: '10px 12px', borderRadius: 10, background: '#070707', border: '1px solid #111' }}>
+                <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#ececec', marginTop: 4 }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: 16, borderRadius: 14, background: '#090909', border: '1px solid #141414' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#666', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Useful options</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#ededed', marginTop: 4 }}>Auto-surfaced next moves</div>
+            </div>
+            <Sparkles size={15} style={{ color: '#34d399' }} />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {options.map((option) => {
+              const tone = toneStyles[option.tone];
+              const active = activeTab === option.tab;
+              return (
+                <button
+                  key={option.id}
+                  onClick={() => onSwitchTab(option.tab)}
+                  style={{
+                    textAlign: 'left', padding: '14px 14px 12px', borderRadius: 12,
+                    border: `1px solid ${active ? tone.border : '#161616'}`,
+                    background: active ? tone.bg : '#070707', cursor: 'pointer',
+                    transition: 'all 140ms ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: tone.text, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{option.eyebrow}</span>
+                    <ArrowRight size={13} style={{ color: active ? tone.text : '#555' }} />
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#efefef', marginTop: 6 }}>{option.title}</div>
+                  <div style={{ fontSize: 12, color: '#8b8b8b', lineHeight: 1.55, marginTop: 6 }}>{option.detail}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: tone.text, marginTop: 10 }}>{option.cta}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Voice FAB ──────────────────────────────────────────────────────────────────
 
 function VoiceFAB({
@@ -1735,6 +2037,11 @@ export default function RcmManagerClient() {
 
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <style>{`
+        @media (max-width: 1180px) {
+          .ace-operator-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
 
       {/* Flash toast */}
       {flash && (
@@ -1764,11 +2071,11 @@ export default function RcmManagerClient() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
             <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#e8e8e8', letterSpacing: '-0.02em' }}>
-              Billing operations
+              Ace operator console
             </h1>
           </div>
           <p style={{ margin: '3px 0 0 16px', fontSize: 11, color: '#444' }}>
-            Ace is working the queue · auto-refreshes every 30s
+            Voice-first billing unit with auto-surfaced next actions · refreshes every 30s
           </p>
         </div>
         {isLoading && (
@@ -1778,6 +2085,21 @@ export default function RcmManagerClient() {
           </div>
         )}
       </div>
+
+      <AceOperatorDeck
+        activeTab={activeTab}
+        onSwitchTab={setActiveTab}
+        briefingSummary={briefingData?.summary ?? null}
+        queue={q}
+        firstLaneLabel={data?.overview.firstLane.label}
+        workspaces={workspaces}
+        claimExceptions={exceptions}
+        eligibilityExceptions={eligEx}
+        claimItems={workItems}
+        eligibilityItems={eligWI}
+        connectors={[...connectors, ...eligCon]}
+        isLoading={isLoading}
+      />
 
       {/* KPI strip */}
       <div style={{
