@@ -518,12 +518,13 @@ type WorkItemRowProps = {
   lane: Lane;
   item: ClaimStatusWorkItem | EligibilityWorkItem;
   expandedId: string | null;
+  highlighted?: boolean;
   onExpand: (id: string | null) => void;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
 };
 
-function WorkItemRow({ lane, item, expandedId, onExpand, checkPending, onAction }: WorkItemRowProps) {
+function WorkItemRow({ lane, item, expandedId, highlighted = false, onExpand, checkPending, onAction }: WorkItemRowProps) {
   const expanded = expandedId === item.workItemId;
   const actions = workItemActions(lane, item);
   const accent = priorityAccent(item.priority);
@@ -532,7 +533,13 @@ function WorkItemRow({ lane, item, expandedId, onExpand, checkPending, onAction 
     : (item as EligibilityWorkItem).memberId;
 
   return (
-    <div style={{ borderRadius: 10, background: '#080808', border: '1px solid #161616', overflow: 'hidden' }}>
+    <div style={{
+      borderRadius: 10,
+      background: highlighted ? 'rgba(16,185,129,0.05)' : '#080808',
+      border: highlighted ? '1px solid rgba(16,185,129,0.22)' : '1px solid #161616',
+      boxShadow: highlighted ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
+      overflow: 'hidden',
+    }}>
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}
         onClick={() => onExpand(expanded ? null : item.workItemId)}
@@ -601,12 +608,13 @@ function WorkItemRow({ lane, item, expandedId, onExpand, checkPending, onAction 
 type ExceptionCardProps = {
   lane: Lane;
   item: ClaimStatusException | EligibilityException;
+  highlighted?: boolean;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
   onAppeal?: (workItemId: string) => void;
 };
 
-function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: ExceptionCardProps) {
+function ExceptionCard({ lane, item, highlighted = false, checkPending, onAction, onAppeal }: ExceptionCardProps) {
   const actions = exceptionActions(lane, item);
   const { bg, border, text } = severityStyle(item.severity);
   const ref = lane === 'claim-status'
@@ -614,7 +622,13 @@ function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: Excepti
     : (item as EligibilityException).memberId;
 
   return (
-    <div style={{ borderRadius: 10, background: bg, border: `1px solid ${border}`, padding: '14px 16px' }}>
+    <div style={{
+      borderRadius: 10,
+      background: highlighted ? 'rgba(16,185,129,0.08)' : bg,
+      border: highlighted ? '1px solid rgba(16,185,129,0.22)' : `1px solid ${border}`,
+      boxShadow: highlighted ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
+      padding: '14px 16px',
+    }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', lineHeight: 1.4 }}>{item.summary}</div>
@@ -788,11 +802,12 @@ function ConnectorGrid({
 // ── Workspace grid ─────────────────────────────────────────────────────────────
 
 function WorkspaceGrid({
-  workspaces, unavailable, isLoading,
+  workspaces, unavailable, isLoading, highlightedWorkspaceId,
 }: {
   workspaces: Workspace[];
   unavailable: boolean;
   isLoading: boolean;
+  highlightedWorkspaceId?: string | null;
 }) {
   return (
     <div>
@@ -804,7 +819,13 @@ function WorkspaceGrid({
       {!unavailable && workspaces.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
           {workspaces.map(ws => (
-            <div key={ws.workspaceId} style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
+            <div key={ws.workspaceId} style={{
+              padding: '16px',
+              borderRadius: 10,
+              background: highlightedWorkspaceId === ws.workspaceId ? 'rgba(16,185,129,0.05)' : '#080808',
+              border: highlightedWorkspaceId === ws.workspaceId ? '1px solid rgba(16,185,129,0.22)' : '1px solid #161616',
+              boxShadow: highlightedWorkspaceId === ws.workspaceId ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>{ws.name}</div>
                 {ws.workspaceType === 'institutional' && (
@@ -889,7 +910,7 @@ function AgentConsole({
   if (isLoading) return <EmptyState text="Loading agent data..." />;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16, alignItems: 'start' }}>
+    <div className="ace-agent-console-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16, alignItems: 'start' }}>
 
       {/* Left — identity + trust score */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1404,6 +1425,14 @@ function useDashboardTts() {
   }, []);
 }
 
+type OperatorFocus = {
+  tab: ActiveTab;
+  kind: 'work-item' | 'exception' | 'connector' | 'workspace' | 'policy';
+  id: string;
+  label: string;
+  detail: string;
+};
+
 type AceSuggestedOption = {
   id: string;
   eyebrow: string;
@@ -1412,6 +1441,7 @@ type AceSuggestedOption = {
   tab: ActiveTab;
   cta: string;
   tone: 'critical' | 'action' | 'monitor';
+  focus?: OperatorFocus;
 };
 
 function buildAceSuggestedOptions({
@@ -1450,6 +1480,13 @@ function buildAceSuggestedOptions({
       tab: 'claims',
       cta: 'Open claim checks',
       tone: criticalClaim.severity === 'critical' ? 'critical' : 'action',
+      focus: {
+        tab: 'claims',
+        kind: 'exception',
+        id: criticalClaim.exceptionId,
+        label: criticalClaim.claimRef ? `${criticalClaim.payerName ?? 'Payer'} · ${criticalClaim.claimRef}` : (criticalClaim.payerName ?? 'Claim exception'),
+        detail: criticalClaim.summary,
+      },
     });
   } else if (criticalEligibility) {
     options.push({
@@ -1460,6 +1497,13 @@ function buildAceSuggestedOptions({
       tab: 'eligibility',
       cta: 'Open coverage checks',
       tone: criticalEligibility.severity === 'critical' ? 'critical' : 'action',
+      focus: {
+        tab: 'eligibility',
+        kind: 'exception',
+        id: criticalEligibility.exceptionId,
+        label: criticalEligibility.memberId ? `${criticalEligibility.payerName ?? 'Payer'} · ${criticalEligibility.memberId}` : (criticalEligibility.payerName ?? 'Eligibility exception'),
+        detail: criticalEligibility.summary,
+      },
     });
   }
 
@@ -1472,6 +1516,13 @@ function buildAceSuggestedOptions({
       tab: 'claimRef' in reviewTarget ? 'claims' : 'eligibility',
       cta: 'Review queue',
       tone: 'action',
+      focus: {
+        tab: 'claimRef' in reviewTarget ? 'claims' : 'eligibility',
+        kind: 'work-item',
+        id: reviewTarget.workItemId,
+        label: reviewTarget.title,
+        detail: `${reviewTarget.workspaceName}${reviewTarget.payerName ? ` · ${reviewTarget.payerName}` : ''}`,
+      },
     });
   }
 
@@ -1484,6 +1535,13 @@ function buildAceSuggestedOptions({
       tab: 'connectors',
       cta: 'Open payer network',
       tone: 'action',
+      focus: {
+        tab: 'connectors',
+        kind: 'connector',
+        id: nonLiveConnectors[0]?.key ?? 'connectors',
+        label: nonLiveConnectors[0]?.label ?? 'Payer network',
+        detail: nonLiveConnectors[0]?.notes ?? 'Finish connector setup so Ace can operate directly.',
+      },
     });
   }
 
@@ -1496,6 +1554,13 @@ function buildAceSuggestedOptions({
       tab: 'workspaces',
       cta: 'Open practices',
       tone: 'monitor',
+      focus: {
+        tab: 'workspaces',
+        kind: 'workspace',
+        id: topWorkspace.workspaceId,
+        label: topWorkspace.name,
+        detail: `${topWorkspace.openWorkItems} open items · ${topWorkspace.humanReviewCount} manual review${topWorkspace.humanReviewCount === 1 ? '' : 's'} · ${fmt$(topWorkspace.amountAtRiskOpen)} at risk`,
+      },
     });
   }
 
@@ -1508,6 +1573,13 @@ function buildAceSuggestedOptions({
       tab: 'agent',
       cta: 'Open agent controls',
       tone: 'monitor',
+      focus: {
+        tab: 'agent',
+        kind: 'policy',
+        id: 'agent-authority',
+        label: 'Agent authority',
+        detail: `Autonomous close rate is ${queue?.autoClosedPct ?? 0}%. Tighten guardrails before adding more volume.`,
+      },
     });
   }
 
@@ -1520,6 +1592,13 @@ function buildAceSuggestedOptions({
       tab: 'agent',
       cta: 'Open agent controls',
       tone: 'monitor',
+      focus: {
+        tab: 'agent',
+        kind: 'policy',
+        id: 'monitor',
+        label: 'Monitor mode',
+        detail: 'Queue is steady. Review authority settings before expanding scope.',
+      },
     });
   }
 
@@ -1528,7 +1607,7 @@ function buildAceSuggestedOptions({
 
 function AceOperatorDeck({
   activeTab,
-  onSwitchTab,
+  onSelectOption,
   briefingSummary,
   queue,
   firstLaneLabel,
@@ -1541,7 +1620,7 @@ function AceOperatorDeck({
   isLoading,
 }: {
   activeTab: ActiveTab;
-  onSwitchTab: (tab: ActiveTab) => void;
+  onSelectOption: (option: AceSuggestedOption) => void;
   briefingSummary: string | null;
   queue: ManagerSnapshot['overview']['queue'] | undefined;
   firstLaneLabel: string | undefined;
@@ -1678,7 +1757,7 @@ function AceOperatorDeck({
               return (
                 <button
                   key={option.id}
-                  onClick={() => onSwitchTab(option.tab)}
+                  onClick={() => onSelectOption(option)}
                   style={{
                     textAlign: 'left', padding: '14px 14px 12px', borderRadius: 12,
                     border: `1px solid ${active ? tone.border : '#161616'}`,
@@ -1704,6 +1783,24 @@ function AceOperatorDeck({
 }
 
 // ── Voice FAB ──────────────────────────────────────────────────────────────────
+
+function OperatorFocusBanner({ focus }: { focus: OperatorFocus }) {
+  return (
+    <div style={{
+      marginBottom: 14,
+      padding: '12px 14px',
+      borderRadius: 10,
+      background: 'rgba(16,185,129,0.05)',
+      border: '1px solid rgba(16,185,129,0.14)',
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#34d399', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        Operator focus
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#ededed', marginTop: 5 }}>{focus.label}</div>
+      <div style={{ fontSize: 12, color: '#7f8c88', lineHeight: 1.55, marginTop: 4 }}>{focus.detail}</div>
+    </div>
+  );
+}
 
 function VoiceFAB({
   onSwitchTab, autoClosedCount, autoClosedPct, trustScore, briefingSummary,
@@ -1775,7 +1872,7 @@ function VoiceFAB({
   }
 
   return (
-    <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+    <div className="ace-voice-fab" style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
       {label && (
         <div style={{
           padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#34d399',
@@ -1815,6 +1912,7 @@ export default function RcmManagerClient() {
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('claims');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [operatorFocus, setOperatorFocus] = useState<OperatorFocus | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy>(DEFAULT_POLICY);
   const [policyInit, setPolicyInit] = useState(false);
   const [appealWorkItemId, setAppealWorkItemId] = useState<string | null>(null);
@@ -1889,6 +1987,18 @@ export default function RcmManagerClient() {
 
   function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
   function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
+
+  function switchTab(tab: ActiveTab) {
+    setOperatorFocus(null);
+    setExpandedItem(null);
+    setActiveTab(tab);
+  }
+
+  function handleOperatorOption(option: AceSuggestedOption) {
+    setActiveTab(option.tab);
+    setOperatorFocus(option.focus ?? null);
+    setExpandedItem(option.focus?.kind === 'work-item' ? option.focus.id : null);
+  }
 
   async function handleRevoke(credentialId: string, payerName: string) {
     await deleteCredential(credentialId);
@@ -1983,8 +2093,9 @@ export default function RcmManagerClient() {
     const protocol = isClaims ? 'X12 276/277' : 'HETS 270/271';
 
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
+      <div className="ace-lane-grid" style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
         <div>
+          {operatorFocus?.tab === tab && <OperatorFocusBanner focus={operatorFocus} />}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Work queue
@@ -2000,6 +2111,7 @@ export default function RcmManagerClient() {
                 lane={lane}
                 item={item}
                 expandedId={expandedItem}
+                highlighted={operatorFocus?.tab === tab && operatorFocus.kind === 'work-item' && operatorFocus.id === item.workItemId}
                 onExpand={setExpandedItem}
                 checkPending={isPending}
                 onAction={trigger}
@@ -2024,6 +2136,7 @@ export default function RcmManagerClient() {
                 key={item.exceptionId}
                 lane={lane}
                 item={item}
+                highlighted={operatorFocus?.tab === tab && operatorFocus.kind === 'exception' && operatorFocus.id === item.exceptionId}
                 checkPending={isPending}
                 onAction={trigger}
                 onAppeal={handleAppeal}
@@ -2040,6 +2153,18 @@ export default function RcmManagerClient() {
       <style>{`
         @media (max-width: 1180px) {
           .ace-operator-grid { grid-template-columns: 1fr !important; }
+          .ace-lane-grid { grid-template-columns: 1fr !important; }
+          .ace-agent-console-grid { grid-template-columns: 1fr !important; }
+          .ace-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+        }
+
+        @media (max-width: 860px) {
+          .ace-kpi-grid { grid-template-columns: 1fr !important; }
+          .ace-tab-bar { width: 100% !important; flex-wrap: wrap; }
+        }
+
+        @media (max-width: 640px) {
+          .ace-voice-fab { right: 18px !important; bottom: 18px !important; }
         }
       `}</style>
 
@@ -2088,7 +2213,7 @@ export default function RcmManagerClient() {
 
       <AceOperatorDeck
         activeTab={activeTab}
-        onSwitchTab={setActiveTab}
+        onSelectOption={handleOperatorOption}
         briefingSummary={briefingData?.summary ?? null}
         queue={q}
         firstLaneLabel={data?.overview.firstLane.label}
@@ -2102,7 +2227,7 @@ export default function RcmManagerClient() {
       />
 
       {/* KPI strip */}
-      <div style={{
+      <div className="ace-kpi-grid" style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
         marginBottom: 16, borderRadius: 12,
         border: '1px solid #161616', background: '#080808', overflow: 'hidden',
@@ -2131,11 +2256,11 @@ export default function RcmManagerClient() {
         autoCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
         snapshotLoading={isLoading}
-        onReview={() => setActiveTab('claims')}
+        onReview={() => switchTab('claims')}
       />
 
       {/* Tab bar */}
-      <div style={{
+      <div className="ace-tab-bar" style={{
         display: 'flex', gap: 3, marginBottom: 18,
         padding: 4, background: '#080808', borderRadius: 10,
         border: '1px solid #161616', width: 'fit-content',
@@ -2145,7 +2270,7 @@ export default function RcmManagerClient() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => switchTab(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 7,
                 padding: '7px 13px', borderRadius: 7, fontSize: 12, fontWeight: 600,
@@ -2178,6 +2303,7 @@ export default function RcmManagerClient() {
 
       {activeTab === 'connectors' && (
         <>
+          {operatorFocus?.tab === 'connectors' && <OperatorFocusBanner focus={operatorFocus} />}
           <ConnectorGrid
             connectors={[...connectors, ...eligCon]}
             claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
@@ -2192,27 +2318,31 @@ export default function RcmManagerClient() {
       )}
 
       {activeTab === 'workspaces' && (
-        <WorkspaceGrid
-          workspaces={workspaces}
-          unavailable={data?.panelStatus.workspaces === 'error'}
-          isLoading={isLoading}
-        />
+        <>
+          {operatorFocus?.tab === 'workspaces' && <OperatorFocusBanner focus={operatorFocus} />}
+          <WorkspaceGrid
+            workspaces={workspaces}
+            unavailable={data?.panelStatus.workspaces === 'error'}
+            isLoading={isLoading}
+            highlightedWorkspaceId={operatorFocus?.tab === 'workspaces' && operatorFocus.kind === 'workspace' ? operatorFocus.id : null}
+          />
+        </>
       )}
 
       {activeTab === 'agent' && (
-        <AgentConsole
-          workspace={workspaces[0] ?? null}
-          policy={policy}
-          onPolicyChange={(p) => {
-            setPolicy(p);
-            if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
-          }}
-          autoClosedPct={q?.autoClosedPct ?? 0}
-          avgConfidencePct={q?.avgConfidencePct ?? null}
-          humanInterventionPct={q?.humanInterventionPct ?? 0}
-          autoClosedCount={q?.autoClosedCount ?? 0}
-          isLoading={isLoading}
-        />
+        <>
+          {operatorFocus?.tab === 'agent' && <OperatorFocusBanner focus={operatorFocus} />}
+          <AgentConsole
+            workspace={workspaces[0] ?? null}
+            policy={policy}
+            onPolicyChange={setPolicy}
+            autoClosedPct={q?.autoClosedPct ?? 0}
+            avgConfidencePct={q?.avgConfidencePct ?? null}
+            humanInterventionPct={q?.humanInterventionPct ?? 0}
+            autoClosedCount={q?.autoClosedCount ?? 0}
+            isLoading={isLoading}
+          />
+        </>
       )}
 
       {/* Connect credential modal */}
@@ -2237,7 +2367,7 @@ export default function RcmManagerClient() {
 
       {/* Voice FAB */}
       <VoiceFAB
-        onSwitchTab={setActiveTab}
+        onSwitchTab={switchTab}
         autoClosedCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
         trustScore={trustScore}
