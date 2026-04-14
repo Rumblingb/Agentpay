@@ -59,6 +59,8 @@ export interface Env {
   STRIPE_SUCCESS_URL?: string;
   /** Absolute URL to redirect after a cancelled Stripe Checkout session. */
   STRIPE_CANCEL_URL?: string;
+  /** Base dashboard URL (e.g. https://app.agentpay.so) used for Stripe Connect return links. */
+  DASHBOARD_URL?: string;
 
   // ── Razorpay (India UPI) ──────────────────────────────────────────────────
   /** Razorpay API key ID — enables UPI payment links for India. */

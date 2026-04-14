@@ -340,16 +340,16 @@ export default function RcmOnboardPage() {
           plan,
         }),
       });
-      if (!res.ok && res.status !== 404) {
+      if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string };
-        if (d.error && !d.error.includes('not found')) {
-          setError(d.error);
-          setLoading(false);
-          return;
-        }
+        setError(d.error ?? `Workspace creation failed (${res.status}). Please try again.`);
+        setLoading(false);
+        return;
       }
     } catch {
-      // Non-fatal — continue to dashboard
+      setError('Could not reach billing service. Check your connection and try again.');
+      setLoading(false);
+      return;
     }
 
     try {
