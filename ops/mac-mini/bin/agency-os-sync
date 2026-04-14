@@ -1,0 +1,5 @@
+#!/bin/bash
+set -euo pipefail
+root="$(cd -- "$(dirname -- "$0")/../../.." && pwd)"
+export PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+exec node "$root/ops/mac-mini/scripts/agency-os-sync.mjs"

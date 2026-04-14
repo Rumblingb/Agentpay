@@ -5,12 +5,12 @@ This is the current founder/operator control layer for the Mac mini.
 ## Current operating reality
 
 - `bill` is a first-class live lane.
-- `agency-os` is not yet a first-class OpenClaw lane.
+- `agency-os` is now a first-class OpenClaw lane in local runtime config.
 - The company-building side currently runs through:
   - `jack`
   - `bigb`
   - `digital-you`
-- `workspace-agency-os` is the merged founder-facing control surface over those three lanes until the runtime is fully consolidated.
+- `workspace-agency-os` is the merged founder-facing control surface over those three lanes and is refreshed automatically by `agency-os-sync`.
 
 ## Commands
 
@@ -19,6 +19,8 @@ This is the current founder/operator control layer for the Mac mini.
 - `ops/mac-mini/bin/agency-os-ask "..."`
   - append a founder request to the merged Agency OS `INBOX.md`
   - fan the same request out to `jack`, `bigb`, and `digital-you` lane inboxes
+- `ops/mac-mini/bin/agency-os-sync`
+  - regenerate the merged Agency OS `OUTBOX.md` and `STATUS.md`
 - `ops/mac-mini/bin/stack-monitor`
   - render the current Bill + Agency OS monitor view once
 - `ops/mac-mini/bin/stack-watch 10`
@@ -50,3 +52,5 @@ The monitor is designed to answer three questions quickly:
 - Is Bill healthy and still cycling?
 - What is Bill actually seeing right now?
 - Which Agency OS component lanes are active, and what are they supposed to be doing?
+
+The Agency OS outbox is now generated automatically from lane outboxes every 5 minutes through launchd.

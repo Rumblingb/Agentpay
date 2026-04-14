@@ -9,6 +9,7 @@ const billWorkspace = path.join(root, 'workspace-bill');
 const agencyWorkspace = path.join(root, 'workspace-agency-os');
 const laneIds = ['jack', 'bigb', 'digital-you'];
 const billHistory = '/Users/baskar_viji/hedge/.rumbling-hedge/logs/prediction-cycle-history.jsonl';
+const billResearchCatalog = '/Users/baskar_viji/hedge/.rumbling-hedge/research/catalog.json';
 const now = new Date();
 
 function fmtAge(ms) {
@@ -73,6 +74,7 @@ function line(label, value = '') {
 const billSession = await latestSession('bill');
 const agencySession = await latestSession('agency-os');
 const billIteration = await latestBillIteration();
+const billResearch = await readJson(billResearchCatalog);
 const billInbox = await readText(path.join(billWorkspace, 'INBOX.md'));
 const billOutbox = await readText(path.join(billWorkspace, 'OUTBOX.md'));
 const billLaunchd = launchdBillState();
@@ -106,6 +108,11 @@ if (billIteration) {
   console.log(line('Venue counts', JSON.stringify(billIteration.collect?.venueCounts ?? {})));
   console.log(line('Counts', JSON.stringify(billIteration.scan?.counts ?? {})));
   console.log(line('Top candidate', billIteration.topCandidate ? JSON.stringify(billIteration.topCandidate) : 'none'));
+}
+if (billResearch?.items) {
+  const keep = billResearch.items.filter((item) => item.status === 'keep').length;
+  const discard = billResearch.items.filter((item) => item.status === 'discard').length;
+  console.log(line('Research', `${billResearch.items.length} items · keep ${keep} · discard ${discard}`));
 }
 console.log(line('Inbox', path.join(billWorkspace, 'INBOX.md')));
 console.log(line('Outbox', path.join(billWorkspace, 'OUTBOX.md')));
