@@ -34,7 +34,7 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
-import { dispatchToOpenClaw } from '../lib/openclaw';
+import { buildOpenClawDispatchPatch, dispatchToOpenClaw } from '../lib/openclaw';
 import { withBookingState } from '../lib/bookingState';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -187,13 +187,7 @@ router.post('/', async (c) => {
               for (const jobRow of jobRows) {
                 const jobMeta = jobRow.metadata ?? {};
                 const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
-                const clawPatch = JSON.stringify({
-                  openclawDispatched: clawResult.status === 'dispatched',
-                  openclawJobId: clawResult.openclawJobId ?? null,
-                  openclawDispatchedAt: clawResult.dispatchedAt,
-                  openclawError: clawResult.error ?? null,
-                  ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
-                });
+                const clawPatch = JSON.stringify(buildOpenClawDispatchPatch(jobMeta, clawResult));
                 await sql`
                   UPDATE payment_intents
                   SET metadata = metadata || ${clawPatch}::jsonb

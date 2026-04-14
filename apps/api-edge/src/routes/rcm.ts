@@ -11,6 +11,7 @@ import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb, type Sql } from '../lib/db';
+import { parseJsonBody } from '../lib/requestBody';
 import {
   createStripeClient,
   verifySucceededSetupIntent,
@@ -7822,8 +7823,9 @@ router.post('/workspaces/:workspaceId/setup-billing', authenticateApiKey, async 
   const merchant = c.get('merchant');
   const workspaceId = c.req.param('workspaceId')!;
 
-  let body: { principalId?: unknown } = {};
-  try { body = await c.req.json(); } catch {}
+  const parsed = await parseJsonBody<{ principalId?: unknown }>(c);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const { principalId } = body;
   if (typeof principalId !== 'string' || !principalId.trim()) {
@@ -8438,6 +8440,289 @@ router.delete('/credentials/:credentialId', authenticateApiKey, async (c) => {
     console.error('[rcm] DELETE /credentials error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to revoke credential' }, 500);
   } finally { sql?.end().catch(() => {}); }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Stripe Connect (Express) onboarding for the billing practice itself.
+//
+// Purpose: the practice receives payments from payers into its own bank.
+// We create a Stripe Express connected account, return a hosted Account
+// Link URL for onboarding, and surface payouts_enabled / charges_enabled
+// status so the dashboard checklist can confirm "payment route live".
+//
+// Requires these columns on rcm_workspaces (idempotent migration):
+//   ALTER TABLE rcm_workspaces
+//     ADD COLUMN IF NOT EXISTS stripe_connect_account_id text,
+//     ADD COLUMN IF NOT EXISTS stripe_connect_charges_enabled boolean,
+//     ADD COLUMN IF NOT EXISTS stripe_connect_payouts_enabled boolean,
+//     ADD COLUMN IF NOT EXISTS stripe_connect_onboarded_at timestamptz;
+//
+// The webhook handler (account.updated) should upsert these booleans so the
+// dashboard reflects capability grants without a manual poll.
+// ───────────────────────────────────────────────────────────────────────────
+
+function rcmConnectReturnUrl(env: Env, workspaceId: string): string {
+  const base = (env.DASHBOARD_URL || 'https://app.agentpay.so').replace(/\/$/, '');
+  return `${base}/rcm?workspace=${encodeURIComponent(workspaceId)}&connect=return`;
+}
+
+function rcmConnectRefreshUrl(env: Env, workspaceId: string): string {
+  const base = (env.DASHBOARD_URL || 'https://app.agentpay.so').replace(/\/$/, '');
+  return `${base}/rcm?workspace=${encodeURIComponent(workspaceId)}&connect=refresh`;
+}
+
+/**
+ * POST /api/rcm/workspaces/:workspaceId/connect-account
+ *
+ * Creates (or reuses) a Stripe Express connected account for the workspace
+ * and returns a one-shot hosted onboarding URL.
+ */
+router.post('/workspaces/:workspaceId/connect-account', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  const sql = createDb(c.env);
+  try {
+    const ws = await sql<Array<{
+      id: string;
+      name: string;
+      email: string | null;
+      stripeConnectAccountId: string | null;
+    }>>`
+      SELECT
+        w.id,
+        w.name,
+        m.email AS email,
+        w.stripe_connect_account_id AS "stripeConnectAccountId"
+      FROM rcm_workspaces w
+      JOIN merchants m ON m.id = w.merchant_id
+      WHERE w.id = ${workspaceId} AND w.merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+    const workspace = ws[0];
+
+    const stripe = getRcmStripe(c.env);
+
+    let accountId = workspace.stripeConnectAccountId;
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        email: workspace.email ?? undefined,
+        business_type: 'company',
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+          us_bank_account_ach_payments: { requested: true },
+        },
+        business_profile: {
+          name: workspace.name,
+          product_description: 'Healthcare revenue cycle management via Ace',
+          mcc: '8062',
+        },
+        metadata: {
+          agentpay_workspace_id: workspace.id,
+          agentpay_merchant_id: merchant.id,
+          source: 'rcm',
+        },
+      });
+      accountId = account.id;
+      await sql`
+        UPDATE rcm_workspaces
+        SET stripe_connect_account_id = ${accountId}
+        WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      `;
+    }
+
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: rcmConnectRefreshUrl(c.env, workspaceId),
+      return_url: rcmConnectReturnUrl(c.env, workspaceId),
+      type: 'account_onboarding',
+    });
+
+    return c.json({ accountId, url: link.url, expiresAt: link.expires_at });
+  } catch (err) {
+    console.error('[rcm] POST /workspaces/:id/connect-account error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to start Stripe onboarding' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+/**
+ * GET /api/rcm/workspaces/:workspaceId/connect-status
+ *
+ * Returns connect account readiness so the dashboard onboarding checklist
+ * can show "payouts enabled" without manual polling. Falls back to the
+ * live Stripe account.retrieve when DB booleans haven't been webhook-synced.
+ */
+router.get('/workspaces/:workspaceId/connect-status', authenticateApiKey, async (c) => {
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  const sql = createDb(c.env);
+  try {
+    const ws = await sql<Array<{
+      id: string;
+      stripeConnectAccountId: string | null;
+      chargesEnabled: boolean | null;
+      payoutsEnabled: boolean | null;
+      onboardedAt: Date | null;
+    }>>`
+      SELECT
+        id,
+        stripe_connect_account_id AS "stripeConnectAccountId",
+        stripe_connect_charges_enabled AS "chargesEnabled",
+        stripe_connect_payouts_enabled AS "payoutsEnabled",
+        stripe_connect_onboarded_at   AS "onboardedAt"
+      FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+    const row = ws[0];
+
+    if (!row.stripeConnectAccountId) {
+      return c.json({
+        connected: false,
+        chargesEnabled: false,
+        payoutsEnabled: false,
+        onboardedAt: null,
+      });
+    }
+
+    let chargesEnabled = row.chargesEnabled ?? false;
+    let payoutsEnabled = row.payoutsEnabled ?? false;
+    let requirementsCurrentlyDue: string[] = [];
+
+    try {
+      const stripe = getRcmStripe(c.env);
+      const account = await stripe.accounts.retrieve(row.stripeConnectAccountId);
+      chargesEnabled = Boolean(account.charges_enabled);
+      payoutsEnabled = Boolean(account.payouts_enabled);
+      requirementsCurrentlyDue = account.requirements?.currently_due ?? [];
+
+      if (chargesEnabled !== row.chargesEnabled || payoutsEnabled !== row.payoutsEnabled) {
+        await sql`
+          UPDATE rcm_workspaces
+          SET
+            stripe_connect_charges_enabled = ${chargesEnabled},
+            stripe_connect_payouts_enabled = ${payoutsEnabled},
+            stripe_connect_onboarded_at = COALESCE(stripe_connect_onboarded_at, CASE WHEN ${payoutsEnabled} THEN NOW() ELSE NULL END)
+          WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+        `;
+      }
+    } catch (err) {
+      console.error('[rcm] connect-status stripe retrieve failed:', err instanceof Error ? err.message : err);
+      // Fall back to DB values — still return what we have.
+    }
+
+    return c.json({
+      connected: true,
+      accountId: row.stripeConnectAccountId,
+      chargesEnabled,
+      payoutsEnabled,
+      onboardedAt: row.onboardedAt,
+      requirementsCurrentlyDue,
+    });
+  } catch (err) {
+    console.error('[rcm] GET /workspaces/:id/connect-status error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch Stripe status' }, 500);
+  } finally { sql.end().catch(() => {}); }
+});
+
+/**
+ * POST /api/rcm/workspaces/:workspaceId/demo-claim
+ *
+ * Seeds a single synthetic claim-status work item into the workspace so
+ * brand-new practices can watch the agent handle a full round-trip without
+ * needing real PHI. The seeded row is flagged `is_demo: true` in metadata so
+ * it can be filtered out of real analytics.
+ *
+ * Idempotent per workspace: if a demo row already exists and is still open,
+ * returns it instead of creating a duplicate.
+ */
+router.post('/workspaces/:workspaceId/demo-claim', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const workspaceId = c.req.param('workspaceId')!;
+
+  const sql = createDb(c.env);
+  try {
+    const ws = await sql<Array<{ id: string; name: string }>>`
+      SELECT id, name FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+      LIMIT 1
+    `;
+    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
+
+    const existing = await sql<Array<{ id: string }>>`
+      SELECT id
+      FROM rcm_work_items
+      WHERE workspace_id = ${workspaceId}
+        AND merchant_id = ${merchant.id}
+        AND status NOT IN ('closed','rejected','cancelled')
+        AND (metadata->>'is_demo') = 'true'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    if (existing.length) {
+      return c.json({ workItemId: existing[0].id, reused: true });
+    }
+
+    const demoMetadata = {
+      is_demo: true,
+      created_via: 'onboarding_checklist',
+      demo_scenario: 'primary_claim_status_success',
+      sample_notes: 'Synthetic claim. No PHI. Used to verify agent routing end-to-end.',
+    };
+
+    const inserted = await sql<Array<{ id: string }>>`
+      INSERT INTO rcm_work_items (
+        workspace_id,
+        merchant_id,
+        work_type,
+        form_type,
+        title,
+        payer_name,
+        patient_ref,
+        provider_ref,
+        claim_ref,
+        source_system,
+        amount_at_risk,
+        status,
+        requires_human_review,
+        metadata
+      ) VALUES (
+        ${workspaceId},
+        ${merchant.id},
+        ${'claim-status'},
+        ${'837P'},
+        ${'Demo claim — primary payer status check'},
+        ${'Demo Payer'},
+        ${'DEMO-PAT-0001'},
+        ${'DEMO-PROV-0001'},
+        ${'DEMO-CLAIM-0001'},
+        ${'ace_demo'},
+        ${15000},
+        ${'pending'},
+        ${false},
+        ${sql.json(demoMetadata)}
+      )
+      RETURNING id
+    `;
+    const workItemId = inserted[0]?.id;
+    if (!workItemId) {
+      return c.json({ error: 'Failed to create demo claim' }, 500);
+    }
+
+    return c.json({ workItemId, reused: false });
+  } catch (err) {
+    console.error('[rcm] POST /workspaces/:id/demo-claim error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to create demo claim' }, 500);
+  } finally { sql.end().catch(() => {}); }
 });
 
 export { router as rcmRouter };

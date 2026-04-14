@@ -507,6 +507,37 @@ function getCountdown(departureTime: string | null | undefined): string | null {
   return 'Now';
 }
 
+function parseBookingMoment(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatBookingDate(value: string | null | undefined): string | null {
+  const moment = parseBookingMoment(value);
+  if (!moment) return null;
+  return moment.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function formatBookingTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^\d{1,2}:\d{2}$/.test(value)) return value;
+  const moment = parseBookingMoment(value);
+  if (!moment) return null;
+  return moment.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function activeTripStatusCopy(activeTrip: ActiveTrip): { pill: string; body: string } {
   if (activeTrip.status === 'securing') {
     return {
@@ -2358,7 +2389,8 @@ export default function ConverseScreen() {
           const companionSummary = travellerCount > 1
             ? `${travellerCount} travellers${childCount > 0 ? `, including ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}`
             : null;
-          const hotel = plan.length === 1 ? plan[0]?.hotelDetails?.bestOption : undefined;
+          const hotelDetails = plan.length === 1 ? plan[0]?.hotelDetails : undefined;
+          const hotel = hotelDetails?.bestOption;
           const isMultiLeg = plan.length > 1;
           const itinerarySummary = isMultiLeg
             ? `${plan.length} legs, secured as one continuous journey.`
@@ -2369,16 +2401,41 @@ export default function ConverseScreen() {
             ?? (isMultiLeg
               ? `${Math.max(plan.length - 1, 1)} change${plan.length - 1 === 1 ? '' : 's'}`
               : 'Direct route');
-          const confirmMeta = [itinerarySummary, sourceLabel, companionSummary].filter(Boolean).join(' | ');
+          const serviceStart = hotelDetails?.checkIn ?? plan[0]?.flightDetails?.departureAt ?? tripContext?.departureTime ?? null;
+          const serviceEnd = hotelDetails?.checkOut ?? plan[0]?.flightDetails?.arrivalAt ?? tripContext?.arrivalTime ?? null;
+          const confirmSummary = [
+            {
+              label: hotelDetails ? 'Check-in' : 'Date',
+              value: formatBookingDate(serviceStart) ?? 'Auto-selected',
+            },
+            {
+              label: hotelDetails ? 'Check-out' : 'Leaves',
+              value: hotelDetails
+                ? formatBookingDate(serviceEnd) ?? 'Shown after booking'
+                : formatBookingTime(serviceStart) ?? 'Best available',
+            },
+            {
+              label: 'Travellers',
+              value: companionSummary ?? '1 traveller',
+            },
+            {
+              label: 'Route',
+              value: routeQualityLabel,
+            },
+          ];
+          const confirmMeta = [itinerarySummary, sourceLabel].filter(Boolean).join(' · ');
+          const confirmEyebrow = hotelDetails ? 'Ready to book your stay' : 'Ready to secure';
           const decisionLine = isIndia
-            ? 'Ace has the route. You just need to say yes before UPI opens.'
-            : 'Ace has the route. You just need to say yes.';
+            ? 'Ace has the trip lined up. Approve once and UPI opens on the exact route shown here.'
+            : hotelDetails
+            ? 'Ace has the stay lined up. Approve once and it secures this booking.'
+            : 'Ace has the trip lined up. Approve once and it secures this booking.';
           const brief = buildRecommendationBrief({ plan, sourceLabel, familyRailcardReady });
           const assurance = buildAssuranceItems({ plan, fiatAmount: fiat, hasCards: false });
           // Hotel details — single hotel booking
           return (
             <View style={styles.confirmCard}>
-              <Text style={styles.confirmEyebrow}>{routeQualityLabel}</Text>
+              <Text style={styles.confirmEyebrow}>{confirmEyebrow}</Text>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
@@ -2394,6 +2451,14 @@ export default function ConverseScreen() {
                   ))}
                 </View>
               )}
+              <View style={styles.confirmSummaryGrid}>
+                {confirmSummary.map((item) => (
+                  <View key={item.label} style={styles.confirmSummaryCard}>
+                    <Text style={styles.confirmSummaryLabel}>{item.label}</Text>
+                    <Text style={styles.confirmSummaryValue}>{item.value}</Text>
+                  </View>
+                ))}
+              </View>
               {priceLabel && (
                 <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel} (estimated)` : priceLabel}</Text>
               )}
@@ -3219,6 +3284,36 @@ const styles = StyleSheet.create({
     color: '#a8c4d8',
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  confirmSummaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  confirmSummaryCard: {
+    minWidth: '47%',
+    flexGrow: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(86, 115, 153, 0.24)',
+    backgroundColor: 'rgba(10, 18, 30, 0.88)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  confirmSummaryLabel: {
+    fontSize: 11,
+    color: '#7f95aa',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  confirmSummaryValue: {
+    fontSize: 14,
+    color: '#edf6ff',
+    fontWeight: '600',
+    lineHeight: 20,
   },
   confirmBtn: {
     borderRadius: 18,

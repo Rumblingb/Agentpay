@@ -55,6 +55,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb } from '../lib/db';
+import { parseJsonBody } from '../lib/requestBody';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -397,8 +398,9 @@ router.get('/journeys/:intentId', async (c) => {
 router.post('/:intentId/execute', async (c) => {
   const intentId = c.req.param('intentId');
 
-  let body: { jobId?: unknown } = {};
-  try { body = await c.req.json(); } catch {}
+  const parsed = await parseJsonBody<{ jobId?: unknown }>(c);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const jobId = typeof body.jobId === 'string' && body.jobId.trim() ? body.jobId.trim() : null;
 
@@ -445,8 +447,9 @@ router.post('/:intentId/execute', async (c) => {
 router.post('/:intentId/complete', async (c) => {
   const intentId = c.req.param('intentId');
 
-  let body: { bookingRef?: unknown; ticketRef?: unknown } = {};
-  try { body = await c.req.json(); } catch {}
+  const parsedComplete = await parseJsonBody<{ bookingRef?: unknown; ticketRef?: unknown }>(c);
+  if (!parsedComplete.ok) return parsedComplete.response;
+  const body = parsedComplete.body;
 
   const sql = createDb(c.env);
   try {
@@ -494,8 +497,9 @@ router.post('/:intentId/complete', async (c) => {
 router.post('/:intentId/fail', async (c) => {
   const intentId = c.req.param('intentId');
 
-  let body: { reason?: unknown } = {};
-  try { body = await c.req.json(); } catch {}
+  const parsedFail = await parseJsonBody<{ reason?: unknown }>(c);
+  if (!parsedFail.ok) return parsedFail.response;
+  const body = parsedFail.body;
 
   const reason = typeof body.reason === 'string' ? body.reason.trim() : 'Unknown error';
 

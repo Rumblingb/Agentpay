@@ -21,6 +21,7 @@ import {
   Volume2,
   Zap,
 } from 'lucide-react';
+import { OnboardingChecklist } from './OnboardingChecklist';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -2225,6 +2226,37 @@ export default function RcmManagerClient() {
         connectors={[...connectors, ...eligCon]}
         isLoading={isLoading}
       />
+
+      {/* Onboarding checklist — hides itself once all four steps are done */}
+      {(() => {
+        const ws = workspaces[0] ?? null;
+        const hasConnector = (credentialsData ?? []).length > 0 || connectors.some((c: Connector) => c.status === 'live');
+        const hasFirstClaim = (workItems?.length ?? 0) > 0 || (eligWI?.length ?? 0) > 0;
+        return (
+          <OnboardingChecklist
+            workspace={ws ? { workspaceId: ws.workspaceId, name: ws.name, workspaceType: ws.workspaceType } : null}
+            hasConnector={hasConnector}
+            hasFirstClaim={hasFirstClaim}
+            onJumpToConnectors={() => switchTab('connectors')}
+            onRunDemo={async () => {
+              if (!ws) return;
+              try {
+                const res = await fetch(`/api/rcm/workspaces/${ws.workspaceId}/demo-claim`, { method: 'POST' });
+                if (res.ok) {
+                  setFlash({ tone: 'ok', msg: 'Demo claim queued. Watch the claims tab.' });
+                  switchTab('claims');
+                  queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
+                } else {
+                  const d = await res.json().catch(() => ({})) as { error?: string };
+                  setFlash({ tone: 'err', msg: d.error ?? 'Could not queue demo claim.' });
+                }
+              } catch {
+                setFlash({ tone: 'err', msg: 'Network error queueing demo claim.' });
+              }
+            }}
+          />
+        );
+      })()}
 
       {/* KPI strip */}
       <div className="ace-kpi-grid" style={{

@@ -96,6 +96,8 @@ export default function RcmSignupPage() {
   const [errors, setErrors] = useState({ email: '', name: '', password: '' });
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalError, setLegalError] = useState('');
 
   // Autofocus email on mount
   useEffect(() => { nameRef.current?.focus(); }, []);
@@ -118,8 +120,10 @@ export default function RcmSignupPage() {
     const emailErr = validateEmail(form.email);
     const nameErr = validateName(form.name);
     const passErr = form.password.length < 8 ? 'Password must be at least 8 characters.' : '';
+    const lglErr = !legalAccepted ? 'You must accept the Terms, Privacy Policy, and Business Associate Agreement to continue.' : '';
     setErrors({ email: emailErr, name: nameErr, password: passErr });
-    if (emailErr || nameErr || passErr) return;
+    setLegalError(lglErr);
+    if (emailErr || nameErr || passErr || lglErr) return;
 
     setLoading(true);
     setApiError('');
@@ -127,7 +131,14 @@ export default function RcmSignupPage() {
       const res = await fetch('/api/rcm-signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, email: form.email, password: form.password }),
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          legalAccepted: true,
+          legalAcceptedAt: new Date().toISOString(),
+          legalVersion: 'rcm-2026-04-15',
+        }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (res.ok && data.success) {
@@ -217,6 +228,22 @@ export default function RcmSignupPage() {
             strength={strength}
             hint={form.password.length === 0 ? 'Mix letters, numbers, and symbols for a stronger password' : undefined}
           />
+
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginTop: 4 }}>
+            <input
+              type="checkbox"
+              checked={legalAccepted}
+              onChange={e => { setLegalAccepted(e.target.checked); if (e.target.checked) setLegalError(''); }}
+              style={{ marginTop: 2, accentColor: '#10b981', width: 16, height: 16, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 12, color: '#737373', lineHeight: 1.6 }}>
+              I agree to the{' '}
+              <Link href="/terms" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Terms of Service</Link>,{' '}
+              <Link href="/privacy" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Privacy Policy</Link>, and{' '}
+              <Link href="/baa" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Business Associate Agreement</Link>. I confirm I am authorized to bind this practice.
+            </span>
+          </label>
+          {legalError && <div style={{ marginTop: -10, fontSize: 12, color: '#fb7185' }}>{legalError}</div>}
 
           <button
             type="submit"

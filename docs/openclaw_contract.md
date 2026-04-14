@@ -11,6 +11,8 @@ This document summarizes the HTTP contract between AgentPay (Ace) and OpenClaw, 
 
 - OpenClaw polling (OpenClaw -> AgentPay)
   - GET `/api/admin/bro-jobs/pending` — returns pending jobs for fulfilment. See [apps/api-edge/src/routes/concierge.ts](apps/api-edge/src/routes/concierge.ts)
+  - GET `/api/admin/bro-jobs/:jobId/status` — returns the live execution snapshot plus OpenClaw-facing status fields for one job.
+  - POST `/api/admin/bro-jobs/:jobId/retry` — forces an immediate redispatch attempt for a paid job that is still pending fulfilment.
 
 - OpenClaw completion callback (OpenClaw -> AgentPay)
   - PATCH `/api/admin/bro-jobs/:jobId/complete`
@@ -72,8 +74,20 @@ See implementation in [apps/api-edge/src/lib/openclaw.ts](apps/api-edge/src/lib/
 ## Polling and callback contract
 
 - OpenClaw is expected to poll `/api/admin/bro-jobs/pending` (auth: `OPENCLAW_API_KEY`) to fetch jobs where `pendingFulfilment` is true and payment is confirmed.
+- When OpenClaw needs the current state of a single job, call `GET /api/admin/bro-jobs/:jobId/status`.
+- When a dispatch failed with `dispatchStatus: "retry_pending"` and you want to nudge it immediately instead of waiting for the background recovery cron, call `POST /api/admin/bro-jobs/:jobId/retry`.
 - After fulfilment OpenClaw calls PATCH `/api/admin/bro-jobs/:jobId/complete` with `success: true` and optional `ticketRef`/`pnr`/`seatInfo`.
 - On failure OpenClaw must call the same endpoint with `success: false` and a `failureReason`.
+
+### Status fields
+
+The single-job status response includes an `execution` object with:
+
+- `dispatchStatus`: `dispatched` | `retry_pending` | `failed` | `null`
+- `dispatchAttemptCount`: number of dispatch attempts recorded
+- `dispatchError`: last OpenClaw dispatch error string, when present
+- `openclawJobId`: OpenClaw-side identifier when dispatch succeeded
+- `nextDispatchRetryAt`: scheduled retry hint when AgentPay marked the failure retryable
 
 See the polling and patch implementation in [apps/api-edge/src/routes/concierge.ts](apps/api-edge/src/routes/concierge.ts)
 
