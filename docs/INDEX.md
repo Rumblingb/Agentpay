@@ -17,3 +17,4 @@ Use this index to navigate the curated developer resources for AgentPay.
 - `ops/mac-mini/BILL_RUNTIME.md` — first-class Bill runtime design and promotion posture
 - `ops/mac-mini/AGENCY_OS_RUNTIME.md` — first-class Agency OS runtime design and workflow posture
 - `ops/mac-mini/AGENCY_OS_COST_POLICY.md` — cheap-by-default Agency OS cost discipline
+- `ops/mac-mini/FOUNDER_INTERFACE.md` — founder/operator command surface for Bill, Agency OS, and stack monitoring

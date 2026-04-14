@@ -52,6 +52,8 @@ Optional:
 
 ## Directories
 
+- `bin/` - founder/operator commands such as `bill-ask`, `agency-os-ask`, `stack-monitor`, and `stack-watch`
+- `scripts/` - supporting runtime scripts for the operator surface
 - `launchd/` - plist templates and service ownership notes
 - `runbooks/` - operator procedures
 - `schemas/` - JSON contracts for health, approvals, lane tasks, and Bill promotion state
@@ -60,3 +62,4 @@ Optional:
 
 - `AGENCY_OS_RUNTIME.md` - one-lane Agency OS runtime model with internal roles
 - `AGENCY_OS_COST_POLICY.md` - cheap-by-default Agency OS operating policy
+- `FOUNDER_INTERFACE.md` - how to talk to Bill and the merged Agency OS surface and monitor both together
