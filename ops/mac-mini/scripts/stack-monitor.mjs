@@ -71,6 +71,7 @@ function line(label, value = '') {
 }
 
 const billSession = await latestSession('bill');
+const agencySession = await latestSession('agency-os');
 const billIteration = await latestBillIteration();
 const billInbox = await readText(path.join(billWorkspace, 'INBOX.md'));
 const billOutbox = await readText(path.join(billWorkspace, 'OUTBOX.md'));
@@ -79,9 +80,21 @@ const billLaunchd = launchdBillState();
 const agencySessions = await Promise.all(laneIds.map(async (id) => [id, await latestSession(id)]));
 const agencyInbox = await readText(path.join(agencyWorkspace, 'INBOX.md'));
 const agencyOutbox = await readText(path.join(agencyWorkspace, 'OUTBOX.md'));
+const warnings = [];
+
+const venueCounts = billIteration?.collect?.venueCounts ?? {};
+if (Object.keys(venueCounts).length < 2) {
+  warnings.push(`Bill combined feed collapsed to ${JSON.stringify(venueCounts)}.`);
+}
+if ((billIteration?.scan?.counts?.['paper-trade'] ?? 0) === 0 && (billIteration?.scan?.counts?.watch ?? 0) === 0) {
+  warnings.push('Bill has no watch or paper-trade candidates in the latest cycle.');
+}
 
 console.log(`Stack Monitor  ${now.toLocaleString('en-GB', { hour12: false, timeZone: 'Asia/Kolkata' })} IST`);
 console.log(line('Host', os.hostname()));
+if (warnings.length) {
+  console.log(line('Warnings', warnings.join(' | ')));
+}
 console.log('');
 console.log('Bill');
 console.log(line('Launchd', `${billLaunchd.state} · runs ${billLaunchd.runs} · exit ${billLaunchd.exitCode}`));
@@ -102,6 +115,9 @@ console.log('Bill outbox tail');
 console.log(tailSection(billOutbox, 6));
 console.log('');
 console.log('Agency OS');
+if (agencySession?.updatedAt) {
+  console.log(line('agency-os', `${fmtAge(now.getTime() - agencySession.updatedAt)} · merged founder-facing surface`));
+}
 for (const [id, session] of agencySessions) {
   const advice = await readText(path.join(root, `workspace-${id}`, 'MAIN_ADVICE.md'));
   const postureLine = advice.split(/\r?\n/).find((row) => row.startsWith('- current posture:')) ?? 'no posture';

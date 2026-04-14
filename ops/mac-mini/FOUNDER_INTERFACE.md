@@ -23,6 +23,8 @@ This is the current founder/operator control layer for the Mac mini.
   - render the current Bill + Agency OS monitor view once
 - `ops/mac-mini/bin/stack-watch 10`
   - refresh that monitor every 10 seconds
+- `ops/mac-mini/bin/stack-dashboard`
+  - open a tmux dashboard with Bill + Agency OS + OpenClaw panes
 
 ## Files
 
@@ -36,6 +38,8 @@ Agency OS:
 - `~/.openclaw/workspace-agency-os/INBOX.md`
 - `~/.openclaw/workspace-agency-os/OUTBOX.md`
 - `~/.openclaw/workspace-agency-os/STATUS.md`
+- `~/.openclaw/workspace-agency-os/MAIN_ADVICE.md`
+- `~/.openclaw/workspace-agency-os/TEAM_RUNTIME.md`
 - `~/.openclaw/workspace-jack/INBOX.md`
 - `~/.openclaw/workspace-bigb/INBOX.md`
 - `~/.openclaw/workspace-digital-you/INBOX.md`
