@@ -200,15 +200,19 @@ router.delete('/', async (c) => {
       return c.json({ error: 'UNAUTHORIZED - provide X-Agent-Key or X-Admin-Key' }, 401);
     }
 
-    try {
-      await sql`DELETE FROM agent_spending_policies WHERE agent_id = ${agentId}`;
-    } catch {}
+    await sql`DELETE FROM agent_spending_policies WHERE agent_id = ${agentId}`;
 
     return c.json({
       success: true,
       agentId,
       message: 'Spending policy removed. Agent has no spending restrictions.',
     });
+  } catch (err) {
+    console.error(
+      '[spending-policies] DELETE /api/v1/agents/:agentId/policy error:',
+      err instanceof Error ? err.message : err,
+    );
+    return c.json({ error: 'Failed to remove spending policy' }, 500);
   } finally {
     await sql.end().catch(() => {});
   }

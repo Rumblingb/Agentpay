@@ -11,6 +11,7 @@ import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb, type Sql } from '../lib/db';
+import { parseJsonBody } from '../lib/requestBody';
 import {
   createStripeClient,
   verifySucceededSetupIntent,
@@ -7822,8 +7823,9 @@ router.post('/workspaces/:workspaceId/setup-billing', authenticateApiKey, async 
   const merchant = c.get('merchant');
   const workspaceId = c.req.param('workspaceId')!;
 
-  let body: { principalId?: unknown } = {};
-  try { body = await c.req.json(); } catch {}
+  const parsed = await parseJsonBody<{ principalId?: unknown }>(c);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const { principalId } = body;
   if (typeof principalId !== 'string' || !principalId.trim()) {

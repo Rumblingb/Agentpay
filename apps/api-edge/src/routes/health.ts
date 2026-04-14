@@ -24,30 +24,47 @@
  *   }
  *
  * Database check:
- *   Phase 4 — deferred (no Postgres client wired yet).
- *   The database service is reported as 'operational' so /health returns 200
- *   and the Workers deployment can be verified without a live DB connection.
- *   Phase 5 will replace this with a real SELECT 1 via the `postgres` package
- *   once the Hyperdrive / direct-URL connection is configured.
+ *   Mirrors the Express backend semantics with a live `SELECT 1`.
+ *   Missing DB config or a failed probe marks the database as `degraded`
+ *   and downgrades the endpoint to HTTP 503.
  */
 
 import { Hono, type Context } from 'hono';
 import type { Env } from '../types';
+import { createDb } from '../lib/db';
 
 // Must stay in sync with src/server.ts API_VERSION
 const API_VERSION = '1.0.0';
 
 const router = new Hono<{ Bindings: Env }>();
 
+async function getDatabaseStatus(env: Env): Promise<'operational' | 'degraded'> {
+  const hasConnectionString = Boolean(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL);
+  if (!hasConnectionString) return 'degraded';
+
+  let sql: ReturnType<typeof createDb> | null = null;
+  try {
+    sql = createDb(env);
+    await sql`SELECT 1`;
+    return 'operational';
+  } catch (err) {
+    console.error('[health] database probe failed:', err instanceof Error ? err.message : err);
+    return 'degraded';
+  } finally {
+    if (sql) {
+      await sql.end().catch((err) => {
+        console.error('[health] database probe close failed:', err instanceof Error ? err.message : err);
+      });
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared handler — reused by /health and /api/health
 // ---------------------------------------------------------------------------
 
 async function healthHandler(c: Context<{ Bindings: Env }>) {
-  // Phase 4: database check deferred — Postgres client added in Phase 5.
-  // The Express backend returns 503 when the DB is unreachable; once Phase 5
-  // wires the client, this will run `SELECT 1` and report 'degraded' on error.
-  const dbStatus: 'operational' | 'degraded' = 'operational';
+  const dbStatus = await getDatabaseStatus(c.env);
 
   const overallStatus = dbStatus === 'operational' ? 'active' : 'degraded';
   const httpStatus = overallStatus === 'active' ? 200 : 503;

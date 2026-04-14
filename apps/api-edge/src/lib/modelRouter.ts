@@ -29,6 +29,146 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const OPENAI_URL    = 'https://api.openai.com/v1/chat/completions';
 // Use gemini-2.0-flash for higher RPM/RPD limits vs 2.5-flash-lite (20 RPD free cap)
 const GEMINI_URL    = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434/v1';
+const DEFAULT_OLLAMA_GENERAL_MODEL = 'qwen2.5:7b-instruct';
+const DEFAULT_OLLAMA_REASON_MODEL = 'qwen2.5:14b-instruct';
+const DEFAULT_OLLAMA_EXTRACT_MODEL = 'qwen2.5:7b-instruct';
+const DEFAULT_OLLAMA_CLASSIFY_MODEL = 'qwen2.5:3b-instruct';
+const DEFAULT_OPENAI_MINI_MODEL = 'gpt-4o-mini';
+const DEFAULT_OPENAI_CODE_MODEL = 'gpt-4o';
+const DEFAULT_ANTHROPIC_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_ANTHROPIC_REASON_MODEL = 'claude-opus-4-6';
+const DEFAULT_ANTHROPIC_CODE_MODEL = 'claude-opus-4-6';
+const DEFAULT_KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
+const DEFAULT_KIMI_GENERAL_MODEL = 'kimi-k2-0711-preview';
+const DEFAULT_KIMI_REASON_MODEL = 'kimi-k2-0711-preview';
+
+type RouterPolicy = 'cheap-first' | 'balanced' | 'quality-first';
+
+type CachedRouteResult = {
+  expiresAt: number;
+  value: { model: string; output: string };
+};
+
+const routeCache = new Map<string, CachedRouteResult>();
+
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function parseRouterPolicy(value: string | undefined): RouterPolicy {
+  if (value === 'balanced' || value === 'quality-first') return value;
+  return 'cheap-first';
+}
+
+function getCacheTtlMs(env: Env): number {
+  const raw = Number(env.LLM_CACHE_TTL_SECONDS ?? '900');
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw * 1000;
+}
+
+function shouldCacheTask(task: TaskType): boolean {
+  return task === 'classify' || task === 'extract' || task === 'followup';
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function buildCacheKey(task: TaskType, system: string, user: string, maxTokens: number): string {
+  return hashString(JSON.stringify({ task, system, user, maxTokens }));
+}
+
+function getCachedRoute(
+  env: Env,
+  task: TaskType,
+  system: string,
+  user: string,
+  maxTokens: number,
+): { model: string; output: string } | null {
+  if (env.MODEL_ROUTER_DISABLE_CACHE === 'true' || !shouldCacheTask(task)) return null;
+  const cacheKey = buildCacheKey(task, system, user, maxTokens);
+  const hit = routeCache.get(cacheKey);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    routeCache.delete(cacheKey);
+    return null;
+  }
+  return hit.value;
+}
+
+function setCachedRoute(
+  env: Env,
+  task: TaskType,
+  system: string,
+  user: string,
+  maxTokens: number,
+  value: { model: string; output: string },
+): void {
+  if (env.MODEL_ROUTER_DISABLE_CACHE === 'true' || !shouldCacheTask(task)) return;
+  const ttlMs = getCacheTtlMs(env);
+  if (ttlMs <= 0) return;
+  routeCache.set(buildCacheKey(task, system, user, maxTokens), {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+function getOpenAIMiniModel(env: Env): string {
+  return env.OPENAI_MINI_MODEL || DEFAULT_OPENAI_MINI_MODEL;
+}
+
+function getOpenAICodeModel(env: Env): string {
+  return env.OPENAI_CODE_MODEL || DEFAULT_OPENAI_CODE_MODEL;
+}
+
+function getAnthropicHaikuModel(env: Env): string {
+  return env.ANTHROPIC_HAIKU_MODEL || DEFAULT_ANTHROPIC_HAIKU_MODEL;
+}
+
+function getAnthropicReasonModel(env: Env): string {
+  return env.ANTHROPIC_REASON_MODEL || DEFAULT_ANTHROPIC_REASON_MODEL;
+}
+
+function getAnthropicCodeModel(env: Env): string {
+  return env.ANTHROPIC_CODE_MODEL || DEFAULT_ANTHROPIC_CODE_MODEL;
+}
+
+function getOllamaConfig(env: Env): { baseUrl: string; apiKey?: string } | null {
+  if (env.OLLAMA_DISABLE === 'true') return null;
+  const rawBase = env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_BASE_URL;
+  return { baseUrl: normalizeBaseUrl(rawBase), apiKey: env.OLLAMA_API_KEY };
+}
+
+function getKimiConfig(env: Env): { baseUrl: string; apiKey: string } | null {
+  if (!env.KIMI_API_KEY) return null;
+  return {
+    baseUrl: normalizeBaseUrl(env.KIMI_BASE_URL || DEFAULT_KIMI_BASE_URL),
+    apiKey: env.KIMI_API_KEY,
+  };
+}
+
+function getMessageContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && 'text' in item && typeof (item as { text?: unknown }).text === 'string') {
+          return (item as { text: string }).text;
+        }
+        return '';
+      })
+      .join('\n')
+      .trim();
+  }
+  return '';
+}
 
 // ── Claude call ───────────────────────────────────────────────────────────────
 
@@ -37,7 +177,7 @@ async function callClaude(
   system: string,
   user: string,
   maxTokens = 1024,
-  model: 'claude-opus-4-6' | 'claude-haiku-4-5-20251001' = 'claude-opus-4-6',
+  model = DEFAULT_ANTHROPIC_REASON_MODEL,
 ): Promise<string> {
   const resp = await fetch(ANTHROPIC_URL, {
     method: 'POST',
@@ -102,26 +242,103 @@ async function callOpenAI(
   apiKey: string,
   system: string,
   user: string,
-  model: 'gpt-4o' | 'gpt-4o-mini' = 'gpt-4o',
+  model = DEFAULT_OPENAI_CODE_MODEL,
   maxTokens = 1024,
 ): Promise<string> {
-  const resp = await fetch(OPENAI_URL, {
+  return callOpenAICompatible({
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey,
+    system,
+    user,
+    model,
+    maxTokens,
+  });
+}
+
+async function callOpenAICompatible(opts: {
+  baseUrl: string;
+  apiKey?: string;
+  system: string;
+  user: string;
+  model: string;
+  maxTokens: number;
+  extraHeaders?: Record<string, string>;
+}): Promise<string> {
+  const url = `${normalizeBaseUrl(opts.baseUrl)}/chat/completions`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...opts.extraHeaders,
+  };
+  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
+
+  const resp = await fetch(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
+      model: opts.model,
+      max_tokens: opts.maxTokens,
       messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'system', content: opts.system },
+        { role: 'user', content: opts.user },
       ],
     }),
   });
   const data = (await resp.json()) as any;
-  return data?.choices?.[0]?.message?.content ?? '';
+  return getMessageContent(data?.choices?.[0]?.message?.content);
+}
+
+async function callOllama(
+  env: Env,
+  system: string,
+  user: string,
+  model: string,
+  maxTokens: number,
+): Promise<string> {
+  const config = getOllamaConfig(env);
+  if (!config) return '';
+  return callOpenAICompatible({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    system,
+    user,
+    model,
+    maxTokens,
+  });
+}
+
+async function callKimi(
+  env: Env,
+  system: string,
+  user: string,
+  model: string,
+  maxTokens: number,
+): Promise<string> {
+  const config = getKimiConfig(env);
+  if (!config) return '';
+  return callOpenAICompatible({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    system,
+    user,
+    model,
+    maxTokens,
+  });
+}
+
+async function tryProviders(
+  providers: Array<() => Promise<{ model: string; output: string } | null>>,
+): Promise<{ model: string; output: string }> {
+  let lastError: unknown = null;
+  for (const provider of providers) {
+    try {
+      const result = await provider();
+      if (result?.output) return result;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error('No model available for task');
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -144,52 +361,130 @@ export async function routeToModel(
   opts: { maxTokens?: number } = {},
 ): Promise<{ model: string; output: string }> {
   const maxTokens = opts.maxTokens ?? 1024;
+  const cached = getCachedRoute(env, task, system, user, maxTokens);
+  if (cached) return { ...cached, model: `${cached.model} (cache)` };
+  const policy = parseRouterPolicy(env.MODEL_ROUTER_POLICY);
+
+  const finish = (result: { model: string; output: string }) => {
+    setCachedRoute(env, task, system, user, maxTokens, result);
+    return result;
+  };
 
   switch (task) {
 
     // ── FREE: Workers AI Llama for classification ────────────────────────────
     case 'classify': {
+      const providers: Array<() => Promise<{ model: string; output: string } | null>> = [];
+      const ollamaModel = env.OLLAMA_CLASSIFY_MODEL || DEFAULT_OLLAMA_CLASSIFY_MODEL;
+
+      if (policy !== 'quality-first') {
+        providers.push(async () => {
+          const output = await callOllama(env, system, user, ollamaModel, 64);
+          return output ? { model: `ollama:${ollamaModel}`, output } : null;
+        });
+      }
       if (env.AI) {
-        try {
-          const output = await callWorkersAI(env.AI, system, user);
-          if (output) return { model: 'llama-3.3-70b (workers-ai)', output };
-        } catch { /* fall through */ }
+        providers.push(async () => {
+          const output = await callWorkersAI(env.AI!, system, user, 64);
+          return output ? { model: 'llama-3.3-70b (workers-ai)', output } : null;
+        });
+      }
+      if (env.KIMI_API_KEY && policy !== 'quality-first') {
+        const kimiModel = env.KIMI_GENERAL_MODEL || DEFAULT_KIMI_GENERAL_MODEL;
+        providers.push(async () => {
+          const output = await callKimi(env, system, user, kimiModel, 64);
+          return output ? { model: `kimi:${kimiModel}`, output } : null;
+        });
       }
       if (env.OPENAI_API_KEY) {
-        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, 'gpt-4o-mini', 32);
-        return { model: 'gpt-4o-mini', output };
+        const model = getOpenAIMiniModel(env);
+        providers.push(async () => {
+          const output = await callOpenAI(env.OPENAI_API_KEY!, system, user, model, 32);
+          return output ? { model, output } : null;
+        });
       }
       if (env.ANTHROPIC_API_KEY) {
-        const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, 32, 'claude-haiku-4-5-20251001');
-        return { model: 'claude-haiku-4-5', output };
+        const model = getAnthropicHaikuModel(env);
+        providers.push(async () => {
+          const output = await callClaude(env.ANTHROPIC_API_KEY!, system, user, 32, model);
+          return output ? { model, output } : null;
+        });
       }
-      throw new Error('No model available for classify');
+      return finish(await tryProviders(providers));
     }
 
     // ── CHEAP: Claude Haiku for simple followup turns ────────────────────────
     case 'followup': {
-      if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
-      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, 'claude-haiku-4-5-20251001');
-      return { model: 'claude-haiku-4-5', output };
+      const providers: Array<() => Promise<{ model: string; output: string } | null>> = [];
+      const ollamaModel = env.OLLAMA_GENERAL_MODEL || DEFAULT_OLLAMA_GENERAL_MODEL;
+      if (policy === 'cheap-first') {
+        providers.push(async () => {
+          const output = await callOllama(env, system, user, ollamaModel, maxTokens);
+          return output ? { model: `ollama:${ollamaModel}`, output } : null;
+        });
+      }
+      if (env.KIMI_API_KEY && policy !== 'quality-first') {
+        const model = env.KIMI_GENERAL_MODEL || DEFAULT_KIMI_GENERAL_MODEL;
+        providers.push(async () => {
+          const output = await callKimi(env, system, user, model, maxTokens);
+          return output ? { model: `kimi:${model}`, output } : null;
+        });
+      }
+      if (env.ANTHROPIC_API_KEY) {
+        const model = getAnthropicHaikuModel(env);
+        providers.push(async () => {
+          const output = await callClaude(env.ANTHROPIC_API_KEY!, system, user, maxTokens, model);
+          return output ? { model, output } : null;
+        });
+      }
+      if (env.OPENAI_API_KEY && policy === 'quality-first') {
+        const model = getOpenAIMiniModel(env);
+        providers.push(async () => {
+          const output = await callOpenAI(env.OPENAI_API_KEY!, system, user, model, maxTokens);
+          return output ? { model, output } : null;
+        });
+      }
+      return finish(await tryProviders(providers));
     }
 
     // ── FREE: CF Workers AI Llama for extraction (no RPD limit) ────────────
     case 'extract': {
+      const providers: Array<() => Promise<{ model: string; output: string } | null>> = [];
+      const ollamaModel = env.OLLAMA_EXTRACT_MODEL || DEFAULT_OLLAMA_EXTRACT_MODEL;
+      if (policy !== 'quality-first') {
+        providers.push(async () => {
+          const output = await callOllama(env, system, user, ollamaModel, maxTokens);
+          return output ? { model: `ollama:${ollamaModel}`, output } : null;
+        });
+      }
       if (env.AI) {
-        try {
-          const output = await callWorkersAI(env.AI, system, user);
-          if (output) return { model: 'llama-3.3-70b (workers-ai)', output };
-        } catch { /* fall through */ }
+        providers.push(async () => {
+          const output = await callWorkersAI(env.AI!, system, user, maxTokens);
+          return output ? { model: 'llama-3.3-70b (workers-ai)', output } : null;
+        });
+      }
+      if (env.KIMI_API_KEY && policy !== 'quality-first') {
+        const model = env.KIMI_GENERAL_MODEL || DEFAULT_KIMI_GENERAL_MODEL;
+        providers.push(async () => {
+          const output = await callKimi(env, system, user, model, maxTokens);
+          return output ? { model: `kimi:${model}`, output } : null;
+        });
       }
       if (env.OPENAI_API_KEY) {
-        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, 'gpt-4o-mini', maxTokens);
-        return { model: 'gpt-4o-mini', output };
+        const model = getOpenAIMiniModel(env);
+        providers.push(async () => {
+          const output = await callOpenAI(env.OPENAI_API_KEY!, system, user, model, maxTokens);
+          return output ? { model, output } : null;
+        });
       }
       if (env.ANTHROPIC_API_KEY) {
-        const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, 'claude-haiku-4-5-20251001');
-        return { model: 'claude-haiku-4-5 (fallback)', output };
+        const model = getAnthropicHaikuModel(env);
+        providers.push(async () => {
+          const output = await callClaude(env.ANTHROPIC_API_KEY!, system, user, maxTokens, model);
+          return output ? { model, output } : null;
+        });
       }
-      throw new Error('No model available for extract');
+      return finish(await tryProviders(providers));
     }
 
     // ── OPT-IN: Gemini 2.0 Flash (paid billing, higher quality extraction) ──
@@ -209,19 +504,55 @@ export async function routeToModel(
     // ── FULL: GPT-4o for code generation ────────────────────────────────────
     case 'code': {
       if (env.OPENAI_API_KEY) {
-        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, 'gpt-4o', maxTokens);
-        return { model: 'gpt-4o', output };
+        const model = getOpenAICodeModel(env);
+        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, model, maxTokens);
+        return { model, output };
       }
-      if (!env.ANTHROPIC_API_KEY) throw new Error('Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY set');
-      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens);
-      return { model: 'claude-opus-4-6 (fallback)', output };
+      if (env.ANTHROPIC_API_KEY) {
+        const model = getAnthropicCodeModel(env);
+        const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, model);
+        return { model, output };
+      }
+      const kimiModel = env.KIMI_REASON_MODEL || DEFAULT_KIMI_REASON_MODEL;
+      if (env.KIMI_API_KEY && policy !== 'quality-first') {
+        const output = await callKimi(env, system, user, kimiModel, maxTokens);
+        return { model: `kimi:${kimiModel}`, output };
+      }
+      throw new Error('No model available for code');
     }
 
     // ── FULL: Claude Opus for complex booking reasoning ──────────────────────
     case 'reason': {
-      if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
-      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens);
-      return { model: 'claude-opus-4-6', output };
+      const providers: Array<() => Promise<{ model: string; output: string } | null>> = [];
+      if (policy === 'cheap-first' || policy === 'balanced') {
+        const ollamaModel = env.OLLAMA_REASON_MODEL || DEFAULT_OLLAMA_REASON_MODEL;
+        providers.push(async () => {
+          const output = await callOllama(env, system, user, ollamaModel, maxTokens);
+          return output ? { model: `ollama:${ollamaModel}`, output } : null;
+        });
+      }
+      if (env.KIMI_API_KEY) {
+        const model = env.KIMI_REASON_MODEL || DEFAULT_KIMI_REASON_MODEL;
+        providers.push(async () => {
+          const output = await callKimi(env, system, user, model, maxTokens);
+          return output ? { model: `kimi:${model}`, output } : null;
+        });
+      }
+      if (env.ANTHROPIC_API_KEY) {
+        const model = getAnthropicReasonModel(env);
+        providers.push(async () => {
+          const output = await callClaude(env.ANTHROPIC_API_KEY!, system, user, maxTokens, model);
+          return output ? { model, output } : null;
+        });
+      }
+      if (env.OPENAI_API_KEY && policy === 'quality-first') {
+        const model = getOpenAICodeModel(env);
+        providers.push(async () => {
+          const output = await callOpenAI(env.OPENAI_API_KEY!, system, user, model, maxTokens);
+          return output ? { model, output } : null;
+        });
+      }
+      return await tryProviders(providers);
     }
 
     default:

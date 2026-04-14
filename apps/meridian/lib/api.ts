@@ -300,9 +300,14 @@ export interface ConciergeExecutionSnapshot {
   paymentConfirmed: boolean;
   fulfilmentFailed: boolean;
   retryCount: number;
+  dispatchStatus: 'dispatched' | 'retry_pending' | 'failed' | null;
+  dispatchAttemptCount: number;
+  dispatchError: string | null;
+  openclawJobId: string | null;
   quoteExpiresAt: string | null;
   paymentConfirmedAt: string | null;
   dispatchStartedAt: string | null;
+  nextDispatchRetryAt: string | null;
   rerouteOfferActionLabel: string | null;
   updatedAt: string | null;
 }

@@ -431,7 +431,11 @@ async function saveJourneySessions(sessions: JourneySession[]): Promise<void> {
 
 export async function loadJourneySession(intentId: string): Promise<JourneySession | null> {
   const sessions = await loadJourneySessions();
-  return sessions.find((session) => session.intentId === intentId) ?? null;
+  return sessions.find((session) =>
+    session.intentId === intentId
+    || session.jobId === intentId
+    || session.journeyId === intentId,
+  ) ?? null;
 }
 
 export async function loadCurrentJourneySession(): Promise<JourneySession | null> {

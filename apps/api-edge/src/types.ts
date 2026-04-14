@@ -212,12 +212,50 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** Optional OpenAI low-cost general model override. Default: gpt-4o-mini. */
+  OPENAI_MINI_MODEL?: string;
+  /** Optional OpenAI code model override. Default: gpt-4o. */
+  OPENAI_CODE_MODEL?: string;
+  /** Anthropic low-cost model override for classify/extract/followup. Default: claude-haiku-4-5-20251001. */
+  ANTHROPIC_HAIKU_MODEL?: string;
+  /** Anthropic deep reasoning model override. Default: claude-opus-4-6. */
+  ANTHROPIC_REASON_MODEL?: string;
+  /** Anthropic code model override. Default: claude-opus-4-6. */
+  ANTHROPIC_CODE_MODEL?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
   ELEVENLABS_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */
   FIRECRAWL_API_KEY?: string;
+  /** Local OpenAI-compatible endpoint for Ollama. Default: http://127.0.0.1:11434/v1 */
+  OLLAMA_BASE_URL?: string;
+  /** Optional bearer token for a protected Ollama/OpenAI-compatible gateway. */
+  OLLAMA_API_KEY?: string;
+  /** Set to "true" to disable Ollama routing even if configured. */
+  OLLAMA_DISABLE?: string;
+  /** Cheap local model for general turns. Default: qwen2.5:7b-instruct. */
+  OLLAMA_GENERAL_MODEL?: string;
+  /** Cheap local model for extraction turns. Default: qwen2.5:7b-instruct. */
+  OLLAMA_EXTRACT_MODEL?: string;
+  /** Cheap local model for classification. Default: qwen2.5:3b-instruct. */
+  OLLAMA_CLASSIFY_MODEL?: string;
+  /** Stronger local model for reasoning. Default: qwen2.5:14b-instruct. */
+  OLLAMA_REASON_MODEL?: string;
+  /** Kimi / Moonshot OpenAI-compatible API key. */
+  KIMI_API_KEY?: string;
+  /** Optional Kimi base URL. Default: https://api.moonshot.ai/v1 */
+  KIMI_BASE_URL?: string;
+  /** Kimi general-turn model override. */
+  KIMI_GENERAL_MODEL?: string;
+  /** Kimi reasoning model override. */
+  KIMI_REASON_MODEL?: string;
+  /** cheap-first | balanced | quality-first. Default: cheap-first. */
+  MODEL_ROUTER_POLICY?: string;
+  /** Shared response cache TTL in seconds for repeat classify/extract/followup turns. Default: 900. */
+  LLM_CACHE_TTL_SECONDS?: string;
+  /** Set to "true" to bypass the in-process LLM response cache. */
+  MODEL_ROUTER_DISABLE_CACHE?: string;
 
   /** Base URL for the institutional 276/277 claim-status connector. */
   RCM_X12_CLAIM_STATUS_API_URL?: string;

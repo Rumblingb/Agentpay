@@ -31,6 +31,7 @@ export function deriveBookingHealth(intentStatus: string, metadata?: BookingMeta
   const paymentConfirmedMins = minutesSince((metadata?.paymentConfirmedAt as string | undefined) ?? null);
   const dispatchedMins = minutesSince((metadata?.openclawDispatchedAt as string | undefined) ?? null);
   const fulfilmentFailed = metadata?.fulfilmentFailed === true;
+  const dispatchStatus = typeof metadata?.dispatchStatus === 'string' ? metadata.dispatchStatus : null;
 
   if (bookingState === 'issued') {
     return { bookingState, recoveryBucket: 'issued', shouldEscalate: false, summary: 'Booking issued.' };
@@ -48,6 +49,22 @@ export function deriveBookingHealth(intentStatus: string, metadata?: BookingMeta
     return { bookingState, recoveryBucket: 'awaiting_payment', shouldEscalate: false, summary: 'Awaiting payment confirmation.' };
   }
   if (bookingState === 'payment_confirmed') {
+    if (dispatchStatus === 'retry_pending') {
+      return {
+        bookingState,
+        recoveryBucket: 'ready_for_dispatch',
+        shouldEscalate: false,
+        summary: 'The booking handoff needs a retry. Ace has queued another dispatch attempt.',
+      };
+    }
+    if (dispatchStatus === 'failed') {
+      return {
+        bookingState,
+        recoveryBucket: 'failed',
+        shouldEscalate: true,
+        summary: 'The booking handoff failed and needs intervention.',
+      };
+    }
     const stale = paymentConfirmedMins != null && paymentConfirmedMins >= 10;
     return {
       bookingState,
@@ -57,6 +74,22 @@ export function deriveBookingHealth(intentStatus: string, metadata?: BookingMeta
     };
   }
   if (bookingState === 'securing') {
+    if (dispatchStatus === 'retry_pending') {
+      return {
+        bookingState,
+        recoveryBucket: 'ready_for_dispatch',
+        shouldEscalate: false,
+        summary: 'The booking handoff needs a retry. Ace has queued another dispatch attempt.',
+      };
+    }
+    if (dispatchStatus === 'failed') {
+      return {
+        bookingState,
+        recoveryBucket: 'failed',
+        shouldEscalate: true,
+        summary: 'The booking handoff failed and needs intervention.',
+      };
+    }
     const stale = dispatchedMins != null ? dispatchedMins >= 15 : paymentConfirmedMins != null && paymentConfirmedMins >= 20;
     return {
       bookingState,
