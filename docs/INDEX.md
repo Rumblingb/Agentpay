@@ -15,3 +15,5 @@ Use this index to navigate the curated developer resources for AgentPay.
 - `ops/mac-mini/README.md` — source-controlled runtime home for the Mac mini architecture
 - `ops/mac-mini/MODEL_POLICY.md` — model routing and anti-drift policy for Agency OS and Bill
 - `ops/mac-mini/BILL_RUNTIME.md` — first-class Bill runtime design and promotion posture
+- `ops/mac-mini/AGENCY_OS_RUNTIME.md` — first-class Agency OS runtime design and workflow posture
+- `ops/mac-mini/AGENCY_OS_COST_POLICY.md` — cheap-by-default Agency OS cost discipline

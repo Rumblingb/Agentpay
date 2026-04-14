@@ -56,3 +56,7 @@ Optional:
 - `runbooks/` - operator procedures
 - `schemas/` - JSON contracts for health, approvals, lane tasks, and Bill promotion state
 
+## Agency OS docs
+
+- `AGENCY_OS_RUNTIME.md` - one-lane Agency OS runtime model with internal roles
+- `AGENCY_OS_COST_POLICY.md` - cheap-by-default Agency OS operating policy
