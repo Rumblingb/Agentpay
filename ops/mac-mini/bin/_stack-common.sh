@@ -21,6 +21,7 @@ stack_lane_workspace() {
   case "$1" in
     jack) printf '%s\n' "$(stack_workspace_root)/workspace-jack" ;;
     bigb) printf '%s\n' "$(stack_workspace_root)/workspace-bigb" ;;
+    chief-agent) printf '%s\n' "$(stack_workspace_root)/workspace-chief-agent" ;;
     digital-you) printf '%s\n' "$(stack_workspace_root)/workspace-digital-you" ;;
     bill) printf '%s\n' "$(stack_workspace_root)/workspace-bill" ;;
     *) echo "Unknown lane: $1" >&2; exit 2 ;;

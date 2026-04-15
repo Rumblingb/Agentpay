@@ -8,13 +8,13 @@ if [[ "${1:-}" == "--lane" ]]; then
 fi
 message="$(stack_read_message "$@")"
 if [[ -z "${message// }" ]]; then
-  echo "Usage: agency-os-ask [--lane all|jack|bigb|digital-you] \"message\"" >&2
+  echo "Usage: agency-os-ask [--lane all|jack|bigb|chief-agent|digital-you] \"message\"" >&2
   exit 2
 fi
 agency_inbox="$(stack_agency_workspace)/INBOX.md"
 stack_append_entry "$agency_inbox" "Founder request (${lane})" "$message"
 if [[ "$lane" == "all" ]]; then
-  for item in jack bigb digital-you; do
+  for item in jack bigb chief-agent digital-you; do
     stack_append_entry "$(stack_lane_workspace "$item")/INBOX.md" "Agency OS request" "$message"
   done
 else

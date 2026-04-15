@@ -40,6 +40,27 @@ These are execution roles, not separate always-on giant brains.
 - write the artifact, issue, spec, code change, or release note
 - update the relevant operating memory
 
+## Self-evolution loop
+
+Agency OS should not stay static between founder turns.
+
+Two lightweight loops keep it updating:
+- `agency-os-sync`
+  - merges lane outboxes into one founder-facing control surface
+- `agency-os-evolve`
+  - audits freshness and drift
+  - writes generated `AUTO_ADVICE.md` for Agency OS and each lane
+  - writes `EVOLUTION.md` and evolution state/history
+  - nudges stale lanes through their inbox if they have gone quiet or stopped leaving concrete artifacts
+
+## Generated control surfaces
+
+- `workspace-agency-os/AUTO_ADVICE.md`
+- `workspace-agency-os/EVOLUTION.md`
+- `workspace-<lane>/AUTO_ADVICE.md`
+
+These are generated runtime surfaces, not founder prose. They exist so the lanes can tighten themselves without rewriting the architecture.
+
 ## Artifact bias
 
 Each Agency OS run should leave one concrete artifact behind:

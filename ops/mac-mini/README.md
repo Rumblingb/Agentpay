@@ -53,7 +53,7 @@ Optional:
 ## Directories
 
 - `bin/` - founder/operator commands such as `bill-ask`, `agency-os-ask`, `stack-monitor`, and `stack-watch`
-- `bin/` also includes `agency-os-sync`, `agency-os-install-launchd`, `stack-dashboard`, `stack-openclaw-watch`, and `stack-activity-watch`
+- `bin/` also includes `agency-os-sync`, `agency-os-evolve`, `agency-os-install-launchd`, `stack-dashboard`, `stack-openclaw-watch`, and `stack-activity-watch`
 - `scripts/` - supporting runtime scripts for the operator surface
 - `launchd/` - plist templates and service ownership notes
 - `runbooks/` - operator procedures
@@ -62,5 +62,6 @@ Optional:
 ## Agency OS docs
 
 - `AGENCY_OS_RUNTIME.md` - one-lane Agency OS runtime model with internal roles
+- `AGENCY_OS_RUNTIME.md` also defines the self-evolution loop and generated auto-advice surfaces
 - `AGENCY_OS_COST_POLICY.md` - cheap-by-default Agency OS operating policy
 - `FOUNDER_INTERFACE.md` - how to talk to Bill and the merged Agency OS surface and monitor both together
