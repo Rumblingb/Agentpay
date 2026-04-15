@@ -53,6 +53,7 @@ Optional:
 ## Directories
 
 - `bin/` - founder/operator commands such as `bill-ask`, `agency-os-ask`, `stack-monitor`, and `stack-watch`
+- `bin/` also includes `openjarvis-ask` as the single founder ingress into the live agent mesh
 - `bin/` also includes `agency-os-sync`, `agency-os-evolve`, `agency-os-install-launchd`, `stack-dashboard`, `stack-openclaw-watch`, and `stack-activity-watch`
 - `scripts/` - supporting runtime scripts for the operator surface
 - `launchd/` - plist templates and service ownership notes

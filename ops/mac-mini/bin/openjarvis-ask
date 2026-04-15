@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+source "$(dirname -- "$0")/_stack-common.sh"
+message="$(stack_read_message "$@")"
+if [[ -z "${message// }" ]]; then
+  echo "Usage: openjarvis-ask \"message\"" >&2
+  exit 2
+fi
+inbox="$(stack_openjarvis_workspace)/INBOX.md"
+stack_append_entry "$inbox" "Founder request" "$message"
+printf 'Wrote OpenJarvis inbox: %s\n' "$inbox"

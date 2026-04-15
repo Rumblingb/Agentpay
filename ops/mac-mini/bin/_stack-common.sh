@@ -17,6 +17,10 @@ stack_agency_workspace() {
   printf '%s\n' "$(stack_workspace_root)/workspace-agency-os"
 }
 
+stack_openjarvis_workspace() {
+  printf '%s\n' "$(stack_workspace_root)/workspace-open-jarvis"
+}
+
 stack_lane_workspace() {
   case "$1" in
     jack) printf '%s\n' "$(stack_workspace_root)/workspace-jack" ;;
@@ -24,6 +28,7 @@ stack_lane_workspace() {
     chief-agent) printf '%s\n' "$(stack_workspace_root)/workspace-chief-agent" ;;
     digital-you) printf '%s\n' "$(stack_workspace_root)/workspace-digital-you" ;;
     bill) printf '%s\n' "$(stack_workspace_root)/workspace-bill" ;;
+    open-jarvis) printf '%s\n' "$(stack_openjarvis_workspace)" ;;
     *) echo "Unknown lane: $1" >&2; exit 2 ;;
   esac
 }

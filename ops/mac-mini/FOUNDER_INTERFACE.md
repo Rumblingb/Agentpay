@@ -4,6 +4,8 @@ This is the current founder/operator control layer for the Mac mini.
 
 ## Current operating reality
 
+- `open-jarvis` is the single founder-facing ingress.
+- `main` remains internal control-plane context, not the preferred public founder surface.
 - `bill` is a first-class live lane.
 - `agency-os` is now a first-class OpenClaw lane in local runtime config.
 - The company-building side currently runs through:
@@ -14,8 +16,12 @@ This is the current founder/operator control layer for the Mac mini.
 
 ## Commands
 
+- `ops/mac-mini/bin/openjarvis-ask "..."`
+  - append a founder request to OpenJarvis `INBOX.md`
+  - use this as the default founder ingress instead of writing to specialist lanes directly
 - `ops/mac-mini/bin/bill-ask "..."`
-  - append a founder request to Bill's `INBOX.md`
+  - append a direct founder request to Bill's `INBOX.md`
+  - use only when the task is explicitly market-lane-only
 - `ops/mac-mini/bin/agency-os-ask "..."`
   - append a founder request to the merged Agency OS `INBOX.md`
   - fan the same request out to `jack`, `bigb`, and `digital-you` lane inboxes
@@ -36,6 +42,11 @@ Bill:
 - `~/.openclaw/workspace-bill/memory/`
 - `~/hedge/.rumbling-hedge/logs/prediction-cycle-history.jsonl`
 
+OpenJarvis:
+- `~/.openclaw/workspace-open-jarvis/INBOX.md`
+- `~/.openclaw/workspace-open-jarvis/OUTBOX.md`
+- `~/hedge/.rumbling-hedge/state/`
+
 Agency OS:
 - `~/.openclaw/workspace-agency-os/INBOX.md`
 - `~/.openclaw/workspace-agency-os/OUTBOX.md`
@@ -54,3 +65,4 @@ The monitor is designed to answer three questions quickly:
 - Which Agency OS component lanes are active, and what are they supposed to be doing?
 
 The Agency OS outbox is now generated automatically from lane outboxes every 5 minutes through launchd.
+OpenJarvis should be the surface that reads those merged artifacts and routes the next founder request.
