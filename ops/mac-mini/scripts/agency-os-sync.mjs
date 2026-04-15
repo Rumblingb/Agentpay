@@ -5,7 +5,7 @@ import path from "node:path";
 
 const root = path.join(os.homedir(), ".openclaw");
 const agencyWorkspace = path.join(root, "workspace-agency-os");
-const laneIds = ["jack", "bigb", "digital-you"];
+const laneIds = ["jack", "bigb", "chief-agent", "digital-you"];
 const placeholderOutboxes = new Set([
   "# Outbox\n\nWrite compact operator-facing updates here when a run materially changes state.",
   "# Agency OS Outbox\n\nUse this for compact operator-facing summaries of product, build, growth, and revenue progress."
@@ -23,13 +23,28 @@ async function readText(filePath) {
 function meaningfulText(text) {
   const trimmed = text.trim();
   if (!trimmed || placeholderOutboxes.has(trimmed)) return "";
-  return trimmed;
+  return trimmed.replace(/^# Outbox\s*/m, "").trim();
 }
 
 function tail(text, lines = 8) {
   const trimmed = meaningfulText(text);
   if (!trimmed) return "No material operator update yet.";
   return trimmed.split(/\r?\n/).slice(-lines).join("\n");
+}
+
+function sectionBulletTail(text, heading, lines = 4) {
+  const trimmed = meaningfulText(text);
+  if (!trimmed) return [];
+  const allLines = trimmed.split(/\r?\n/);
+  const start = allLines.findIndex((line) => line.trim() === heading);
+  if (start === -1) return [];
+  const collected = [];
+  for (let i = start + 1; i < allLines.length; i += 1) {
+    const line = allLines[i];
+    if (line.startsWith("## ")) break;
+    if (line.trim().startsWith("- ")) collected.push(line.trim());
+  }
+  return collected.slice(0, lines);
 }
 
 async function laneSummary(id) {
@@ -52,8 +67,10 @@ async function laneSummary(id) {
 
 const now = new Date();
 const agencyInbox = await readText(path.join(agencyWorkspace, "INBOX.md"));
+const agencyTaskBoard = await readText(path.join(agencyWorkspace, "TASK_BOARD.md"));
 const lanes = await Promise.all(laneIds.map((id) => laneSummary(id)));
 const activeLanes = lanes.filter((lane) => lane.hasMaterialUpdate);
+const missionBullets = sectionBulletTail(agencyTaskBoard, "## Current company mission", 6);
 
 const outboxLines = [
   "# Agency OS Outbox",
@@ -63,6 +80,8 @@ const outboxLines = [
   `- last sync: ${fmtTime(now)} IST`,
   `- active lane updates: ${activeLanes.length}/${lanes.length}`,
   `- founder inbox tail: ${tail(agencyInbox, 4).replace(/\n/g, " | ")}`,
+  `- operating mode: four-lane merged office, one artifact per lane, one founder-facing merge per cycle`,
+  ...(missionBullets.length > 0 ? [`- merged mission: ${missionBullets.map((line) => line.replace(/^- /, "")).join(" | ")}`] : []),
   ""
 ];
 
@@ -79,7 +98,9 @@ const statusLines = [
   "# Agency OS Status",
   "",
   `- last sync: ${fmtTime(now)} IST`,
+  `- active company lanes: ${lanes.length}/${lanes.length}`,
   `- active lane updates: ${activeLanes.length}/${lanes.length}`,
+  ...(missionBullets.length > 0 ? [`- merged mission: ${missionBullets.map((line) => line.replace(/^- /, "")).join(" | ")}`] : []),
   `- lanes with material updates: ${activeLanes.map((lane) => lane.id).join(", ") || "none"}`,
   `- lanes awaiting first real output: ${lanes.filter((lane) => !lane.hasMaterialUpdate).map((lane) => lane.id).join(", ") || "none"}`
 ];
