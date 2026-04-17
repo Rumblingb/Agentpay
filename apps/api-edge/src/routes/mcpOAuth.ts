@@ -12,6 +12,7 @@ import {
   exchangeAuthorizationCode,
   getOAuthClient,
   inferMcpAudience,
+  oauthClientAllowsRedirectUri,
   peekOAuthEmailLinkAttempt,
   requestOAuthEmailLink,
   registerOAuthClient,
@@ -37,6 +38,13 @@ function secureHtml(c: Context<{ Bindings: Env; Variables: Variables }>, html: s
   c.header('Cache-Control', 'no-store');
   c.header('Pragma', 'no-cache');
   c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'");
+  return c.html(html);
+}
+
+function secureHtmlWithScript(c: Context<{ Bindings: Env; Variables: Variables }>, html: string) {
+  c.header('Cache-Control', 'no-store');
+  c.header('Pragma', 'no-cache');
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'");
   return c.html(html);
 }
 
@@ -174,6 +182,50 @@ function emailLinkConfirmPage(input: {
 </html>`;
 }
 
+function oauthContinuePage(input: {
+  clientName: string | null;
+  redirectUrl: string;
+}) {
+  const { clientName, redirectUrl } = input;
+  const label = clientName ?? 'your MCP host';
+  const escapedUrl = htmlEscape(redirectUrl);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Continue to ${htmlEscape(label)}</title>
+    <meta http-equiv="refresh" content="0;url=${escapedUrl}" />
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }
+      .wrap { max-width: 560px; margin: 48px auto; padding: 24px; }
+      .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 8px 24px rgba(15,23,42,0.06); }
+      h1 { margin: 0 0 8px; font-size: 24px; }
+      p { color: #475569; line-height: 1.5; }
+      a.button { display:block; margin-top: 20px; width: 100%; box-sizing: border-box; text-align:center; text-decoration:none; border-radius: 10px; background: #0f172a; color: #fff; padding: 12px 16px; font-size: 15px; font-weight: 600; }
+      .fine { margin-top: 14px; font-size: 12px; color: #64748b; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Continue to ${htmlEscape(label)}</h1>
+        <p>AgentPay finished the authorization step. If the host does not reopen automatically, use the button below.</p>
+        <a class="button" href="${escapedUrl}">Return to ${htmlEscape(label)}</a>
+        <div class="fine">${escapedUrl}</div>
+      </div>
+    </div>
+    <script>
+      const target = ${JSON.stringify(redirectUrl)};
+      try { window.location.replace(target); } catch {}
+      setTimeout(() => {
+        try { window.location.href = target; } catch {}
+      }, 50);
+    </script>
+  </body>
+</html>`;
+}
+
 router.get('/.well-known/oauth-protected-resource', (c) => c.json(buildProtectedResourceMetadata(c.env.API_BASE_URL)));
 router.get('/.well-known/oauth-protected-resource/api/mcp', (c) => c.json(buildProtectedResourceMetadata(c.env.API_BASE_URL)));
 router.get('/.well-known/oauth-authorization-server', (c) => c.json(buildAuthorizationServerMetadata(c.env.API_BASE_URL)));
@@ -227,12 +279,18 @@ router.get('/authorize', async (c) => {
   try {
     const request = validateOAuthAuthorizationRequest(new URLSearchParams(c.req.query()));
     const client = await getOAuthClient(c.env, request.clientId);
-    if (!client || !client.redirectUris.includes(request.redirectUri)) {
+    if (!oauthClientAllowsRedirectUri(client, request.redirectUri)) {
+      console.warn('[mcp-oauth] authorize redirect mismatch', {
+        clientId: request.clientId,
+        redirectUri: request.redirectUri,
+        registeredRedirectUris: client?.redirectUris ?? [],
+      });
       return c.text('Invalid OAuth client or redirect URI.', 400);
     }
+    const registeredClient = client!;
     return secureHtml(c, authorizePage({
       request,
-      clientName: client.clientName,
+      clientName: registeredClient.clientName,
     }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -256,9 +314,15 @@ router.post('/authorize/email-link', async (c) => {
   }
 
   const client = await getOAuthClient(c.env, clientId);
-  if (!client || !client.redirectUris.includes(redirectUri)) {
+  if (!oauthClientAllowsRedirectUri(client, redirectUri)) {
+    console.warn('[mcp-oauth] authorize email-link redirect mismatch', {
+      clientId,
+      redirectUri,
+      registeredRedirectUris: client?.redirectUris ?? [],
+    });
     return c.text('Invalid OAuth client or redirect URI.', 400);
   }
+  const registeredClient = client!;
 
   if (!email) {
     c.status(400);
@@ -272,7 +336,7 @@ router.post('/authorize/email-link', async (c) => {
         codeChallengeMethod: 'S256',
         resource,
       },
-      clientName: client.clientName,
+      clientName: registeredClient.clientName,
       error: 'Email is required.',
     }));
   }
@@ -285,7 +349,7 @@ router.post('/authorize/email-link', async (c) => {
     codeChallenge,
     codeChallengeMethod: 'S256',
     resource,
-    clientName: client.clientName,
+    clientName: registeredClient.clientName,
     email,
   });
 
@@ -299,7 +363,7 @@ router.post('/authorize/email-link', async (c) => {
       codeChallengeMethod: 'S256',
       resource,
     },
-    clientName: client.clientName,
+    clientName: registeredClient.clientName,
     email,
     emailLinkNotice: requested.delivery === 'unavailable'
       ? 'Email delivery is not available in this environment. Use the API key fallback below.'
@@ -350,11 +414,14 @@ router.post('/authorize/email-link/confirm', async (c) => {
 
   try {
     const completed = await completeOAuthEmailLinkAttempt(c.env, { attemptId, token });
-    return c.redirect(buildAuthorizeSuccessRedirect({
-      redirectUri: completed.redirectUri,
-      code: completed.code,
-      state: completed.state,
-    }), 302);
+    return secureHtmlWithScript(c, oauthContinuePage({
+      clientName: null,
+      redirectUrl: buildAuthorizeSuccessRedirect({
+        redirectUri: completed.redirectUri,
+        code: completed.code,
+        state: completed.state,
+      }),
+    }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     c.status(400);
@@ -388,9 +455,15 @@ router.post('/authorize', async (c) => {
   }
 
   const client = await getOAuthClient(c.env, clientId);
-  if (!client || !client.redirectUris.includes(redirectUri)) {
+  if (!oauthClientAllowsRedirectUri(client, redirectUri)) {
+    console.warn('[mcp-oauth] authorize fallback redirect mismatch', {
+      clientId,
+      redirectUri,
+      registeredRedirectUris: client?.redirectUris ?? [],
+    });
     return c.text('Invalid OAuth client or redirect URI.', 400);
   }
+  const registeredClient = client!;
 
   const merchant = email && apiKey
     ? await authenticateMerchantForFounderOAuth(c.env, email, apiKey)
@@ -407,7 +480,7 @@ router.post('/authorize', async (c) => {
         codeChallengeMethod: 'S256',
         resource,
       },
-      clientName: client.clientName,
+      clientName: registeredClient.clientName,
       email,
       error: 'Email or API key is invalid.',
     }));
@@ -416,7 +489,7 @@ router.post('/authorize', async (c) => {
   const audience = inferMcpAudience({
     redirectUri,
     resource,
-    clientName: client.clientName,
+    clientName: registeredClient.clientName,
   });
   const code = await createOAuthAuthorizationCode(c.env, {
     clientId,
@@ -429,11 +502,14 @@ router.post('/authorize', async (c) => {
     audience,
   });
 
-  return c.redirect(buildAuthorizeSuccessRedirect({
-    redirectUri,
-    code,
-    state,
-  }), 302);
+  return secureHtmlWithScript(c, oauthContinuePage({
+    clientName: registeredClient.clientName,
+    redirectUrl: buildAuthorizeSuccessRedirect({
+      redirectUri,
+      code,
+      state,
+    }),
+  }));
 });
 
 router.post('/token', async (c) => {

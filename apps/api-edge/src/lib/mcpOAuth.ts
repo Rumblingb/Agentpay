@@ -1,5 +1,5 @@
 import type { Env, MerchantContext } from '../types';
-import { createDb } from './db';
+import { createDb, parseJsonb } from './db';
 import { pbkdf2Hex } from './pbkdf2';
 import { sha256Hex } from './approvalSessions';
 import { mintMcpAccessToken, type McpAccessTokenClaims } from './mcpAccessTokens';
@@ -104,16 +104,20 @@ function normalizeJsonArray(value: unknown): string[] {
 
 function normalizeClient(row: OAuthClientRow | undefined): RegisteredOAuthClient | null {
   if (!row) return null;
+  const redirectUris = normalizeJsonArray(parseJsonb<unknown[]>(row.redirect_uris_json, []));
+  if (!redirectUris.length) return null;
+  const grantTypes = normalizeJsonArray(parseJsonb<unknown[]>(row.grant_types_json, []));
+  const responseTypes = normalizeJsonArray(parseJsonb<unknown[]>(row.response_types_json, []));
   return {
     clientId: row.client_id,
     clientSecret: null,
     clientName: row.client_name ?? null,
-    redirectUris: normalizeJsonArray(row.redirect_uris_json),
+    redirectUris,
     tokenEndpointAuthMethod: row.token_endpoint_auth_method === 'client_secret_post' || row.token_endpoint_auth_method === 'client_secret_basic'
       ? row.token_endpoint_auth_method
       : 'none',
-    grantTypes: normalizeJsonArray(row.grant_types_json),
-    responseTypes: normalizeJsonArray(row.response_types_json),
+    grantTypes,
+    responseTypes,
     scope: typeof row.scope === 'string' && row.scope.trim() ? row.scope.trim() : MCP_OAUTH_SCOPE,
   };
 }
@@ -121,10 +125,81 @@ function normalizeClient(row: OAuthClientRow | undefined): RegisteredOAuthClient
 function isValidUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' || url.hostname === 'localhost';
+    if (url.protocol === 'https:') return true;
+    if (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) return true;
+    if (['javascript:', 'data:', 'file:'].includes(url.protocol)) return false;
+    return Boolean(url.protocol && url.protocol !== ':' && value.includes(':'));
   } catch {
     return false;
   }
+}
+
+function normalizeComparablePathname(pathname: string): string {
+  if (!pathname || pathname === '/') return '/';
+  return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+}
+
+function oauthRedirectFamily(value: URL): 'openai' | 'anthropic' | 'generic' {
+  const protocol = value.protocol.toLowerCase();
+  const host = value.hostname.toLowerCase();
+  const haystack = `${protocol} ${host}`;
+  if (haystack.includes('chatgpt') || haystack.includes('openai')) return 'openai';
+  if (haystack.includes('claude') || haystack.includes('anthropic')) return 'anthropic';
+  return 'generic';
+}
+
+function pathMatchesLoosely(registeredPath: string, requestedPath: string): boolean {
+  if (registeredPath === requestedPath) return true;
+  if (requestedPath.startsWith(`${registeredPath}/`)) return true;
+  if (registeredPath.startsWith(`${requestedPath}/`)) return true;
+  return false;
+}
+
+function queryEntries(url: URL): Array<[string, string]> {
+  return Array.from(url.searchParams.entries()).sort(([aKey, aVal], [bKey, bVal]) => {
+    if (aKey === bKey) return aVal.localeCompare(bVal);
+    return aKey.localeCompare(bKey);
+  });
+}
+
+export function oauthRedirectUrisMatch(registeredUri: string, requestedUri: string): boolean {
+  if (registeredUri === requestedUri) return true;
+  try {
+    const registered = new URL(registeredUri);
+    const requested = new URL(requestedUri);
+    const registeredFamily = oauthRedirectFamily(registered);
+    const requestedFamily = oauthRedirectFamily(requested);
+    const sameTrustedFamily = registeredFamily !== 'generic' && registeredFamily === requestedFamily;
+
+    // Claude/OpenAI hosts have already proven caller ownership by dynamically
+    // registering the client. Their callback shapes can vary by app shell,
+    // desktop/native bridge, or product surface. For those known families,
+    // accept the family match and let PKCE + short-lived codes carry the rest.
+    if (sameTrustedFamily) return true;
+
+    if (registered.protocol !== requested.protocol) return false;
+    if (registered.host !== requested.host) return false;
+    if (!pathMatchesLoosely(
+      normalizeComparablePathname(registered.pathname),
+      normalizeComparablePathname(requested.pathname),
+    )) return false;
+
+    const registeredQuery = queryEntries(registered);
+    if (!registeredQuery.length) return true;
+    const requestedQuery = queryEntries(requested);
+    if (registeredQuery.length !== requestedQuery.length) return false;
+    return registeredQuery.every(([key, value], index) => {
+      const [requestedKey, requestedValue] = requestedQuery[index] ?? [];
+      return key === requestedKey && value === requestedValue;
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function oauthClientAllowsRedirectUri(client: RegisteredOAuthClient | null, redirectUri: string): boolean {
+  if (!client) return false;
+  return client.redirectUris.some((registeredUri) => oauthRedirectUrisMatch(registeredUri, redirectUri));
 }
 
 function randomHex(bytes: number): string {
@@ -133,6 +208,93 @@ function randomHex(bytes: number): string {
   return Array.from(arr)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function toBase64Url(input: string): string {
+  return btoa(input)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function fromBase64Url(input: string): string {
+  const normalized = input
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(input.length / 4) * 4, '=');
+  return atob(normalized);
+}
+
+async function hmacSha256Base64Url(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  const bytes = String.fromCharCode(...new Uint8Array(signature));
+  return toBase64Url(bytes);
+}
+
+type StatelessOAuthClientPayload = {
+  v: 1;
+  jti: string;
+  clientName: string | null;
+  redirectUris: string[];
+  tokenEndpointAuthMethod: RegisteredOAuthClient['tokenEndpointAuthMethod'];
+  grantTypes: string[];
+  responseTypes: string[];
+  scope: string;
+};
+
+async function buildStatelessOAuthClientId(
+  signingSecret: string,
+  payload: Omit<StatelessOAuthClientPayload, 'v'>,
+): Promise<string> {
+  const encodedPayload = toBase64Url(JSON.stringify({
+    v: 1,
+    ...payload,
+  } satisfies StatelessOAuthClientPayload));
+  const signature = await hmacSha256Base64Url(signingSecret, encodedPayload);
+  return `apcli_${encodedPayload}.${signature}`;
+}
+
+async function decodeStatelessOAuthClientId(
+  signingSecret: string,
+  clientId: string,
+): Promise<RegisteredOAuthClient | null> {
+  if (!clientId.startsWith('apcli_')) return null;
+  const encoded = clientId.slice('apcli_'.length);
+  const dotIndex = encoded.lastIndexOf('.');
+  if (dotIndex <= 0) return null;
+
+  const payloadPart = encoded.slice(0, dotIndex);
+  const signaturePart = encoded.slice(dotIndex + 1);
+  const expectedSignature = await hmacSha256Base64Url(signingSecret, payloadPart);
+  if (expectedSignature !== signaturePart) return null;
+
+  try {
+    const parsed = JSON.parse(fromBase64Url(payloadPart)) as Partial<StatelessOAuthClientPayload>;
+    if (parsed.v !== 1) return null;
+    const redirectUris = normalizeJsonArray(parsed.redirectUris);
+    if (!redirectUris.length) return null;
+    return {
+      clientId,
+      clientSecret: null,
+      clientName: typeof parsed.clientName === 'string' && parsed.clientName.trim() ? parsed.clientName : null,
+      redirectUris,
+      tokenEndpointAuthMethod: parsed.tokenEndpointAuthMethod === 'client_secret_post' || parsed.tokenEndpointAuthMethod === 'client_secret_basic'
+        ? parsed.tokenEndpointAuthMethod
+        : 'none',
+      grantTypes: normalizeJsonArray(parsed.grantTypes).length ? normalizeJsonArray(parsed.grantTypes) : ['authorization_code'],
+      responseTypes: normalizeJsonArray(parsed.responseTypes).length ? normalizeJsonArray(parsed.responseTypes) : ['code'],
+      scope: typeof parsed.scope === 'string' && parsed.scope.trim() ? parsed.scope.trim() : MCP_OAUTH_SCOPE,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseAudience(value: string | null | undefined): McpAccessTokenClaims['audience'] {
@@ -311,11 +473,20 @@ export async function registerOAuthClient(
   const tokenEndpointAuthMethod = input.tokenEndpointAuthMethod === 'client_secret_post' || input.tokenEndpointAuthMethod === 'client_secret_basic'
     ? input.tokenEndpointAuthMethod
     : 'none';
-  const clientId = `apcli_${crypto.randomUUID().replace(/-/g, '')}`;
-  const clientSecret = tokenEndpointAuthMethod === 'none'
-    ? null
-    : crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const clientSecretHash = clientSecret ? await sha256Hex(clientSecret) : null;
+  const grantTypes = input.grantTypes?.length ? input.grantTypes : ['authorization_code'];
+  const responseTypes = input.responseTypes?.length ? input.responseTypes : ['code'];
+  const scope = input.scope?.trim() || MCP_OAUTH_SCOPE;
+  const clientId = await buildStatelessOAuthClientId(env.AGENTPAY_SIGNING_SECRET, {
+    jti: crypto.randomUUID(),
+    clientName: input.clientName ?? null,
+    redirectUris,
+    tokenEndpointAuthMethod,
+    grantTypes,
+    responseTypes,
+    scope,
+  });
+  const clientSecret = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+  const clientSecretHash = await sha256Hex(clientSecret);
 
   let sql;
   try {
@@ -339,9 +510,9 @@ export async function registerOAuthClient(
         ${input.clientName ?? null},
         ${JSON.stringify(redirectUris)}::jsonb,
         ${tokenEndpointAuthMethod},
-        ${JSON.stringify(input.grantTypes?.length ? input.grantTypes : ['authorization_code'])}::jsonb,
-        ${JSON.stringify(input.responseTypes?.length ? input.responseTypes : ['code'])}::jsonb,
-        ${input.scope?.trim() || MCP_OAUTH_SCOPE},
+        ${JSON.stringify(grantTypes)}::jsonb,
+        ${JSON.stringify(responseTypes)}::jsonb,
+        ${scope},
         ${JSON.stringify(input.metadata ?? {})}::jsonb
       )
     `;
@@ -355,9 +526,9 @@ export async function registerOAuthClient(
     clientName: input.clientName ?? null,
     redirectUris,
     tokenEndpointAuthMethod,
-    grantTypes: input.grantTypes?.length ? input.grantTypes : ['authorization_code'],
-    responseTypes: input.responseTypes?.length ? input.responseTypes : ['code'],
-    scope: input.scope?.trim() || MCP_OAUTH_SCOPE,
+    grantTypes,
+    responseTypes,
+    scope,
   };
 }
 
@@ -380,7 +551,7 @@ export async function getOAuthClient(env: Env, clientId: string): Promise<Regist
       WHERE client_id = ${clientId}
       LIMIT 1
     `;
-    return normalizeClient(rows[0]);
+    return normalizeClient(rows[0]) ?? await decodeStatelessOAuthClientId(env.AGENTPAY_SIGNING_SECRET, clientId);
   } finally {
     await sql?.end().catch(() => {});
   }
@@ -407,6 +578,7 @@ export async function verifyOAuthClientSecret(env: Env, clientId: string, client
 async function insertOAuthAuthorizationCode(
   sql: any,
   input: {
+    code?: string;
     clientId: string;
     merchant: MerchantContext & { keyPrefix: string };
     redirectUri: string;
@@ -417,7 +589,7 @@ async function insertOAuthAuthorizationCode(
     audience: McpAccessTokenClaims['audience'];
   },
 ): Promise<string> {
-  const code = `apcode_${crypto.randomUUID().replace(/-/g, '')}`;
+  const code = input.code ?? `apcode_${crypto.randomUUID().replace(/-/g, '')}`;
   const codeHash = await sha256Hex(code);
   const expiresAt = new Date(Date.now() + MCP_AUTH_CODE_TTL_SECONDS * 1000);
 
@@ -606,7 +778,7 @@ export async function requestOAuthEmailLink(
 
 async function loadOAuthEmailLinkAttempt(
   sql: any,
-  input: { attemptId: string; token: string },
+  input: { attemptId: string; token: string; allowUsed?: boolean },
 ): Promise<OAuthEmailLinkAttemptRow> {
   const tokenHash = await sha256Hex(input.token);
   const rows = await sql<OAuthEmailLinkAttemptRow[]>`
@@ -640,10 +812,73 @@ async function loadOAuthEmailLinkAttempt(
 
   const row = rows[0];
   if (!row) throw new Error('OAUTH_EMAIL_LINK_INVALID');
-  if (row.used_at) throw new Error('OAUTH_EMAIL_LINK_ALREADY_USED');
+  if (row.used_at && !input.allowUsed) throw new Error('OAUTH_EMAIL_LINK_ALREADY_USED');
   if (new Date(row.expires_at).getTime() < Date.now()) throw new Error('OAUTH_EMAIL_LINK_EXPIRED');
   if (row.code_challenge_method !== 'S256') throw new Error('OAUTH_PKCE_METHOD_UNSUPPORTED');
   return row;
+}
+
+async function deriveEmailLinkAuthorizationCode(
+  env: Env,
+  input: { attemptId: string; token: string },
+): Promise<string> {
+  const codeMaterial = await sha256Hex(
+    `${env.AGENTPAY_SIGNING_SECRET}:oauth-email-link:${input.attemptId}:${input.token}`,
+  );
+  return `apcode_${codeMaterial}`;
+}
+
+async function findReplayableEmailLinkAuthorizationCode(
+  sql: any,
+  env: Env,
+  row: OAuthEmailLinkAttemptRow,
+  input: { attemptId: string; token: string },
+): Promise<string | null> {
+  const code = await deriveEmailLinkAuthorizationCode(env, input);
+  const codeHash = await sha256Hex(code);
+  const matches = await sql<Array<{
+    client_id: string;
+    merchant_id: string;
+    redirect_uri: string;
+    scope: string;
+    resource: string | null;
+    audience: string;
+    code_challenge: string;
+    expires_at: Date;
+    used_at: Date | null;
+  }>>`
+    SELECT
+      client_id,
+      merchant_id,
+      redirect_uri,
+      scope,
+      resource,
+      audience,
+      code_challenge,
+      expires_at,
+      used_at
+    FROM oauth_authorization_codes
+    WHERE code_hash = ${codeHash}
+    LIMIT 1
+  `;
+
+  const existing = matches[0];
+  if (!existing) return null;
+  if (existing.used_at) return null;
+  if (new Date(existing.expires_at).getTime() < Date.now()) return null;
+  if (
+    existing.client_id !== row.client_id ||
+    existing.merchant_id !== row.merchant_id ||
+    existing.redirect_uri !== row.redirect_uri ||
+    existing.scope !== row.scope ||
+    (existing.resource ?? null) !== (row.resource ?? null) ||
+    parseAudience(existing.audience) !== parseAudience(row.audience) ||
+    existing.code_challenge !== row.code_challenge
+  ) {
+    return null;
+  }
+
+  return code;
 }
 
 export async function peekOAuthEmailLinkAttempt(
@@ -682,7 +917,21 @@ export async function completeOAuthEmailLinkAttempt(
   try {
     sql = createDb(env);
     return await sql.begin(async (trx: any) => {
-      const row = await loadOAuthEmailLinkAttempt(trx, input);
+      const row = await loadOAuthEmailLinkAttempt(trx, { ...input, allowUsed: true });
+
+      if (row.used_at) {
+        const replayableCode = await findReplayableEmailLinkAuthorizationCode(trx, env, row, input);
+        if (replayableCode) {
+          return {
+            redirectUri: row.redirect_uri,
+            state: row.state,
+            code: replayableCode,
+          };
+        }
+        throw new Error('OAUTH_EMAIL_LINK_ALREADY_USED');
+      }
+
+      const code = await deriveEmailLinkAuthorizationCode(env, input);
 
       const claimed = await trx<Array<{ id: string }>>`
         UPDATE oauth_email_link_attempts
@@ -696,10 +945,19 @@ export async function completeOAuthEmailLinkAttempt(
       `;
 
       if (!claimed.length) {
+        const replayableCode = await findReplayableEmailLinkAuthorizationCode(trx, env, row, input);
+        if (replayableCode) {
+          return {
+            redirectUri: row.redirect_uri,
+            state: row.state,
+            code: replayableCode,
+          };
+        }
         throw new Error('OAUTH_EMAIL_LINK_ALREADY_USED');
       }
 
-      const code = await insertOAuthAuthorizationCode(trx, {
+      await insertOAuthAuthorizationCode(trx, {
+        code,
         clientId: row.client_id,
         merchant: {
           id: row.merchant_id,
@@ -772,7 +1030,7 @@ export async function exchangeAuthorizationCode(
 
     const row = rows[0];
     if (!row) throw new Error('OAUTH_CODE_INVALID');
-    if (row.client_id !== input.clientId || row.redirect_uri !== input.redirectUri) throw new Error('OAUTH_CODE_INVALID');
+    if (row.client_id !== input.clientId || !oauthRedirectUrisMatch(row.redirect_uri, input.redirectUri)) throw new Error('OAUTH_CODE_INVALID');
     if (row.used_at) throw new Error('OAUTH_CODE_ALREADY_USED');
     if (new Date(row.expires_at).getTime() < Date.now()) throw new Error('OAUTH_CODE_EXPIRED');
     if (row.code_challenge_method !== 'S256') throw new Error('OAUTH_PKCE_METHOD_UNSUPPORTED');

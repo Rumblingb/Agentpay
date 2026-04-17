@@ -70,6 +70,8 @@ describe('hosted remote MCP surface', () => {
       name: 'agentpay',
       runtime: 'remote-mcp',
       endpoint: 'http://agentpay.test/api/mcp',
+      readOnlyEndpoint: 'http://agentpay.test/api/mcp/read-only',
+      recommendedEntryPoint: 'http://agentpay.test/api/mcp/read-only',
       transport: 'streamable-http',
       auth: expect.objectContaining({
         type: 'oauth_or_bearer',
@@ -103,6 +105,7 @@ describe('hosted remote MCP surface', () => {
         pricingUrl: 'http://agentpay.test/pricing',
       }),
       toolCount: expect.any(Number),
+      readOnlyToolCount: expect.any(Number),
     }));
     expect(res.status).toBe(200);
   });
@@ -121,6 +124,10 @@ describe('hosted remote MCP surface', () => {
     expect(Array.isArray(body.plans)).toBe(true);
     expect(body.fundedActions).toEqual(expect.objectContaining({
       feeBps: expect.any(Number),
+    }));
+    expect(body.collectionPolicy).toEqual(expect.objectContaining({
+      minimumCollectableUsd: 5,
+      behavior: 'accrue_until_threshold',
     }));
     expect(body.currentInvoiceEndpoint).toBe('http://agentpay.test/api/mcp/billing/current');
     expect(body.checkoutEndpoint).toBe('http://agentpay.test/api/mcp/billing/checkout');
@@ -146,6 +153,8 @@ describe('hosted remote MCP surface', () => {
     expect(setupBody.title).toBe('AgentPay host-native setup');
     expect(setupBody.runtime).toBe('remote-mcp');
     expect(setupBody.endpoint).toBe('http://agentpay.test/api/mcp');
+    expect(setupBody.readOnlyEndpoint).toBe('http://agentpay.test/api/mcp/read-only');
+    expect(setupBody.recommendedStartingEndpoint).toBe('http://agentpay.test/api/mcp/read-only');
     expect(setupBody.tokenEndpoint).toBe('http://agentpay.test/api/mcp/tokens');
     expect(setupBody.auth).toEqual(expect.objectContaining({
       preferred: 'oauth_discovery',
@@ -159,6 +168,14 @@ describe('hosted remote MCP surface', () => {
     expect(setupBody.pricingEndpoint).toBe('http://agentpay.test/api/mcp/pricing');
     expect(setupBody.demoEndpoint).toBe('http://agentpay.test/api/mcp/demo');
     expect(Array.isArray(setupBody.hosts)).toBe(true);
+    expect(setupBody.toolSurfaces).toEqual(expect.objectContaining({
+      readOnly: expect.objectContaining({
+        endpoint: 'http://agentpay.test/api/mcp/read-only',
+      }),
+      full: expect.objectContaining({
+        endpoint: 'http://agentpay.test/api/mcp',
+      }),
+    }));
     const openaiHost = (setupBody.hosts as Array<Record<string, unknown>>).find((host) => host.host === 'openai');
     const anthropicHost = (setupBody.hosts as Array<Record<string, unknown>>).find((host) => host.host === 'anthropic');
     const genericHost = (setupBody.hosts as Array<Record<string, unknown>>).find((host) => host.host === 'generic');
@@ -177,6 +194,15 @@ describe('hosted remote MCP surface', () => {
     expect(setupBody.nextActionContract).toEqual(expect.objectContaining({
       responsePattern: 'result_or_next_action',
     }));
+    expect(setupBody.agentCreatorGuardrail).toEqual(expect.any(Object));
+    expect((setupBody.agentCreatorGuardrail as Record<string, unknown>).purpose).toEqual(expect.any(String));
+    expect(Array.isArray((setupBody.agentCreatorGuardrail as Record<string, unknown>).instruction)).toBe(true);
+    expect((setupBody.agentCreatorGuardrail as Record<string, unknown>).escalateOnlyFor).toEqual(
+      expect.arrayContaining(['approval_required', 'funding_required', 'auth_required']),
+    );
+    expect((setupBody.agentCreatorGuardrail as Record<string, unknown>).neverDo).toEqual(
+      expect.arrayContaining(['invent authority that was not granted']),
+    );
     expect(demoBody.title).toBe('AgentPay host-native demo flow');
     expect(Array.isArray(demoBody.steps)).toBe(true);
     expect(setupRes.status).toBe(200);
@@ -194,9 +220,11 @@ describe('hosted remote MCP surface', () => {
       status: 'ok',
       runtime: 'remote-mcp',
       endpoint: 'http://agentpay.test/api/mcp',
+      readOnlyEndpoint: 'http://agentpay.test/api/mcp/read-only',
       transport: 'streamable-http',
       auth: 'oauth_or_bearer',
       toolCount: expect.any(Number),
+      readOnlyToolCount: expect.any(Number),
     });
     expect(res.status).toBe(200);
   });
@@ -221,6 +249,100 @@ describe('hosted remote MCP surface', () => {
       }),
     }));
     expect(res.status).toBe(200);
+  });
+
+  it('publishes a public probe response on the read-only MCP endpoint root', async () => {
+    const res = await apiEdge.fetch(
+      new Request('http://agentpay.test/api/mcp/read-only'),
+      appEnv(),
+      {} as never,
+    );
+
+    await expect(res.json()).resolves.toEqual(expect.objectContaining({
+      name: 'agentpay-read-only',
+      endpoint: 'http://agentpay.test/api/mcp/read-only',
+      safeForDiscovery: true,
+      readOnlyToolCount: expect.any(Number),
+    }));
+    expect(res.status).toBe(200);
+  });
+
+  it('returns hosted MCP invoice history', async () => {
+    (createDb as jest.Mock).mockReturnValue(makeSql([[
+      {
+        id: 'inv_hosted_1',
+        invoice_type: 'hosted_mcp',
+        status: 'paid',
+        fee_amount: '39.00',
+        currency: 'USD',
+        period_start: new Date('2026-04-01T00:00:00.000Z'),
+        period_end: new Date('2026-05-01T00:00:00.000Z'),
+        reference_key: 'hosted_mcp:2026-04-01:inv_hosted_1',
+        external_checkout_url: 'https://checkout.stripe.test/hosted',
+        external_checkout_session_id: 'cs_hosted_1',
+        paid_at: new Date('2026-04-16T14:00:00.000Z'),
+        created_at: new Date('2026-04-16T13:00:00.000Z'),
+        updated_at: new Date('2026-04-16T14:00:00.000Z'),
+        line_items_json: { pricingVersion: '2026-04-16' },
+      },
+    ]]));
+
+    const res = await apiEdge.fetch(
+      new Request('http://agentpay.test/api/mcp/billing/history', {
+        headers: authHeaders(),
+      }),
+      appEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(res.status).toBe(200);
+    expect(body.invoiceType).toBe('hosted_mcp');
+    expect(Array.isArray(body.invoices)).toBe(true);
+    expect((body.invoices as Array<Record<string, unknown>>)[0]).toEqual(expect.objectContaining({
+      invoiceId: 'inv_hosted_1',
+      status: 'paid',
+      checkoutSessionId: 'cs_hosted_1',
+    }));
+  });
+
+  it('accrues hosted MCP balances below the collection threshold', async () => {
+    const merchantRows = await makeAuthenticatedMerchantRows();
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([
+        merchantRows,
+      ]))
+      .mockImplementationOnce(() => makeSql([[
+        { hosted_mcp_plan_code: 'builder' },
+      ]]))
+      .mockImplementationOnce(() => makeSql([
+        [
+          {
+            tool_calls: 11000,
+            token_mints: 30,
+          },
+        ],
+        [
+          {
+            already_invoiced_usd: '39.00',
+          },
+        ],
+      ]));
+
+    const res = await apiEdge.fetch(
+      new Request('http://agentpay.test/api/mcp/billing/current', {
+        headers: authHeaders(),
+      }),
+      appEnv({ AGENTPAY_TEST_MODE: 'false' }),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(res.status).toBe(200);
+    expect(body.outstandingUsd).toBe(0.4);
+    expect(body.payable).toBe(false);
+    expect((body.collection as Record<string, unknown>).available).toBe(false);
+    expect((body.collection as Record<string, unknown>).accrualActive).toBe(true);
   });
 
   it('lists tools through the hosted MCP endpoint', async () => {
@@ -579,9 +701,12 @@ describe('hosted remote MCP surface', () => {
     expect(res.status).toBe(200);
     expect(body.planCode).toBe('builder');
     expect(body.outstandingUsd).toBe(1);
+    expect(body.payable).toBe(false);
     expect(body.collection).toEqual({
       method: 'stripe_checkout',
       available: false,
+      minimumCollectableUsd: 5,
+      accrualActive: true,
     });
   });
 

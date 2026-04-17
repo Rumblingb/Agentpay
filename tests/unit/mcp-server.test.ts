@@ -1,4 +1,4 @@
-import { TOOLS, handleTool } from '../../packages/mcp-server/src/index';
+import { READ_ONLY_TOOL_NAMES, SAFE_TOOLS, TOOLS, createAgentPayMcpServer, handleTool } from '../../packages/mcp-server/src/index';
 
 describe('MCP mandate contract', () => {
   afterEach(() => {
@@ -59,16 +59,55 @@ describe('MCP mandate contract', () => {
       'agentpay_create_human_funding_request',
       'agentpay_list_capability_providers',
       'agentpay_request_capability_connect',
+      'agentpay_get_capability_connect_session',
       'agentpay_list_capabilities',
       'agentpay_get_capability',
       'agentpay_execute_capability',
+      'agentpay_get_action_session',
     ]));
     expect(TOOLS.find((tool) => tool.name === 'agentpay_create_funding_setup_intent')?.description).toContain('/api/payments/setup-intent');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_confirm_funding_setup')?.description).toContain('/api/payments/confirm-setup');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_list_funding_methods')?.description).toContain('/api/payments/methods/:principalId');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_create_human_funding_request')?.description).toContain('/api/payments/funding-request');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_request_capability_connect')?.description).toContain('/api/capabilities/connect-sessions');
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_get_capability_connect_session')?.description).toContain('/api/capabilities/connect-sessions/:sessionId');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_execute_capability')?.description).toContain('/api/capabilities/:capabilityId/execute');
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_get_action_session')?.description).toContain('/api/actions/:sessionId');
+  });
+
+  it('marks the read-only inventory and safe MCP surface explicitly', async () => {
+    expect(READ_ONLY_TOOL_NAMES.has('agentpay_get_merchant_stats')).toBe(true);
+    expect(READ_ONLY_TOOL_NAMES.has('agentpay_create_mandate')).toBe(false);
+    expect(SAFE_TOOLS.every((tool) => READ_ONLY_TOOL_NAMES.has(tool.name))).toBe(true);
+    expect(SAFE_TOOLS.find((tool) => tool.name === 'agentpay_create_mandate')).toBeUndefined();
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_get_merchant_stats')).toEqual(
+      expect.objectContaining({
+        annotations: expect.objectContaining({ readOnlyHint: true }),
+      }),
+    );
+
+    const server = createAgentPayMcpServer(undefined, { tools: SAFE_TOOLS, serverName: 'agentpay-read-only' });
+    const listHandler = (server as any)._requestHandlers.get('tools/list');
+    const callHandler = (server as any)._requestHandlers.get('tools/call');
+
+    await expect(listHandler({
+      method: 'tools/list',
+      params: {},
+    })).resolves.toEqual({ tools: SAFE_TOOLS });
+    await expect(callHandler({
+      method: 'tools/call',
+      params: {
+        name: 'agentpay_create_mandate',
+        arguments: {},
+      },
+    })).resolves.toEqual(expect.objectContaining({
+      isError: true,
+      content: [expect.objectContaining({
+        text: expect.stringContaining('not available on this AgentPay MCP surface'),
+      })],
+    }));
+
+    await server.close();
   });
 
   it('creates and plans mandates through /api/mandates only', async () => {
@@ -503,6 +542,39 @@ describe('MCP mandate contract', () => {
       body: { url: 'https://example.com' },
       allowPaidUsage: true,
     });
+  });
+
+  it('fetches a capability connect session through /api/capabilities/connect-sessions/:sessionId', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        session: { id: 'connect_1', status: 'pending' },
+      }),
+    } as any);
+
+    await handleTool('agentpay_get_capability_connect_session', {
+      sessionId: 'connect_1',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/capabilities/connect-sessions/connect_1');
+  });
+
+  it('fetches a hosted action session through /api/actions/:sessionId', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        sessionId: 'action_1',
+        status: 'pending',
+      }),
+    } as any);
+
+    await handleTool('agentpay_get_action_session', {
+      sessionId: 'action_1',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/actions/action_1');
   });
 
   it('uses request-scoped MCP auth when a runtime apiKey is injected', async () => {

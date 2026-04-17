@@ -62,6 +62,7 @@ import { actionsRouter } from './routes/actions';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
+import { setInternalAppFetcher } from './lib/internalAppFetch';
 
 // Re-export Durable Object class — required by Cloudflare Workers module format.
 export { SolanaListenerDO };
@@ -253,6 +254,11 @@ app.route('/api/demo', demoRouter);
 
 // Mock agents — /api/mock/* (demo booking webhooks)
 app.route('/api/mock', mockAgentsRouter);
+
+// Make the mounted Hono app available for safe in-process loopback requests
+// (for example, Worker-hosted MCP tool execution that needs to hit the same
+// API surface without bouncing back out through the public custom domain).
+setInternalAppFetcher((request, env, executionCtx) => Promise.resolve(app.fetch(request, env, executionCtx as never)));
 
 // Solana listener admin — POST /api/_admin/solana-listener/start  (admin-key protected)
 // This kicks the Durable Object to start its alarm chain.

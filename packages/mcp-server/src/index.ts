@@ -24,6 +24,7 @@ const MANDATE_BASE_PATH = '/api/mandates';
 const IDENTITY_BASE_PATH = '/api/foundation-agents/identity';
 const PAYMENTS_BASE_PATH = '/api/payments';
 const CAPABILITIES_BASE_PATH = '/api/capabilities';
+const ACTIONS_BASE_PATH = '/api/actions';
 
 if (!DEFAULT_API_KEY) {
   process.stderr.write('Warning: AGENTPAY_API_KEY is not set. Authenticated operations will fail.\n');
@@ -41,11 +42,16 @@ export interface AgentPayMcpRuntime {
 }
 
 function resolveRuntime(runtime?: AgentPayMcpRuntime) {
+  const boundFetch = (input: unknown, init?: RequestInit) =>
+    globalThis.fetch(input as Parameters<typeof fetch>[0], init);
   return {
     apiUrl: runtime?.apiUrl ?? DEFAULT_API_URL,
     apiKey: runtime?.apiKey ?? DEFAULT_API_KEY,
     merchantId: runtime?.merchantId ?? DEFAULT_MERCHANT_ID,
-    fetchImpl: runtime?.fetchImpl ?? fetch,
+    // Cloudflare Workers can throw "Illegal invocation" if the ambient
+    // fetch function is passed around unbound and later called with the wrong
+    // `this` reference. Always wrap it before storing on runtime state.
+    fetchImpl: runtime?.fetchImpl ?? boundFetch,
   };
 }
 
@@ -133,11 +139,55 @@ const capabilityToolDescriptions = {
     'List connected external capabilities through /api/capabilities. Use this to inspect what external APIs are already connected and what their free-tier and paid-usage policy is.',
   get:
     'Fetch one connected external capability through /api/capabilities/:capabilityId.',
+  connectStatus:
+    'Fetch the current secure capability connect session through /api/capabilities/connect-sessions/:sessionId. Use this to see whether the human finished the connect step and which hosted action session or capability it produced.',
   execute:
     'Execute an external API call through the governed capability proxy at /api/capabilities/:capabilityId/execute. AgentPay injects the vaulted credential, enforces allow-listed hosts, tracks free usage, and gates paid usage.',
 } as const;
 
-export const TOOLS: Tool[] = [
+const actionToolDescriptions = {
+  get:
+    'Fetch the current hosted action session through /api/actions/:sessionId. Use this to poll whether a human-step funding, auth, approval, or verification action is still pending, completed, failed, or expired.',
+} as const;
+
+const arbitraryObjectSchema = (description: string) => ({
+  type: 'object' as const,
+  additionalProperties: true,
+  description,
+});
+
+const arbitraryObjectArraySchema = (description: string) => ({
+  type: 'array' as const,
+  items: {
+    type: 'object' as const,
+    additionalProperties: true,
+  },
+  description,
+});
+
+export const READ_ONLY_TOOL_NAMES = new Set([
+  'agentpay_get_intent_status',
+  'agentpay_get_receipt',
+  'agentpay_parse_upi_payment_request',
+  'agentpay_get_passport',
+  'agentpay_get_identity_bundle',
+  'agentpay_list_identity_inbox_messages',
+  'agentpay_verify_identity_credential',
+  'agentpay_list_funding_methods',
+  'agentpay_list_capability_providers',
+  'agentpay_list_capabilities',
+  'agentpay_get_capability',
+  'agentpay_get_capability_connect_session',
+  'agentpay_get_action_session',
+  'agentpay_get_mandate',
+  'agentpay_get_mandate_journey_status',
+  'agentpay_get_mandate_history',
+  'agentpay_discover_agents',
+  'agentpay_get_merchant_stats',
+  'agentpay_get_agent',
+]);
+
+const RAW_TOOLS: Tool[] = [
   {
     name: 'agentpay_create_payment_intent',
     description:
@@ -263,12 +313,10 @@ export const TOOLS: Tool[] = [
           description: 'The agent ID to verify',
         },
         claimedEnvironment: {
-          type: 'object',
-          description: 'The environment the agent claims to run in',
+          ...arbitraryObjectSchema('The environment the agent claims to run in'),
         },
         proofs: {
-          type: 'array',
-          description: 'Proof objects such as oauth, api_key, signature, or deployment',
+          ...arbitraryObjectArraySchema('Proof objects such as oauth, api_key, signature, or deployment'),
         },
       },
       required: ['agentId', 'claimedEnvironment', 'proofs'],
@@ -311,11 +359,9 @@ export const TOOLS: Tool[] = [
           description: 'The agent ID sending from its provisioned inbox',
         },
         to: {
-          oneOf: [
-            { type: 'string' },
-            { type: 'array', items: { type: 'string' } },
-          ],
-          description: 'Recipient email or array of recipient emails',
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Recipient email addresses. Pass one or more recipients as an array of strings.',
         },
         subject: {
           type: 'string',
@@ -427,8 +473,7 @@ export const TOOLS: Tool[] = [
           description: 'The other agent IDs to link to the primary agent',
         },
         proofs: {
-          type: 'array',
-          description: 'Cross-platform proofs supporting the link',
+          ...arbitraryObjectArraySchema('Cross-platform proofs supporting the link'),
         },
       },
       required: ['primaryAgentId', 'linkedAgentIds', 'proofs'],
@@ -631,6 +676,17 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'agentpay_get_capability_connect_session',
+    description: capabilityToolDescriptions.connectStatus,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Capability connect session ID returned by agentpay_request_capability_connect' },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
     name: 'agentpay_execute_capability',
     description: capabilityToolDescriptions.execute,
     inputSchema: {
@@ -639,9 +695,9 @@ export const TOOLS: Tool[] = [
         capabilityId: { type: 'string', description: 'Capability reference returned after a successful connect session' },
         method: { type: 'string', description: 'HTTP method for the proxied external API call', default: 'GET' },
         path: { type: 'string', description: 'Path relative to the connected capability base URL', default: '/' },
-        query: { type: 'object', description: 'Optional query-string object forwarded to the upstream API' },
-        headers: { type: 'object', description: 'Optional non-auth headers forwarded to the upstream API' },
-        body: { type: 'object', description: 'Optional JSON body forwarded upstream' },
+        query: { ...arbitraryObjectSchema('Optional query-string object forwarded to the upstream API') },
+        headers: { ...arbitraryObjectSchema('Optional non-auth headers forwarded to the upstream API') },
+        body: { ...arbitraryObjectSchema('Optional JSON body forwarded upstream') },
         allowPaidUsage: {
           type: 'boolean',
           description: 'Set true only after the human has approved spending beyond the free-call allowance',
@@ -649,6 +705,17 @@ export const TOOLS: Tool[] = [
         },
       },
       required: ['capabilityId'],
+    },
+  },
+  {
+    name: 'agentpay_get_action_session',
+    description: actionToolDescriptions.get,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Hosted action session ID returned inside nextAction.actionSession or actionSession' },
+      },
+      required: ['sessionId'],
     },
   },
   {
@@ -676,12 +743,10 @@ export const TOOLS: Tool[] = [
           default: 'delegated_agent',
         },
         constraints: {
-          type: 'object',
-          description: 'Optional execution constraints such as budgetMax or service preferences',
+          ...arbitraryObjectSchema('Optional execution constraints such as budgetMax or service preferences'),
         },
         mandate: {
-          type: 'object',
-          description: 'Optional mandate policy including amountPence, currency, autoApproveAmountPence, and approvalMethod',
+          ...arbitraryObjectSchema('Optional mandate policy including amountPence, currency, autoApproveAmountPence, and approvalMethod'),
         },
       },
       required: ['principalId', 'operatorId', 'objective'],
@@ -892,6 +957,14 @@ export const TOOLS: Tool[] = [
     },
   },
 ];
+
+export const TOOLS: Tool[] = RAW_TOOLS.map((tool) => (
+  READ_ONLY_TOOL_NAMES.has(tool.name)
+    ? ({ ...tool, annotations: { readOnlyHint: true } } as Tool)
+    : tool
+));
+
+export const SAFE_TOOLS: Tool[] = TOOLS.filter((tool) => READ_ONLY_TOOL_NAMES.has(tool.name));
 
 type ToolResponse = {
   content: Array<{ type: 'text'; text: string }>;
@@ -1220,6 +1293,11 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'agentpay_get_capability_connect_session': {
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/connect-sessions/${encodeURIComponent(args.sessionId as string)}`, {}, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
     case 'agentpay_list_capabilities': {
       const data = await apiFetch(CAPABILITIES_BASE_PATH, {}, resolved);
       return finalizeToolResult(name, data, resolved);
@@ -1243,6 +1321,11 @@ export async function handleTool(
         method: 'POST',
         body: JSON.stringify(body),
       }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_get_action_session': {
+      const data = await apiFetch(`${ACTIONS_BASE_PATH}/${encodeURIComponent(args.sessionId as string)}`, {}, resolved);
       return finalizeToolResult(name, data, resolved);
     }
 
@@ -1335,16 +1418,30 @@ export async function handleTool(
   }
 }
 
-export function createAgentPayMcpServer(runtime?: AgentPayMcpRuntime): Server {
+export function createAgentPayMcpServer(
+  runtime?: AgentPayMcpRuntime,
+  options?: {
+    tools?: Tool[];
+    serverName?: string;
+  },
+): Server {
+  const tools = options?.tools ?? TOOLS;
+  const allowedToolNames = new Set(tools.map((tool) => tool.name));
   const server = new Server(
-    { name: 'agentpay', version: '0.1.0' },
+    { name: options?.serverName ?? 'agentpay', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params;
+    if (!allowedToolNames.has(name)) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: Tool "${name}" is not available on this AgentPay MCP surface.` }],
+        isError: true,
+      };
+    }
     try {
       return await handleTool(name, args as Record<string, unknown>, runtime);
     } catch (err) {
