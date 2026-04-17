@@ -39,7 +39,10 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         rate_limit_requests INT DEFAULT 100,
         rate_limit_window_ms INT DEFAULT 900000,
-        stripe_connected_account_id VARCHAR(255)
+        stripe_connected_account_id VARCHAR(255),
+        stripe_billing_customer_id VARCHAR(255),
+        hosted_mcp_plan_code VARCHAR(32) NOT NULL DEFAULT 'launch',
+        hosted_mcp_pricing_override_json JSONB
       );
 
       CREATE INDEX IF NOT EXISTS idx_merchants_email ON merchants(email);
@@ -309,12 +312,268 @@ export async function initializeDatabase(): Promise<void> {
         fee_percent NUMERIC(5, 4) NOT NULL DEFAULT 0.02,
         currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
         status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        invoice_type VARCHAR(32) NOT NULL DEFAULT 'platform_fee',
+        reference_key TEXT,
+        period_start TIMESTAMPTZ,
+        period_end TIMESTAMPTZ,
+        line_items_json JSONB,
+        external_checkout_url TEXT,
+        external_checkout_session_id TEXT,
+        paid_at TIMESTAMPTZ,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE INDEX IF NOT EXISTS idx_merchant_invoices_merchant ON merchant_invoices(merchant_id);
       CREATE INDEX IF NOT EXISTS idx_merchant_invoices_intent ON merchant_invoices(intent_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_merchant_invoices_reference_key
+        ON merchant_invoices(reference_key)
+        WHERE reference_key IS NOT NULL;
+    `);
+
+    // ============ HOSTED MCP USAGE EVENTS ============
+    // Append-only usage ledger for hosted remote MCP billing and reporting.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS mcp_usage_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        plan_code VARCHAR(32) NOT NULL,
+        auth_type VARCHAR(32) NOT NULL,
+        audience VARCHAR(32) NOT NULL DEFAULT 'generic',
+        event_type VARCHAR(32) NOT NULL,
+        request_id TEXT,
+        tool_name TEXT,
+        usage_units INT NOT NULL DEFAULT 1,
+        unit_price_usd_micros INT NOT NULL DEFAULT 0,
+        estimated_amount_usd_micros INT NOT NULL DEFAULT 0,
+        status_code INT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (plan_code IN ('launch', 'builder', 'growth', 'enterprise')),
+        CHECK (auth_type IN ('api_key', 'mcp_token')),
+        CHECK (audience IN ('openai', 'anthropic', 'generic')),
+        CHECK (event_type IN ('token_mint', 'tools_list', 'tool_call', 'transport_request')),
+        CHECK (usage_units > 0)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_mcp_usage_events_merchant_created
+        ON mcp_usage_events(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mcp_usage_events_event_type
+        ON mcp_usage_events(event_type, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mcp_usage_events_tool_name
+        ON mcp_usage_events(tool_name);
+    `);
+
+    // ============ CAPABILITY VAULT ============ 
+    // Generic capability storage, connection sessions, audit trail, and usage ledger.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS capability_vault_entries (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        capability_key TEXT NOT NULL,
+        capability_type TEXT NOT NULL,
+        capability_scope TEXT,
+        provider TEXT,
+        subject_type TEXT,
+        subject_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        secret_payload_json JSONB DEFAULT '{}'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        expires_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        last_used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT capability_vault_entries_unique_key UNIQUE (merchant_id, capability_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_capability_vault_entries_merchant_status
+        ON capability_vault_entries(merchant_id, status);
+      CREATE INDEX IF NOT EXISTS idx_capability_vault_entries_type_status
+        ON capability_vault_entries(capability_type, status);
+      CREATE INDEX IF NOT EXISTS idx_capability_vault_entries_expires
+        ON capability_vault_entries(expires_at);
+
+      CREATE TABLE IF NOT EXISTS capability_connect_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        capability_vault_entry_id UUID NOT NULL REFERENCES capability_vault_entries(id) ON DELETE CASCADE,
+        session_token_hash TEXT NOT NULL UNIQUE,
+        session_state TEXT NOT NULL DEFAULT 'pending',
+        provider TEXT,
+        redirect_url TEXT,
+        callback_url TEXT,
+        connection_payload_json JSONB DEFAULT '{}'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        expires_at TIMESTAMPTZ NOT NULL,
+        connected_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_capability_connect_sessions_merchant_created
+        ON capability_connect_sessions(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_capability_connect_sessions_entry_state
+        ON capability_connect_sessions(capability_vault_entry_id, session_state);
+      CREATE INDEX IF NOT EXISTS idx_capability_connect_sessions_state_expires
+        ON capability_connect_sessions(session_state, expires_at);
+
+      CREATE TABLE IF NOT EXISTS capability_access_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        capability_vault_entry_id UUID REFERENCES capability_vault_entries(id) ON DELETE SET NULL,
+        session_id UUID REFERENCES capability_connect_sessions(id) ON DELETE SET NULL,
+        capability_key TEXT NOT NULL,
+        capability_type TEXT NOT NULL,
+        action TEXT NOT NULL,
+        outcome TEXT NOT NULL DEFAULT 'allowed',
+        actor_type TEXT,
+        actor_ref TEXT,
+        request_id TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        reason_code TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_capability_access_logs_merchant_created
+        ON capability_access_logs(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_capability_access_logs_entry_created
+        ON capability_access_logs(capability_vault_entry_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_capability_access_logs_action_created
+        ON capability_access_logs(action, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS capability_usage_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        capability_vault_entry_id UUID REFERENCES capability_vault_entries(id) ON DELETE SET NULL,
+        session_id UUID REFERENCES capability_connect_sessions(id) ON DELETE SET NULL,
+        capability_key TEXT NOT NULL,
+        capability_type TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        request_id TEXT,
+        tool_name TEXT,
+        usage_units INT NOT NULL DEFAULT 1,
+        unit_price_micros INT NOT NULL DEFAULT 0,
+        estimated_amount_micros INT NOT NULL DEFAULT 0,
+        status_code INT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (usage_units > 0),
+        CHECK (unit_price_micros >= 0),
+        CHECK (estimated_amount_micros >= 0)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_capability_usage_events_merchant_created
+        ON capability_usage_events(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_capability_usage_events_entry_created
+        ON capability_usage_events(capability_vault_entry_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_capability_usage_events_event_type
+        ON capability_usage_events(event_type, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS oauth_clients (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id TEXT NOT NULL UNIQUE,
+        client_secret_hash TEXT,
+        client_name TEXT,
+        redirect_uris_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        token_endpoint_auth_method TEXT NOT NULL DEFAULT 'none',
+        grant_types_json JSONB NOT NULL DEFAULT '["authorization_code"]'::jsonb,
+        response_types_json JSONB NOT NULL DEFAULT '["code"]'::jsonb,
+        scope TEXT NOT NULL DEFAULT 'remote_mcp',
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_clients_created
+        ON oauth_clients(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        code_hash TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        merchant_email TEXT NOT NULL,
+        merchant_key_prefix TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'remote_mcp',
+        resource TEXT,
+        audience TEXT NOT NULL DEFAULT 'generic',
+        code_challenge TEXT NOT NULL,
+        code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (audience IN ('openai', 'anthropic', 'generic'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_authorization_codes_client_expires
+        ON oauth_authorization_codes(client_id, expires_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_oauth_authorization_codes_merchant_created
+        ON oauth_authorization_codes(merchant_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS oauth_email_link_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        attempt_token_hash TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        merchant_email TEXT NOT NULL,
+        merchant_key_prefix TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'remote_mcp',
+        state TEXT,
+        resource TEXT,
+        audience TEXT NOT NULL DEFAULT 'generic',
+        code_challenge TEXT NOT NULL,
+        code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+        delivery_channel TEXT NOT NULL DEFAULT 'email_link',
+        expires_at TIMESTAMPTZ NOT NULL,
+        verified_at TIMESTAMPTZ,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (audience IN ('openai', 'anthropic', 'generic'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_email_link_attempts_client_expires
+        ON oauth_email_link_attempts(client_id, expires_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_oauth_email_link_attempts_merchant_created
+        ON oauth_email_link_attempts(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_oauth_email_link_attempts_email_created
+        ON oauth_email_link_attempts(merchant_email, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS hosted_action_sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        merchant_id UUID NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+        action_type TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        title TEXT NOT NULL,
+        summary TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        audience TEXT,
+        auth_type TEXT,
+        resume_url TEXT,
+        resume_token_hash TEXT NOT NULL UNIQUE,
+        display_payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        expires_at TIMESTAMPTZ NOT NULL,
+        completed_at TIMESTAMPTZ,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (status IN ('pending', 'completed', 'failed', 'expired'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_hosted_action_sessions_merchant_created
+        ON hosted_action_sessions(merchant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_hosted_action_sessions_status_expires
+        ON hosted_action_sessions(status, expires_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_hosted_action_sessions_entity_created
+        ON hosted_action_sessions(entity_type, entity_id, created_at DESC);
     `);
 
     // ============ BOTS ============
@@ -367,6 +626,21 @@ export async function initializeDatabase(): Promise<void> {
         ADD COLUMN IF NOT EXISTS total_volume NUMERIC(20, 6) NOT NULL DEFAULT 0;
     `);
 
+    await client.query(`
+      ALTER TABLE merchants
+        ADD COLUMN IF NOT EXISTS hosted_mcp_plan_code VARCHAR(32) NOT NULL DEFAULT 'launch';
+    `);
+
+    await client.query(`
+      ALTER TABLE merchants
+        ADD COLUMN IF NOT EXISTS hosted_mcp_pricing_override_json JSONB;
+    `);
+
+    await client.query(`
+      ALTER TABLE merchants
+        ADD COLUMN IF NOT EXISTS stripe_billing_customer_id VARCHAR(255);
+    `);
+
     logger.info('✅ Database schema initialized successfully!');
     logger.info('📊 Tables created:');
     logger.info('   - merchants (API users)');
@@ -383,6 +657,15 @@ export async function initializeDatabase(): Promise<void> {
     logger.info('   - payment_intents (upcoming payment requests)');
     logger.info('   - verification_certificates (signed certificates)');
     logger.info('   - merchant_invoices (platform-fee invoices)');
+    logger.info('   - mcp_usage_events (hosted MCP metering ledger)');
+    logger.info('   - capability_vault_entries (generic capability store)');
+    logger.info('   - capability_connect_sessions (capability handshakes)');
+    logger.info('   - oauth_clients (MCP OAuth clients)');
+    logger.info('   - oauth_authorization_codes (MCP OAuth PKCE codes)');
+    logger.info('   - oauth_email_link_attempts (MCP OAuth no-key email link challenges)');
+    logger.info('   - hosted_action_sessions (resumable human-step continuity)');
+    logger.info('   - capability_access_logs (capability audit trail)');
+    logger.info('   - capability_usage_events (capability usage ledger)');
     logger.info('   - bots (Moltbook bot economy)');
   } catch (error) {
     logger.error('❌ Error initializing database:', error);

@@ -95,17 +95,267 @@ model Merchant {
   walletAddress            String    @map("wallet_address")
   webhookUrl               String?   @map("webhook_url")
   stripeConnectedAccountId String?   @map("stripe_connected_account_id")
+  stripeBillingCustomerId  String?   @map("stripe_billing_customer_id")
+  hostedMcpPlanCode        String    @default("launch") @map("hosted_mcp_plan_code")
+  hostedMcpPricingOverride Json?     @map("hosted_mcp_pricing_override_json")
   isActive                 Boolean?  @default(true) @map("is_active")
   createdAt                DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   paymentIntents   PaymentIntent[]
+  mcpUsageEvents   McpUsageEvent[]
+  capabilityVaultEntries   CapabilityVaultEntry[]
+  capabilityConnectSessions CapabilityConnectSession[]
+  capabilityAccessLogs     CapabilityAccessLog[]
+  capabilityUsageEvents    CapabilityUsageEvent[]
+  oauthAuthorizationCodes  OauthAuthorizationCode[]
+  oauthEmailLinkAttempts   OauthEmailLinkAttempt[]
+  hostedActionSessions     HostedActionSession[]
   agents           Agent[]
   rcmWorkspaces    RcmWorkspace[]
   rcmWorkItems     RcmWorkItem[]
   rcmVendorMetrics RcmVendorMetric[]
 
   @@map("merchants")
+}
+
+model CapabilityVaultEntry {
+  id              String    @id @default(uuid()) @db.Uuid
+  merchantId      String    @map("merchant_id") @db.Uuid
+  capabilityKey   String    @map("capability_key")
+  capabilityType  String    @map("capability_type")
+  capabilityScope  String?   @map("capability_scope")
+  provider        String?
+  subjectType     String?    @map("subject_type")
+  subjectRef      String?    @map("subject_ref")
+  status          String    @default("active")
+  secretPayload   Json?     @default("{}") @map("secret_payload_json")
+  metadata        Json?     @default("{}")
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant            Merchant                    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  connectSessions     CapabilityConnectSession[]
+  accessLogs          CapabilityAccessLog[]
+  usageEvents         CapabilityUsageEvent[]
+
+  @@unique([merchantId, capabilityKey])
+  @@index([merchantId, status])
+  @@index([capabilityType, status])
+  @@index([expiresAt])
+  @@map("capability_vault_entries")
+}
+
+model CapabilityConnectSession {
+  id                    String    @id @default(uuid()) @db.Uuid
+  merchantId            String    @map("merchant_id") @db.Uuid
+  capabilityVaultEntryId String    @map("capability_vault_entry_id") @db.Uuid
+  sessionTokenHash      String    @unique @map("session_token_hash")
+  sessionState          String    @default("pending") @map("session_state")
+  provider              String?
+  redirectUrl           String?   @map("redirect_url")
+  callbackUrl           String?   @map("callback_url")
+  connectionPayload     Json?     @default("{}") @map("connection_payload_json")
+  metadata              Json?     @default("{}")
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  connectedAt           DateTime? @map("connected_at") @db.Timestamptz(6)
+  revokedAt             DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant       Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityVaultEntry CapabilityVaultEntry @relation(fields: [capabilityVaultEntryId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([capabilityVaultEntryId, sessionState])
+  @@index([sessionState, expiresAt])
+  @@map("capability_connect_sessions")
+}
+
+model CapabilityAccessLog {
+  id                    String    @id @default(uuid()) @db.Uuid
+  merchantId            String    @map("merchant_id") @db.Uuid
+  capabilityVaultEntryId String?   @map("capability_vault_entry_id") @db.Uuid
+  sessionId             String?   @map("session_id") @db.Uuid
+  capabilityKey         String    @map("capability_key")
+  capabilityType        String    @map("capability_type")
+  action                String
+  outcome               String    @default("allowed")
+  actorType             String?   @map("actor_type")
+  actorRef              String?   @map("actor_ref")
+  requestId             String?   @map("request_id")
+  ipAddress             String?   @map("ip_address")
+  userAgent             String?   @map("user_agent")
+  reasonCode            String?   @map("reason_code")
+  metadata              Json?     @default("{}")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  merchant            Merchant                    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityVaultEntry CapabilityVaultEntry?       @relation(fields: [capabilityVaultEntryId], references: [id], onDelete: SetNull)
+  connectSession      CapabilityConnectSession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([capabilityVaultEntryId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("capability_access_logs")
+}
+
+model CapabilityUsageEvent {
+  id                    String    @id @default(uuid()) @db.Uuid
+  merchantId            String    @map("merchant_id") @db.Uuid
+  capabilityVaultEntryId String?   @map("capability_vault_entry_id") @db.Uuid
+  sessionId             String?   @map("session_id") @db.Uuid
+  capabilityKey         String    @map("capability_key")
+  capabilityType        String    @map("capability_type")
+  eventType             String    @map("event_type")
+  requestId             String?   @map("request_id")
+  toolName              String?   @map("tool_name")
+  usageUnits            Int       @default(1) @map("usage_units")
+  unitPriceMicros       Int       @default(0) @map("unit_price_micros")
+  estimatedAmountMicros Int       @default(0) @map("estimated_amount_micros")
+  statusCode            Int?      @map("status_code")
+  metadata              Json?     @default("{}")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  merchant            Merchant                    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityVaultEntry CapabilityVaultEntry?       @relation(fields: [capabilityVaultEntryId], references: [id], onDelete: SetNull)
+  connectSession      CapabilityConnectSession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([capabilityVaultEntryId, createdAt(sort: Desc)])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("capability_usage_events")
+}
+
+model McpUsageEvent {
+  id                      String    @id @default(uuid()) @db.Uuid
+  merchantId              String    @map("merchant_id") @db.Uuid
+  planCode                String    @map("plan_code")
+  authType                String    @map("auth_type")
+  audience                String    @default("generic")
+  eventType               String    @map("event_type")
+  requestId               String?   @map("request_id")
+  toolName                String?   @map("tool_name")
+  usageUnits              Int       @default(1) @map("usage_units")
+  unitPriceUsdMicros      Int       @default(0) @map("unit_price_usd_micros")
+  estimatedAmountUsdMicros Int      @default(0) @map("estimated_amount_usd_micros")
+  statusCode              Int?      @map("status_code")
+  metadata                Json?     @default("{}")
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("mcp_usage_events")
+}
+
+model OauthClient {
+  id                      String    @id @default(uuid()) @db.Uuid
+  clientId                String    @unique @map("client_id")
+  clientSecretHash        String?   @map("client_secret_hash")
+  clientName              String?   @map("client_name")
+  redirectUrisJson        Json      @default("[]") @map("redirect_uris_json")
+  tokenEndpointAuthMethod String    @default("none") @map("token_endpoint_auth_method")
+  grantTypesJson          Json      @default("[\"authorization_code\"]") @map("grant_types_json")
+  responseTypesJson       Json      @default("[\"code\"]") @map("response_types_json")
+  scope                   String    @default("remote_mcp")
+  metadata                Json      @default("{}")
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  authorizationCodes OauthAuthorizationCode[]
+  emailLinkAttempts  OauthEmailLinkAttempt[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("oauth_clients")
+}
+
+model OauthAuthorizationCode {
+  id                 String    @id @default(uuid()) @db.Uuid
+  codeHash           String    @unique @map("code_hash")
+  clientId           String    @map("client_id")
+  merchantId         String    @map("merchant_id") @db.Uuid
+  merchantEmail      String    @map("merchant_email")
+  merchantKeyPrefix  String    @map("merchant_key_prefix")
+  redirectUri        String    @map("redirect_uri")
+  scope              String    @default("remote_mcp")
+  resource           String?
+  audience           String    @default("generic")
+  codeChallenge      String    @map("code_challenge")
+  codeChallengeMethod String   @default("S256") @map("code_challenge_method")
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt             DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  merchant Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, expiresAt(sort: Desc)])
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@map("oauth_authorization_codes")
+}
+
+model OauthEmailLinkAttempt {
+  id                  String    @id @default(uuid()) @db.Uuid
+  attemptTokenHash    String    @unique @map("attempt_token_hash")
+  clientId            String    @map("client_id")
+  merchantId          String    @map("merchant_id") @db.Uuid
+  merchantEmail       String    @map("merchant_email")
+  merchantKeyPrefix   String    @map("merchant_key_prefix")
+  redirectUri         String    @map("redirect_uri")
+  scope               String    @default("remote_mcp")
+  state               String?
+  resource            String?
+  audience            String    @default("generic")
+  codeChallenge       String    @map("code_challenge")
+  codeChallengeMethod String    @default("S256") @map("code_challenge_method")
+  deliveryChannel     String    @default("email_link") @map("delivery_channel")
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz(6)
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(6)
+  usedAt              DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  merchant Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, expiresAt(sort: Desc)])
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([merchantEmail, createdAt(sort: Desc)])
+  @@map("oauth_email_link_attempts")
+}
+
+model HostedActionSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  merchantId        String    @map("merchant_id") @db.Uuid
+  actionType        String    @map("action_type")
+  entityType        String?   @map("entity_type")
+  entityId          String?   @map("entity_id")
+  title             String
+  summary           String?
+  status            String    @default("pending")
+  audience          String?
+  authType          String?   @map("auth_type")
+  resumeUrl         String?   @map("resume_url")
+  resumeTokenHash   String    @unique @map("resume_token_hash")
+  displayPayloadJson Json     @default("{}") @map("display_payload_json")
+  resultPayloadJson Json      @default("{}") @map("result_payload_json")
+  metadataJson      Json      @default("{}") @map("metadata_json")
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  usedAt            DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, createdAt(sort: Desc)])
+  @@index([status, expiresAt(sort: Desc)])
+  @@index([entityType, entityId, createdAt(sort: Desc)])
+  @@map("hosted_action_sessions")
 }
 
 // First-class agent entity — owns intents and carries identity/risk data.

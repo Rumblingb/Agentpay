@@ -12,6 +12,11 @@
  *   'intent_create'     60 req / 60s  — agent intent creation per IP
  *   'intent_verify'     30 req / 60s  — txHash submission per IP
  *   'key_rotate'        5  req / 60s  — API key rotation
+ *   'oauth_register'    10 req / 60s  — host connector client registration
+ *   'oauth_authorize'   20 req / 60s  — hosted authorize form posts/views
+ *   'oauth_email_link'  5  req / 60s  — email-link delivery / anti-spam
+ *   'oauth_email_confirm' 20 req / 60s — signed email-link confirmation
+ *   'oauth_token'       30 req / 60s  — auth-code token exchange
  *   'default'           120 req / 60s — everything else
  */
 
@@ -60,10 +65,21 @@ const BASE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   agent_register: { max: 5,   windowMs: 60_000 },
   passport_read:  { max: 60,  windowMs: 60_000 }, // free for all tiers
   agentrank_read: { max: 30,  windowMs: 60_000 }, // premium: growth/enterprise get more
+  oauth_register: { max: 10,  windowMs: 60_000 },
+  oauth_authorize:{ max: 20,  windowMs: 60_000 },
+  oauth_email_link:{ max: 5,  windowMs: 60_000 },
+  oauth_email_confirm:{ max: 20, windowMs: 60_000 },
+  oauth_token:    { max: 30,  windowMs: 60_000 },
   default:        { max: 120, windowMs: 60_000 },
 };
 
 function getBucket(path: string, method: string): string {
+  if (method === 'POST' && path === '/register')                   return 'oauth_register';
+  if (path === '/authorize' && (method === 'GET' || method === 'POST')) return 'oauth_authorize';
+  if (method === 'POST' && path === '/authorize/email-link')       return 'oauth_email_link';
+  if ((method === 'GET' || method === 'POST') && path === '/authorize/email-link/confirm') return 'oauth_email_confirm';
+  if (method === 'GET' && path === '/authorize/email-link')        return 'oauth_email_confirm';
+  if (method === 'POST' && path === '/token')                      return 'oauth_token';
   if (method === 'POST' && path.includes('/merchants/register'))   return 'register';
   if (method === 'POST' && path.includes('/merchants/rotate-key')) return 'key_rotate';
   if (method === 'POST' && path.includes('/api/concierge/intent')) return 'concierge_intent';
@@ -92,7 +108,7 @@ export const rateLimitMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: 
   const bucket = getBucket(c.req.path, c.req.method);
   const base   = BASE_LIMITS[bucket];
   // passport_read stays the same across tiers (free product)
-  const multiplier = bucket === 'passport_read' ? 1 : TIER_MULTIPLIER[tier];
+  const multiplier = bucket === 'passport_read' || bucket.startsWith('oauth_') ? 1 : TIER_MULTIPLIER[tier];
   const max        = base.max * multiplier;
   const { windowMs } = base;
 
@@ -135,3 +151,7 @@ export const rateLimitMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: 
 
   return next();
 };
+
+export function clearRateLimitWindowsForTests(): void {
+  windows.clear();
+}

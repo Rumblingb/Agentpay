@@ -54,6 +54,11 @@ import { rcmRouter } from './routes/rcm';
 import { aceIntentsRouter } from './routes/aceIntents';
 import { approvalsRouter } from './routes/approvals';
 import { paymentsSetupRouter } from './routes/paymentsSetup';
+import { mandateApprovalLinksRouter } from './routes/mandateApprovalLinks';
+import { mcpRouter } from './routes/mcp';
+import { mcpOAuthRouter } from './routes/mcpOAuth';
+import { capabilitiesRouter } from './routes/capabilities';
+import { actionsRouter } from './routes/actions';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -188,17 +193,29 @@ app.route('/api/concierge', conciergeRouter);
 app.route('/api/skills', conciergeRouter);
 app.route('/api/admin', broInsightsRouter);
 app.route('/api/admin/insights', broInsightsRouter);
-// Admin shortcuts — bro-jobs debug lives in concierge router
+// Admin shortcuts — fulfillment debug endpoints live in the concierge router
 app.route('/api/admin', conciergeRouter);
 
 // Ace agentic intent layer — /api/ace/intents/*
 app.route('/api/ace/intents', aceIntentsRouter);
+app.route('/api/mandates', aceIntentsRouter);
+app.route('/api/public/mandates', mandateApprovalLinksRouter);
 
 // Approval sessions — /api/approvals/*
 app.route('/api/approvals', approvalsRouter);
 
 // Payment method setup (Stripe Setup Intent + saved cards) — /api/payments/*
 app.route('/api/payments', paymentsSetupRouter);
+
+// Hosted remote MCP — /api/mcp and /api/mcp/info
+app.route('/api/mcp', mcpRouter);
+app.route('/', mcpOAuthRouter);
+
+// Secure external capabilities — /api/capabilities/*
+app.route('/api/capabilities', capabilitiesRouter);
+
+// Hosted action sessions — resumable human-step continuity for funding/auth flows
+app.route('/api/actions', actionsRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);

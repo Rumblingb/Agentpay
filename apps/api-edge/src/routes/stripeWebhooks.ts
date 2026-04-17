@@ -34,8 +34,12 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
+import { withFulfillmentDispatchPatch } from '../lib/fulfillmentMetadata';
 import { dispatchToOpenClaw } from '../lib/openclaw';
 import { withBookingState } from '../lib/bookingState';
+import { isFulfillmentProviderConfigured } from '../lib/runtimeAliases';
+import { markMerchantInvoicePaidByCheckoutSession } from '../lib/mcpInvoices';
+import { syncHostedActionSession } from '../lib/hostedActionSessions';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -85,11 +89,85 @@ router.post('/', async (c) => {
   // retry based on its retry schedule — the 200 ack is always sent.
   const processStripeEvent = async () => {
     try {
+      const dedupeRows = await sql<Array<{ event_id: string }>>`
+        INSERT INTO processed_webhook_events (
+          provider,
+          event_id,
+          event_type
+        ) VALUES (
+          ${'stripe'},
+          ${event.id},
+          ${event.type}
+        )
+        ON CONFLICT (provider, event_id) DO NOTHING
+        RETURNING event_id
+      `.catch(() => []);
+
+      if (!dedupeRows.length) {
+        console.info('[stripe-webhook] duplicate event ignored', {
+          eventId: event.id,
+          eventType: event.type,
+        });
+        return;
+      }
+
       switch (event.type) {
         // ── CASE 1: Checkout session completed ──────────────────────────────
         case 'checkout.session.completed': {
           const session = event.data.object as Stripe.Checkout.Session;
           const sessionId = session.id;
+          const actionSessionId = typeof session.metadata?.actionSessionId === 'string'
+            ? session.metadata.actionSessionId
+            : null;
+
+          try {
+            const settledInvoice = await markMerchantInvoicePaidByCheckoutSession(c.env, sessionId);
+            if (settledInvoice) {
+              console.info('[stripe-webhook] merchant invoice paid', {
+                sessionId,
+                invoiceId: settledInvoice.invoiceId,
+                invoiceType: settledInvoice.invoiceType,
+                feeAmount: settledInvoice.feeAmount,
+                currency: settledInvoice.currency,
+              });
+            }
+          } catch (invoiceErr: unknown) {
+            console.error('[stripe-webhook] merchant invoice settlement failed', {
+              sessionId,
+              error: invoiceErr instanceof Error ? invoiceErr.message : String(invoiceErr),
+            });
+          }
+
+          if (actionSessionId) {
+            try {
+              const synced = await syncHostedActionSession(c.env, {
+                sessionId: actionSessionId,
+                status: 'completed',
+                resultPayload: {
+                  provider: 'stripe',
+                  stripeCheckoutSessionId: sessionId,
+                  stripePaymentStatus: session.payment_status ?? null,
+                  webhookEvent: 'checkout.session.completed',
+                },
+                metadata: {
+                  provider: 'stripe',
+                  syncedFrom: 'stripe_webhook',
+                  checkoutSessionId: sessionId,
+                },
+              });
+              console.info('[stripe-webhook] hosted action session synced', {
+                sessionId,
+                actionSessionId: synced.sessionId,
+                status: synced.status,
+              });
+            } catch (syncErr: unknown) {
+              console.error('[stripe-webhook] hosted action session sync failed', {
+                sessionId,
+                actionSessionId,
+                error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+              });
+            }
+          }
 
           // Find the transaction linked to this Stripe session
           const rows = await sql<Array<{ id: string; merchantId: string }>>`
@@ -172,8 +250,8 @@ router.post('/', async (c) => {
             );
             console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, broJourneyId: broJourneyId ?? null, sessionId });
 
-            // Step 2: auto-dispatch to OpenClaw if configured
-            if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
+            // Step 2: auto-dispatch to the fulfillment provider if configured
+            if (isFulfillmentProviderConfigured(c.env)) {
               const jobRows = await sql<any[]>`
                 SELECT id, metadata
                 FROM payment_intents
@@ -188,10 +266,7 @@ router.post('/', async (c) => {
                 const jobMeta = jobRow.metadata ?? {};
                 const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
                 const clawPatch = JSON.stringify({
-                  openclawDispatched: clawResult.status === 'dispatched',
-                  openclawJobId: clawResult.openclawJobId ?? null,
-                  openclawDispatchedAt: clawResult.dispatchedAt,
-                  openclawError: clawResult.error ?? null,
+                  ...withFulfillmentDispatchPatch(clawResult),
                   ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
                 });
                 await sql`
