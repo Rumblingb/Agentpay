@@ -1,0 +1,84 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Rumblingb/agentpay",
+  "title": "AgentPay",
+  "description": "Payment, identity, and API key management infrastructure for AI agents. Lets agents create governed mandates (user-approved spending limits), vault external API keys via one OTP so agents never handle raw credentials, proxy calls to Firecrawl, Perplexity, OpenAI, and others through a secure capability layer, and settle payments via Stripe or UPI. Use this when building agents that need to spend money, call external APIs on behalf of users, or operate autonomously within user-defined budgets. Works natively with Claude, GPT-4o, and any MCP-compatible host.",
+  "repository": {
+    "url": "https://github.com/Rumblingb/Agentpay",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.agentpay.so/api/mcp"
+    }
+  ],
+  "tools": [
+    {
+      "name": "agentpay_create_mandate",
+      "description": "Create a governed mandate — a user-approved authorisation for an agent to spend money or call external services within a defined budget and policy."
+    },
+    {
+      "name": "agentpay_approve_mandate",
+      "description": "Approve a pending mandate so the agent can execute it autonomously up to the approved budget."
+    },
+    {
+      "name": "agentpay_execute_mandate",
+      "description": "Execute an approved mandate — the agent acts within the approved policy, AgentPay enforces the budget and settles the payment."
+    },
+    {
+      "name": "agentpay_request_capability_connect",
+      "description": "Start a secure capability connect session. The user enters their API key once via OTP — AgentPay vaults it and the agent never sees the raw credential again."
+    },
+    {
+      "name": "agentpay_execute_capability",
+      "description": "Execute an upstream API call (Firecrawl, Perplexity, OpenAI, etc.) through the AgentPay governed proxy. The vaulted credential is injected server-side."
+    },
+    {
+      "name": "agentpay_create_human_funding_request",
+      "description": "Create a Stripe Checkout or UPI funding request the user can complete without leaving the chat. Supports card (GBP, USD) and UPI (INR)."
+    },
+    {
+      "name": "agentpay_get_passport",
+      "description": "Look up an agent's AgentPassport — portable identity with trust score, spending history, and linked attestations."
+    },
+    {
+      "name": "agentpay_get_mandate_history",
+      "description": "Fetch the full audit timeline for a mandate — every approval, execution step, and settlement event."
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@agentpayxyz/mcp-server",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AGENTPAY_API_KEY",
+          "description": "AgentPay merchant API key used for authenticated tool calls",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "AGENTPAY_MERCHANT_ID",
+          "description": "Optional AgentPay merchant ID for intent creation and attribution",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "AGENTPAY_API_URL",
+          "description": "Optional override for the AgentPay API base URL",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
