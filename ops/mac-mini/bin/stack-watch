@@ -1,8 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-interval="${1:-10}"
-while true; do
-  clear
-  "$(dirname -- "$0")/stack-monitor"
-  sleep "$interval"
-done

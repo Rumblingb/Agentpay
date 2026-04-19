@@ -75,6 +75,21 @@ docs/archive/
 **/.env.secret
 **/credentials*
 **/secrets*
+ops/command-center/.env.command-center
+
+# Internal operator surfaces - keep out of the public repo
+docs/internal/
+docs/FOUNDER_COMMAND_CENTER.md
+core-private/
+ops/command-center/
+ops/mac-mini/
+scripts/bootstrap-command-center.ps1
+scripts/command-center-doctor.ps1
+scripts/generate-command-center.mjs
+.claude/settings.json
+.claude/settings.local.json
+.claude/worktrees/
+audit/weekly-report.md
 
 dist/
 *.err

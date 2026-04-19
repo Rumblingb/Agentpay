@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   Bot,
   Building2,
   CheckCircle2,
@@ -17,16 +16,13 @@ import {
   Mic,
   MicOff,
   Shield,
-  Sparkles,
-  Volume2,
   Zap,
 } from 'lucide-react';
-import { OnboardingChecklist } from './OnboardingChecklist';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PanelState = 'ok' | 'error';
-type Lane = 'claim-status' | 'eligibility';
+type Lane = 'claim-status' | 'eligibility' | 'denial-follow-up' | 'prior-auth' | 'era-835' | 'charge-capture' | 'drg-review';
 type LaneMode = 'auto' | 'auto_notify' | 'human';
 type ActiveTab = 'claims' | 'eligibility' | 'connectors' | 'workspaces' | 'agent';
 type Operation =
@@ -210,6 +206,9 @@ type ManagerSnapshot = {
 
 type ActionResponse = { message?: string; error?: string };
 
+type TeamMember = { id: string; name: string; email: string; createdAt: string };
+type ImportRow = { title?: string; payerName?: string; claimRef?: string; patientRef?: string; providerRef?: string; amountAtRisk?: string; priority?: string; dueAt?: string };
+
 type BriefingData = { fallback: boolean; summary: string };
 type PayerRow = { payerName: string; totalItems: number; denialRate: number; autoClosePct: number; amountAtRisk: number };
 type PayerIntelData = { payers: PayerRow[] };
@@ -285,6 +284,26 @@ async function fetchAppeal(workItemId: string): Promise<{ appeal?: string; error
     body: JSON.stringify({ workItemId }),
   });
   return res.json().catch(() => ({ error: 'Failed to parse response' }));
+}
+
+async function fetchTeamMembers(): Promise<TeamMember[]> {
+  const res = await fetch('/api/rcm/team');
+  if (!res.ok) return [];
+  const data = await res.json() as { members?: TeamMember[] };
+  return data.members ?? [];
+}
+
+async function inviteTeamMember(payload: { email: string; role: string }): Promise<{ ok?: boolean; inviteUrl?: string; error?: string }> {
+  const res = await fetch('/api/rcm/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return res.json().catch(() => ({ error: 'Failed' }));
+}
+
+async function removeTeamMember(id: string): Promise<void> {
+  await fetch(`/api/rcm/team/${id}`, { method: 'DELETE' });
 }
 
 function hydratePolicy(workspaceId: string, serverPolicy?: ApprovalPolicy): ApprovalPolicy {
@@ -380,8 +399,13 @@ function BriefingStrip({
       ? `${autoCount} item${autoCount !== 1 ? 's' : ''} auto-resolved today · ${autoClosedPct}% autonomous rate`
       : 'Queue is clear';
 
-  const displayText = briefing?.summary ?? fallbackText;
   const isFallback = !briefing || briefing.fallback;
+  const actionableFallback = snapshotLoading ? null
+    : humanReviewCount > 0
+      ? `${humanReviewCount} item${humanReviewCount !== 1 ? 's' : ''} need your attention today.`
+      : 'No urgent items — Ace is running smoothly.';
+
+  const displayText = isFallback ? (actionableFallback ?? fallbackText) : (briefing?.summary ?? fallbackText);
 
   const needsTruncate = (displayText?.length ?? 0) > 200;
   const shown = needsTruncate && !expanded
@@ -519,13 +543,12 @@ type WorkItemRowProps = {
   lane: Lane;
   item: ClaimStatusWorkItem | EligibilityWorkItem;
   expandedId: string | null;
-  highlighted?: boolean;
   onExpand: (id: string | null) => void;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
 };
 
-function WorkItemRow({ lane, item, expandedId, highlighted = false, onExpand, checkPending, onAction }: WorkItemRowProps) {
+function WorkItemRow({ lane, item, expandedId, onExpand, checkPending, onAction }: WorkItemRowProps) {
   const expanded = expandedId === item.workItemId;
   const actions = workItemActions(lane, item);
   const accent = priorityAccent(item.priority);
@@ -534,13 +557,7 @@ function WorkItemRow({ lane, item, expandedId, highlighted = false, onExpand, ch
     : (item as EligibilityWorkItem).memberId;
 
   return (
-    <div style={{
-      borderRadius: 10,
-      background: highlighted ? 'rgba(16,185,129,0.05)' : '#080808',
-      border: highlighted ? '1px solid rgba(16,185,129,0.22)' : '1px solid #161616',
-      boxShadow: highlighted ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
-      overflow: 'hidden',
-    }}>
+    <div style={{ borderRadius: 10, background: '#080808', border: '1px solid #161616', overflow: 'hidden' }}>
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer' }}
         onClick={() => onExpand(expanded ? null : item.workItemId)}
@@ -609,13 +626,12 @@ function WorkItemRow({ lane, item, expandedId, highlighted = false, onExpand, ch
 type ExceptionCardProps = {
   lane: Lane;
   item: ClaimStatusException | EligibilityException;
-  highlighted?: boolean;
   checkPending: (p: ManagerActionRequest) => boolean;
   onAction: (p: ManagerActionRequest) => void;
   onAppeal?: (workItemId: string) => void;
 };
 
-function ExceptionCard({ lane, item, highlighted = false, checkPending, onAction, onAppeal }: ExceptionCardProps) {
+function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: ExceptionCardProps) {
   const actions = exceptionActions(lane, item);
   const { bg, border, text } = severityStyle(item.severity);
   const ref = lane === 'claim-status'
@@ -623,13 +639,7 @@ function ExceptionCard({ lane, item, highlighted = false, checkPending, onAction
     : (item as EligibilityException).memberId;
 
   return (
-    <div style={{
-      borderRadius: 10,
-      background: highlighted ? 'rgba(16,185,129,0.08)' : bg,
-      border: highlighted ? '1px solid rgba(16,185,129,0.22)' : `1px solid ${border}`,
-      boxShadow: highlighted ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
-      padding: '14px 16px',
-    }}>
+    <div style={{ borderRadius: 10, background: bg, border: `1px solid ${border}`, padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', lineHeight: 1.4 }}>{item.summary}</div>
@@ -679,6 +689,12 @@ function ExceptionCard({ lane, item, highlighted = false, checkPending, onAction
 
 // ── Connector grid — A2A payer readiness ──────────────────────────────────────
 
+const CONNECTOR_STATUS_LABELS: Record<string, string> = {
+  live: 'Live',
+  simulation: 'AI\u2011assisted',
+  manual_fallback: 'Manual queue',
+};
+
 function ConnectorGrid({
   connectors, claimErr, eligErr, isLoading, credentials, onConnect, onRevoke,
 }: {
@@ -701,7 +717,7 @@ function ConnectorGrid({
         </div>
         {simCount > 0 && !isLoading && (
           <span style={{ fontSize: 11, color: '#f59e0b' }}>
-            {simCount} connecting — agent adjudication incoming
+            {simCount} AI\u2011assisted — direct API connection coming
           </span>
         )}
       </div>
@@ -714,8 +730,8 @@ function ConnectorGrid({
         }}>
           <Zap size={12} style={{ color: '#10b981', flexShrink: 0 }} />
           <span style={{ fontSize: 12, color: '#555' }}>
-            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} agent-ready</span>
-            {' '}payer{liveCount !== 1 ? 's' : ''} — claims bypass the legacy queue and process via direct API.
+            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} live</span>
+            {' '}payer{liveCount !== 1 ? 's' : ''} — claims process via direct API.
           </span>
         </div>
       )}
@@ -728,7 +744,7 @@ function ConnectorGrid({
         {connectors.map(c => {
           const isLive = c.status === 'live';
           const isSim = c.status === 'simulation';
-          const statusLabel = isLive ? 'Agent-ready' : isSim ? 'Connecting' : 'Legacy queue';
+          const statusLabel = CONNECTOR_STATUS_LABELS[c.status] ?? c.status;
           const color = isLive ? '#34d399' : isSim ? '#fcd34d' : '#555';
           const bg = isLive ? 'rgba(16,185,129,0.08)' : isSim ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)';
           const bdr = isLive ? 'rgba(16,185,129,0.2)' : isSim ? 'rgba(245,158,11,0.15)' : '#1a1a1a';
@@ -803,12 +819,11 @@ function ConnectorGrid({
 // ── Workspace grid ─────────────────────────────────────────────────────────────
 
 function WorkspaceGrid({
-  workspaces, unavailable, isLoading, highlightedWorkspaceId,
+  workspaces, unavailable, isLoading,
 }: {
   workspaces: Workspace[];
   unavailable: boolean;
   isLoading: boolean;
-  highlightedWorkspaceId?: string | null;
 }) {
   return (
     <div>
@@ -820,13 +835,7 @@ function WorkspaceGrid({
       {!unavailable && workspaces.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
           {workspaces.map(ws => (
-            <div key={ws.workspaceId} style={{
-              padding: '16px',
-              borderRadius: 10,
-              background: highlightedWorkspaceId === ws.workspaceId ? 'rgba(16,185,129,0.05)' : '#080808',
-              border: highlightedWorkspaceId === ws.workspaceId ? '1px solid rgba(16,185,129,0.22)' : '1px solid #161616',
-              boxShadow: highlightedWorkspaceId === ws.workspaceId ? '0 0 0 1px rgba(16,185,129,0.08)' : 'none',
-            }}>
+            <div key={ws.workspaceId} style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>{ws.name}</div>
                 {ws.workspaceType === 'institutional' && (
@@ -911,7 +920,7 @@ function AgentConsole({
   if (isLoading) return <EmptyState text="Loading agent data..." />;
 
   return (
-    <div className="ace-agent-console-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16, alignItems: 'start' }}>
 
       {/* Left — identity + trust score */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1065,6 +1074,444 @@ function AgentConsole({
           <span style={{ color: '#34d399', fontWeight: 600 }}>Fully auto</span> — Ace acts immediately{' · '}
           <span style={{ color: '#fcd34d', fontWeight: 600 }}>Auto + notify</span> — Ace acts, you get an alert{' · '}
           <span style={{ color: '#fb7185', fontWeight: 600 }}>Human review</span> — Ace queues it for you
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Team section (inside Agent tab) ──────────────────────────────────────────
+
+function TeamSection({ activeTab }: { activeTab: ActiveTab }) {
+  const [expanded, setExpanded] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviting, setInviting] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const { data: members, isLoading: membersLoading, refetch: refetchMembers } = useQuery<TeamMember[]>({
+    queryKey: ['rcm-team'],
+    queryFn: fetchTeamMembers,
+    enabled: activeTab === 'agent' && expanded,
+    staleTime: 60_000,
+  });
+
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteError('');
+    setInviteUrl(null);
+    const result = await inviteTeamMember({ email: inviteEmail.trim(), role: inviteRole });
+    setInviting(false);
+    if (result.error) {
+      setInviteError(result.error);
+    } else {
+      setInviteUrl(result.inviteUrl ?? null);
+      setInvitedEmail(inviteEmail.trim());
+      setInviteEmail('');
+      refetchMembers();
+    }
+  }
+
+  async function handleRemove(id: string) {
+    await removeTeamMember(id);
+    refetchMembers();
+  }
+
+  function copyLink() {
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  const inputStyle: React.CSSProperties = {
+    background: '#0d0d0d', border: '1px solid #1c1c1c',
+    borderRadius: 8, color: '#ededef', fontSize: 13, padding: '10px 12px',
+    outline: 'none', fontFamily: 'Inter, system-ui, sans-serif',
+  };
+
+  return (
+    <div style={{ marginTop: 20, borderTop: '1px solid #111', paddingTop: 16 }}>
+      <button
+        onClick={() => setExpanded(x => !x)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Team
+        </span>
+        <ChevronDown
+          size={13}
+          style={{ color: '#333', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s' }}
+        />
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 12 }}>
+          {/* Members list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+            {membersLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[1, 2].map(n => (
+                  <div key={n} style={{ height: 40, borderRadius: 8, background: '#0d0d0d', animation: 'shimmer 1.4s ease-in-out infinite' }} />
+                ))}
+              </div>
+            )}
+            {!membersLoading && (members ?? []).length === 0 && (
+              <EmptyState text="No team members yet." />
+            )}
+            {!membersLoading && (members ?? []).map(m => {
+              const initials = m.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+              return (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 12px', borderRadius: 8, background: '#080808', border: '1px solid #161616',
+                }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                    background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, color: '#94a3b8',
+                  }}>
+                    {initials}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.email} · Joined {fmtDate(m.createdAt)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemove(m.id)}
+                    style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', borderRadius: 4 }}
+                    title="Remove member"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Invite form */}
+          <div style={{ padding: '16px', borderRadius: 10, background: '#080808', border: '1px solid #161616' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+              Invite a team member
+            </div>
+            <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="email"
+                  placeholder="colleague@example.com"
+                  value={inviteEmail}
+                  onChange={e => setInviteEmail(e.target.value)}
+                  style={{ ...inputStyle, flex: 1 }}
+                  required
+                />
+                <select
+                  value={inviteRole}
+                  onChange={e => setInviteRole(e.target.value)}
+                  style={{ ...inputStyle, paddingRight: 10, cursor: 'pointer' }}
+                >
+                  <option value="admin">Admin</option>
+                  <option value="member">Member</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+              </div>
+              {inviteError && <div style={{ fontSize: 12, color: '#fb7185' }}>{inviteError}</div>}
+              <button
+                type="submit"
+                disabled={inviting}
+                style={{
+                  padding: '10px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  background: inviting ? '#059669' : '#10b981', color: '#000',
+                  border: 'none', cursor: inviting ? 'not-allowed' : 'pointer', opacity: inviting ? 0.8 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+              >
+                {inviting && <Loader2 size={12} className="animate-spin" />}
+                {inviting ? 'Sending…' : 'Send invite →'}
+              </button>
+            </form>
+
+            {inviteUrl && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: '#555', marginBottom: 6 }}>
+                  Share this link with {invitedEmail}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    readOnly
+                    value={inviteUrl}
+                    style={{ ...inputStyle, flex: 1, fontSize: 11, color: '#94a3b8' }}
+                  />
+                  <button
+                    onClick={copyLink}
+                    style={{
+                      padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, flexShrink: 0,
+                      background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
+                      color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Import modal ──────────────────────────────────────────────────────────────
+
+function parseImportCsv(raw: string): ImportRow[] {
+  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
+  const normalise = (h: string): keyof ImportRow | null => {
+    if (h === 'title') return 'title';
+    if (h === 'payer_name' || h === 'payername') return 'payerName';
+    if (h === 'claim_ref' || h === 'claimref') return 'claimRef';
+    if (h === 'patient_ref' || h === 'patientref') return 'patientRef';
+    if (h === 'provider_ref' || h === 'providerref') return 'providerRef';
+    if (h === 'amount_at_risk' || h === 'amountatrisk') return 'amountAtRisk';
+    if (h === 'priority') return 'priority';
+    if (h === 'due_at' || h === 'dueat') return 'dueAt';
+    return null;
+  };
+
+  return lines.slice(1).map(line => {
+    const cells = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const row: ImportRow = {};
+    headers.forEach((h, i) => {
+      const key = normalise(h);
+      if (key) (row as Record<string, string>)[key] = cells[i] ?? '';
+    });
+    return row;
+  });
+}
+
+function ImportModal({
+  workspaceId,
+  onDone,
+  onClose,
+}: {
+  workspaceId: string | null;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<'pick' | 'preview' | 'result'>('pick');
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [resultMsg, setResultMsg] = useState('');
+  const [resultError, setResultError] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const validRows = rows.filter(r => r.title?.trim());
+  const skippedCount = rows.length - validRows.length;
+
+  function handleFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const text = e.target?.result as string;
+      const parsed = parseImportCsv(text);
+      setRows(parsed);
+      setStep('preview');
+    };
+    reader.readAsText(file);
+  }
+
+  function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }
+
+  async function runImport() {
+    if (!workspaceId) { setResultError('No workspace found.'); setStep('result'); return; }
+    setImporting(true);
+    setStep('result');
+    try {
+      const res = await fetch('/api/rcm/import-claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, claims: validRows }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; error?: string };
+      if (!res.ok) {
+        setResultError(data.error ?? 'Import failed.');
+      } else {
+        setResultMsg(data.message ?? `Imported ${validRows.length} claim${validRows.length !== 1 ? 's' : ''} successfully.`);
+      }
+    } catch {
+      setResultError('Network error — import failed.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#0d0d0d', border: '1px solid #1c1c1c',
+    borderRadius: 8, color: '#ededef', fontSize: 13, padding: '10px 12px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'Inter, system-ui, sans-serif',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 580, background: '#0a0a0a', border: '1px solid #1c1c1c', borderRadius: 14, overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.7)' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #141414', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#ededef' }}>Import claims</div>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+              {step === 'pick' ? 'Upload a CSV file' : step === 'preview' ? 'Review before importing' : 'Import complete'}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          {/* Step 1 — file picker */}
+          {step === 'pick' && (
+            <div>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragging ? '#10b981' : '#1e293b'}`,
+                  borderRadius: 12, padding: '40px 24px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', transition: 'border-color 0.15s',
+                  background: dragging ? 'rgba(16,185,129,0.03)' : 'transparent',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 13, color: '#555', lineHeight: 1.6 }}>
+                  Drop a CSV file here or click to browse
+                </div>
+                <div style={{ fontSize: 11, color: '#333', marginTop: 6 }}>
+                  Expected columns: title, payer_name, claim_ref, amount_at_risk, priority, due_at
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={onInputChange} />
+            </div>
+          )}
+
+          {/* Step 2 — preview */}
+          {step === 'preview' && (
+            <div>
+              <div style={{ marginBottom: 12, fontSize: 12, color: '#94a3b8' }}>
+                {skippedCount > 0
+                  ? `${rows.length} claims, ${skippedCount} will be skipped — missing title`
+                  : `${validRows.length} claim${validRows.length !== 1 ? 's' : ''} ready to import`}
+              </div>
+              <div style={{ borderRadius: 8, border: '1px solid #141414', overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr', padding: '7px 12px', background: '#090909', borderBottom: '1px solid #141414' }}>
+                  {['Title', 'Payer', 'Amount', 'Priority'].map(h => (
+                    <span key={h} style={{ fontSize: 10, fontWeight: 600, color: '#333', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{h}</span>
+                  ))}
+                </div>
+                {rows.slice(0, 5).map((row, i) => {
+                  const invalid = !row.title?.trim();
+                  return (
+                    <div key={i} style={{
+                      display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr',
+                      padding: '8px 12px',
+                      background: invalid ? 'rgba(244,63,94,0.05)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                      borderBottom: i < Math.min(rows.length, 5) - 1 ? '1px solid #0f0f0f' : 'none',
+                    }}>
+                      <span style={{ fontSize: 12, color: invalid ? '#fb7185' : '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.title?.trim() || <em style={{ color: '#555' }}>missing title</em>}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.payerName || '—'}</span>
+                      <span style={{ fontSize: 12, color: '#555' }}>{row.amountAtRisk || '—'}</span>
+                      <span style={{ fontSize: 12, color: '#555' }}>{row.priority || '—'}</span>
+                    </div>
+                  );
+                })}
+                {rows.length > 5 && (
+                  <div style={{ padding: '7px 12px', fontSize: 11, color: '#333' }}>
+                    +{rows.length - 5} more rows not shown
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { setStep('pick'); setRows([]); }}
+                  style={{ padding: '10px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'transparent', border: '1px solid #1c1c1c', color: '#555', cursor: 'pointer' }}
+                >
+                  Back
+                </button>
+                <button
+                  onClick={runImport}
+                  disabled={validRows.length === 0}
+                  style={{
+                    flex: 1, padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: validRows.length === 0 ? '#111' : '#10b981', color: validRows.length === 0 ? '#333' : '#000',
+                    border: 'none', cursor: validRows.length === 0 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Import {validRows.length} claim{validRows.length !== 1 ? 's' : ''} →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3 — result */}
+          {step === 'result' && (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              {importing ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#555', fontSize: 13 }}>
+                  <Loader2 size={14} className="animate-spin" />
+                  Importing…
+                </div>
+              ) : resultError ? (
+                <div>
+                  <div style={{ fontSize: 13, color: '#fb7185', marginBottom: 16 }}>{resultError}</div>
+                  <button onClick={onClose} style={inputStyle as React.CSSProperties}>Dismiss</button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 13, color: '#34d399', marginBottom: 16 }}>{resultMsg}</div>
+                  <button
+                    onClick={onDone}
+                    style={{ padding: '10px 24px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#34d399', cursor: 'pointer' }}
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1265,17 +1712,31 @@ function AppealModal({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {text && (
-              <button
-                onClick={copy}
-                style={{
-                  padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                  background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
-                  color: copied ? '#34d399' : '#888', cursor: 'pointer',
-                }}
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <>
+                <button
+                  onClick={copy}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
+                    color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                  }}
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={`data:text/plain;charset=utf-8,${encodeURIComponent(text ?? '')}`}
+                  download="appeal-letter.txt"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid #1c1c1c',
+                    color: '#888', textDecoration: 'none', cursor: 'pointer',
+                  }}
+                >
+                  Download .txt
+                </a>
+              </>
             )}
             <button
               onClick={onClose}
@@ -1426,382 +1887,7 @@ function useDashboardTts() {
   }, []);
 }
 
-type OperatorFocus = {
-  tab: ActiveTab;
-  kind: 'work-item' | 'exception' | 'connector' | 'workspace' | 'policy';
-  id: string;
-  label: string;
-  detail: string;
-};
-
-type AceSuggestedOption = {
-  id: string;
-  eyebrow: string;
-  title: string;
-  detail: string;
-  tab: ActiveTab;
-  cta: string;
-  tone: 'critical' | 'action' | 'monitor';
-  focus?: OperatorFocus;
-};
-
-function buildAceSuggestedOptions({
-  queue,
-  workspaces,
-  claimExceptions,
-  eligibilityExceptions,
-  claimItems,
-  eligibilityItems,
-  connectors,
-}: {
-  queue: ManagerSnapshot['overview']['queue'] | undefined;
-  workspaces: Workspace[];
-  claimExceptions: ClaimStatusException[];
-  eligibilityExceptions: EligibilityException[];
-  claimItems: ClaimStatusWorkItem[];
-  eligibilityItems: EligibilityWorkItem[];
-  connectors: Connector[];
-}): AceSuggestedOption[] {
-  const options: AceSuggestedOption[] = [];
-
-  const criticalClaim = claimExceptions.find((item) => item.severity === 'critical') ?? claimExceptions[0];
-  const criticalEligibility = eligibilityExceptions.find((item) => item.severity === 'critical') ?? eligibilityExceptions[0];
-  const reviewTarget = (queue?.humanReviewCount ?? 0) > 0
-    ? claimItems.find((item) => item.requiresHumanReview) ?? eligibilityItems.find((item) => item.requiresHumanReview)
-    : null;
-  const nonLiveConnectors = connectors.filter((connector) => connector.status !== 'live');
-  const topWorkspace = [...workspaces].sort((a, b) => b.amountAtRiskOpen - a.amountAtRiskOpen)[0];
-
-  if (criticalClaim) {
-    options.push({
-      id: 'claim-exception',
-      eyebrow: 'Needs decision',
-      title: 'Review the top denial block',
-      detail: `${criticalClaim.payerName ?? 'Payer'} needs attention${criticalClaim.claimRef ? ` on ${criticalClaim.claimRef}` : ''}. ${criticalClaim.summary}`,
-      tab: 'claims',
-      cta: 'Open claim checks',
-      tone: criticalClaim.severity === 'critical' ? 'critical' : 'action',
-      focus: {
-        tab: 'claims',
-        kind: 'exception',
-        id: criticalClaim.exceptionId,
-        label: criticalClaim.claimRef ? `${criticalClaim.payerName ?? 'Payer'} · ${criticalClaim.claimRef}` : (criticalClaim.payerName ?? 'Claim exception'),
-        detail: criticalClaim.summary,
-      },
-    });
-  } else if (criticalEligibility) {
-    options.push({
-      id: 'eligibility-exception',
-      eyebrow: 'Coverage issue',
-      title: 'Clear the highest-risk eligibility miss',
-      detail: `${criticalEligibility.payerName ?? 'Payer'} needs a manual check. ${criticalEligibility.summary}`,
-      tab: 'eligibility',
-      cta: 'Open coverage checks',
-      tone: criticalEligibility.severity === 'critical' ? 'critical' : 'action',
-      focus: {
-        tab: 'eligibility',
-        kind: 'exception',
-        id: criticalEligibility.exceptionId,
-        label: criticalEligibility.memberId ? `${criticalEligibility.payerName ?? 'Payer'} · ${criticalEligibility.memberId}` : (criticalEligibility.payerName ?? 'Eligibility exception'),
-        detail: criticalEligibility.summary,
-      },
-    });
-  }
-
-  if (reviewTarget) {
-    options.push({
-      id: 'review-queue',
-      eyebrow: 'Human review',
-      title: `${queue?.humanReviewCount ?? 0} item${queue?.humanReviewCount === 1 ? '' : 's'} waiting for approval`,
-      detail: `${reviewTarget.workspaceName} is holding the next decision. Surface the queue instead of making operators hunt for it.`,
-      tab: 'claimRef' in reviewTarget ? 'claims' : 'eligibility',
-      cta: 'Review queue',
-      tone: 'action',
-      focus: {
-        tab: 'claimRef' in reviewTarget ? 'claims' : 'eligibility',
-        kind: 'work-item',
-        id: reviewTarget.workItemId,
-        label: reviewTarget.title,
-        detail: `${reviewTarget.workspaceName}${reviewTarget.payerName ? ` · ${reviewTarget.payerName}` : ''}`,
-      },
-    });
-  }
-
-  if (nonLiveConnectors.length > 0) {
-    options.push({
-      id: 'connectors',
-      eyebrow: 'Setup gap',
-      title: `Connect ${nonLiveConnectors.length} payer lane${nonLiveConnectors.length === 1 ? '' : 's'}`,
-      detail: `${nonLiveConnectors[0]?.label ?? 'A payer'} is still in simulation or manual mode, so Ace cannot behave like a full operator there yet.`,
-      tab: 'connectors',
-      cta: 'Open payer network',
-      tone: 'action',
-      focus: {
-        tab: 'connectors',
-        kind: 'connector',
-        id: nonLiveConnectors[0]?.key ?? 'connectors',
-        label: nonLiveConnectors[0]?.label ?? 'Payer network',
-        detail: nonLiveConnectors[0]?.notes ?? 'Finish connector setup so Ace can operate directly.',
-      },
-    });
-  }
-
-  if (topWorkspace && topWorkspace.amountAtRiskOpen > 0) {
-    options.push({
-      id: 'workspace-risk',
-      eyebrow: 'At risk',
-      title: `Protect ${fmt$(topWorkspace.amountAtRiskOpen)} in ${topWorkspace.name}`,
-      detail: `${topWorkspace.openWorkItems} open items and ${topWorkspace.humanReviewCount} manual reviews are sitting in the highest-risk practice.`,
-      tab: 'workspaces',
-      cta: 'Open practices',
-      tone: 'monitor',
-      focus: {
-        tab: 'workspaces',
-        kind: 'workspace',
-        id: topWorkspace.workspaceId,
-        label: topWorkspace.name,
-        detail: `${topWorkspace.openWorkItems} open items · ${topWorkspace.humanReviewCount} manual review${topWorkspace.humanReviewCount === 1 ? '' : 's'} · ${fmt$(topWorkspace.amountAtRiskOpen)} at risk`,
-      },
-    });
-  }
-
-  if ((queue?.autoClosedPct ?? 0) < 70) {
-    options.push({
-      id: 'agent-authority',
-      eyebrow: 'Autonomy tuning',
-      title: 'Tighten Ace authority by lane',
-      detail: `Autonomous close rate is ${queue?.autoClosedPct ?? 0}%. Adjust thresholds before scaling new workspaces.`,
-      tab: 'agent',
-      cta: 'Open agent controls',
-      tone: 'monitor',
-      focus: {
-        tab: 'agent',
-        kind: 'policy',
-        id: 'agent-authority',
-        label: 'Agent authority',
-        detail: `Autonomous close rate is ${queue?.autoClosedPct ?? 0}%. Tighten guardrails before adding more volume.`,
-      },
-    });
-  }
-
-  if (options.length === 0) {
-    options.push({
-      id: 'monitor',
-      eyebrow: 'Queue clear',
-      title: 'Keep Ace in monitor mode',
-      detail: 'No urgent actions surfaced. Use the agent tab to widen authority or keep the current guardrails.',
-      tab: 'agent',
-      cta: 'Open agent controls',
-      tone: 'monitor',
-      focus: {
-        tab: 'agent',
-        kind: 'policy',
-        id: 'monitor',
-        label: 'Monitor mode',
-        detail: 'Queue is steady. Review authority settings before expanding scope.',
-      },
-    });
-  }
-
-  return options.slice(0, 3);
-}
-
-function AceOperatorDeck({
-  activeTab,
-  onSelectOption,
-  briefingSummary,
-  queue,
-  firstLaneLabel,
-  workspaces,
-  claimExceptions,
-  eligibilityExceptions,
-  claimItems,
-  eligibilityItems,
-  connectors,
-  isLoading,
-}: {
-  activeTab: ActiveTab;
-  onSelectOption: (option: AceSuggestedOption) => void;
-  briefingSummary: string | null;
-  queue: ManagerSnapshot['overview']['queue'] | undefined;
-  firstLaneLabel: string | undefined;
-  workspaces: Workspace[];
-  claimExceptions: ClaimStatusException[];
-  eligibilityExceptions: EligibilityException[];
-  claimItems: ClaimStatusWorkItem[];
-  eligibilityItems: EligibilityWorkItem[];
-  connectors: Connector[];
-  isLoading: boolean;
-}) {
-  const speak = useDashboardTts();
-  const [speaking, setSpeaking] = useState(false);
-  const options = buildAceSuggestedOptions({
-    queue,
-    workspaces,
-    claimExceptions,
-    eligibilityExceptions,
-    claimItems,
-    eligibilityItems,
-    connectors,
-  });
-
-  const liveConnectorCount = connectors.filter((connector) => connector.status === 'live').length;
-  const summary = briefingSummary
-    ?? `${queue?.humanReviewCount ?? 0} items need operator review. ${queue?.autoClosedCount ?? 0} handled automatically. ${firstLaneLabel ?? 'Claim checks'} is the primary lane.`;
-
-  async function playBriefing() {
-    setSpeaking(true);
-    await speak(summary);
-    setTimeout(() => setSpeaking(false), 1800);
-  }
-
-  const toneStyles: Record<AceSuggestedOption['tone'], { border: string; bg: string; text: string }> = {
-    critical: { border: 'rgba(244,63,94,0.24)', bg: 'rgba(244,63,94,0.08)', text: '#fb7185' },
-    action: { border: 'rgba(16,185,129,0.2)', bg: 'rgba(16,185,129,0.05)', text: '#34d399' },
-    monitor: { border: 'rgba(148,163,184,0.16)', bg: 'rgba(148,163,184,0.05)', text: '#cbd5e1' },
-  };
-
-  return (
-    <section style={{ marginBottom: 18 }}>
-      <div className="ace-operator-grid" style={{
-        display: 'grid', gridTemplateColumns: '1.1fr 1fr 1.2fr', gap: 14,
-        padding: 16, borderRadius: 16, border: '1px solid #161616', background: 'linear-gradient(180deg, rgba(8,8,8,0.96), rgba(5,5,5,0.98))',
-      }}>
-        <div style={{ padding: 16, borderRadius: 14, background: 'radial-gradient(circle at top, rgba(16,185,129,0.12), rgba(8,8,8,0.94) 58%)', border: '1px solid rgba(16,185,129,0.12)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: speaking ? '#34d399' : '#10b981', boxShadow: speaking ? '0 0 18px rgba(52,211,153,0.45)' : '0 0 12px rgba(16,185,129,0.28)' }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399', letterSpacing: '0.08em', textTransform: 'uppercase' }}>ACE operator unit</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-            <div style={{ position: 'relative', width: 104, height: 104, flexShrink: 0 }}>
-              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid rgba(16,185,129,0.14)', transform: speaking ? 'scale(1.06)' : 'scale(1)', transition: 'transform 180ms ease' }} />
-              <div style={{ position: 'absolute', inset: 10, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.22), rgba(16,185,129,0.32) 35%, rgba(5,5,5,0.98) 75%)', border: '1px solid rgba(16,185,129,0.18)', boxShadow: '0 12px 40px rgba(0,0,0,0.45)' }} />
-              <div style={{ position: 'absolute', left: 33, right: 33, top: 40, height: 7, borderRadius: 999, background: 'rgba(255,255,255,0.74)' }} />
-              <div style={{ position: 'absolute', left: 28, right: 28, bottom: 26, height: speaking ? 18 : 8, borderRadius: 999, background: 'linear-gradient(180deg, rgba(16,185,129,0.95), rgba(5,5,5,0.95))', transition: 'height 180ms ease' }} />
-            </div>
-
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#f5f5f5', letterSpacing: '-0.03em' }}>Ace is working like an operator, not a static dashboard.</div>
-              <div style={{ fontSize: 12, color: '#666', lineHeight: 1.6, marginTop: 8 }}>
-                Useful next actions are surfaced automatically, with voice on top and queue state underneath. This is the closest grounded path to an OpenClaw-style unit using the billing product that already exists.
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-            {[
-              `${queue?.humanReviewCount ?? 0} review`,
-              `${queue?.openExceptionCount ?? 0} exceptions`,
-              `${liveConnectorCount} live payers`,
-            ].map((pill) => (
-              <span key={pill} style={{ padding: '6px 10px', borderRadius: 999, fontSize: 11, color: '#b6c2be', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {pill}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ padding: 16, borderRadius: 14, background: '#090909', border: '1px solid #141414', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#666', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Voice briefing</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#ededed', marginTop: 4 }}>What Ace would say right now</div>
-            </div>
-            <button
-              onClick={playBriefing}
-              disabled={isLoading}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(16,185,129,0.2)',
-                background: speaking ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.06)', color: '#34d399',
-                cursor: isLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600,
-              }}
-            >
-              <Volume2 size={14} />
-              {speaking ? 'Speaking…' : 'Hear briefing'}
-            </button>
-          </div>
-
-          <div style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid #141414', fontSize: 13, color: '#bdbdbd', lineHeight: 1.65, minHeight: 116 }}>
-            {summary}
-          </div>
-
-          <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {[
-              { label: 'Primary lane', value: firstLaneLabel ?? 'Claim checks' },
-              { label: 'Autonomous close rate', value: `${queue?.autoClosedPct ?? 0}%` },
-              { label: 'Revenue protected', value: fmt$(queue?.amountAtRiskOpen) },
-              { label: 'Practice count', value: String(workspaces.length) },
-            ].map((item) => (
-              <div key={item.label} style={{ padding: '10px 12px', borderRadius: 10, background: '#070707', border: '1px solid #111' }}>
-                <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#ececec', marginTop: 4 }}>{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ padding: 16, borderRadius: 14, background: '#090909', border: '1px solid #141414' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#666', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Useful options</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#ededed', marginTop: 4 }}>Auto-surfaced next moves</div>
-            </div>
-            <Sparkles size={15} style={{ color: '#34d399' }} />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {options.map((option) => {
-              const tone = toneStyles[option.tone];
-              const active = activeTab === option.tab;
-              return (
-                <button
-                  key={option.id}
-                  onClick={() => onSelectOption(option)}
-                  style={{
-                    textAlign: 'left', padding: '14px 14px 12px', borderRadius: 12,
-                    border: `1px solid ${active ? tone.border : '#161616'}`,
-                    background: active ? tone.bg : '#070707', cursor: 'pointer',
-                    transition: 'all 140ms ease',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: tone.text, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{option.eyebrow}</span>
-                    <ArrowRight size={13} style={{ color: active ? tone.text : '#555' }} />
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#efefef', marginTop: 6 }}>{option.title}</div>
-                  <div style={{ fontSize: 12, color: '#8b8b8b', lineHeight: 1.55, marginTop: 6 }}>{option.detail}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: tone.text, marginTop: 10 }}>{option.cta}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ── Voice FAB ──────────────────────────────────────────────────────────────────
-
-function OperatorFocusBanner({ focus }: { focus: OperatorFocus }) {
-  return (
-    <div style={{
-      marginBottom: 14,
-      padding: '12px 14px',
-      borderRadius: 10,
-      background: 'rgba(16,185,129,0.05)',
-      border: '1px solid rgba(16,185,129,0.14)',
-    }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#34d399', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-        Operator focus
-      </div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#ededed', marginTop: 5 }}>{focus.label}</div>
-      <div style={{ fontSize: 12, color: '#7f8c88', lineHeight: 1.55, marginTop: 4 }}>{focus.detail}</div>
-    </div>
-  );
-}
 
 function VoiceFAB({
   onSwitchTab, autoClosedCount, autoClosedPct, trustScore, briefingSummary,
@@ -1873,7 +1959,7 @@ function VoiceFAB({
   }
 
   return (
-    <div className="ace-voice-fab" style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+    <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
       {label && (
         <div style={{
           padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#34d399',
@@ -1910,10 +1996,10 @@ function VoiceFAB({
 export default function RcmManagerClient() {
   const queryClient = useQueryClient();
   const [flash, setFlash] = useState<{ tone: 'ok' | 'err'; msg: string } | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('claims');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [operatorFocus, setOperatorFocus] = useState<OperatorFocus | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy>(DEFAULT_POLICY);
   const [policyInit, setPolicyInit] = useState(false);
   const [appealWorkItemId, setAppealWorkItemId] = useState<string | null>(null);
@@ -1921,6 +2007,8 @@ export default function RcmManagerClient() {
   const [appealLoading, setAppealLoading] = useState(false);
   const [appealError, setAppealError] = useState<string | null>(null);
   const [connectTarget, setConnectTarget] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [showExpiryBanner, setShowExpiryBanner] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rcm-manager'],
@@ -1972,11 +2060,11 @@ export default function RcmManagerClient() {
     mutationFn: runManagerAction,
     onMutate: (p) => { setFlash(null); setActiveActionKey(actionKey(p)); },
     onSuccess: (r) => {
-      setFlash({ tone: 'ok', msg: r.message ?? 'Action completed.' });
+      setToastMsg(r.message ?? 'Action completed.');
       queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
       queryClient.invalidateQueries({ queryKey: ['rcm-briefing'] });
     },
-    onError: (e: Error) => setFlash({ tone: 'err', msg: e.message }),
+    onError: (e: Error) => setToastMsg(e.message),
     onSettled: () => setActiveActionKey(null),
   });
 
@@ -1986,20 +2074,32 @@ export default function RcmManagerClient() {
     return () => clearTimeout(t);
   }, [flash]);
 
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(null), 3000);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    fetch('/api/me')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { sessionExpiresAt?: number } | null) => {
+        if (!d?.sessionExpiresAt) return;
+        const msRemaining = d.sessionExpiresAt * 1000 - Date.now();
+        const WARN_MS = 30 * 60 * 1000;
+        if (msRemaining < WARN_MS) {
+          setShowExpiryBanner(true);
+        } else {
+          t = setTimeout(() => setShowExpiryBanner(true), msRemaining - WARN_MS);
+        }
+      })
+      .catch(() => {});
+    return () => { if (t !== undefined) clearTimeout(t); };
+  }, []);
+
   function trigger(p: ManagerActionRequest) { actionMutation.mutate(p); }
   function isPending(p: ManagerActionRequest) { return activeActionKey === actionKey(p); }
-
-  function switchTab(tab: ActiveTab) {
-    setOperatorFocus(null);
-    setExpandedItem(null);
-    setActiveTab(tab);
-  }
-
-  function handleOperatorOption(option: AceSuggestedOption) {
-    setActiveTab(option.tab);
-    setOperatorFocus(option.focus ?? null);
-    setExpandedItem(option.focus?.kind === 'work-item' ? option.focus.id : null);
-  }
 
   async function handleRevoke(credentialId: string, payerName: string) {
     await deleteCredential(credentialId);
@@ -2093,15 +2193,59 @@ export default function RcmManagerClient() {
       : data?.panelStatus.eligibilityExceptions === 'error';
     const protocol = isClaims ? 'X12 276/277' : 'HETS 270/271';
 
+    const showFreshState = !isLoading && !queueErr && !exErr && items.length === 0 && exItems.length === 0;
+
+    if (showFreshState) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: '56px 24px', borderRadius: 14,
+          background: '#080808', border: '1px dashed #1e293b', textAlign: 'center',
+        }}>
+          <Zap size={28} style={{ color: '#1e293b', marginBottom: 16 }} />
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#3a3a3a', marginBottom: 8 }}>
+            Ace is ready. No claims yet.
+          </div>
+          <div style={{ fontSize: 12, color: '#2a2a2a', maxWidth: 360, lineHeight: 1.7, marginBottom: 20 }}>
+            Connect a payer credential in the Connectors tab to start. Ace will begin monitoring claims automatically.
+          </div>
+          <button
+            onClick={() => setActiveTab('connectors')}
+            style={{
+              padding: '9px 18px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+              color: '#34d399', cursor: 'pointer',
+            }}
+          >
+            Go to Connectors →
+          </button>
+        </div>
+      );
+    }
+
     return (
-      <div className="ace-lane-grid" style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 16, alignItems: 'start' }}>
         <div>
-          {operatorFocus?.tab === tab && <OperatorFocusBanner focus={operatorFocus} />}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Work queue
             </span>
-            <span style={{ fontSize: 10, color: '#2a2a2a', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{protocol}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {isClaims && (
+                <button
+                  onClick={() => setImportOpen(true)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)',
+                    color: '#34d399', cursor: 'pointer',
+                  }}
+                >
+                  + Import claims
+                </button>
+              )}
+              <span style={{ fontSize: 10, color: '#2a2a2a', fontFamily: 'monospace', letterSpacing: '0.05em' }}>{protocol}</span>
+            </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {queueErr && <WarnBanner text="Queue temporarily unavailable — not a clear-queue signal." />}
@@ -2112,7 +2256,6 @@ export default function RcmManagerClient() {
                 lane={lane}
                 item={item}
                 expandedId={expandedItem}
-                highlighted={operatorFocus?.tab === tab && operatorFocus.kind === 'work-item' && operatorFocus.id === item.workItemId}
                 onExpand={setExpandedItem}
                 checkPending={isPending}
                 onAction={trigger}
@@ -2137,7 +2280,6 @@ export default function RcmManagerClient() {
                 key={item.exceptionId}
                 lane={lane}
                 item={item}
-                highlighted={operatorFocus?.tab === tab && operatorFocus.kind === 'exception' && operatorFocus.id === item.exceptionId}
                 checkPending={isPending}
                 onAction={trigger}
                 onAppeal={handleAppeal}
@@ -2151,23 +2293,30 @@ export default function RcmManagerClient() {
 
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <style>{`
-        @media (max-width: 1180px) {
-          .ace-operator-grid { grid-template-columns: 1fr !important; }
-          .ace-lane-grid { grid-template-columns: 1fr !important; }
-          .ace-agent-console-grid { grid-template-columns: 1fr !important; }
-          .ace-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-        }
 
-        @media (max-width: 860px) {
-          .ace-kpi-grid { grid-template-columns: 1fr !important; }
-          .ace-tab-bar { width: 100% !important; flex-wrap: wrap; }
-        }
-
-        @media (max-width: 640px) {
-          .ace-voice-fab { right: 18px !important; bottom: 18px !important; }
-        }
-      `}</style>
+      {/* Session expiry warning */}
+      {showExpiryBanner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)',
+          borderRadius: 8, padding: '12px 24px', marginBottom: 16,
+          fontSize: 13, color: '#fbbf24', gap: 12,
+        }}>
+          <span>Your session expires soon — sign in again to stay connected.</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+            <a href="/rcm-login" style={{ color: '#fbbf24', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Sign in again →
+            </a>
+            <button
+              onClick={() => setShowExpiryBanner(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fbbf24', padding: 0, lineHeight: 1, fontSize: 16 }}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Flash toast */}
       {flash && (
@@ -2180,6 +2329,19 @@ export default function RcmManagerClient() {
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
           {flash.msg}
+        </div>
+      )}
+
+      {/* Action snackbar (bottom-center) */}
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10,
+          padding: '12px 20px', color: '#f8fafc', fontSize: 13, zIndex: 9999,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}>
+          {toastMsg}
         </div>
       )}
 
@@ -2197,11 +2359,11 @@ export default function RcmManagerClient() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
             <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#e8e8e8', letterSpacing: '-0.02em' }}>
-              Ace operator console
+              Billing operations
             </h1>
           </div>
           <p style={{ margin: '3px 0 0 16px', fontSize: 11, color: '#444' }}>
-            Voice-first billing unit with auto-surfaced next actions · refreshes every 30s
+            Ace is working the queue · auto-refreshes every 30s
           </p>
         </div>
         {isLoading && (
@@ -2212,54 +2374,8 @@ export default function RcmManagerClient() {
         )}
       </div>
 
-      <AceOperatorDeck
-        activeTab={activeTab}
-        onSelectOption={handleOperatorOption}
-        briefingSummary={briefingData?.summary ?? null}
-        queue={q}
-        firstLaneLabel={data?.overview.firstLane.label}
-        workspaces={workspaces}
-        claimExceptions={exceptions}
-        eligibilityExceptions={eligEx}
-        claimItems={workItems}
-        eligibilityItems={eligWI}
-        connectors={[...connectors, ...eligCon]}
-        isLoading={isLoading}
-      />
-
-      {/* Onboarding checklist — hides itself once all four steps are done */}
-      {(() => {
-        const ws = workspaces[0] ?? null;
-        const hasConnector = (credentialsData ?? []).length > 0 || connectors.some((c: Connector) => c.status === 'live');
-        const hasFirstClaim = (workItems?.length ?? 0) > 0 || (eligWI?.length ?? 0) > 0;
-        return (
-          <OnboardingChecklist
-            workspace={ws ? { workspaceId: ws.workspaceId, name: ws.name, workspaceType: ws.workspaceType } : null}
-            hasConnector={hasConnector}
-            hasFirstClaim={hasFirstClaim}
-            onJumpToConnectors={() => switchTab('connectors')}
-            onRunDemo={async () => {
-              if (!ws) return;
-              try {
-                const res = await fetch(`/api/rcm/workspaces/${ws.workspaceId}/demo-claim`, { method: 'POST' });
-                if (res.ok) {
-                  setFlash({ tone: 'ok', msg: 'Demo claim queued. Watch the claims tab.' });
-                  switchTab('claims');
-                  queryClient.invalidateQueries({ queryKey: ['rcm-manager'] });
-                } else {
-                  const d = await res.json().catch(() => ({})) as { error?: string };
-                  setFlash({ tone: 'err', msg: d.error ?? 'Could not queue demo claim.' });
-                }
-              } catch {
-                setFlash({ tone: 'err', msg: 'Network error queueing demo claim.' });
-              }
-            }}
-          />
-        );
-      })()}
-
       {/* KPI strip */}
-      <div className="ace-kpi-grid" style={{
+      <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
         marginBottom: 16, borderRadius: 12,
         border: '1px solid #161616', background: '#080808', overflow: 'hidden',
@@ -2288,11 +2404,11 @@ export default function RcmManagerClient() {
         autoCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
         snapshotLoading={isLoading}
-        onReview={() => switchTab('claims')}
+        onReview={() => setActiveTab('claims')}
       />
 
       {/* Tab bar */}
-      <div className="ace-tab-bar" style={{
+      <div style={{
         display: 'flex', gap: 3, marginBottom: 18,
         padding: 4, background: '#080808', borderRadius: 10,
         border: '1px solid #161616', width: 'fit-content',
@@ -2302,7 +2418,7 @@ export default function RcmManagerClient() {
           return (
             <button
               key={tab.id}
-              onClick={() => switchTab(tab.id)}
+              onClick={() => setActiveTab(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 7,
                 padding: '7px 13px', borderRadius: 7, fontSize: 12, fontWeight: 600,
@@ -2335,7 +2451,6 @@ export default function RcmManagerClient() {
 
       {activeTab === 'connectors' && (
         <>
-          {operatorFocus?.tab === 'connectors' && <OperatorFocusBanner focus={operatorFocus} />}
           <ConnectorGrid
             connectors={[...connectors, ...eligCon]}
             claimErr={data?.panelStatus.claimStatusConnectors === 'error'}
@@ -2350,30 +2465,29 @@ export default function RcmManagerClient() {
       )}
 
       {activeTab === 'workspaces' && (
-        <>
-          {operatorFocus?.tab === 'workspaces' && <OperatorFocusBanner focus={operatorFocus} />}
-          <WorkspaceGrid
-            workspaces={workspaces}
-            unavailable={data?.panelStatus.workspaces === 'error'}
-            isLoading={isLoading}
-            highlightedWorkspaceId={operatorFocus?.tab === 'workspaces' && operatorFocus.kind === 'workspace' ? operatorFocus.id : null}
-          />
-        </>
+        <WorkspaceGrid
+          workspaces={workspaces}
+          unavailable={data?.panelStatus.workspaces === 'error'}
+          isLoading={isLoading}
+        />
       )}
 
       {activeTab === 'agent' && (
         <>
-          {operatorFocus?.tab === 'agent' && <OperatorFocusBanner focus={operatorFocus} />}
           <AgentConsole
             workspace={workspaces[0] ?? null}
             policy={policy}
-            onPolicyChange={setPolicy}
+            onPolicyChange={(p) => {
+              setPolicy(p);
+              if (workspaces[0]) persistPolicy(workspaces[0].workspaceId, p);
+            }}
             autoClosedPct={q?.autoClosedPct ?? 0}
             avgConfidencePct={q?.avgConfidencePct ?? null}
             humanInterventionPct={q?.humanInterventionPct ?? 0}
             autoClosedCount={q?.autoClosedCount ?? 0}
             isLoading={isLoading}
           />
+          <TeamSection activeTab={activeTab} />
         </>
       )}
 
@@ -2397,9 +2511,18 @@ export default function RcmManagerClient() {
         />
       )}
 
+      {/* Import claims modal */}
+      {importOpen && (
+        <ImportModal
+          workspaceId={primaryWorkspaceId}
+          onDone={() => { setImportOpen(false); queryClient.invalidateQueries({ queryKey: ['rcm-manager'] }); }}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
+
       {/* Voice FAB */}
       <VoiceFAB
-        onSwitchTab={switchTab}
+        onSwitchTab={setActiveTab}
         autoClosedCount={q?.autoClosedCount ?? 0}
         autoClosedPct={q?.autoClosedPct ?? 0}
         trustScore={trustScore}

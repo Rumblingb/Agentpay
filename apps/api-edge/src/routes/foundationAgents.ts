@@ -19,6 +19,34 @@ import { createDb } from '../lib/db';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+router.get('/', (c) => c.json({
+  agents: {
+    identity: {
+      name: 'IdentityVerifierAgent',
+      endpoint: 'POST /api/foundation-agents/identity',
+      status: 'phase_2_stub',
+    },
+    reputation: {
+      name: 'ReputationOracleAgent',
+      endpoint: 'POST /api/foundation-agents/reputation',
+      status: 'live',
+      actions: ['get_reputation', 'get_trust_score', 'compare', 'batch_lookup'],
+    },
+    intent: {
+      name: 'IntentCoordinatorAgent',
+      endpoint: 'POST /api/foundation-agents/intent',
+      status: 'live',
+      actions: ['coordinate'],
+    },
+    dispute: {
+      name: 'DisputeResolverAgent',
+      endpoint: 'POST /api/foundation-agents/dispute',
+      status: 'phase_2_stub',
+    },
+  },
+  _schema: 'FoundationAgents/Manifest/1.0',
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

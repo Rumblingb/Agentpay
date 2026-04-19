@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 0 | 1 | 2 | 3 | 4 | 5;
 
 interface OnboardState {
   specialty: string;
@@ -13,61 +13,7 @@ interface OnboardState {
   mainPayer: string;
   mainProblem: string;
   npi: string;
-  plan: string;
 }
-
-const PLANS = [
-  {
-    key: 'starter',
-    name: 'Starter',
-    price: '$299',
-    priceNote: '/mo',
-    claimsIncluded: 'Up to 200 claims / month',
-    overage: '$1.80 per additional claim',
-    features: [
-      'Eligibility verification',
-      'Primary claim submission',
-      'Denial triage (top 5 payers)',
-      'Email support',
-    ],
-    cta: 'Start with Starter',
-    highlight: false,
-  },
-  {
-    key: 'pro',
-    name: 'Pro',
-    price: '$799',
-    priceNote: '/mo',
-    claimsIncluded: 'Up to 1,000 claims / month',
-    overage: '$1.20 per additional claim',
-    features: [
-      'Everything in Starter',
-      'Prior authorization automation',
-      'Appeals & denial follow-up',
-      'All payers, unlimited',
-      'Priority support (4h response)',
-    ],
-    cta: 'Start with Pro',
-    highlight: true,
-  },
-  {
-    key: 'enterprise',
-    name: 'Enterprise',
-    price: 'Custom',
-    priceNote: '',
-    claimsIncluded: 'Unlimited claims',
-    overage: 'Volume discounts',
-    features: [
-      'Everything in Pro',
-      'Dedicated success engineer',
-      'Custom payer rules',
-      'SLA-backed uptime',
-      'On-prem data residency options',
-    ],
-    cta: 'Talk to sales',
-    highlight: false,
-  },
-];
 
 const SPECIALTY_GROUPS = [
   {
@@ -121,11 +67,6 @@ function getSteps(answers: OnboardState): { field: keyof OnboardState | null; qu
       hint: HOSPITAL_SPECIALTIES.has(answers.specialty)
         ? "Your billing NPI identifies your facility with payers. Some payers also require your CCN (CMS Certification Number)."
         : "Your NPI is how Ace identifies your practice with payers. Required to submit and verify claims.",
-    },
-    {
-      field: 'plan',
-      question: "Pick the plan that fits your volume",
-      hint: "You can switch plans later — your first 14 days are free either way.",
     },
   ];
 }
@@ -249,11 +190,12 @@ export default function RcmOnboardPage() {
   const router = useRouter();
   const { speak, stop, speaking } = useTts();
   const [step, setStep] = useState<Step>(0);
-  const [answers, setAnswers] = useState<OnboardState>({ specialty: '', volume: '', mainPayer: '', mainProblem: '', npi: '', plan: '' });
+  const [answers, setAnswers] = useState<OnboardState>({ specialty: '', volume: '', mainPayer: '', mainProblem: '', npi: '' });
   const [npiInput, setNpiInput] = useState('');
   const [npiOpen, setNpiOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [workspaceError, setWorkspaceError] = useState('');
   const [muted, setMuted] = useState(false);
   const spokenRef = useRef<Set<number>>(new Set());
   const npiRef = useRef<HTMLInputElement>(null);
@@ -295,29 +237,13 @@ export default function RcmOnboardPage() {
     setTimeout(() => setStep(s => (s + 1) as Step), 350);
   }
 
-  function advanceFromNpi() {
+  async function finishOnboarding() {
     const npi = npiInput.trim();
     if (!npi || !/^\d{10}$/.test(npi)) {
       setError('NPI must be exactly 10 digits.');
       return;
     }
     setAnswers(a => ({ ...a, npi }));
-    setError('');
-    setStep(6);
-  }
-
-  async function finishOnboarding(plan: string) {
-    const npi = (answers.npi || npiInput).trim();
-    if (!npi || !/^\d{10}$/.test(npi)) {
-      setError('NPI must be exactly 10 digits.');
-      setStep(5);
-      return;
-    }
-    if (!plan) {
-      setError('Please select a plan to continue.');
-      return;
-    }
-    setAnswers(a => ({ ...a, npi, plan }));
     setLoading(true);
     setError('');
 
@@ -337,45 +263,56 @@ export default function RcmOnboardPage() {
           mainPayer: answers.mainPayer,
           mainProblem: answers.mainProblem,
           npi,
-          plan,
         }),
       });
-      if (!res.ok) {
+      if (!res.ok && res.status !== 404) {
         const d = await res.json().catch(() => ({})) as { error?: string };
-        setError(d.error ?? `Workspace creation failed (${res.status}). Please try again.`);
-        setLoading(false);
-        return;
+        if (d.error && !d.error.includes('not found')) {
+          setWorkspaceError(d.error);
+          setLoading(false);
+          // Non-blocking — continue to dashboard after 3s
+          try {
+            localStorage.setItem('ace_rcm_onboard', JSON.stringify({ ...answers, npi, completedAt: Date.now() }));
+          } catch {}
+          speak("Your agent is now active. Let me show you your dashboard.");
+          setTimeout(() => router.push('/rcm'), 3000);
+          return;
+        }
       }
-    } catch {
-      setError('Could not reach billing service. Check your connection and try again.');
-      setLoading(false);
-      return;
+    } catch (err) {
+      console.warn('[rcm-onboard] workspace creation network error:', err);
+      // Non-fatal — continue to dashboard
     }
 
     try {
-      localStorage.setItem('ace_rcm_onboard', JSON.stringify({ ...answers, npi, plan, completedAt: Date.now() }));
+      localStorage.setItem('ace_rcm_onboard', JSON.stringify({ ...answers, npi, completedAt: Date.now() }));
     } catch {}
-
-    if (plan === 'enterprise') {
-      speak("Got it. A success engineer will reach out within one business day.");
-      setTimeout(() => router.push('/rcm?contact=enterprise'), 1800);
-      return;
-    }
 
     speak("Your agent is now active. Let me show you your dashboard.");
     setTimeout(() => router.push('/rcm'), 1800);
   }
 
-  const progress = (step / 6) * 100;
+  const progress = (step / 5) * 100;
 
   return (
     <div style={{ background: '#050505', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+
+      {/* Step 2 of 2 indicator */}
+      <div className="fade-up" style={{ width: '100%', maxWidth: 520, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <div style={{ width: 20, height: 4, borderRadius: 2, background: '#10b981' }} />
+            <div style={{ width: 20, height: 4, borderRadius: 2, background: '#10b981' }} />
+          </div>
+          <span style={{ fontSize: 11, color: '#555', fontWeight: 500 }}>Step 2 of 2 — Set up workspace</span>
+        </div>
+      </div>
 
       {/* Progress */}
       <div className="fade-up" style={{ width: '100%', maxWidth: 520, marginBottom: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <span style={{ fontSize: 11, color: '#555', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            {step === 0 ? 'Welcome' : `${step}/6`}
+            {step === 0 ? 'Welcome' : `${step}/5`}
           </span>
           <span style={{ fontSize: 11, color: '#555' }}>{Math.round(progress)}% complete</span>
         </div>
@@ -384,7 +321,7 @@ export default function RcmOnboardPage() {
         </div>
         {/* Step dots */}
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-          {[1, 2, 3, 4, 5, 6].map(n => (
+          {[1, 2, 3, 4, 5].map(n => (
             <div key={n} style={{
               width: n === step ? 16 : 6, height: 6, borderRadius: 3,
               background: n < step ? '#10b981' : n === step ? '#10b981' : '#1c1c1c',
@@ -522,7 +459,7 @@ export default function RcmOnboardPage() {
                 }}
                 onFocus={e => (e.target.style.borderColor = 'rgba(16,185,129,0.35)')}
                 onBlur={e => (e.target.style.borderColor = error ? 'rgba(244,63,94,0.35)' : '#1c1c1c')}
-                onKeyDown={e => { if (e.key === 'Enter') advanceFromNpi(); }}
+                onKeyDown={e => { if (e.key === 'Enter') finishOnboarding(); }}
               />
               {error && <div style={{ fontSize: 12, color: '#fb7185', marginBottom: 14 }}>{error}</div>}
 
@@ -546,7 +483,7 @@ export default function RcmOnboardPage() {
               </div>
 
               <button
-                onClick={advanceFromNpi}
+                onClick={finishOnboarding}
                 disabled={loading}
                 style={{
                   width: '100%', padding: '14px',
@@ -558,104 +495,35 @@ export default function RcmOnboardPage() {
                   transition: 'opacity 0.15s',
                 }}
               >
-                {"Continue to plans \u2192"}
-              </button>
-
-              <p style={{ fontSize: 11, color: '#444', marginTop: 14, lineHeight: 1.6 }}>
-                Your NPI is used only for eligibility verification and claim submission. Stored encrypted and never shared.
-              </p>
-            </div>
-          )}
-
-          {/* Step 6: Plan selection */}
-          {step === 6 && (
-            <div>
-              {error && (
-                <div style={{ marginBottom: 14, fontSize: 12, color: '#fb7185', background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.18)', borderRadius: 8, padding: '10px 12px' }}>
-                  {error}
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {PLANS.map(p => {
-                  const selected = answers.plan === p.key;
-                  return (
-                    <button
-                      key={p.key}
-                      type="button"
-                      onClick={() => { setAnswers(a => ({ ...a, plan: p.key })); setError(''); }}
-                      disabled={loading}
-                      style={{
-                        textAlign: 'left', width: '100%',
-                        background: selected ? 'rgba(16,185,129,0.05)' : '#0d0d0d',
-                        border: `1px solid ${selected ? 'rgba(16,185,129,0.45)' : p.highlight ? 'rgba(16,185,129,0.2)' : '#1c1c1c'}`,
-                        borderRadius: 12, padding: '16px 18px', cursor: loading ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.15s', position: 'relative',
-                      }}
-                    >
-                      {p.highlight && (
-                        <div style={{ position: 'absolute', top: -9, right: 14, background: '#10b981', color: '#000', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: 6 }}>
-                          Most popular
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: '#ededef' }}>{p.name}</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: selected ? '#10b981' : '#ededef' }}>
-                          {p.price}<span style={{ fontSize: 12, fontWeight: 500, color: '#737373' }}>{p.priceNote}</span>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#737373', marginBottom: 10 }}>
-                        {p.claimsIncluded} · {p.overage}
-                      </div>
-                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {p.features.map(f => (
-                          <li key={f} style={{ fontSize: 12, color: '#a3a3a3', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5l2.5 2.5L8.5 2.5" stroke="#10b981" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                            {f}
-                          </li>
-                        ))}
-                      </ul>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={() => finishOnboarding(answers.plan)}
-                disabled={loading || !answers.plan}
-                style={{
-                  marginTop: 20, width: '100%', padding: '14px',
-                  background: loading ? '#059669' : answers.plan ? '#10b981' : '#1c1c1c',
-                  border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 700,
-                  color: answers.plan ? '#000' : '#555',
-                  cursor: loading || !answers.plan ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.85 : 1, letterSpacing: '-0.01em',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  transition: 'all 0.15s',
-                }}
-              >
                 {loading && (
                   <svg className="spin" width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <circle cx="8" cy="8" r="6" stroke="rgba(0,0,0,0.3)" strokeWidth="2"/>
                     <path d="M8 2a6 6 0 0 1 6 6" stroke="#000" strokeWidth="2" strokeLinecap="round"/>
                   </svg>
                 )}
-                {loading
-                  ? 'Setting up your workspace\u2026'
-                  : answers.plan === 'enterprise'
-                    ? 'Request enterprise call \u2192'
-                    : answers.plan
-                      ? 'Start 14-day free trial \u2192'
-                      : 'Select a plan to continue'}
+                {loading ? 'Setting up your workspace\u2026' : 'Finish setup \u2192'}
               </button>
-              <p style={{ fontSize: 11, color: '#444', marginTop: 12, lineHeight: 1.6 }}>
-                No card required for trial. We will prompt for payment method 3 days before trial ends.
+
+              {workspaceError && (
+                <div style={{
+                  marginTop: 14, padding: '12px 14px',
+                  background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
+                  borderRadius: 8, fontSize: 12, color: '#fbbf24', lineHeight: 1.6,
+                }}>
+                  Workspace setup had an issue — don&apos;t worry, you can complete it from your dashboard.
+                  <span style={{ display: 'block', marginTop: 4, color: '#a16207', fontSize: 11 }}>{workspaceError}</span>
+                </div>
+              )}
+
+              <p style={{ fontSize: 11, color: '#444', marginTop: 14, lineHeight: 1.6 }}>
+                Your NPI is used only for eligibility verification and claim submission. Stored encrypted and never shared.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Skip — hidden on step 5 and 6 */}
+      {/* Skip — hidden on step 5 */}
       {step > 0 && step < 5 && (
         <button
           onClick={() => setStep(s => (s + 1) as Step)}

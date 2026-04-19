@@ -59,8 +59,6 @@ export interface Env {
   STRIPE_SUCCESS_URL?: string;
   /** Absolute URL to redirect after a cancelled Stripe Checkout session. */
   STRIPE_CANCEL_URL?: string;
-  /** Base dashboard URL (e.g. https://app.agentpay.so) used for Stripe Connect return links. */
-  DASHBOARD_URL?: string;
 
   // ── Razorpay (India UPI) ──────────────────────────────────────────────────
   /** Razorpay API key ID — enables UPI payment links for India. */
@@ -156,6 +154,17 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
   ADMIN_EMAIL?: string;
+  /** AgentMail organization API key — enables portable inbox provisioning for agents. */
+  AGENTMAIL_API_KEY?: string;
+  /** Optional override for the AgentMail API base URL. */
+  AGENTMAIL_BASE_URL?: string;
+  /** Optional default email domain for newly provisioned agent inboxes. */
+  AGENTMAIL_INBOX_DOMAIN?: string;
+
+  /** Availity clearinghouse OAuth2 client ID — enables real-time eligibility checks */
+  AVAILITY_CLIENT_ID?: string;
+  /** Availity clearinghouse OAuth2 client secret */
+  AVAILITY_CLIENT_SECRET?: string;
 
   // ── Google Maps (server key — IP-restricted, never ship in app) ──────────
   /**
@@ -210,54 +219,16 @@ export interface Env {
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
   AI?: Ai;
-  /** Anthropic API key — powers the Bro concierge brain. */
+  /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
-  /** Optional OpenAI low-cost general model override. Default: gpt-4o-mini. */
-  OPENAI_MINI_MODEL?: string;
-  /** Optional OpenAI code model override. Default: gpt-4o. */
-  OPENAI_CODE_MODEL?: string;
-  /** Anthropic low-cost model override for classify/extract/followup. Default: claude-haiku-4-5-20251001. */
-  ANTHROPIC_HAIKU_MODEL?: string;
-  /** Anthropic deep reasoning model override. Default: claude-opus-4-6. */
-  ANTHROPIC_REASON_MODEL?: string;
-  /** Anthropic code model override. Default: claude-opus-4-6. */
-  ANTHROPIC_CODE_MODEL?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
   ELEVENLABS_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */
   FIRECRAWL_API_KEY?: string;
-  /** Local OpenAI-compatible endpoint for Ollama. Default: http://127.0.0.1:11434/v1 */
-  OLLAMA_BASE_URL?: string;
-  /** Optional bearer token for a protected Ollama/OpenAI-compatible gateway. */
-  OLLAMA_API_KEY?: string;
-  /** Set to "true" to disable Ollama routing even if configured. */
-  OLLAMA_DISABLE?: string;
-  /** Cheap local model for general turns. Default: qwen2.5:7b-instruct. */
-  OLLAMA_GENERAL_MODEL?: string;
-  /** Cheap local model for extraction turns. Default: qwen2.5:7b-instruct. */
-  OLLAMA_EXTRACT_MODEL?: string;
-  /** Cheap local model for classification. Default: qwen2.5:3b-instruct. */
-  OLLAMA_CLASSIFY_MODEL?: string;
-  /** Stronger local model for reasoning. Default: qwen2.5:14b-instruct. */
-  OLLAMA_REASON_MODEL?: string;
-  /** Kimi / Moonshot OpenAI-compatible API key. */
-  KIMI_API_KEY?: string;
-  /** Optional Kimi base URL. Default: https://api.moonshot.ai/v1 */
-  KIMI_BASE_URL?: string;
-  /** Kimi general-turn model override. */
-  KIMI_GENERAL_MODEL?: string;
-  /** Kimi reasoning model override. */
-  KIMI_REASON_MODEL?: string;
-  /** cheap-first | balanced | quality-first. Default: cheap-first. */
-  MODEL_ROUTER_POLICY?: string;
-  /** Shared response cache TTL in seconds for repeat classify/extract/followup turns. Default: 900. */
-  LLM_CACHE_TTL_SECONDS?: string;
-  /** Set to "true" to bypass the in-process LLM response cache. */
-  MODEL_ROUTER_DISABLE_CACHE?: string;
 
   /** Base URL for the institutional 276/277 claim-status connector. */
   RCM_X12_CLAIM_STATUS_API_URL?: string;
@@ -280,6 +251,10 @@ export interface Env {
 
   /** AES-GCM encryption key for the RCM credential vault (32-byte hex). */
   RCM_VAULT_ENCRYPTION_KEY?: string;
+  /** AES-GCM encryption key for the generic capability vault (32-byte hex). Falls back to RCM_VAULT_ENCRYPTION_KEY when absent. */
+  CAPABILITY_VAULT_ENCRYPTION_KEY?: string;
+  /** Optional comma-separated previous AES-GCM keys retained for capability vault decryption during key rotation. */
+  CAPABILITY_VAULT_DECRYPTION_KEYS?: string;
 
   /**
    * Minutes before a retry_pending work item is picked up by the autonomy
@@ -287,10 +262,14 @@ export interface Env {
    */
   RCM_RETRY_TIMEOUT_MINS?: string;
 
-  // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
-  /** OpenClaw API base URL — e.g. https://api.openclaw.io */
+  // ── Fulfillment provider (automated booking execution) ────────────────────
+  /** Canonical fulfillment provider base URL. npx wrangler secret put FULFILLMENT_PROVIDER_URL */
+  FULFILLMENT_PROVIDER_URL?: string;
+  /** Legacy fulfillment provider base URL alias — e.g. https://api.openclaw.io */
   OPENCLAW_API_URL?: string;
-  /** OpenClaw API key — authenticates fulfillment dispatch requests. npx wrangler secret put OPENCLAW_API_KEY */
+  /** Canonical fulfillment provider API key. npx wrangler secret put FULFILLMENT_PROVIDER_API_KEY */
+  FULFILLMENT_PROVIDER_API_KEY?: string;
+  /** Legacy fulfillment provider API key alias. npx wrangler secret put OPENCLAW_API_KEY */
   OPENCLAW_API_KEY?: string;
 
   // ── Approval infrastructure ───────────────────────────────────────────────
@@ -301,9 +280,17 @@ export interface Env {
    */
   APPROVAL_SALT?: string;
 
-  // ── Bro app client auth ───────────────────────────────────────────────────
+  // ── AgentPay client app auth ──────────────────────────────────────────────
   /**
-   * Static key sent by the Bro app in `x-bro-key` header.
+   * Static key sent by first-party clients in `x-agentpay-client-key`.
+   * Legacy clients may continue sending `x-bro-key`.
+   * Set via: npx wrangler secret put AGENTPAY_CLIENT_KEY
+   * Add to EAS build env as: EXPO_PUBLIC_AGENTPAY_CLIENT_KEY
+   */
+  AGENTPAY_CLIENT_KEY?: string;
+
+  /**
+   * Legacy static key sent by the Bro app in `x-bro-key` header.
    * If set, /api/concierge/intent rejects requests without this header.
    * Set via: npx wrangler secret put BRO_CLIENT_KEY
    * Add to EAS build env as: EXPO_PUBLIC_BRO_KEY
@@ -404,10 +391,15 @@ export interface Env {
   /** Apple WWDR G4 intermediate certificate PEM. Download from https://www.apple.com/certificateauthority/. npx wrangler secret put APPLE_PASS_WWDR_PEM */
   APPLE_PASS_WWDR_PEM?: string;
 
-  // ── Operations (Make.com fulfillment sheet) ───────────────────────────────
+  // ── Operations webhook ────────────────────────────────────────────────────
   /**
-   * Make.com webhook URL — every confirmed booking POSTs here.
-   * Make.com creates a Google Sheet row (PENDING) for manual fulfilment.
+   * Canonical operations webhook URL — every confirmed booking POSTs here.
+   * npx wrangler secret put OPERATIONS_WEBHOOK_URL
+   */
+  OPERATIONS_WEBHOOK_URL?: string;
+
+  /**
+   * Legacy operations webhook URL — previously pointed at Make.com.
    * npx wrangler secret put MAKECOM_WEBHOOK_URL
    */
   MAKECOM_WEBHOOK_URL?: string;
@@ -417,8 +409,10 @@ export interface Env {
   TWILIO_ACCOUNT_SID?: string;
   /** Twilio Auth Token — paired with TWILIO_ACCOUNT_SID. */
   TWILIO_AUTH_TOKEN?: string;
+  /** Twilio Verify Service SID — enables phone verification challenges. */
+  TWILIO_VERIFY_SERVICE_SID?: string;
   /**
-   * Twilio WhatsApp sender number — must start with "whatsapp:+".
+   * Twilio WhatsApp sender number — must start with "whatsapp:+".  
    * Sandbox: "whatsapp:+14155238886"
    * Production: your verified business number.
    */
@@ -446,11 +440,13 @@ export interface MerchantContext {
   id: string;
   name: string;
   email: string;
-  walletAddress: string;
+  walletAddress: string | null;
   webhookUrl: string | null;
+  parentMerchantId?: string | null;
 }
 
 /** Hono Variables type — passed as the second generic to Hono<{...}>. */
 export interface Variables {
   merchant: MerchantContext;
+  mcpAudience?: 'openai' | 'anthropic' | 'generic';
 }

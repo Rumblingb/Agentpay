@@ -11,7 +11,6 @@ import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb, type Sql } from '../lib/db';
-import { parseJsonBody } from '../lib/requestBody';
 import {
   createStripeClient,
   verifySucceededSetupIntent,
@@ -56,6 +55,13 @@ import {
   type PriorAuthConnectorKey,
   type PriorAuthConnectorExecutionInput,
 } from '../lib/rcmPriorAuthConnector';
+import {
+  storeCredential,
+  revokeCredential,
+  type CredentialType,
+  type PlaintextCredential,
+} from '../lib/rcmCredentialVault';
+import { hmacSign, hmacVerify } from '../lib/hmac';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -7823,9 +7829,8 @@ router.post('/workspaces/:workspaceId/setup-billing', authenticateApiKey, async 
   const merchant = c.get('merchant');
   const workspaceId = c.req.param('workspaceId')!;
 
-  const parsed = await parseJsonBody<{ principalId?: unknown }>(c);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.body;
+  let body: { principalId?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
 
   const { principalId } = body;
   if (typeof principalId !== 'string' || !principalId.trim()) {
@@ -8113,10 +8118,11 @@ router.post('/workspaces/:workspaceId/charge', authenticateApiKey, async (c) => 
       currency: paymentIntent.currency,
       milestoneId: milestoneId.trim(),
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Stripe card errors (card_declined, insufficient_funds, etc.) — return 402
-    if (err?.type === 'StripeCardError') {
-      return c.json({ error: err.message, code: err.code }, 402);
+    if (err && typeof err === 'object' && 'type' in err && err.type === 'StripeCardError') {
+      const stripeErr = err as unknown as { message: string; code?: string };
+      return c.json({ error: stripeErr.message, code: stripeErr.code }, 402);
     }
     console.error('[rcm] POST /workspaces/:id/charge error:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to charge milestone' }, 500);
@@ -8302,7 +8308,7 @@ router.get('/payer-intelligence', authenticateApiKey, async (c) => {
       FROM rcm_work_items
       WHERE merchant_id = ${merchant.id}
         AND payer_name IS NOT NULL
-        AND created_at > NOW() - (${windowDays} || ' days')::INTERVAL
+        AND created_at > NOW() - (${windowDays} * INTERVAL '1 day')
       GROUP BY payer_name
       ORDER BY amount_at_risk DESC
       LIMIT 15
@@ -8324,13 +8330,6 @@ router.get('/payer-intelligence', authenticateApiKey, async (c) => {
 });
 
 // ── Credential vault routes ───────────────────────────────────────────────────
-
-import {
-  storeCredential,
-  revokeCredential,
-  type CredentialType,
-  type PlaintextCredential,
-} from '../lib/rcmCredentialVault';
 
 type VaultRow = {
   id: string; workspace_id: string; credential_type: string;
@@ -8442,287 +8441,299 @@ router.delete('/credentials/:credentialId', authenticateApiKey, async (c) => {
   } finally { sql?.end().catch(() => {}); }
 });
 
-// ───────────────────────────────────────────────────────────────────────────
-// Stripe Connect (Express) onboarding for the billing practice itself.
-//
-// Purpose: the practice receives payments from payers into its own bank.
-// We create a Stripe Express connected account, return a hosted Account
-// Link URL for onboarding, and surface payouts_enabled / charges_enabled
-// status so the dashboard checklist can confirm "payment route live".
-//
-// Requires these columns on rcm_workspaces (idempotent migration):
-//   ALTER TABLE rcm_workspaces
-//     ADD COLUMN IF NOT EXISTS stripe_connect_account_id text,
-//     ADD COLUMN IF NOT EXISTS stripe_connect_charges_enabled boolean,
-//     ADD COLUMN IF NOT EXISTS stripe_connect_payouts_enabled boolean,
-//     ADD COLUMN IF NOT EXISTS stripe_connect_onboarded_at timestamptz;
-//
-// The webhook handler (account.updated) should upsert these booleans so the
-// dashboard reflects capability grants without a manual poll.
-// ───────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Endpoint 1: POST /api/rcm/workspaces/:workspaceId/import-claims
+// ---------------------------------------------------------------------------
 
-function rcmConnectReturnUrl(env: Env, workspaceId: string): string {
-  const base = (env.DASHBOARD_URL || 'https://app.agentpay.so').replace(/\/$/, '');
-  return `${base}/rcm?workspace=${encodeURIComponent(workspaceId)}&connect=return`;
-}
-
-function rcmConnectRefreshUrl(env: Env, workspaceId: string): string {
-  const base = (env.DASHBOARD_URL || 'https://app.agentpay.so').replace(/\/$/, '');
-  return `${base}/rcm?workspace=${encodeURIComponent(workspaceId)}&connect=refresh`;
-}
-
-/**
- * POST /api/rcm/workspaces/:workspaceId/connect-account
- *
- * Creates (or reuses) a Stripe Express connected account for the workspace
- * and returns a one-shot hosted onboarding URL.
- */
-router.post('/workspaces/:workspaceId/connect-account', authenticateApiKey, async (c) => {
-  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
-
+router.post('/workspaces/:workspaceId/import-claims', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const workspaceId = c.req.param('workspaceId')!;
-
-  const sql = createDb(c.env);
+  const { workspaceId } = c.req.param();
+  let sql: Sql | null = null;
   try {
-    const ws = await sql<Array<{
-      id: string;
-      name: string;
-      email: string | null;
-      stripeConnectAccountId: string | null;
-    }>>`
-      SELECT
-        w.id,
-        w.name,
-        m.email AS email,
-        w.stripe_connect_account_id AS "stripeConnectAccountId"
-      FROM rcm_workspaces w
-      JOIN merchants m ON m.id = w.merchant_id
-      WHERE w.id = ${workspaceId} AND w.merchant_id = ${merchant.id}
-      LIMIT 1
-    `;
-    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
-    const workspace = ws[0];
+    const body = await c.req.json<{
+      claims?: Array<{
+        title?: string;
+        payerName?: string;
+        claimRef?: string;
+        patientRef?: string;
+        providerRef?: string;
+        amountAtRisk?: number;
+        priority?: string;
+        dueAt?: string;
+      }>;
+    }>();
 
-    const stripe = getRcmStripe(c.env);
+    const claims = Array.isArray(body?.claims) ? body.claims : [];
 
-    let accountId = workspace.stripeConnectAccountId;
-    if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: 'express',
-        email: workspace.email ?? undefined,
-        business_type: 'company',
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-          us_bank_account_ach_payments: { requested: true },
-        },
-        business_profile: {
-          name: workspace.name,
-          product_description: 'Healthcare revenue cycle management via Ace',
-          mcc: '8062',
-        },
-        metadata: {
-          agentpay_workspace_id: workspace.id,
-          agentpay_merchant_id: merchant.id,
-          source: 'rcm',
-        },
-      });
-      accountId = account.id;
-      await sql`
-        UPDATE rcm_workspaces
-        SET stripe_connect_account_id = ${accountId}
-        WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
-      `;
+    if (claims.length > 200) {
+      return c.json({ error: 'Maximum 200 claims per import' }, 400);
     }
 
-    const link = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: rcmConnectRefreshUrl(c.env, workspaceId),
-      return_url: rcmConnectReturnUrl(c.env, workspaceId),
-      type: 'account_onboarding',
-    });
+    sql = createDb(c.env);
 
-    return c.json({ accountId, url: link.url, expiresAt: link.expires_at });
+    const wsRows = await sql`
+      SELECT id FROM rcm_workspaces
+      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
+    `;
+    if (wsRows.length === 0) {
+      return c.json({ error: 'Workspace not found' }, 404);
+    }
+
+    let imported = 0;
+    const errors: Array<{ index: number; reason: string }> = [];
+    const validPriorities = ['urgent', 'high', 'normal', 'low'];
+
+    for (let i = 0; i < claims.length; i++) {
+      const claim = claims[i];
+      if (!claim.title?.trim()) {
+        errors.push({ index: i, reason: 'Missing title' });
+        continue;
+      }
+      const priority = validPriorities.includes(claim.priority ?? '') ? claim.priority! : 'normal';
+      await sql`
+        INSERT INTO rcm_work_items (
+          id, workspace_id, merchant_id, work_type, billing_domain,
+          title, payer_name, claim_ref, patient_ref, provider_ref,
+          amount_at_risk, priority, status, requires_human_review,
+          source_system, created_at, updated_at
+        ) VALUES (
+          ${crypto.randomUUID()},
+          ${workspaceId},
+          ${merchant.id},
+          ${'claim_status'},
+          ${'medical'},
+          ${claim.title.trim()},
+          ${claim.payerName?.trim() ?? null},
+          ${claim.claimRef?.trim() ?? null},
+          ${claim.patientRef?.trim() ?? null},
+          ${claim.providerRef?.trim() ?? null},
+          ${claim.amountAtRisk ?? null},
+          ${priority},
+          ${'open'},
+          ${false},
+          ${'csv_import'},
+          NOW(),
+          NOW()
+        )
+      `;
+      imported++;
+    }
+
+    return c.json({ imported, errors });
   } catch (err) {
-    console.error('[rcm] POST /workspaces/:id/connect-account error:', err instanceof Error ? err.message : err);
-    return c.json({ error: 'Failed to start Stripe onboarding' }, 500);
-  } finally { sql.end().catch(() => {}); }
+    console.error('[rcm] POST /import-claims error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Import failed' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
 });
 
-/**
- * GET /api/rcm/workspaces/:workspaceId/connect-status
- *
- * Returns connect account readiness so the dashboard onboarding checklist
- * can show "payouts enabled" without manual polling. Falls back to the
- * live Stripe account.retrieve when DB booleans haven't been webhook-synced.
- */
-router.get('/workspaces/:workspaceId/connect-status', authenticateApiKey, async (c) => {
-  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: 'Stripe not configured' }, 503);
+// ---------------------------------------------------------------------------
+// Endpoint 2: POST /api/rcm/team/invite
+// ---------------------------------------------------------------------------
 
+router.post('/team/invite', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const workspaceId = c.req.param('workspaceId')!;
 
-  const sql = createDb(c.env);
+  function randomHex(bytes: number): string {
+    const arr = new Uint8Array(bytes);
+    crypto.getRandomValues(arr);
+    return Array.from(arr)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  function isValidEmailLocal(s: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  }
+
   try {
-    const ws = await sql<Array<{
-      id: string;
-      stripeConnectAccountId: string | null;
-      chargesEnabled: boolean | null;
-      payoutsEnabled: boolean | null;
-      onboardedAt: Date | null;
-    }>>`
-      SELECT
-        id,
-        stripe_connect_account_id AS "stripeConnectAccountId",
-        stripe_connect_charges_enabled AS "chargesEnabled",
-        stripe_connect_payouts_enabled AS "payoutsEnabled",
-        stripe_connect_onboarded_at   AS "onboardedAt"
-      FROM rcm_workspaces
-      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
-      LIMIT 1
+    const body = await c.req.json<{ email?: string; role?: string }>();
+    const email = (body?.email ?? '').trim().toLowerCase();
+    if (!email || !isValidEmailLocal(email)) {
+      return c.json({ error: 'Valid email is required' }, 400);
+    }
+
+    const validRoles = ['admin', 'member', 'viewer'];
+    const role = validRoles.includes(body?.role ?? '') ? body!.role! : 'member';
+
+    const nonce = randomHex(12);
+    const expiresAt = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
+    const payload = `inv:v1:${merchant.id}:${email}:${role}:${expiresAt}:${nonce}`;
+    const mac = await hmacSign(payload, c.env.AGENTPAY_SIGNING_SECRET);
+    const token = `${payload}:${mac}`;
+
+    const inviteUrl = `https://app.agentpay.so/rcm-signup?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+
+    if (c.env.RESEND_API_KEY) {
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: 'Ace Billing <notifications@agentpay.so>',
+          to: [email],
+          subject: "You've been invited to Ace Billing",
+          html: `
+<!DOCTYPE html>
+<html>
+<body style="background:#000;color:#f8fafc;font-family:system-ui,sans-serif;padding:32px;margin:0">
+  <div style="max-width:480px;margin:0 auto">
+    <h2 style="color:#f8fafc;margin-bottom:16px">You've been invited to Ace Billing</h2>
+    <p style="color:#94a3b8;margin-bottom:24px">
+      You've been invited to join <strong style="color:#f8fafc">${merchant.name}</strong>'s billing workspace.
+      Accept the invite to get started.
+    </p>
+    <a href="${inviteUrl}" style="display:inline-block;background:#4ade80;color:#000;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none">
+      Accept Invite
+    </a>
+    <p style="color:#475569;font-size:12px;margin-top:24px">
+      This invite expires in 7 days. If you didn't expect this, you can ignore this email.
+    </p>
+  </div>
+</body>
+</html>`,
+        }),
+      }).catch(() => console.warn('[rcm] invite email failed'));
+    }
+
+    return c.json({ ok: true, inviteUrl });
+  } catch (err) {
+    console.error('[rcm] POST /team/invite error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Invite failed' }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 3: GET /api/rcm/team/members
+// ---------------------------------------------------------------------------
+
+router.get('/team/members', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    const members = await sql`
+      SELECT id, name, email, created_at AS "createdAt"
+      FROM merchants
+      WHERE parent_merchant_id = ${merchant.id}
+        AND is_active = true
+      ORDER BY created_at
     `;
-    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
-    const row = ws[0];
+    return c.json({ members });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('parent_merchant_id') || msg.includes('column') || (err as { code?: string })?.code === '42703') {
+      return c.json({ members: [] });
+    }
+    console.error('[rcm] GET /team/members error:', msg);
+    return c.json({ error: 'Failed to fetch members' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
+});
 
-    if (!row.stripeConnectAccountId) {
-      return c.json({
-        connected: false,
-        chargesEnabled: false,
-        payoutsEnabled: false,
-        onboardedAt: null,
-      });
+// ---------------------------------------------------------------------------
+// Endpoint 4: DELETE /api/rcm/team/members/:memberId
+// ---------------------------------------------------------------------------
+
+router.delete('/team/members/:memberId', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const { memberId } = c.req.param();
+  let sql: Sql | null = null;
+  try {
+    sql = createDb(c.env);
+    const rows = await sql`
+      SELECT id FROM merchants
+      WHERE id = ${memberId}
+        AND parent_merchant_id = ${merchant.id}
+        AND is_active = true
+    `;
+    if (rows.length === 0) {
+      return c.json({ error: 'Member not found' }, 404);
+    }
+    await sql`
+      UPDATE merchants SET parent_merchant_id = NULL WHERE id = ${memberId}
+    `;
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error('[rcm] DELETE /team/members error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to remove member' }, 500);
+  } finally {
+    sql?.end().catch(() => {});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint 5: GET /api/rcm/payer/npi
+// ---------------------------------------------------------------------------
+
+router.get('/payer/npi', authenticateApiKey, async (c) => {
+  const npi = (c.req.query('npi') ?? '').trim();
+  if (!/^\d{10}$/.test(npi)) {
+    return c.json({ error: 'NPI must be exactly 10 digits' }, 400);
+  }
+  try {
+    const res = await fetch(
+      `https://npiregistry.cms.hhs.gov/api/?number=${npi}&version=2.1`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!res.ok) {
+      return c.json({ error: 'NPI lookup failed' }, 500);
+    }
+    const data = await res.json<{
+      result_count: number;
+      results?: Array<{
+        number: string;
+        enumeration_type: string;
+        basic: {
+          first_name?: string;
+          last_name?: string;
+          organization_name?: string;
+          credential?: string;
+          status: string;
+        };
+        taxonomies?: Array<{ primary: boolean; desc: string }>;
+        addresses?: Array<{
+          address_purpose: string;
+          address_1?: string;
+          city?: string;
+          state?: string;
+          postal_code?: string;
+        }>;
+      }>;
+    }>();
+
+    if (!data.result_count || !data.results?.length) {
+      return c.json({ error: 'NPI not found' }, 404);
     }
 
-    let chargesEnabled = row.chargesEnabled ?? false;
-    let payoutsEnabled = row.payoutsEnabled ?? false;
-    let requirementsCurrentlyDue: string[] = [];
-
-    try {
-      const stripe = getRcmStripe(c.env);
-      const account = await stripe.accounts.retrieve(row.stripeConnectAccountId);
-      chargesEnabled = Boolean(account.charges_enabled);
-      payoutsEnabled = Boolean(account.payouts_enabled);
-      requirementsCurrentlyDue = account.requirements?.currently_due ?? [];
-
-      if (chargesEnabled !== row.chargesEnabled || payoutsEnabled !== row.payoutsEnabled) {
-        await sql`
-          UPDATE rcm_workspaces
-          SET
-            stripe_connect_charges_enabled = ${chargesEnabled},
-            stripe_connect_payouts_enabled = ${payoutsEnabled},
-            stripe_connect_onboarded_at = COALESCE(stripe_connect_onboarded_at, CASE WHEN ${payoutsEnabled} THEN NOW() ELSE NULL END)
-          WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
-        `;
-      }
-    } catch (err) {
-      console.error('[rcm] connect-status stripe retrieve failed:', err instanceof Error ? err.message : err);
-      // Fall back to DB values — still return what we have.
-    }
+    const r = data.results[0];
+    const basic = r.basic;
+    const name =
+      basic.organization_name ??
+      [basic.first_name, basic.last_name].filter(Boolean).join(' ');
+    const primaryTaxonomy = r.taxonomies?.find((t) => t.primary)?.desc ?? null;
+    const addr = r.addresses?.find((a) => a.address_purpose === 'LOCATION') ?? r.addresses?.[0];
+    const address = addr
+      ? [addr.address_1, addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ')
+      : null;
 
     return c.json({
-      connected: true,
-      accountId: row.stripeConnectAccountId,
-      chargesEnabled,
-      payoutsEnabled,
-      onboardedAt: row.onboardedAt,
-      requirementsCurrentlyDue,
+      npi: r.number,
+      entityType: r.enumeration_type === 'NPI-1' ? '1' : '2',
+      name,
+      credential: basic.credential ?? null,
+      primaryTaxonomy,
+      address,
+      status: basic.status,
     });
   } catch (err) {
-    console.error('[rcm] GET /workspaces/:id/connect-status error:', err instanceof Error ? err.message : err);
-    return c.json({ error: 'Failed to fetch Stripe status' }, 500);
-  } finally { sql.end().catch(() => {}); }
-});
-
-/**
- * POST /api/rcm/workspaces/:workspaceId/demo-claim
- *
- * Seeds a single synthetic claim-status work item into the workspace so
- * brand-new practices can watch the agent handle a full round-trip without
- * needing real PHI. The seeded row is flagged `is_demo: true` in metadata so
- * it can be filtered out of real analytics.
- *
- * Idempotent per workspace: if a demo row already exists and is still open,
- * returns it instead of creating a duplicate.
- */
-router.post('/workspaces/:workspaceId/demo-claim', authenticateApiKey, async (c) => {
-  const merchant = c.get('merchant');
-  const workspaceId = c.req.param('workspaceId')!;
-
-  const sql = createDb(c.env);
-  try {
-    const ws = await sql<Array<{ id: string; name: string }>>`
-      SELECT id, name FROM rcm_workspaces
-      WHERE id = ${workspaceId} AND merchant_id = ${merchant.id}
-      LIMIT 1
-    `;
-    if (!ws.length) return c.json({ error: 'Workspace not found' }, 404);
-
-    const existing = await sql<Array<{ id: string }>>`
-      SELECT id
-      FROM rcm_work_items
-      WHERE workspace_id = ${workspaceId}
-        AND merchant_id = ${merchant.id}
-        AND status NOT IN ('closed','rejected','cancelled')
-        AND (metadata->>'is_demo') = 'true'
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    if (existing.length) {
-      return c.json({ workItemId: existing[0].id, reused: true });
-    }
-
-    const demoMetadata = {
-      is_demo: true,
-      created_via: 'onboarding_checklist',
-      demo_scenario: 'primary_claim_status_success',
-      sample_notes: 'Synthetic claim. No PHI. Used to verify agent routing end-to-end.',
-    };
-
-    const inserted = await sql<Array<{ id: string }>>`
-      INSERT INTO rcm_work_items (
-        workspace_id,
-        merchant_id,
-        work_type,
-        form_type,
-        title,
-        payer_name,
-        patient_ref,
-        provider_ref,
-        claim_ref,
-        source_system,
-        amount_at_risk,
-        status,
-        requires_human_review,
-        metadata
-      ) VALUES (
-        ${workspaceId},
-        ${merchant.id},
-        ${'claim-status'},
-        ${'837P'},
-        ${'Demo claim — primary payer status check'},
-        ${'Demo Payer'},
-        ${'DEMO-PAT-0001'},
-        ${'DEMO-PROV-0001'},
-        ${'DEMO-CLAIM-0001'},
-        ${'ace_demo'},
-        ${15000},
-        ${'pending'},
-        ${false},
-        ${sql.json(demoMetadata)}
-      )
-      RETURNING id
-    `;
-    const workItemId = inserted[0]?.id;
-    if (!workItemId) {
-      return c.json({ error: 'Failed to create demo claim' }, 500);
-    }
-
-    return c.json({ workItemId, reused: false });
-  } catch (err) {
-    console.error('[rcm] POST /workspaces/:id/demo-claim error:', err instanceof Error ? err.message : err);
-    return c.json({ error: 'Failed to create demo claim' }, 500);
-  } finally { sql.end().catch(() => {}); }
+    console.error('[rcm] GET /payer/npi error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'NPI lookup failed' }, 500);
+  }
 });
 
 export { router as rcmRouter };

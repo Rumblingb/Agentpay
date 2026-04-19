@@ -21,9 +21,9 @@
  * GET /api/skills — returns available skill definitions
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { createDb, parseJsonb } from '../lib/db';
+import { createDb } from '../lib/db';
 import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
 import { queryRTT, formatTrainsForClaude, LONDON_TERMINI } from '../lib/rtt';
 import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
@@ -48,7 +48,6 @@ import { withBookingState } from '../lib/bookingState';
 import { recordMobileTelemetry, shouldAlertOnMobileTelemetry } from '../lib/mobileTelemetry';
 import { createSignedWalletPassUrl } from '../lib/walletPass';
 import { buildConciergeExecutionSnapshot } from '../lib/conciergeExecution';
-import { buildOpenClawDispatchPatch, dispatchToOpenClaw } from '../lib/openclaw';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -63,65 +62,6 @@ function makeTrace(): string {
 function broLog(event: string, data: Record<string, unknown>) {
   // console.info emits to Cloudflare Workers Tail logs as a structured JSON line.
   console.info(JSON.stringify({ bro: true, event, ...data }));
-}
-
-type BroJobRow = {
-  id: string;
-  status: string;
-  metadata: unknown;
-  createdAt: string | null;
-  updatedAt: string | null;
-};
-
-function isOpenClawAuthorized(c: Context<{ Bindings: Env; Variables: Variables }>): boolean {
-  const authHeader = c.req.header('authorization') ?? '';
-  const token = authHeader.replace(/^Bearer\s+/i, '');
-  return Boolean(token) && token === c.env.OPENCLAW_API_KEY;
-}
-
-function hasBroJobOpsAccess(c: Context<{ Bindings: Env; Variables: Variables }>): boolean {
-  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
-  return isOpenClawAuthorized(c) || (!!adminKey && adminKey === c.env.ADMIN_SECRET_KEY);
-}
-
-function isPaymentConfirmedMetadata(metadata: Record<string, unknown>): boolean {
-  return (
-    metadata.paymentConfirmed === true
-    || metadata.stripePaymentConfirmed === true
-    || metadata.razorpayPaymentConfirmed === true
-    || metadata.airwallexPaymentConfirmed === true
-  );
-}
-
-async function loadBroJob(sql: ReturnType<typeof createDb>, jobId: string): Promise<{
-  id: string;
-  status: string;
-  metadata: Record<string, unknown>;
-  createdAt: string | null;
-  updatedAt: string | null;
-} | null> {
-  const rows = await sql<BroJobRow[]>`
-    SELECT
-      id,
-      status,
-      metadata,
-      created_at::text AS "createdAt",
-      updated_at::text AS "updatedAt"
-    FROM payment_intents
-    WHERE id = ${jobId}
-      AND metadata->>'protocol' = 'marketplace_hire'
-    LIMIT 1
-  `;
-
-  if (!rows.length) return null;
-  const row = rows[0];
-  return {
-    id: row.id,
-    status: row.status,
-    metadata: parseJsonb<Record<string, unknown>>(row.metadata, {}),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }
 
 conciergeRouter.get('/fx-rate', async (c) => {
@@ -375,7 +315,9 @@ conciergeRouter.get('/bro-ops', async (c) => {
 // K (OpenClaw) polls this every 2 minutes. Auth: OPENCLAW_API_KEY.
 
 conciergeRouter.get('/bro-jobs/pending', async (c) => {
-  if (!isOpenClawAuthorized(c)) {
+  const authHeader = c.req.header('authorization') ?? '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (!token || token !== c.env.OPENCLAW_API_KEY) {
     return c.json({ error: 'UNAUTHORIZED' }, 401);
   }
 
@@ -410,109 +352,6 @@ conciergeRouter.get('/bro-jobs/pending', async (c) => {
   }
 });
 
-// ── GET /api/admin/bro-jobs/:jobId/status ────────────────────────────────────
-// Single-job control-plane status for OpenClaw operators and admin tooling.
-
-conciergeRouter.get('/bro-jobs/:jobId/status', async (c) => {
-  if (!hasBroJobOpsAccess(c)) {
-    return c.json({ error: 'UNAUTHORIZED' }, 401);
-  }
-
-  const jobId = c.req.param('jobId');
-  const sql = createDb(c.env);
-  try {
-    const row = await loadBroJob(sql, jobId);
-    if (!row) {
-      return c.json({ error: 'Job not found' }, 404);
-    }
-
-    return c.json({
-      jobId: row.id,
-      intentStatus: row.status,
-      pendingFulfilment: row.metadata.pendingFulfilment === true,
-      paymentConfirmed: isPaymentConfirmedMetadata(row.metadata),
-      fulfilmentFailed: row.metadata.fulfilmentFailed === true,
-      openclawJobId: typeof row.metadata.openclawJobId === 'string' ? row.metadata.openclawJobId : null,
-      openclawError: typeof row.metadata.openclawError === 'string' ? row.metadata.openclawError : null,
-      execution: buildConciergeExecutionSnapshot({
-        jobId: row.id,
-        intentStatus: row.status,
-        metadata: row.metadata,
-        updatedAt: row.updatedAt,
-      }),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
-// ── POST /api/admin/bro-jobs/:jobId/retry ────────────────────────────────────
-// Force an immediate OpenClaw redispatch for a pending paid booking job.
-
-conciergeRouter.post('/bro-jobs/:jobId/retry', async (c) => {
-  if (!hasBroJobOpsAccess(c)) {
-    return c.json({ error: 'UNAUTHORIZED' }, 401);
-  }
-
-  const jobId = c.req.param('jobId');
-  const sql = createDb(c.env);
-  try {
-    const row = await loadBroJob(sql, jobId);
-    if (!row) {
-      return c.json({ error: 'Job not found' }, 404);
-    }
-    if (!isPaymentConfirmedMetadata(row.metadata)) {
-      return c.json({ error: 'Payment is not confirmed for this job yet' }, 409);
-    }
-    if (row.metadata.pendingFulfilment !== true) {
-      return c.json({ error: 'Job is no longer pending fulfilment' }, 409);
-    }
-    if (row.status === 'completed' || row.status === 'failed') {
-      return c.json({ error: 'Job is already terminal' }, 409);
-    }
-
-    const clawResult = await dispatchToOpenClaw(c.env, row.id, row.metadata);
-    const patch = JSON.stringify({
-      recoveryAttemptedAt: new Date().toISOString(),
-      recoveryAttemptCount: Number((row.metadata.recoveryAttemptCount as number | string | undefined) ?? 0) + 1,
-      recoveryLastPolicyAction: 'retry_dispatch',
-      recoveryLastPolicyReason: 'Manual retry requested via /api/admin/bro-jobs/:jobId/retry',
-      recoveryLastResult: clawResult.status,
-      recoveryLastError: clawResult.error ?? null,
-      ...buildOpenClawDispatchPatch(row.metadata, clawResult),
-    });
-
-    await sql`
-      UPDATE payment_intents
-      SET metadata = metadata || ${patch}::jsonb,
-          updated_at = NOW()
-      WHERE id = ${row.id}
-    `;
-
-    const next = await loadBroJob(sql, row.id);
-    if (!next) {
-      return c.json({ error: 'Job disappeared after retry' }, 500);
-    }
-
-    return c.json({
-      ok: clawResult.status === 'dispatched',
-      jobId: next.id,
-      dispatch: clawResult,
-      execution: buildConciergeExecutionSnapshot({
-        jobId: next.id,
-        intentStatus: next.status,
-        metadata: next.metadata,
-        updatedAt: next.updatedAt,
-      }),
-      updatedAt: next.updatedAt,
-    });
-  } finally {
-    await sql.end().catch(() => {});
-  }
-});
-
 // ── PATCH /api/admin/bro-jobs/:jobId/complete ─────────────────────────────────
 // K calls this after successfully fulfilling a booking.
 // Marks the job completed and stores the real ticket reference.
@@ -542,8 +381,6 @@ conciergeRouter.patch('/bro-jobs/:jobId/complete', async (c) => {
         pendingFulfilment:   false,
         fulfilledAt:         new Date().toISOString(),
         fulfilledBy:         'openclaw',
-        nextDispatchRetryAt: null,
-        openclawError:       null,
         ticketRef:           body.ticketRef  ?? null,
         pnr:                 body.pnr        ?? null,
         seatInfo:            body.seatInfo   ?? null,
@@ -561,8 +398,6 @@ conciergeRouter.patch('/bro-jobs/:jobId/complete', async (c) => {
       const patch = JSON.stringify({
         pendingFulfilment: false,
         fulfilmentFailed:  true,
-        dispatchStatus:    'failed',
-        openclawError:     body.failureReason ?? 'OpenClaw reported failure',
         failureReason:     body.failureReason ?? 'OpenClaw reported failure',
         failedAt:          new Date().toISOString(),
       });

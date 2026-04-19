@@ -55,7 +55,6 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb, parseJsonb } from '../lib/db';
-import { parseJsonBody } from '../lib/requestBody';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -398,9 +397,8 @@ router.get('/journeys/:intentId', async (c) => {
 router.post('/:intentId/execute', async (c) => {
   const intentId = c.req.param('intentId');
 
-  const parsed = await parseJsonBody<{ jobId?: unknown }>(c);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.body;
+  let body: { jobId?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
 
   const jobId = typeof body.jobId === 'string' && body.jobId.trim() ? body.jobId.trim() : null;
 
@@ -447,9 +445,8 @@ router.post('/:intentId/execute', async (c) => {
 router.post('/:intentId/complete', async (c) => {
   const intentId = c.req.param('intentId');
 
-  const parsedComplete = await parseJsonBody<{ bookingRef?: unknown; ticketRef?: unknown }>(c);
-  if (!parsedComplete.ok) return parsedComplete.response;
-  const body = parsedComplete.body;
+  let body: { bookingRef?: unknown; ticketRef?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
 
   const sql = createDb(c.env);
   try {
@@ -497,9 +494,8 @@ router.post('/:intentId/complete', async (c) => {
 router.post('/:intentId/fail', async (c) => {
   const intentId = c.req.param('intentId');
 
-  const parsedFail = await parseJsonBody<{ reason?: unknown }>(c);
-  if (!parsedFail.ok) return parsedFail.response;
-  const body = parsedFail.body;
+  let body: { reason?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
 
   const reason = typeof body.reason === 'string' ? body.reason.trim() : 'Unknown error';
 
@@ -529,6 +525,136 @@ router.post('/:intentId/fail', async (c) => {
   } catch (err) {
     console.error('[aceIntents] POST /:intentId/fail:', err instanceof Error ? err.message : err);
     return c.json({ error: 'Failed to mark intent as failed' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /:intentId — fetch mandate record
+// ---------------------------------------------------------------------------
+
+router.get('/:intentId', async (c) => {
+  const intentId = c.req.param('intentId');
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<AceIntentRow[]>`
+      SELECT * FROM ace_intents WHERE id = ${intentId}::uuid LIMIT 1
+    `;
+    if (!rows.length) return c.json({ error: 'NOT_FOUND', message: 'Mandate not found' }, 404);
+    const row = rows[0];
+    return c.json({
+      intentId: row.id,
+      principalId: row.principal_id,
+      operatorId: row.operator_id,
+      source: row.source,
+      objective: row.objective,
+      status: row.status,
+      constraints: parseJsonb(row.constraints_json, null),
+      recommendation: parseJsonb(row.recommendation_json, null),
+      approval: parseJsonb(row.approval_json, null),
+      actorId: row.actor_id,
+      approvedAt: row.approved_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    });
+  } catch (err) {
+    console.error('[aceIntents] GET /:intentId:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch mandate' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /:intentId/history — synthesized audit timeline
+// ---------------------------------------------------------------------------
+
+router.get('/:intentId/history', async (c) => {
+  const intentId = c.req.param('intentId');
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<AceIntentRow[]>`
+      SELECT * FROM ace_intents WHERE id = ${intentId}::uuid LIMIT 1
+    `;
+    if (!rows.length) return c.json({ error: 'NOT_FOUND', message: 'Mandate not found' }, 404);
+    const row = rows[0];
+
+    const events: Array<{ event: string; at: Date | string; status: string; detail?: unknown }> = [
+      { event: 'created', at: row.created_at, status: 'draft' },
+    ];
+
+    const rec = parseJsonb(row.recommendation_json, null) as Record<string, unknown> | null;
+    if (rec && row.status !== 'draft') {
+      events.push({ event: 'planned', at: row.updated_at, status: 'awaiting_approval', detail: rec });
+    }
+    if (row.approved_at) {
+      events.push({ event: 'approved', at: row.approved_at, status: 'approved', detail: { actorId: row.actor_id } });
+    }
+    if (['executing', 'completed', 'failed'].includes(row.status)) {
+      events.push({ event: 'execution_started', at: row.updated_at, status: 'executing' });
+    }
+    if (row.status === 'completed') {
+      events.push({ event: 'completed', at: row.updated_at, status: 'completed' });
+    }
+    if (row.status === 'failed') {
+      const failRec = rec as Record<string, unknown> | null;
+      events.push({ event: 'failed', at: row.updated_at, status: 'failed', detail: failRec?.failureReason });
+    }
+    if (row.status === 'cancelled') {
+      events.push({ event: 'cancelled', at: row.updated_at, status: 'cancelled' });
+    }
+
+    return c.json({ intentId, events });
+  } catch (err) {
+    console.error('[aceIntents] GET /:intentId/history:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to fetch mandate history' }, 500);
+  } finally {
+    await sql.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /:intentId/cancel — cancel a non-executing mandate
+// ---------------------------------------------------------------------------
+
+router.post('/:intentId/cancel', async (c) => {
+  const intentId = c.req.param('intentId');
+
+  let body: { actorId?: unknown; reason?: unknown } = {};
+  try { body = await c.req.json(); } catch {}
+
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : null;
+  const actorId = typeof body.actorId === 'string' ? body.actorId.trim() : null;
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM ace_intents WHERE id = ${intentId}::uuid LIMIT 1
+    `;
+    if (!rows.length) return c.json({ error: 'NOT_FOUND', message: 'Mandate not found' }, 404);
+
+    const { status } = rows[0];
+    if (status === 'executing') {
+      return c.json({ error: 'MANDATE_EXECUTING', message: 'Cannot cancel a mandate that is currently executing.' }, 409);
+    }
+    if (['completed', 'failed', 'cancelled'].includes(status)) {
+      return c.json({ error: 'MANDATE_TERMINAL', message: `Mandate is already in terminal status '${status}'.` }, 409);
+    }
+
+    await sql`
+      UPDATE ace_intents
+      SET
+        status     = 'cancelled',
+        recommendation_json = recommendation_json || ${JSON.stringify({ cancelledBy: actorId, cancelReason: reason, cancelledAt: new Date().toISOString() })}::jsonb,
+        updated_at = now()
+      WHERE id = ${intentId}::uuid
+    `;
+
+    return c.json({ intentId, status: 'cancelled', actorId, reason });
+  } catch (err) {
+    console.error('[aceIntents] POST /:intentId/cancel:', err instanceof Error ? err.message : String(err));
+    return c.json({ error: 'Failed to cancel mandate' }, 500);
   } finally {
     await sql.end();
   }

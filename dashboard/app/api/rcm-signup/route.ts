@@ -20,14 +20,7 @@ function generateRcmWalletRef(): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: {
-    name?: string;
-    email?: string;
-    password?: string;
-    legalAccepted?: boolean;
-    legalAcceptedAt?: string;
-    legalVersion?: string;
-  };
+  let body: { name?: string; email?: string };
   try {
     body = await req.json();
   } catch {
@@ -36,24 +29,12 @@ export async function POST(req: NextRequest) {
 
   const name = (body.name ?? '').trim();
   const email = (body.email ?? '').trim().toLowerCase();
-  const password = (body.password ?? '').trim();
-  const legalAccepted = body.legalAccepted === true;
-  const legalAcceptedAt = (body.legalAcceptedAt ?? '').trim();
-  const legalVersion = (body.legalVersion ?? '').trim();
 
   if (!name || name.length < 2) return NextResponse.json({ error: 'Practice name is required.' }, { status: 400 });
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'Valid email is required.' }, { status: 400 });
-  if (!password || password.length < 8) return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 });
-  if (!legalAccepted) return NextResponse.json({ error: 'You must accept the Terms, Privacy Policy, and BAA to continue.' }, { status: 400 });
-  if (!legalAcceptedAt || Number.isNaN(Date.parse(legalAcceptedAt))) return NextResponse.json({ error: 'Invalid legal acceptance timestamp.' }, { status: 400 });
-  if (!legalVersion) return NextResponse.json({ error: 'Missing legal version.' }, { status: 400 });
 
-  const ip = req.headers.get('cf-connecting-ip') ?? req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown';
-  const userAgent = req.headers.get('user-agent') ?? 'unknown';
-
-  // Register a merchant account on the backend.
-  // The backend stores a PBKDF2-hashed API key — we treat that key as the password
-  // proxy so billing managers never see raw API keys.
+  // Register a merchant account on the backend. The returned apiKey is the
+  // credential users present at /rcm-login — it is emailed to them on signup.
   let registerRes: Response;
   try {
     registerRes = await fetch(`${API_BASE}/api/merchants/register`, {
@@ -63,14 +44,6 @@ export async function POST(req: NextRequest) {
         name,
         email,
         walletAddress: generateRcmWalletRef(),
-        legalAcceptance: {
-          accepted: true,
-          acceptedAt: legalAcceptedAt,
-          version: legalVersion,
-          ip,
-          userAgent,
-          documents: ['terms', 'privacy', 'baa'],
-        },
       }),
       signal: AbortSignal.timeout(20_000),
     });

@@ -1,5 +1,4 @@
 import {
-  buildOpenClawDispatchPatch,
   buildPayload,
   dispatchToOpenClaw,
   shouldDispatchToOpenClaw,
@@ -157,52 +156,5 @@ describe('dispatchToOpenClaw', () => {
       openclawJobId: 'claw_123',
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('marks 5xx dispatch failures as retryable', async () => {
-    jest.spyOn(global, 'fetch' as any).mockResolvedValue({
-      ok: false,
-      status: 503,
-      json: async () => ({ error: 'temporary outage' }),
-    } as any);
-
-    const result = await dispatchToOpenClaw(env, 'job_retry', {
-      pendingFulfilment: true,
-      trainDetails: {
-        origin: 'London',
-        destination: 'Manchester',
-        departureDatetime: '2026-04-01T08:30:00Z',
-      },
-      userName: 'Ada Lovelace',
-      userEmail: 'ada@example.com',
-    });
-
-    expect(result).toMatchObject({
-      status: 'failed',
-      retryable: true,
-    });
-  });
-});
-
-describe('buildOpenClawDispatchPatch', () => {
-  it('stamps retry-pending metadata for retryable failures', () => {
-    const patch = buildOpenClawDispatchPatch(
-      { dispatchAttemptCount: 1, openclawJobId: 'claw_old' },
-      {
-        status: 'failed',
-        error: 'gateway timeout',
-        dispatchedAt: '2026-04-15T00:00:00.000Z',
-        retryable: true,
-      },
-    );
-
-    expect(patch).toMatchObject({
-      dispatchStatus: 'retry_pending',
-      dispatchAttemptCount: 2,
-      dispatchRetryable: true,
-      openclawJobId: 'claw_old',
-      openclawError: 'gateway timeout',
-    });
-    expect(patch.nextDispatchRetryAt).toBe('2026-04-15T00:15:00.000Z');
   });
 });

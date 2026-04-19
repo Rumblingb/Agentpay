@@ -1,175 +1,192 @@
-# Ace — Voice-First AI Travel Concierge
+# AgentPay
 
 <p align="center">
-  <strong>Say the trip once. Ace books it.</strong><br>
-  UK rail · India rail · No service fee until May 2026
+  <strong>Autonomous agent infrastructure. One OTP. Zero API keys. Full autonomy within user-defined mandates.</strong>
 </p>
 
 <p align="center">
-  <a href="https://testflight.apple.com/join/agentpay"><img src="https://img.shields.io/badge/iOS-TestFlight-0d96f6?logo=apple&logoColor=white" alt="TestFlight"></a>
-  <a href="https://agentpay.gg/join"><img src="https://img.shields.io/badge/Early_Access-agentpay.gg%2Fjoin-4ade80" alt="Early Access"></a>
+  <a href="https://www.npmjs.com/package/@agentpayxyz/mcp-server"><img src="https://img.shields.io/npm/v/%40agentpayxyz%2Fmcp-server?color=4ade80&label=mcp-server" alt="npm"></a>
   <a href="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml"><img src="https://github.com/Rumblingb/Agentpay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/status-live_beta-4ade80" alt="Live Beta">
+  <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
+  <a href="https://github.com/Rumblingb/Agentpay"><img src="https://img.shields.io/github/stars/Rumblingb/Agentpay?style=social" alt="Stars"></a>
 </p>
 
 ---
 
-## What Ace is
+AgentPay is the layer that sits between an AI agent and the real world — APIs, payments, bookings — and handles trust, identity, and money so the developer does not have to.
 
-Ace is a voice-first AI travel concierge that lives on your phone. You speak once, naturally. Ace finds the route, applies your railcard, quotes the fare, takes one tap to confirm, and delivers a ticket to your inbox — without you touching a form or switching a tab.
-
-It is not a chatbot. It is not a booking engine with a voice layer bolted on. Ace is an economic agent: it holds your preferences, executes autonomously, and stays with the trip after booking — watching for delays, platform changes, and disruptions.
-
-> "Book a train from London Paddington to Bristol Temple Meads, tomorrow morning, cheapest."
->
-> *Ace: Done. £24.50 · 07:04 depart · ticket to your inbox.*
-
----
-
-## Demo
-
-<!-- Drop demo.mp4 into the repo root or link to a hosted video -->
-<!-- [![Watch the demo](apps/meridian/assets/ace-face-render.png)](https://agentpay.gg/join) -->
-
-**[→ Try it yourself on TestFlight](https://testflight.apple.com/join/agentpay)**
-
----
-
-## Key capabilities
-
-| Feature | Status |
-|---------|--------|
-| Voice booking — UK rail (National Rail / Darwin) | ✅ Live |
-| Voice booking — India rail (IRCTC) | ✅ Live |
-| Railcard auto-detection + discount | ✅ Live |
-| UPI payment (India) | ✅ Live |
-| Stripe payment (UK) | ✅ Live |
-| Platform change push alerts | ✅ Live |
-| Live disruption monitoring | ✅ Live |
-| Receipt + wallet pass | ✅ Live |
-| AceFace — GPU-rendered 3D voice presence | ✅ Live |
-| EU rail (Rail Europe) | 🔜 Next |
-| Flights (Duffel) | 🔜 Next |
-| Hotels | 🔜 Q2 |
-| Android | 🔜 Q2 |
-
----
-
-## The Ace presence layer
-
-AceFace is Ace's voice presence — a GPU-rendered sculptural bust that reacts in real-time to speech energy, mic amplitude, and phase state. It is not decorative.
-
-- **Metal GPU pipeline** — @shopify/react-native-skia, runs on the UI thread via Reanimated worklets
-- **11 render layers** — atmospheric halo, listening rings, 3D bust PNG, focus field, key light, rim light, inner shadow, lower-face tension, mouth cavity + lip line, ghost rim, audio-reactive corona
-- **Real speech sync** — TTS amplitude drives jaw, viseme-oo, viseme-ee blend shapes at ~60fps
-- **Phase-aware** — idle / listening / thinking / confirming / executing / done / error each have distinct animation signatures
-- **No hallucination silence** — CF Whisper hallucination detection + OpenAI Whisper fallback means Ace never transcribes "Thank you for watching." as a booking intent
-
----
-
-## Architecture
-
-```
-apps/meridian/          React Native / Expo iOS app (the Ace experience)
-  ├── components/AceFaceSkia.tsx    GPU presence layer (Skia + Reanimated)
-  ├── components/AceBrain.tsx       Runtime selector (3D / Skia / SVG fallback)
-  ├── app/(main)/converse.tsx       Voice conversation + confirm card
-  ├── app/(main)/journey/           Live trip tracking
-  ├── app/(main)/receipt/           Receipt + wallet pass
-  └── lib/speech.ts                 STT proxy (Whisper via server-side API)
-
-apps/api-edge/          Cloudflare Workers — public API surface
-  ├── src/routes/concierge.ts       Ace AI concierge (Claude Sonnet)
-  ├── src/routes/voice.ts           STT + TTS proxy (Whisper + ElevenLabs)
-  ├── src/routes/rcm.ts             Revenue cycle management (hospital billing)
-  └── src/cron/                     Platform watch, reconciliation, autonomy loop
-
-dashboard/              Next.js — operator dashboard (app.agentpay.so)
-  ├── app/join/                     DTC early access landing
-  └── app/partner/                  Operator intake
-
-Database: PostgreSQL via Supabase + Cloudflare Hyperdrive
-AI: Claude Sonnet 4.6 (concierge) + Haiku 4.5 (classify/extract)
-Voice: OpenAI Whisper (STT) + ElevenLabs Daniel (TTS)
-Rail: Darwin SOAP (UK live) + IRCTC via RapidAPI (India live)
-```
-
----
-
-## Early access
-
-**Travelers** — iOS TestFlight, no service fee until May 2026:
-[agentpay.gg/join](https://agentpay.gg/join)
-
-**Operators** — embed Ace into your travel product:
-[agentpay.gg/partner](https://agentpay.gg/partner)
-
----
-
-## AgentPay infrastructure
-
-Ace runs on AgentPay — autonomous agent payment infrastructure. Every booking Ace executes goes through an AgentPassport (portable identity + spending policy) and settles on-chain.
-
-- **AgentPassport** — portable agent identity with spending policy and trust graph
-- **Policy engine** — per-merchant rules: amount caps, daily limits, approval thresholds
-- **Multi-protocol** — x402, AP2, ACP, Solana Pay, Stripe (fiat), Razorpay (UPI)
-- **Fee ledger** — every payment records a fee obligation; reconciler collects to treasury
-- **First mainnet payment** — [`2wjGMoDn…P2cvFB9w`](https://solscan.io/tx/2wjGMoDnHT1HZpQx2zCwCArkoUHvoKdcwzuuDwYDccW47ZAgAJRd7btWn7tR75L1domf66C6MxrJQUqFP2cvFB9w)
-
-### Quick start (agent API)
+It is not a payment processor. It is not a wallet. It is autonomous agent infrastructure.
 
 ```bash
-# 1. Register
-POST https://api.agentpay.so/api/merchants/register
-{ "name": "My Agent", "email": "you@example.com", "walletAddress": "<solana-wallet>" }
-# → { merchantId, apiKey }
-
-# 2. Create intent
-POST https://api.agentpay.so/api/v1/payment-intents
-{ "merchantId": "<id>", "agentId": "agent-01", "amount": 0.10, "currency": "USDC" }
-# → { intentId, verificationToken, instructions }
-
-# 3. Pay + verify
-POST /api/v1/payment-intents/:intentId/verify
-{ "txHash": "<solana-tx>" }
-
-# 4. Receipt
-GET /api/receipt/:intentId
+npx -y @agentpayxyz/mcp-server
 ```
 
-### npm packages
+That one command gives any MCP-compatible AI assistant (Claude, GPT-4o, anything) the ability to create governed mandates, vault external API credentials, proxy third-party calls, and settle payments — without the developer touching a dashboard or the user pasting an API key.
+
+---
+
+## The three problems AgentPay solves
+
+**1. Credential management**
+Agents need API keys for Firecrawl, Perplexity, OpenAI, and dozens of other services. The current answer is: paste keys into `.env` files and hope. AgentPay's Capability Vault lets a user confirm a one-time OTP — AgentPay vaults the credential, and every future call proxies through AgentPay. The raw key never touches the agent again.
+
+**2. Payment authorisation**
+An agent that can spend money without constraint is a liability. AgentPay's mandate system lets users define exactly what an agent is allowed to do: the service, the budget ceiling, the approval threshold. The agent proposes. The human approves once. AgentPay enforces automatically from that point on.
+
+**3. Identity and trust**
+Agents need portable identity that travels across platforms, builds trust over time, and can be verified by any counterparty. AgentPassport is that record: a portable identity bundle with attestations, linked accounts, and a trust graph built from real settled outcomes.
+
+---
+
+## Get started in 30 seconds
+
+Add AgentPay to Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "agentpay": {
+      "command": "npx",
+      "args": ["-y", "@agentpayxyz/mcp-server"],
+      "env": {
+        "AGENTPAY_API_KEY": "apk_your_key_here",
+        "AGENTPAY_MERCHANT_ID": "your_merchant_id"
+      }
+    }
+  }
+}
+```
+
+Get your API key (no Solana wallet, no Stripe account needed to start):
 
 ```bash
-npm install @agentpay/sdk       # JS / TypeScript SDK
-npx @agentpayxyz/mcp-server    # MCP server for Claude Desktop
+curl -s -X POST https://api.agentpay.so/api/merchants/register \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "My Agent", "email": "you@example.com" }'
 ```
+
+Now ask Claude: *"Create a governed mandate to scrape this site via Firecrawl, budget $5, require my approval above $2."*
+
+Claude calls `agentpay_create_mandate` → `agentpay_request_capability_connect`. You approve once. AgentPay handles the rest.
+
+**[→ Full quickstart with REST API and local dev paths](QUICKSTART.md)**
+
+---
+
+## How it compares
+
+| | AgentPay | Stripe Agentic | x402 | Nevermined |
+|---|---|---|---|---|
+| Card-first (not crypto-only) | ✅ | ✅ | ❌ USDC only | ❌ Web3 |
+| First payment saves card → full autonomy | ✅ | ❌ | ❌ | ❌ |
+| Capability Vault (API key proxy) | ✅ | ❌ | ❌ | ❌ |
+| MCP server (Claude / OpenAI native) | ✅ | ❌ | ❌ | ❌ |
+| Governed mandates with user-defined limits | ✅ | ❌ | ❌ | ❌ |
+| Developer onboarding < 2 min | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## MCP tools
+
+The MCP server exposes 30+ tools across four surfaces:
+
+| Surface | Key tools |
+|---------|-----------|
+| **Mandates** | `agentpay_create_mandate`, `agentpay_approve_mandate`, `agentpay_execute_mandate`, `agentpay_get_mandate_history` |
+| **Capability Vault** | `agentpay_request_capability_connect`, `agentpay_execute_capability`, `agentpay_list_capability_providers` |
+| **Payments** | `agentpay_create_payment_intent`, `agentpay_create_human_funding_request`, `agentpay_list_funding_methods` |
+| **Identity** | `agentpay_get_passport`, `agentpay_get_identity_bundle`, `agentpay_verify_identity_bundle` |
+
+Full tool reference: [`packages/mcp-server/README.md`](packages/mcp-server/README.md)
+
+---
+
+## Remote MCP
+
+For hosts that support remote MCP, connect directly — no local process required:
+
+```
+https://api.agentpay.so/api/mcp
+```
+
+Authenticate with your API key as a Bearer token, or mint a short-lived token:
+
+```bash
+curl -X POST https://api.agentpay.so/api/mcp/tokens \
+  -H "Authorization: Bearer apk_your_key_here" \
+  -d '{ "audience": "openai", "ttlSeconds": 3600 }'
+```
+
+---
+
+## Ace — built on AgentPay
+
+[Ace](apps/meridian/README.md) is a voice-first AI travel concierge that runs entirely on AgentPay infrastructure. Every booking Ace executes goes through a governed mandate, every payment settles through the AgentPay policy engine, and every agent identity is tracked on AgentPassport.
+
+Ace is the live proof that the full stack works in production — UK rail and India rail are live today, with flights and hotels next.
+
+**[→ Try Ace on TestFlight](https://testflight.apple.com/join/agentpay)**
 
 ---
 
 ## Repository layout
 
 ```
-apps/api-edge/     Cloudflare Workers API (primary public surface)
-apps/meridian/     React Native iOS app (Ace)
-dashboard/         Next.js operator dashboard
-packages/          Shared libraries (bro-trip, etc.)
-infra/prisma/      Database schema + SQL migrations
-sdk/               TypeScript + Python SDKs
-docs/              Architecture, test strategy, pitch decks
+apps/
+  api-edge/         Cloudflare Workers — public API (api.agentpay.so)
+    src/routes/     concierge, mandates, capabilities, payments, identity
+    src/cron/       platform watch, reconciliation, autonomy loop
+  meridian/         React Native / Expo iOS app (Ace)
+
+dashboard/          Next.js operator dashboard (app.agentpay.so)
+
+packages/
+  mcp-server/       @agentpayxyz/mcp-server — the published npm package
+  sdk/              TypeScript SDK
+  sdk-node/         Node.js SDK
+  core/             Shared types and utilities
+
+examples/
+  agents/           Example agents (ResearchAgent, WebScraperAgent, …)
+  adapters/         Framework adapters (LangGraph, CrewAI, AutoGPT, …)
+  node-backend-agent/  Full Node.js backend agent example
+
+docs/               Architecture, protocol specs, pitch decks
+migrations/         PostgreSQL migrations
 ```
 
 ---
 
 ## Developer resources
 
-- [QUICKSTART.md](QUICKSTART.md) — run your first payment in 5 minutes
-- [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) — SDK, webhooks, protocol adapters
-- [openapi.yaml](openapi.yaml) — full OpenAPI 3.1 spec
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design
-- [docs/TEST_STRATEGY.md](docs/TEST_STRATEGY.md) — release test strategy
+| Resource | Link |
+|----------|------|
+| Quickstart (MCP + REST) | [QUICKSTART.md](QUICKSTART.md) |
+| MCP server reference | [packages/mcp-server/README.md](packages/mcp-server/README.md) |
+| Full API reference | [openapi.yaml](openapi.yaml) |
+| Integration guide | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
+| Examples | [examples/README.md](examples/README.md) |
+| Security model | [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+
+---
+
+## Stack
+
+```
+API:        Cloudflare Workers (Hono) — edge-deployed, no cold starts
+Database:   PostgreSQL via Supabase + Cloudflare Hyperdrive
+AI:         Claude Sonnet 4.6 (concierge) · Haiku 4.5 (classify/extract)
+Payments:   Stripe (fiat/card) · Razorpay (UPI) · Solana/USDC (on-chain)
+Voice:      OpenAI Whisper (STT) · ElevenLabs (TTS)
+```
 
 ---
 
 ## License
 
-Business Source License 1.1 — converts to AGPL-3.0 on 2029-01-01. Non-commercial use is free. Enterprise licenses: enterprise@agentpay.gg
+Business Source License 1.1 — converts to AGPL-3.0 on 2029-01-01.
+Non-commercial use is free. Enterprise licences: [enterprise@agentpay.gg](mailto:enterprise@agentpay.gg)

@@ -9,7 +9,6 @@
  */
 
 import type { Env } from '../types';
-import { withBookingState } from './bookingState';
 
 function broLog(event: string, data: Record<string, unknown>) {
   console.info(JSON.stringify({ bro: true, event, ...data }));
@@ -44,7 +43,6 @@ export interface OpenClawResult {
   openclawJobId?: string;
   error?: string;
   dispatchedAt: string;
-  retryable?: boolean;
 }
 
 export interface OpenClawEligibility {
@@ -77,49 +75,6 @@ function pickNumber(...values: unknown[]): number | undefined {
     if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
   }
   return undefined;
-}
-
-function asNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
-  return 0;
-}
-
-function isRetryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
-}
-
-export type OpenClawDispatchStatus = 'dispatched' | 'retry_pending' | 'failed';
-
-export function buildOpenClawDispatchPatch(
-  metadata: Record<string, unknown>,
-  result: OpenClawResult,
-): Record<string, unknown> {
-  const dispatchStatus: OpenClawDispatchStatus =
-    result.status === 'dispatched'
-      ? 'dispatched'
-      : result.retryable
-        ? 'retry_pending'
-        : 'failed';
-
-  const dispatchedAtMs = Date.parse(result.dispatchedAt);
-  const nextRetryAt =
-    dispatchStatus === 'retry_pending' && Number.isFinite(dispatchedAtMs)
-      ? new Date(dispatchedAtMs + 15 * 60_000).toISOString()
-      : null;
-
-  return {
-    dispatchStatus,
-    dispatchAttemptCount: asNumber(metadata.dispatchAttemptCount) + 1,
-    lastDispatchAttemptAt: result.dispatchedAt,
-    nextDispatchRetryAt: nextRetryAt,
-    dispatchRetryable: dispatchStatus === 'retry_pending',
-    openclawDispatched: result.status === 'dispatched',
-    openclawJobId: result.openclawJobId ?? pickString(metadata.openclawJobId) ?? null,
-    openclawDispatchedAt: result.dispatchedAt,
-    openclawError: result.error ?? null,
-    ...withBookingState(result.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
-  };
 }
 
 function deriveDepartureDate(
@@ -232,20 +187,20 @@ export async function dispatchToOpenClaw(
 
   if (!env.OPENCLAW_API_URL || !env.OPENCLAW_API_KEY) {
     broLog('openclaw_skipped', { jobId, reason: 'OPENCLAW_API_URL or OPENCLAW_API_KEY not set' });
-    return { status: 'failed', error: 'OpenClaw not configured', dispatchedAt: now, retryable: false };
+    return { status: 'failed', error: 'OpenClaw not configured', dispatchedAt: now };
   }
 
   const eligibility = shouldDispatchToOpenClaw(metadata);
   if (!eligibility.ok) {
     broLog('openclaw_skipped', { jobId, reason: eligibility.reason ?? 'job not eligible' });
-    return { status: 'failed', error: eligibility.reason ?? 'job not eligible', dispatchedAt: now, retryable: false };
+    return { status: 'failed', error: eligibility.reason ?? 'job not eligible', dispatchedAt: now };
   }
 
   const payload = buildPayload(jobId, metadata);
   const validationError = validatePayload(payload);
   if (validationError) {
     broLog('openclaw_validation_failed', { jobId, error: validationError, route: payload.route });
-    return { status: 'failed', error: validationError, dispatchedAt: now, retryable: false };
+    return { status: 'failed', error: validationError, dispatchedAt: now };
   }
 
   broLog('openclaw_dispatching', { jobId, route: payload.route, nationality: payload.nationality });
@@ -269,7 +224,6 @@ export async function dispatchToOpenClaw(
         status: 'failed',
         error: `OpenClaw returned ${resp.status}: ${JSON.stringify(body)}`,
         dispatchedAt: now,
-        retryable: isRetryableHttpStatus(resp.status),
       };
     }
 
@@ -280,6 +234,6 @@ export async function dispatchToOpenClaw(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     broLog('openclaw_fetch_error', { jobId, error: msg });
-    return { status: 'failed', error: msg, dispatchedAt: now, retryable: true };
+    return { status: 'failed', error: msg, dispatchedAt: now };
   }
 }

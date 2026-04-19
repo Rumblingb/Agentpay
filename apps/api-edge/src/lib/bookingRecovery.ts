@@ -1,8 +1,9 @@
 import type { Env } from '../types';
 import { createDb } from './db';
 import { deriveBookingHealth } from './bookingHealth';
-import { buildOpenClawDispatchPatch, dispatchToOpenClaw } from './openclaw';
+import { dispatchToOpenClaw } from './openclaw';
 import { evaluateRecoveryPolicy } from './recoveryPolicy';
+import { withBookingState } from './bookingState';
 
 type RecoveryRow = {
   id: string;
@@ -65,7 +66,11 @@ export async function runAutoRecoverySweep(
           recoveryLastPolicyReason: policy.reason,
           recoveryLastResult: recoveryResult.status,
           recoveryLastError: recoveryResult.error ?? null,
-          ...buildOpenClawDispatchPatch(metadata, recoveryResult),
+          openclawDispatched: recoveryResult.status === 'dispatched',
+          openclawJobId: recoveryResult.openclawJobId ?? (metadata.openclawJobId as string | undefined) ?? null,
+          openclawDispatchedAt: recoveryResult.dispatchedAt,
+          openclawError: recoveryResult.error ?? null,
+          ...withBookingState(recoveryResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
         });
         await sql`
           UPDATE payment_intents

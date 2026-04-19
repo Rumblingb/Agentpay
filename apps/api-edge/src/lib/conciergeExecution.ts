@@ -29,14 +29,9 @@ export type ConciergeExecutionSnapshot = {
   paymentConfirmed: boolean;
   fulfilmentFailed: boolean;
   retryCount: number;
-  dispatchStatus: 'dispatched' | 'retry_pending' | 'failed' | null;
-  dispatchAttemptCount: number;
-  dispatchError: string | null;
-  openclawJobId: string | null;
   quoteExpiresAt: string | null;
   paymentConfirmedAt: string | null;
   dispatchStartedAt: string | null;
-  nextDispatchRetryAt: string | null;
   rerouteOfferActionLabel: string | null;
   updatedAt: string | null;
 };
@@ -70,11 +65,10 @@ function toExecutionStatus(params: {
   recommendedAction: RecoveryAction;
 }): ConciergeExecutionStatus {
   const manualReviewRequired = params.metadata?.manualReviewRequired === true;
-  const dispatchStatus = asString(params.metadata?.dispatchStatus);
 
   if (params.bookingState === 'issued') return 'confirmed';
   if (params.bookingState === 'refunded') return 'rolled_back';
-  if (manualReviewRequired || dispatchStatus === 'failed' || params.recommendedAction === 'escalate_manual') return 'attention_required';
+  if (manualReviewRequired || params.recommendedAction === 'escalate_manual') return 'attention_required';
   if (params.bookingState === 'failed') return 'failed';
   if (params.bookingState === 'payment_pending') return 'payment_pending';
   if (params.bookingState === 'payment_confirmed' || params.bookingState === 'securing') {
@@ -115,14 +109,9 @@ export function buildConciergeExecutionSnapshot(params: {
     paymentConfirmed,
     fulfilmentFailed: metadata.fulfilmentFailed === true,
     retryCount: asNumber(metadata.recoveryAttemptCount),
-    dispatchStatus: (asString(metadata.dispatchStatus) as ConciergeExecutionSnapshot['dispatchStatus']) ?? null,
-    dispatchAttemptCount: asNumber(metadata.dispatchAttemptCount),
-    dispatchError: asString(metadata.openclawError),
-    openclawJobId: asString(metadata.openclawJobId),
     quoteExpiresAt: asString(metadata.quoteExpiresAt) ?? asString(metadata.expiresAt),
     paymentConfirmedAt: asString(metadata.paymentConfirmedAt),
     dispatchStartedAt: asString(metadata.openclawDispatchedAt),
-    nextDispatchRetryAt: asString(metadata.nextDispatchRetryAt),
     rerouteOfferActionLabel: deriveRerouteOfferActionLabel(metadata),
     updatedAt: params.updatedAt ?? null,
   };

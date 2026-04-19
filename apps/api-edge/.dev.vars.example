@@ -15,32 +15,6 @@ ANTHROPIC_API_KEY="sk-ant-..."
 # Powers Whisper STT and TTS-1 in the voice proxy
 OPENAI_API_KEY="sk-..."
 
-# ── Cost control / model routing (optional) ──────────────────────────────────
-# cheap-first | balanced | quality-first
-MODEL_ROUTER_POLICY="cheap-first"
-# Cache repeat classify/extract/followup calls for 15 minutes
-LLM_CACHE_TTL_SECONDS="900"
-
-# Local cheap models via Ollama (OpenAI-compatible)
-OLLAMA_BASE_URL="http://127.0.0.1:11434/v1"
-OLLAMA_GENERAL_MODEL="qwen2.5:7b-instruct"
-OLLAMA_EXTRACT_MODEL="qwen2.5:7b-instruct"
-OLLAMA_CLASSIFY_MODEL="qwen2.5:3b-instruct"
-OLLAMA_REASON_MODEL="qwen2.5:14b-instruct"
-
-# Kimi / Moonshot as a cheap hosted fallback for reasoning and research-style turns
-# KIMI_API_KEY="..."
-# KIMI_BASE_URL="https://api.moonshot.ai/v1"
-# KIMI_GENERAL_MODEL="kimi-k2-0711-preview"
-# KIMI_REASON_MODEL="kimi-k2-0711-preview"
-
-# Optional provider model overrides
-# OPENAI_MINI_MODEL="gpt-4o-mini"
-# OPENAI_CODE_MODEL="gpt-4o"
-# ANTHROPIC_HAIKU_MODEL="claude-haiku-4-5-20251001"
-# ANTHROPIC_REASON_MODEL="claude-opus-4-6"
-# ANTHROPIC_CODE_MODEL="claude-opus-4-6"
-
 # ── RTT (Realtime Trains) — required for live train schedules ─────────────────
 # Register FREE at: https://api.rtt.io (click "Register" → Developer / Free plan)
 # You get a username and password immediately after registration.
@@ -51,3 +25,5 @@ RTT_PASSWORD="your_rtt_password"
 # ── Stripe (optional for GBP payments) ───────────────────────────────────────
 STRIPE_SECRET_KEY="sk_test_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
+
+RESEND_API_KEY="re_..."
