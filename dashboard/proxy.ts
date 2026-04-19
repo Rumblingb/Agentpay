@@ -1,8 +1,7 @@
-import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = new URL(request.url);
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
 
@@ -43,7 +42,6 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  // no response → continue to next handler
   return;
 }
 

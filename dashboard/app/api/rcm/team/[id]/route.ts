@@ -6,21 +6,16 @@ export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
-  const sessionCookie = req.cookies.get(COOKIE_NAME)?.value;
-  const session = sessionCookie ? await verifySession(sessionCookie) : null;
+  const session = await verifySession(req.cookies.get(COOKIE_NAME)?.value ?? '');
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
   const { id } = await context.params;
-
   try {
-    const res = await fetch(`${API_BASE}/api/rcm/credentials/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${API_BASE}/api/rcm/team/members/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${session.apiKey}` },
       signal: AbortSignal.timeout(10_000),
     });
     const data = await res.json().catch(() => ({}));
     return NextResponse.json(data, { status: res.status });
-  } catch {
-    return NextResponse.json({ error: 'Request failed' }, { status: 502 });
-  }
+  } catch { return NextResponse.json({ error: 'Remove failed' }, { status: 502 }); }
 }

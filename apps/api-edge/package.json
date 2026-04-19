@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "hono": "^4.12.7",
+    "hono": "^4.12.14",
     "postgres": "^3.4.8",
     "stripe": "^20.4.1"
   },
