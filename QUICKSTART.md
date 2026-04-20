@@ -4,17 +4,17 @@ Three paths. Pick the one that matches where you are.
 
 | Path | Time | Best for |
 |------|------|---------|
-| [MCP server](#path-a-mcp-server) | ~2 min | Claude Desktop, Cursor, any MCP host |
-| [REST API](#path-b-rest-api) | ~5 min | Any language, direct HTTP calls |
-| [Local dev](#path-c-local-development) | ~20 min | Contributing, self-hosting |
+| MCP server | ~2 min | Claude Desktop, Cursor, Codex, any MCP host |
+| REST API | ~5 min | Any language, direct HTTP calls |
+| Local dev | ~20 min | Contributing and self-hosting |
 
 ---
 
 ## Path A: MCP server
 
-The fastest way to give an AI agent governed payment and capability access.
+The fastest way to give an AI agent governed API access and paid execution.
 
-### 1. Register (30 seconds)
+### 1. Register
 
 ```bash
 curl -s -X POST https://api.agentpay.so/api/merchants/register \
@@ -34,7 +34,7 @@ Save both values. The API key is shown once.
 
 ### 2. Add to Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Edit `claude_desktop_config.json`:
 
 ```json
 {
@@ -53,21 +53,30 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 
 Restart Claude Desktop.
 
-### 3. Try it
+### 3. Try the real flow
 
-Ask Claude any of these:
+Ask your host:
 
-> "Create a governed mandate to book a train from London to Manchester, budget £100, require my approval above £50."
+> "My agent needs Firecrawl. Set a $5 auto-approve limit, ask for OTP above that, and keep the key out of chat."
 
-> "Connect Firecrawl without exposing the raw API key to the agent."
+Or:
 
-> "Create a $5 USDC payment request for a research task."
+> "My agent needs Databento for this workbench. If access already exists, reuse it. If not, start the minimal AgentPay setup flow."
 
-> "Look up the AgentPassport for agent_001 and show me its trust score."
+Or:
 
-Claude will call the AgentPay tools and return the result directly. No dashboard. No copy-pasting keys.
+> "Create authority defaults for this workbench, then let the agent continue automatically unless a paid step exceeds my policy."
 
-### Remote MCP (no local process)
+The host can use AgentPay's terminal-native control plane to:
+
+- read authority state
+- set guardrails
+- connect providers
+- request approval only when needed
+- resume exact blocked calls
+- reuse governed access later
+
+### Remote MCP
 
 If your host supports remote MCP:
 
@@ -76,7 +85,7 @@ https://api.agentpay.so/api/mcp
 Authorization: Bearer apk_your_key_here
 ```
 
-Or mint a short-lived token scoped to a specific host (OpenAI, Anthropic, etc.):
+Or mint a short-lived host-scoped token:
 
 ```bash
 curl -X POST https://api.agentpay.so/api/mcp/tokens \
@@ -91,109 +100,132 @@ curl -X POST https://api.agentpay.so/api/mcp/tokens \
 
 ### 1. Register
 
-Same as above — one `curl`, get a `merchantId` and `apiKey`.
-
-### 2. Create a governed mandate
-
-A mandate is the core primitive: it captures what the agent is allowed to do, the budget, and the approval policy.
-
 ```bash
-curl -s -X POST https://api.agentpay.so/api/mandates \
-  -H "Authorization: Bearer apk_your_key_here" \
+curl -s -X POST https://api.agentpay.so/api/merchants/register \
   -H "Content-Type: application/json" \
-  -d '{
-    "merchantId": "mer_...",
-    "objective": "Book a train from London Paddington to Bristol Temple Meads",
-    "budgetCap": 50,
-    "currency": "GBP",
-    "approvalThreshold": 20,
-    "agentId": "my-agent-01"
-  }'
+  -d '{ "name": "My Agent", "email": "you@example.com" }'
 ```
 
-```json
-{
-  "success": true,
-  "intentId": "mnd_...",
-  "status": "pending_approval",
-  "recommendation": "Cheapest direct service departs 07:04, £24.50"
-}
-```
+### 2. Read or set authority bootstrap
 
-### 3. Approve the mandate
+Read current authority state:
 
 ```bash
-curl -s -X POST https://api.agentpay.so/api/mandates/mnd_.../approve \
+curl -s "https://api.agentpay.so/api/capabilities/authority-bootstrap?principalId=principal_1&subjectType=workspace&subjectRef=my-workbench&workbenchId=my-workbench" \
   -H "Authorization: Bearer apk_your_key_here"
 ```
 
-### 4. Execute
+Set terminal-native guardrails:
 
 ```bash
-curl -s -X POST https://api.agentpay.so/api/mandates/mnd_.../execute \
+curl -s -X POST https://api.agentpay.so/api/capabilities/authority-bootstrap \
+  -H "Authorization: Bearer apk_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "principalId": "principal_1",
+    "workbenchId": "my-workbench",
+    "contactEmail": "you@example.com",
+    "preferredFundingRail": "card",
+    "autoApproveUsd": 5,
+    "perActionUsd": 10,
+    "dailyUsd": 50,
+    "monthlyUsd": 500,
+    "otpEveryPaidAction": false
+  }'
+```
+
+### 3. Resolve provider access
+
+Ask AgentPay whether governed access already exists:
+
+```bash
+curl -s -X POST https://api.agentpay.so/api/capabilities/access-resolve \
+  -H "Authorization: Bearer apk_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "databento",
+    "subjectType": "workspace",
+    "subjectRef": "my-workbench",
+    "principalId": "principal_1",
+    "workbenchId": "my-workbench",
+    "workbenchLabel": "Main repo",
+    "issueWorkbenchLease": true
+  }'
+```
+
+Possible outcomes:
+
+- `ready`: governed access already exists
+- `auth_required`: a hosted setup flow is needed
+- `pending_reuse`: a reusable setup flow is already in progress
+
+### 4. Run hosted setup when needed
+
+If access does not exist yet, create one hosted setup flow for authority and provider connection:
+
+```bash
+curl -s -X POST https://api.agentpay.so/api/capabilities/onboarding-sessions \
+  -H "Authorization: Bearer apk_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subjectType": "workspace",
+    "subjectRef": "my-workbench",
+    "principalId": "principal_1",
+    "providers": [
+      { "provider": "firecrawl" },
+      { "provider": "databento" }
+    ]
+  }'
+```
+
+The response includes a hosted onboarding URL. The human completes it once. AgentPay vaults the credential and stores the authority defaults.
+
+### 5. Execute through a workbench lease
+
+If `access-resolve` returned a workbench lease, use the opaque lease token instead of storing a raw provider key locally:
+
+```bash
+curl -s -X POST https://api.agentpay.so/api/capabilities/lease-execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "leaseToken": "apcl_opaque_token_here",
+    "workbenchId": "my-workbench",
+    "method": "POST",
+    "path": "/v1/crawl",
+    "body": { "url": "https://example.com" }
+  }'
+```
+
+If the call is still within free usage, it completes.
+If the call needs paid usage, AgentPay returns a human step and later resumes the exact blocked call automatically.
+
+### 6. Inspect or revoke local reuse
+
+List current workbench leases:
+
+```bash
+curl -s "https://api.agentpay.so/api/capabilities/leases?principalId=principal_1&workbenchId=my-workbench" \
   -H "Authorization: Bearer apk_your_key_here"
 ```
 
-AgentPay enforces the policy, runs the execution, and returns a verifiable receipt.
-
-### 5. Get the receipt
+Revoke one:
 
 ```bash
-curl -s https://api.agentpay.so/api/receipt/mnd_...
-```
-
-### Capability Vault (zero API key flow)
-
-```bash
-# Start a connect session — user gets an OTP link, not the raw key
-curl -s -X POST https://api.agentpay.so/api/capabilities/connect-sessions \
+curl -s -X POST https://api.agentpay.so/api/capabilities/leases/lease_id_here/revoke \
   -H "Authorization: Bearer apk_your_key_here" \
   -H "Content-Type: application/json" \
-  -d '{
-    "provider": "firecrawl",
-    "merchantId": "mer_...",
-    "agentId": "my-agent-01"
-  }'
+  -d '{ "reason": "lost_device" }'
 ```
-
-```json
-{
-  "sessionId": "cap_sess_...",
-  "status": "auth_required",
-  "connectUrl": "https://api.agentpay.so/connect/cap_sess_..."
-}
-```
-
-User opens `connectUrl`, enters their Firecrawl key once. AgentPay vaults it. From this point, the agent calls `POST /api/capabilities/:capabilityId/execute` and AgentPay injects the credential on the way out.
-
-### Payment intent (fiat or USDC)
-
-```bash
-curl -s -X POST https://api.agentpay.so/api/payments/funding-request \
-  -H "Authorization: Bearer apk_your_key_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "merchantId": "mer_...",
-    "principalId": "user_001",
-    "amount": 49,
-    "currency": "GBP",
-    "description": "Train booking — London to Bristol"
-  }'
-```
-
-Returns a `nextAction` with a Stripe Checkout URL (card) or UPI deep-link, depending on currency.
 
 ---
 
 ## Path C: Local development
 
-For contributing to the codebase or self-hosting the API.
-
 ### Prerequisites
 
 - Node.js 20+
-- Docker (for local Postgres)
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/) for the Workers API
+- Docker for local Postgres
+- Wrangler for the Workers API
 
 ### Steps
 
@@ -201,45 +233,48 @@ For contributing to the codebase or self-hosting the API.
 git clone https://github.com/Rumblingb/Agentpay.git
 cd Agentpay
 npm ci
-cp .env.example .env
 ```
 
-Edit `.env`. Required for the API to start:
+Set the minimum environment:
 
-```
+```bash
 DATABASE_URL=postgresql://...
-ANTHROPIC_API_KEY=sk-ant-...
-WEBHOOK_SECRET=<any 32-char string>
+WEBHOOK_SECRET=...
+AGENTPAY_SIGNING_SECRET=...
+VERIFICATION_SECRET=...
+ADMIN_SECRET_KEY=...
 ```
 
-Everything else (Stripe, Razorpay, Darwin, IRCTC, ElevenLabs) is optional — the server starts without them and returns graceful errors for those specific routes.
+Optional but useful:
 
 ```bash
-# Start Workers API locally
-cd apps/api-edge
-npx wrangler dev
-
-# Start the dashboard
-cd dashboard
-npm run dev
+CAPABILITY_VAULT_ENCRYPTION_KEY=...
+STRIPE_SECRET_KEY=...
+STRIPE_WEBHOOK_SECRET=...
+RESEND_API_KEY=...
 ```
 
-Workers API runs on `:8787`. Dashboard on `:3000`.
-
-### Run the MCP server against local API
+Then run:
 
 ```bash
-AGENTPAY_API_URL=http://localhost:8787 \
-AGENTPAY_API_KEY=apk_dev_test \
-npx -y @agentpayxyz/mcp-server
+npm test -- --runInBand tests/routes/capabilities.test.ts tests/routes/hostedActions.test.ts tests/routes/stripeWebhooks.edge.test.ts
+```
+
+And for the growth lane:
+
+```bash
+npm run growth:run
 ```
 
 ---
 
-## Next steps
+## Product rule
 
-- [MCP server tool reference](packages/mcp-server/README.md) — all 30+ tools with parameters
-- [API reference](openapi.yaml) — full OpenAPI 3.1 spec
-- [Integration guide](INTEGRATION_GUIDE.md) — SDK, webhooks, framework adapters
-- [Architecture](docs/architecture.md) — how the pieces fit together
-- [Examples](examples/README.md) — runnable agents and framework integrations
+If a human still has to:
+
+- paste a raw provider key into chat
+- rebuild a blocked call after payment
+- keep reopening provider dashboards
+- or lose continuity between approval and execution
+
+then the product is still unfinished.

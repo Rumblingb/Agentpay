@@ -1,7 +1,7 @@
 # AgentPay
 
 <p align="center">
-  <strong>Autonomous agent infrastructure. One OTP. Zero API keys. Full autonomy within user-defined mandates.</strong>
+  <strong>Trust + capability vault + governed paid execution for agents.</strong>
 </p>
 
 <p align="center">
@@ -14,28 +14,60 @@
 
 ---
 
-AgentPay is the layer that sits between an AI agent and the real world — APIs, payments, bookings — and handles trust, identity, and money so the developer does not have to.
+AgentPay is the authority layer between an AI agent and the real world.
+It handles provider access, funding authority, human approval, exact-call resume, and proof so agents can finish work end to end without raw secrets in chat or repeated dashboard setup.
 
-It is not a payment processor. It is not a wallet. It is autonomous agent infrastructure.
+It is not a generic "agent platform."
+It is the trust seam that makes autonomous execution usable.
 
 ```bash
 npx -y @agentpayxyz/mcp-server
 ```
 
-That one command gives any MCP-compatible AI assistant (Claude, GPT-4o, anything) the ability to create governed mandates, vault external API credentials, proxy third-party calls, and settle payments — without the developer touching a dashboard or the user pasting an API key.
+That one command gives any MCP-compatible host the ability to:
+
+- request API access
+- vault credentials without exposing the raw key to the agent
+- run governed paid execution
+- pause for OTP or approval only when needed
+- resume the exact blocked call automatically
+- reuse governed access later from the same workbench
 
 ---
 
-## The three problems AgentPay solves
+## Why it exists
 
-**1. Credential management**
-Agents need API keys for Firecrawl, Perplexity, OpenAI, and dozens of other services. The current answer is: paste keys into `.env` files and hope. AgentPay's Capability Vault lets a user confirm a one-time OTP — AgentPay vaults the credential, and every future call proxies through AgentPay. The raw key never touches the agent again.
+Agents fail at the same place every time:
 
-**2. Payment authorisation**
-An agent that can spend money without constraint is a liability. AgentPay's mandate system lets users define exactly what an agent is allowed to do: the service, the budget ceiling, the approval threshold. The agent proposes. The human approves once. AgentPay enforces automatically from that point on.
+1. they need an API the developer has not wired yet
+2. they need a credential the human should not paste into chat
+3. they hit a paid step and lose continuity
 
-**3. Identity and trust**
-Agents need portable identity that travels across platforms, builds trust over time, and can be verified by any counterparty. AgentPassport is that record: a portable identity bundle with attestations, linked accounts, and a trust graph built from real settled outcomes.
+AgentPay fixes that seam.
+
+**Capability Vault**
+Users connect a provider once through AgentPay. The raw credential is vaulted server-side. The agent receives only governed capability access.
+
+**Governed paid execution**
+Humans set guardrails once: funding rail, auto-approve limit, OTP policy, and spend limits. AgentPay enforces those rules when the agent acts.
+
+**Exact-call resume**
+When a paid step needs a human, AgentPay pauses, collects the minimum approval, and resumes the exact blocked call without asking the agent to reconstruct it.
+
+**Same-workbench reuse**
+Local projects never need raw provider keys. AgentPay can issue opaque, revocable workbench leases so the same workbench can reuse governed access later.
+
+## The inevitable path
+
+This is the path AgentPay is built around:
+
+1. Agent asks for an API.
+2. AgentPay checks whether governed access already exists.
+3. If not, AgentPay runs one hosted setup flow for authority and provider connection.
+4. The agent uses the capability for free until paid usage is required.
+5. AgentPay pauses for OTP or confirmation only if policy requires it.
+6. AgentPay resumes the exact blocked call.
+7. The same workbench can reuse governed access later without re-entering the secret.
 
 ---
 
@@ -58,7 +90,7 @@ Add AgentPay to Claude Desktop (`claude_desktop_config.json`):
 }
 ```
 
-Get your API key (no Solana wallet, no Stripe account needed to start):
+Get your API key:
 
 ```bash
 curl -s -X POST https://api.agentpay.so/api/merchants/register \
@@ -66,51 +98,64 @@ curl -s -X POST https://api.agentpay.so/api/merchants/register \
   -d '{ "name": "My Agent", "email": "you@example.com" }'
 ```
 
-Now ask Claude: *"Create a governed mandate to scrape this site via Firecrawl, budget $5, require my approval above $2."*
+Now ask your host:
 
-Claude calls `agentpay_create_mandate` → `agentpay_request_capability_connect`. You approve once. AgentPay handles the rest.
+> "My agent needs Firecrawl. Set a $5 auto-approve limit, ask for OTP above that, and keep the key out of chat."
 
-**[→ Full quickstart with REST API and local dev paths](QUICKSTART.md)**
+Or:
 
----
+> "My agent needs Databento for this workbench. If access already exists, reuse it. If not, start the minimal AgentPay setup flow."
 
-## How it compares
-
-| | AgentPay | Stripe Agentic | x402 | Nevermined |
-|---|---|---|---|---|
-| Card-first (not crypto-only) | ✅ | ✅ | ❌ USDC only | ❌ Web3 |
-| First payment saves card → full autonomy | ✅ | ❌ | ❌ | ❌ |
-| Capability Vault (API key proxy) | ✅ | ❌ | ❌ | ❌ |
-| MCP server (Claude / OpenAI native) | ✅ | ❌ | ❌ | ❌ |
-| Governed mandates with user-defined limits | ✅ | ❌ | ❌ | ❌ |
-| Developer onboarding < 2 min | ✅ | ❌ | ❌ | ❌ |
+**[Full quickstart](./QUICKSTART.md)**
 
 ---
 
-## MCP tools
+## Terminal-native control plane
 
-The MCP server exposes 30+ tools across four surfaces:
+AgentPay should be operated through hosts and terminals, not a merchant dashboard.
 
-| Surface | Key tools |
-|---------|-----------|
-| **Mandates** | `agentpay_create_mandate`, `agentpay_approve_mandate`, `agentpay_execute_mandate`, `agentpay_get_mandate_history` |
-| **Capability Vault** | `agentpay_request_capability_connect`, `agentpay_execute_capability`, `agentpay_list_capability_providers` |
-| **Payments** | `agentpay_create_payment_intent`, `agentpay_create_human_funding_request`, `agentpay_list_funding_methods` |
-| **Identity** | `agentpay_get_passport`, `agentpay_get_identity_bundle`, `agentpay_verify_identity_bundle` |
+Key surfaces:
 
-Full tool reference: [`packages/mcp-server/README.md`](packages/mcp-server/README.md)
+- `GET /api/capabilities/authority-bootstrap`
+- `POST /api/capabilities/authority-bootstrap`
+- `POST /api/capabilities/access-resolve`
+- `POST /api/capabilities/onboarding-sessions`
+- `POST /api/capabilities/lease-execute`
+- `GET /api/capabilities/leases`
+- `POST /api/capabilities/leases/:leaseId/revoke`
+- `POST /api/capabilities/:capabilityId/execute`
 
----
+These let a host or agent:
+
+- read authority state
+- set guardrails
+- connect providers
+- request human approval only when needed
+- reuse governed access safely later
+
+## Flagship provider paths
+
+The current wedge is strongest when AgentPay owns setup and continuity for high-value agent APIs.
+
+Current priority paths:
+
+- Databento
+- Firecrawl
+- Browserbase
+- Exa
+- Generic REST API fallback
+
+The product goal is simple: visiting provider dashboards should become the exception, not the default.
 
 ## Remote MCP
 
-For hosts that support remote MCP, connect directly — no local process required:
+For hosts that support remote MCP:
 
 ```
 https://api.agentpay.so/api/mcp
 ```
 
-Authenticate with your API key as a Bearer token, or mint a short-lived token:
+Authenticate with your API key as a Bearer token, or mint a short-lived token for Claude, OpenAI, or another remote MCP host:
 
 ```bash
 curl -X POST https://api.agentpay.so/api/mcp/tokens \
@@ -118,75 +163,51 @@ curl -X POST https://api.agentpay.so/api/mcp/tokens \
   -d '{ "audience": "openai", "ttlSeconds": 3600 }'
 ```
 
----
+## Ace - built on AgentPay
 
-## Ace — built on AgentPay
+[Ace](apps/meridian/README.md) is a proof front door built on AgentPay.
+It demonstrates the core seam under real-world conditions. It is not the core story.
 
-[Ace](apps/meridian/README.md) is a voice-first AI travel concierge that runs entirely on AgentPay infrastructure. Every booking Ace executes goes through a governed mandate, every payment settles through the AgentPay policy engine, and every agent identity is tracked on AgentPassport.
+## Product truth
 
-Ace is the live proof that the full stack works in production — UK rail and India rail are live today, with flights and hotels next.
+If a human still has to:
 
-**[→ Try Ace on TestFlight](https://testflight.apple.com/join/agentpay)**
+- paste a raw provider key into chat
+- rebuild a blocked call after payment
+- keep reopening provider dashboards
+- or lose continuity between approval and execution
 
----
-
-## Repository layout
-
-```
-apps/
-  api-edge/         Cloudflare Workers — public API (api.agentpay.so)
-    src/routes/     concierge, mandates, capabilities, payments, identity
-    src/cron/       platform watch, reconciliation, autonomy loop
-  meridian/         React Native / Expo iOS app (Ace)
-
-dashboard/          Next.js operator dashboard (app.agentpay.so)
-
-packages/
-  mcp-server/       @agentpayxyz/mcp-server — the published npm package
-  sdk/              TypeScript SDK
-  sdk-node/         Node.js SDK
-  core/             Shared types and utilities
-
-examples/
-  agents/           Example agents (ResearchAgent, WebScraperAgent, …)
-  adapters/         Framework adapters (LangGraph, CrewAI, AutoGPT, …)
-  node-backend-agent/  Full Node.js backend agent example
-
-docs/               Architecture, protocol specs, pitch decks
-migrations/         PostgreSQL migrations
-```
-
----
+then the product is still unfinished.
 
 ## Developer resources
 
 | Resource | Link |
 |----------|------|
-| Quickstart (MCP + REST) | [QUICKSTART.md](QUICKSTART.md) |
-| MCP server reference | [packages/mcp-server/README.md](packages/mcp-server/README.md) |
-| Full API reference | [openapi.yaml](openapi.yaml) |
-| Integration guide | [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) |
-| Architecture | [docs/architecture.md](docs/architecture.md) |
-| Examples | [examples/README.md](examples/README.md) |
-| Security model | [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) |
-| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| Quickstart | [QUICKSTART.md](./QUICKSTART.md) |
+| MCP server reference | [packages/mcp-server/README.md](./packages/mcp-server/README.md) |
+| Full API reference | [openapi.yaml](./openapi.yaml) |
+| Terminal-native control plane | [docs/TERMINAL_NATIVE_CONTROL_PLANE_20260419.md](./docs/TERMINAL_NATIVE_CONTROL_PLANE_20260419.md) |
+| Examples | [examples/README.md](./examples/README.md) |
+| Security model | [docs/SECURITY_MODEL.md](./docs/SECURITY_MODEL.md) |
 
----
-
-## Stack
+## Repository layout
 
 ```
-API:        Cloudflare Workers (Hono) — edge-deployed, no cold starts
-Database:   PostgreSQL via Supabase + Cloudflare Hyperdrive
-AI:         Claude Sonnet 4.6 (concierge) · Haiku 4.5 (classify/extract)
-Payments:   Stripe (fiat/card) · Razorpay (UPI) · Solana/USDC (on-chain)
-Voice:      OpenAI Whisper (STT) · ElevenLabs (TTS)
-```
+apps/
+  api-edge/         Cloudflare Workers public API
+  meridian/         Ace front door
 
----
+packages/
+  mcp-server/       Published MCP package
+  sdk/              TypeScript SDK
+  sdk-node/         Node.js SDK
+
+examples/           Example agents and adapters
+docs/               Architecture and product notes
+migrations/         PostgreSQL migrations
+ops/                Founder and growth operating artifacts
+```
 
 ## License
 
-Business Source License 1.1 — converts to AGPL-3.0 on 2029-01-01.
-Non-commercial use is free. Enterprise licences: [enterprise@agentpay.gg](mailto:enterprise@agentpay.gg)
+Business Source License 1.1. Converts to AGPL-3.0 on 2029-01-01.
