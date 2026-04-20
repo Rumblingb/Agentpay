@@ -127,7 +127,48 @@ async function ensureStripeCustomer(
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-router.use('*', authenticateApiKey);
+router.use('*', async (c, next) => {
+  const adminKey = c.req.header('x-admin-key') ?? c.req.header('X-Admin-Key');
+  const merchantId = c.req.header('x-merchant-id') ?? c.req.header('X-Merchant-Id');
+  if (adminKey && merchantId && c.env.ADMIN_SECRET_KEY && adminKey === c.env.ADMIN_SECRET_KEY) {
+    const sql = createDb(c.env);
+    try {
+      const rows = await sql<Array<{
+        id: string;
+        name: string;
+        email: string;
+        wallet_address: string | null;
+        webhook_url: string | null;
+        parent_merchant_id: string | null;
+      }>>`
+        SELECT id, name, email, wallet_address, webhook_url, parent_merchant_id
+        FROM merchants
+        WHERE id = ${merchantId}::uuid
+          AND is_active = true
+        LIMIT 1
+      `;
+      const merchant = rows[0];
+      if (!merchant) {
+        return c.json({ error: 'Merchant not found for internal request' }, 404);
+      }
+      c.set('merchant', {
+        id: merchant.id,
+        name: merchant.name,
+        email: merchant.email,
+        walletAddress: merchant.wallet_address,
+        webhookUrl: merchant.webhook_url ?? null,
+        parentMerchantId: merchant.parent_merchant_id ?? null,
+      });
+      c.set('mcpAudience', 'internal');
+      await next();
+      return;
+    } finally {
+      await sql.end().catch(() => {});
+    }
+  }
+
+  return authenticateApiKey(c, next);
+});
 
 function appendHostedActionParams(baseUrl: string, params: Record<string, string>): string {
   const url = new URL(baseUrl);

@@ -11,6 +11,7 @@ The product surface is:
 3. Human only appears when AgentPay needs one-time setup, approval, funding, or OTP.
 4. Agent resumes the exact blocked action.
 5. The same workbench reuses governed access on future runs instead of asking again.
+6. Local workbenches may store only an opaque AgentPay lease, never the raw provider secret.
 
 Everything else should be readable and operable through tool calls.
 
@@ -18,6 +19,9 @@ Everything else should be readable and operable through tool calls.
 
 - `POST /api/capabilities/access-resolve`
   - resolves "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow
+  - can issue an opaque workbench lease for local reuse when governed access is already available
+- `POST /api/capabilities/lease-execute`
+  - executes through an opaque workbench lease so the local project never needs the raw provider key
 - `GET /api/capabilities/terminal/control-plane`
   - terminal-native read model for authority, pending actions, billing, capabilities, and next tool calls
 - `POST /api/capabilities/provider-requests`
@@ -54,6 +58,7 @@ It means:
 - tool calls request capability access
 - hosted human steps collect secrets or approvals outside agent context
 - AgentPay stores credentials in the vault
+- local workbenches store only revocable, time-boxed leases when persistence is needed
 - agents receive only governed capability references and execution results
 
 ## Distribution Consequence

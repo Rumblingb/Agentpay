@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, Variables } from '../types';
+import type { Env, MerchantContext, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { isMcpAccessToken } from '../lib/mcpAccessTokens';
 import {
@@ -46,6 +46,11 @@ import {
   createCapabilityExecutionAttempt,
   getCapabilityExecutionAttempt,
 } from '../lib/capabilityExecutionAttempts';
+import {
+  createCapabilityAccessLease,
+  resolveCapabilityAccessLease,
+  touchCapabilityAccessLease,
+} from '../lib/capabilityAccessLeases';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -96,6 +101,38 @@ async function readJsonResponse(response: Response): Promise<Record<string, any>
     return await response.json() as Record<string, any>;
   } catch {
     return null;
+  }
+}
+
+async function loadMerchantContextById(env: Env, merchantId: string): Promise<MerchantContext | null> {
+  const sql = createDb(env);
+  try {
+    const rows = await sql<Array<{
+      id: string;
+      name: string;
+      email: string;
+      wallet_address: string | null;
+      webhook_url: string | null;
+      parent_merchant_id: string | null;
+    }>>`
+      SELECT id, name, email, wallet_address, webhook_url, parent_merchant_id
+      FROM merchants
+      WHERE id = ${merchantId}::uuid
+        AND is_active = true
+      LIMIT 1
+    `;
+    const merchant = rows[0];
+    if (!merchant) return null;
+    return {
+      id: merchant.id,
+      name: merchant.name,
+      email: merchant.email,
+      walletAddress: merchant.wallet_address,
+      webhookUrl: merchant.webhook_url ?? null,
+      parentMerchantId: merchant.parent_merchant_id ?? null,
+    };
+  } finally {
+    await sql.end().catch(() => {});
   }
 }
 
@@ -1111,7 +1148,13 @@ router.post('/onboarding-sessions/:sessionId/hosted', async (c) => {
   }
 });
 
-router.use('*', authenticateApiKey);
+router.use('*', async (c, next) => {
+  if (c.req.path === '/lease-execute') {
+    await next();
+    return;
+  }
+  return authenticateApiKey(c, next);
+});
 
 router.get('/providers/catalog', (c) => {
   return c.json({
@@ -1133,7 +1176,12 @@ router.get('/terminal/control-plane', async (c) => {
     {
       tool: 'agentpay_resolve_provider_access',
       endpoint: '/api/capabilities/access-resolve',
-      purpose: 'Resolve "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow.',
+      purpose: 'Resolve "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow. Can also issue an opaque workbench lease for local reuse.',
+    },
+    {
+      tool: 'agentpay_execute_with_workbench_lease',
+      endpoint: '/api/capabilities/lease-execute',
+      purpose: 'Execute a capability from the same workbench using an opaque lease token instead of storing raw provider secrets locally.',
     },
     {
       tool: 'agentpay_create_onboarding_session',
@@ -1236,6 +1284,33 @@ router.post('/access-resolve', async (c) => {
 
   if (existingCapability) {
     const policy = getCapabilityMetadata(existingCapability);
+    const issueWorkbenchLease = body.issueWorkbenchLease === true;
+    const workbenchId = asString(body.workbenchId);
+    const workbenchLabel = asString(body.workbenchLabel);
+    if (issueWorkbenchLease && !workbenchId) {
+      return c.json({ error: 'workbenchId is required when issueWorkbenchLease=true' }, 400);
+    }
+    const leaseTtlMinutes = typeof body.leaseTtlMinutes === 'number' && Number.isFinite(body.leaseTtlMinutes)
+      ? Math.max(Math.min(Math.round(body.leaseTtlMinutes), 24 * 60), 5)
+      : 12 * 60;
+    const workbenchLease = issueWorkbenchLease && workbenchId
+      ? await createCapabilityAccessLease(c.env, {
+          merchantId: merchant.id,
+          capabilityId: existingCapability.id,
+          subjectType,
+          subjectRef,
+          principalId,
+          operatorId,
+          workbenchId,
+          workbenchLabel,
+          metadata: {
+            source: 'access_resolve',
+            provider: existingCapability.provider,
+            capabilityKey: existingCapability.capabilityKey,
+          },
+          expiresAt: new Date(Date.now() + leaseTtlMinutes * 60 * 1000),
+        }).catch(() => null)
+      : null;
     return c.json({
       status: 'ready',
       reusedExistingAccess: true,
@@ -1258,6 +1333,15 @@ router.post('/access-resolve', async (c) => {
         freeCalls: policy.freeCalls,
         paidUnitPriceUsdMicros: policy.paidUnitPriceUsdMicros,
       },
+      workbenchLease: workbenchLease ? {
+        leaseId: workbenchLease.lease.id,
+        token: workbenchLease.leaseToken,
+        workbenchId: workbenchLease.lease.workbenchId,
+        workbenchLabel: workbenchLease.lease.workbenchLabel,
+        expiresAt: workbenchLease.lease.expiresAt,
+        executeEndpoint: '/api/capabilities/lease-execute',
+        storageAdvice: 'Persist this opaque lease in the local workbench if needed, but never store raw provider secrets locally.',
+      } : null,
       nextAction: null,
       execute: {
         endpoint: `/api/capabilities/${existingCapability.id}/execute`,
@@ -2025,45 +2109,56 @@ router.get('/:capabilityId', async (c) => {
   });
 });
 
-router.post('/:capabilityId/execute', async (c) => {
-  const merchant = c.get('merchant');
-  const authorizationHeader = c.req.header('authorization');
-  const xApiKeyHeader = c.req.header('x-api-key');
-  const presentedToken = authorizationHeader ?? xApiKeyHeader ?? '';
-  const audience = c.get('mcpAudience') ?? 'generic';
-  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
-  let body: Record<string, unknown>;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json',
+    },
+  });
+}
 
+async function executeCapabilityRequest(input: {
+  env: Env;
+  executionCtx: ExecutionContext | undefined;
+  merchant: MerchantContext;
+  capabilityId: string;
+  body: Record<string, unknown>;
+  audience: string;
+  authType: string;
+  authorizationHeader?: string | null;
+  xApiKeyHeader?: string | null;
+  leaseContext?: {
+    leaseId: string;
+    workbenchId: string;
+  } | null;
+}): Promise<Response> {
   try {
-    const result = await executeCapabilityProxy(c.env, merchant, {
-      capabilityId: c.req.param('capabilityId'),
-      method: asString(body.method) ?? 'GET',
-      path: asString(body.path) ?? '/',
-      query: asStringRecord(body.query),
-      headers: asStringRecord(body.headers),
-      body: body.body,
-      allowPaidUsage: body.allowPaidUsage === true,
-      requestId: asString(body.requestId),
+    const result = await executeCapabilityProxy(input.env, input.merchant, {
+      capabilityId: input.capabilityId,
+      method: asString(input.body.method) ?? 'GET',
+      path: asString(input.body.path) ?? '/',
+      query: asStringRecord(input.body.query),
+      headers: asStringRecord(input.body.headers),
+      body: input.body.body,
+      allowPaidUsage: input.body.allowPaidUsage === true,
+      requestId: asString(input.body.requestId),
     });
 
     if (result.status === 'approval_required') {
       const internalFetcher = getInternalAppFetcher();
-      if (!internalFetcher) {
-        void recordProductSignalEvent(c.env, {
-          merchantId: merchant.id,
-          audience,
-          authType,
+      const hasInternalBridgeAuth = Boolean(input.authorizationHeader || input.xApiKeyHeader || input.env.ADMIN_SECRET_KEY);
+      if (!internalFetcher || !hasInternalBridgeAuth) {
+        void recordProductSignalEvent(input.env, {
+          merchantId: input.merchant.id,
+          audience: input.audience,
+          authType: input.authType,
           surface: 'capabilities',
           signalType: 'capability_next_action_returned',
           status: result.status,
-          requestId: asString(body.requestId),
+          requestId: asString(input.body.requestId),
           entityType: 'capability',
-          entityId: c.req.param('capabilityId'),
+          entityId: input.capabilityId,
           estimatedCostMicros: Math.max(Math.round(result.usage.unitPriceUsd * 1_000_000), 0),
           metadata: {
             provider: result.provider,
@@ -2071,28 +2166,28 @@ router.post('/:capabilityId/execute', async (c) => {
             usedCalls: result.usage.usedCalls,
             freeCalls: result.usage.freeCalls,
             nextActionType: result.nextAction.type,
-            orchestrationFallback: 'internal_fetcher_unavailable',
+            orchestrationFallback: !internalFetcher ? 'internal_fetcher_unavailable' : 'internal_auth_bridge_unavailable',
           },
         });
-        return c.json(result);
+        return jsonResponse(result);
       }
 
-      const principalId = asString(body.principalId);
-      const operatorId = asString(body.operatorId);
-      const customerEmail = asString(body.customerEmail);
-      const customerName = asString(body.customerName);
-      const customerPhone = asString(body.customerPhone);
-      const preferredRail = asString(body.rail);
-      const resumeUrl = asString(body.resumeUrl);
-      const hostContext = asRecord(body.hostContext) ?? {};
-      const guardrailContext = asRecord(body.guardrailContext) ?? {};
-      const autonomyPolicy = asRecord(body.autonomyPolicy) ?? {};
-      const limits = asRecord(body.limits) ?? {};
-      const idempotencyKey = asString(body.idempotencyKey);
+      const principalId = asString(input.body.principalId);
+      const operatorId = asString(input.body.operatorId);
+      const customerEmail = asString(input.body.customerEmail);
+      const customerName = asString(input.body.customerName);
+      const customerPhone = asString(input.body.customerPhone);
+      const preferredRail = asString(input.body.rail);
+      const resumeUrl = asString(input.body.resumeUrl);
+      const hostContext = asRecord(input.body.hostContext) ?? {};
+      const guardrailContext = asRecord(input.body.guardrailContext) ?? {};
+      const autonomyPolicy = asRecord(input.body.autonomyPolicy) ?? {};
+      const limits = asRecord(input.body.limits) ?? {};
+      const idempotencyKey = asString(input.body.idempotencyKey);
 
       const authorityProfile = principalId
-        ? await upsertAuthorityProfile(c.env, {
-            merchantId: merchant.id,
+        ? await upsertAuthorityProfile(input.env, {
+            merchantId: input.merchant.id,
             principalId,
             operatorId,
             walletStatus: 'missing',
@@ -2102,33 +2197,40 @@ router.post('/:capabilityId/execute', async (c) => {
             autonomyPolicy,
             limits,
             metadata: {
-              source: 'capability_execute_gate',
+              source: input.leaseContext ? 'capability_execute_gate_workbench_lease' : 'capability_execute_gate',
               capabilityId: result.capabilityId,
               provider: result.provider,
               customerPhone,
+              workbenchId: input.leaseContext?.workbenchId ?? null,
             },
           })
         : null;
 
-      const executionAttemptRecord = await createCapabilityExecutionAttempt(c.env, {
-        merchantId: merchant.id,
+      const executionAttemptRecord = await createCapabilityExecutionAttempt(input.env, {
+        merchantId: input.merchant.id,
         capabilityId: result.capabilityId,
         authorityProfileId: authorityProfile?.id ?? null,
         principalId,
         operatorId,
         idempotencyKey,
         blockedReason: 'paid_usage_requires_human_step',
-        method: asString(body.method) ?? 'GET',
-        path: asString(body.path) ?? '/',
-        query: asStringRecord(body.query),
-        headers: asStringRecord(body.headers),
-        body: body.body,
-        requestId: asString(body.requestId),
+        method: asString(input.body.method) ?? 'GET',
+        path: asString(input.body.path) ?? '/',
+        query: asStringRecord(input.body.query),
+        headers: asStringRecord(input.body.headers),
+        body: input.body.body,
+        requestId: asString(input.body.requestId),
         hostContext: {
           ...hostContext,
           resumeUrl,
-          audience,
-          authType,
+          audience: input.audience,
+          authType: input.authType,
+          workbenchLease: input.leaseContext
+            ? {
+                leaseId: input.leaseContext.leaseId,
+                workbenchId: input.leaseContext.workbenchId,
+              }
+            : null,
         },
         guardrailContext: {
           ...guardrailContext,
@@ -2152,6 +2254,7 @@ router.post('/:capabilityId/execute', async (c) => {
         metadata: {
           provider: result.provider,
           capabilityKey: (result.nextAction.displayPayload as Record<string, unknown> | undefined)?.capabilityKey ?? null,
+          leaseId: input.leaseContext?.leaseId ?? null,
         },
         lockedUnitPriceMicros: Math.max(Math.round(result.usage.unitPriceUsd * 1_000_000), 0),
         lockedCurrency: 'USD',
@@ -2160,12 +2263,12 @@ router.post('/:capabilityId/execute', async (c) => {
       });
 
       const existingAttempt = executionAttemptRecord.attempt;
-      const executionStatusUrl = buildExecutionAttemptStatusUrl(c.env, existingAttempt.id);
+      const executionStatusUrl = buildExecutionAttemptStatusUrl(input.env, existingAttempt.id);
       if (executionAttemptRecord.reused) {
         if (existingAttempt.status === 'completed' && existingAttempt.resultPayload.executionResult) {
-          return c.json(existingAttempt.resultPayload.executionResult);
+          return jsonResponse(existingAttempt.resultPayload.executionResult as Record<string, unknown>);
         }
-        return c.json({
+        return jsonResponse({
           status: (existingAttempt.nextAction.type as string | undefined) ?? existingAttempt.status,
           capabilityId: result.capabilityId,
           provider: result.provider,
@@ -2187,8 +2290,12 @@ router.post('/:capabilityId/execute', async (c) => {
       const internalHeaders = new Headers({
         'content-type': 'application/json',
       });
-      if (authorizationHeader) internalHeaders.set('authorization', authorizationHeader);
-      if (xApiKeyHeader) internalHeaders.set('x-api-key', xApiKeyHeader);
+      if (input.authorizationHeader) internalHeaders.set('authorization', input.authorizationHeader);
+      if (input.xApiKeyHeader) internalHeaders.set('x-api-key', input.xApiKeyHeader);
+      if (!input.authorizationHeader && !input.xApiKeyHeader && input.env.ADMIN_SECRET_KEY) {
+        internalHeaders.set('x-admin-key', input.env.ADMIN_SECRET_KEY);
+        internalHeaders.set('x-merchant-id', input.merchant.id);
+      }
 
       let humanStepResponse: Response | null = null;
       let humanStepBody: Record<string, any> | null = null;
@@ -2208,15 +2315,13 @@ router.post('/:capabilityId/execute', async (c) => {
               authorityProfileId: authorityProfile?.id ?? null,
             }),
           }),
-          c.env,
-          c.executionCtx,
+          input.env,
+          input.executionCtx,
         );
         humanStepBody = await readJsonResponse(humanStepResponse);
       }
 
-      const requiresFundingRequest = !humanStepResponse
-        || humanStepResponse.status >= 400;
-
+      const requiresFundingRequest = !humanStepResponse || humanStepResponse.status >= 400;
       if (requiresFundingRequest) {
         humanStepResponse = await internalFetcher(
           new Request('http://internal/api/payments/funding-request', {
@@ -2227,7 +2332,7 @@ router.post('/:capabilityId/execute', async (c) => {
               amount: result.usage.unitPriceUsd,
               currency: 'USD',
               description: `Fund paid ${result.provider} capability execution for ${result.capabilityId}`,
-              requestId: asString(body.requestId) ?? `capexec_${existingAttempt.id}`,
+              requestId: asString(input.body.requestId) ?? `capexec_${existingAttempt.id}`,
               customerName,
               customerPhone,
               customerEmail,
@@ -2237,14 +2342,14 @@ router.post('/:capabilityId/execute', async (c) => {
               authorityProfileId: authorityProfile?.id ?? null,
             }),
           }),
-          c.env,
-          c.executionCtx,
+          input.env,
+          input.executionCtx,
         );
         humanStepBody = await readJsonResponse(humanStepResponse);
       }
 
       if (!humanStepResponse || !humanStepBody || humanStepResponse.status >= 400) {
-        const failedAttempt = await completeCapabilityExecutionAttempt(c.env, {
+        const failedAttempt = await completeCapabilityExecutionAttempt(input.env, {
           attemptId: existingAttempt.id,
           status: 'failed',
           blockedReason: 'human_step_creation_failed',
@@ -2252,7 +2357,7 @@ router.post('/:capabilityId/execute', async (c) => {
             error: humanStepBody?.error ?? 'HUMAN_STEP_CREATION_FAILED',
           },
         });
-        return c.json({
+        return jsonResponse({
           error: humanStepBody?.error ?? 'Failed to create a hosted approval step',
           executionAttempt: {
             attemptId: failedAttempt.id,
@@ -2269,7 +2374,7 @@ router.post('/:capabilityId/execute', async (c) => {
           : null;
 
       if (hostedActionSessionId) {
-        await attachHostedActionSessionToExecutionAttempt(c.env, {
+        await attachHostedActionSessionToExecutionAttempt(input.env, {
           attemptId: existingAttempt.id,
           hostedActionSessionId,
           nextAction: humanStepBody.nextAction ?? {
@@ -2285,14 +2390,14 @@ router.post('/:capabilityId/execute', async (c) => {
         ? 'confirmation_required'
         : 'funding_required';
 
-      void recordProductSignalEvent(c.env, {
-        merchantId: merchant.id,
-        audience,
-        authType,
+      void recordProductSignalEvent(input.env, {
+        merchantId: input.merchant.id,
+        audience: input.audience,
+        authType: input.authType,
         surface: 'capabilities',
         signalType: 'capability_next_action_returned',
         status: orchestratedStatus,
-        requestId: asString(body.requestId),
+        requestId: asString(input.body.requestId),
         entityType: 'capability_execution_attempt',
         entityId: existingAttempt.id,
         estimatedCostMicros: Math.max(Math.round(result.usage.unitPriceUsd * 1_000_000), 0),
@@ -2301,10 +2406,11 @@ router.post('/:capabilityId/execute', async (c) => {
           billable: true,
           actionSessionId: hostedActionSessionId,
           principalId,
+          leaseId: input.leaseContext?.leaseId ?? null,
         },
       });
 
-      return c.json({
+      return jsonResponse({
         status: orchestratedStatus,
         capabilityId: result.capabilityId,
         provider: result.provider,
@@ -2325,18 +2431,22 @@ router.post('/:capabilityId/execute', async (c) => {
       });
     }
 
-    void recordProductSignalEvent(c.env, {
-      merchantId: merchant.id,
-      audience,
-      authType,
+    if (input.leaseContext?.leaseId) {
+      await touchCapabilityAccessLease(input.env, input.leaseContext.leaseId).catch(() => {});
+    }
+
+    void recordProductSignalEvent(input.env, {
+      merchantId: input.merchant.id,
+      audience: input.audience,
+      authType: input.authType,
       surface: 'capabilities',
       signalType: result.status === 'approval_required'
         ? 'capability_next_action_returned'
         : 'capability_execution_completed',
       status: result.status,
-      requestId: asString(body.requestId),
+      requestId: asString(input.body.requestId),
       entityType: 'capability',
-      entityId: c.req.param('capabilityId'),
+      entityId: input.capabilityId,
       estimatedCostMicros: Math.max(Math.round(result.usage.unitPriceUsd * 1_000_000), 0),
       metadata: {
         provider: result.provider,
@@ -2344,19 +2454,20 @@ router.post('/:capabilityId/execute', async (c) => {
         usedCalls: result.usage.usedCalls,
         freeCalls: result.usage.freeCalls,
         nextActionType: result.status === 'approval_required' ? result.nextAction.type : null,
+        leaseId: input.leaseContext?.leaseId ?? null,
       },
     });
-    return c.json(result);
+    return jsonResponse(result as unknown as Record<string, unknown>);
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === 'CAPABILITY_NOT_FOUND') {
-        return c.json({ error: 'Capability not found' }, 404);
+        return jsonResponse({ error: 'Capability not found' }, 404);
       }
       if (err.message === 'CAPABILITY_BASE_URL_REQUIRED') {
-        return c.json({ error: 'Capability base URL is not configured' }, 409);
+        return jsonResponse({ error: 'Capability base URL is not configured' }, 409);
       }
       if (err.message === 'CAPABILITY_PATH_MUST_BE_RELATIVE') {
-        return c.json({ error: 'Capability path must be relative to the connected base URL' }, 400);
+        return jsonResponse({ error: 'Capability path must be relative to the connected base URL' }, 400);
       }
       if (
         err.message === 'CAPABILITY_BASE_URL_INVALID'
@@ -2364,19 +2475,104 @@ router.post('/:capabilityId/execute', async (c) => {
         || err.message === 'CAPABILITY_TARGET_INSECURE'
         || err.message === 'CAPABILITY_TARGET_INVALID'
       ) {
-        return c.json({ error: 'Capability target is invalid' }, 400);
+        return jsonResponse({ error: 'Capability target is invalid' }, 400);
       }
       if (err.message === 'CAPABILITY_HOST_NOT_ALLOWED') {
-        return c.json({ error: 'Target host is not allowed for this capability' }, 403);
+        return jsonResponse({ error: 'Target host is not allowed for this capability' }, 403);
       }
       if (err.message === 'CAPABILITY_HOST_BLOCKED') {
-        return c.json({ error: 'Capability target is blocked by network policy' }, 403);
+        return jsonResponse({ error: 'Capability target is blocked by network policy' }, 403);
       }
     }
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[capabilities] execute failed:', msg);
-    return c.json({ error: 'Failed to execute capability' }, 500);
+    return jsonResponse({ error: 'Failed to execute capability' }, 500);
   }
+}
+
+router.post('/lease-execute', async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const leaseToken = asString(body.leaseToken);
+  const workbenchId = asString(body.workbenchId);
+  if (!leaseToken) {
+    return c.json({ error: 'leaseToken is required' }, 400);
+  }
+  if (!workbenchId) {
+    return c.json({ error: 'workbenchId is required' }, 400);
+  }
+
+  try {
+    const lease = await resolveCapabilityAccessLease(c.env, {
+      leaseToken,
+      workbenchId,
+    });
+    const merchant = await loadMerchantContextById(c.env, lease.merchantId);
+    if (!merchant) {
+      return c.json({ error: 'Merchant not found for lease execution' }, 404);
+    }
+    return await executeCapabilityRequest({
+      env: c.env,
+      executionCtx: c.executionCtx,
+      merchant,
+      capabilityId: lease.capabilityId,
+      body,
+      audience: 'workbench',
+      authType: 'workbench_lease',
+      leaseContext: {
+        leaseId: lease.id,
+        workbenchId: lease.workbenchId,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'CAPABILITY_ACCESS_LEASE_NOT_FOUND') {
+      return c.json({ error: 'Capability access lease not found' }, 404);
+    }
+    if (msg === 'CAPABILITY_ACCESS_LEASE_EXPIRED') {
+      return c.json({ error: 'Capability access lease expired' }, 410);
+    }
+    if (msg === 'CAPABILITY_ACCESS_LEASE_REVOKED') {
+      return c.json({ error: 'Capability access lease revoked' }, 410);
+    }
+    if (msg === 'CAPABILITY_ACCESS_LEASE_WORKBENCH_MISMATCH') {
+      return c.json({ error: 'Capability access lease is not valid for this workbench' }, 403);
+    }
+    console.error('[capabilities] lease execute failed:', msg);
+    return c.json({ error: 'Failed to execute capability via lease' }, 500);
+  }
+});
+
+router.post('/:capabilityId/execute', async (c) => {
+  const merchant = c.get('merchant');
+  const authorizationHeader = c.req.header('authorization');
+  const xApiKeyHeader = c.req.header('x-api-key');
+  const presentedToken = authorizationHeader ?? xApiKeyHeader ?? '';
+  const audience = c.get('mcpAudience') ?? 'generic';
+  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  return await executeCapabilityRequest({
+    env: c.env,
+    executionCtx: c.executionCtx,
+    merchant,
+    capabilityId: c.req.param('capabilityId'),
+    body,
+    audience,
+    authType,
+    authorizationHeader,
+    xApiKeyHeader,
+  });
 });
 
 router.post('/:capabilityId/revoke', async (c) => {

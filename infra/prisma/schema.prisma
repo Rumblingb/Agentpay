@@ -106,6 +106,7 @@ model Merchant {
   mcpUsageEvents   McpUsageEvent[]
   capabilityVaultEntries   CapabilityVaultEntry[]
   capabilityConnectSessions CapabilityConnectSession[]
+  capabilityAccessLeases   CapabilityAccessLease[]
   capabilityAccessLogs     CapabilityAccessLog[]
   capabilityUsageEvents    CapabilityUsageEvent[]
   oauthAuthorizationCodes  OauthAuthorizationCode[]
@@ -139,6 +140,7 @@ model CapabilityVaultEntry {
 
   merchant            Merchant                    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   connectSessions     CapabilityConnectSession[]
+  accessLeases        CapabilityAccessLease[]
   accessLogs          CapabilityAccessLog[]
   usageEvents         CapabilityUsageEvent[]
 
@@ -201,6 +203,33 @@ model CapabilityAccessLog {
   @@index([capabilityVaultEntryId, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@map("capability_access_logs")
+}
+
+model CapabilityAccessLease {
+  id                    String    @id @default(uuid()) @db.Uuid
+  merchantId            String    @map("merchant_id") @db.Uuid
+  capabilityVaultEntryId String    @map("capability_vault_entry_id") @db.Uuid
+  subjectType           String    @map("subject_type")
+  subjectRef            String    @map("subject_ref")
+  principalId           String?   @map("principal_id")
+  operatorId            String?   @map("operator_id")
+  workbenchId           String    @map("workbench_id")
+  workbenchLabel        String?   @map("workbench_label")
+  leaseTokenHash        String    @unique @map("lease_token_hash")
+  status                String    @default("active")
+  metadata              Json?     @default("{}") @map("metadata_json")
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt             DateTime? @map("revoked_at") @db.Timestamptz(6)
+  lastUsedAt            DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  merchant              Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityVaultEntry  CapabilityVaultEntry @relation(fields: [capabilityVaultEntryId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, workbenchId, status, expiresAt(sort: Desc)])
+  @@index([capabilityVaultEntryId, status, expiresAt(sort: Desc)])
+  @@map("capability_access_leases")
 }
 
 model CapabilityUsageEvent {
