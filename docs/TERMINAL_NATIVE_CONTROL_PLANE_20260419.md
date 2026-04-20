@@ -20,8 +20,16 @@ Everything else should be readable and operable through tool calls.
 - `POST /api/capabilities/access-resolve`
   - resolves "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow
   - can issue an opaque workbench lease for local reuse when governed access is already available
+- `GET /api/capabilities/authority-bootstrap`
+  - reads whether a principal already has guardrails, funding readiness, provider access, and reusable workbench continuity
+- `POST /api/capabilities/authority-bootstrap`
+  - updates terminal-native authority defaults like contact details, spend limits, OTP policy, and preferred rail
 - `POST /api/capabilities/lease-execute`
   - executes through an opaque workbench lease so the local project never needs the raw provider key
+- `GET /api/capabilities/leases`
+  - lists active, revoked, or expired opaque workbench leases for audit and continuity control
+- `POST /api/capabilities/leases/:leaseId/revoke`
+  - revokes a local workbench lease without touching the vaulted provider credential
 - `GET /api/capabilities/terminal/control-plane`
   - terminal-native read model for authority, pending actions, billing, capabilities, and next tool calls
 - `POST /api/capabilities/provider-requests`
@@ -56,6 +64,7 @@ The terminal-native shift does not mean secrets enter chat.
 It means:
 
 - tool calls request capability access
+- tool calls can read and update authority defaults before the first paid action
 - hosted human steps collect secrets or approvals outside agent context
 - AgentPay stores credentials in the vault
 - local workbenches store only revocable, time-boxed leases when persistence is needed

@@ -48,6 +48,8 @@ import {
 } from '../lib/capabilityExecutionAttempts';
 import {
   createCapabilityAccessLease,
+  listCapabilityAccessLeases,
+  revokeCapabilityAccessLease,
   resolveCapabilityAccessLease,
   touchCapabilityAccessLease,
 } from '../lib/capabilityAccessLeases';
@@ -134,6 +136,169 @@ async function loadMerchantContextById(env: Env, merchantId: string): Promise<Me
   } finally {
     await sql.end().catch(() => {});
   }
+}
+
+async function getPrincipalFundingSnapshot(
+  env: Env,
+  principalId: string | null,
+): Promise<{
+  walletStatus: 'missing' | 'ready';
+  hasSavedPaymentMethod: boolean;
+  defaultPaymentMethodType: string | null;
+  defaultPaymentReference: string | null;
+}> {
+  if (!principalId) {
+    return {
+      walletStatus: 'missing',
+      hasSavedPaymentMethod: false,
+      defaultPaymentMethodType: null,
+      defaultPaymentReference: null,
+    };
+  }
+
+  const sql = createDb(env);
+  try {
+    const rows = await sql<Array<{
+      stripe_pm_id: string | null;
+      payment_method_type: string | null;
+    }>>`
+      SELECT stripe_pm_id, payment_method_type
+      FROM principal_payment_methods
+      WHERE principal_id = ${principalId}
+      ORDER BY is_default DESC, created_at DESC
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row?.stripe_pm_id) {
+      return {
+        walletStatus: 'missing',
+        hasSavedPaymentMethod: false,
+        defaultPaymentMethodType: null,
+        defaultPaymentReference: null,
+      };
+    }
+    return {
+      walletStatus: 'ready',
+      hasSavedPaymentMethod: true,
+      defaultPaymentMethodType: row.payment_method_type ?? 'card',
+      defaultPaymentReference: row.stripe_pm_id,
+    };
+  } catch {
+    return {
+      walletStatus: 'missing',
+      hasSavedPaymentMethod: false,
+      defaultPaymentMethodType: null,
+      defaultPaymentReference: null,
+    };
+  } finally {
+    await sql.end().catch(() => {});
+  }
+}
+
+async function buildAuthorityBootstrapState(
+  env: Env,
+  input: {
+    merchant: MerchantContext;
+    principalId: string;
+    operatorId?: string | null;
+    subjectType?: CapabilitySubjectType | null;
+    subjectRef?: string | null;
+    workbenchId?: string | null;
+  },
+) {
+  const authorityProfile = await getAuthorityProfile(env, input.merchant.id, input.principalId).catch(() => null);
+  const funding = await getPrincipalFundingSnapshot(env, input.principalId);
+  const capabilities = await listCapabilityBrokerRecords(env, input.merchant.id).catch(() => []);
+  const scopedCapabilities = capabilities.filter((capability) => {
+    if (input.subjectType && capability.subjectType !== input.subjectType) return false;
+    if (input.subjectRef && capability.subjectRef !== input.subjectRef) return false;
+    return true;
+  });
+  const activeLeases = await listCapabilityAccessLeases(env, {
+    merchantId: input.merchant.id,
+    principalId: input.principalId,
+    operatorId: input.operatorId,
+    workbenchId: input.workbenchId,
+    status: 'active',
+    limit: 25,
+  }).catch(() => []);
+  const pendingActions = await listPendingHostedActions(env, input.merchant.id).catch(() => []);
+
+  const effectiveWalletStatus = authorityProfile?.walletStatus === 'ready' || funding.hasSavedPaymentMethod
+    ? 'ready'
+    : 'missing';
+  const effectiveFundingRail = authorityProfile?.preferredFundingRail ?? 'card';
+  const autonomyPolicy = authorityProfile?.autonomyPolicy ?? {};
+  const limits = authorityProfile?.limits ?? {};
+  const hasGuardrails = authorityProfile !== null;
+
+  const missing: string[] = [];
+  if (!hasGuardrails) missing.push('guardrails');
+  if (!funding.hasSavedPaymentMethod) missing.push('payment_method');
+  if (scopedCapabilities.length === 0) missing.push('provider_access');
+
+  const status = missing.length === 0
+    ? 'ready'
+    : !hasGuardrails
+      ? 'needs_guardrails'
+      : !funding.hasSavedPaymentMethod
+        ? 'needs_funding_method'
+        : 'needs_provider_access';
+
+  const nextAction = !hasGuardrails || missing.includes('provider_access')
+    ? {
+        tool: 'agentpay_create_onboarding_session',
+        endpoint: '/api/capabilities/onboarding-sessions',
+        summary: 'Run one hosted setup flow to capture guardrails, funding preference, and provider connections.',
+      }
+    : !funding.hasSavedPaymentMethod
+      ? {
+          tool: 'agentpay_update_authority_bootstrap',
+          endpoint: '/api/capabilities/authority-bootstrap',
+          summary: 'Guardrails are set, but a saved funding method is still missing. The next paid action will still need a human step.',
+        }
+      : null;
+
+  return {
+    status,
+    principalId: input.principalId,
+    operatorId: input.operatorId ?? authorityProfile?.operatorId ?? null,
+    subject: input.subjectType && input.subjectRef
+      ? {
+          subjectType: input.subjectType,
+          subjectRef: input.subjectRef,
+        }
+      : null,
+    workbench: input.workbenchId
+      ? {
+          workbenchId: input.workbenchId,
+          activeLeaseCount: activeLeases.length,
+        }
+      : null,
+    missing,
+    funding: {
+      walletStatus: effectiveWalletStatus,
+      hasSavedPaymentMethod: funding.hasSavedPaymentMethod,
+      preferredFundingRail: effectiveFundingRail,
+      defaultPaymentMethodType: authorityProfile?.defaultPaymentMethodType ?? funding.defaultPaymentMethodType,
+      defaultPaymentReference: authorityProfile?.defaultPaymentReference ?? funding.defaultPaymentReference,
+    },
+    guardrails: {
+      autoApproveUsd: Number(autonomyPolicy.autoApproveUsd ?? 0),
+      otpEveryPaidAction: autonomyPolicy.otpEveryPaidAction === true,
+      perActionUsd: Number(limits.perActionUsd ?? 0),
+      dailyUsd: Number(limits.dailyUsd ?? 0),
+      monthlyUsd: Number(limits.monthlyUsd ?? 0),
+    },
+    continuity: {
+      activeCapabilityCount: scopedCapabilities.length,
+      activeLeaseCount: activeLeases.length,
+      pendingActionCount: pendingActions.length,
+    },
+    authorityProfile,
+    activeLeases,
+    nextAction,
+  };
 }
 
 async function sendVaultOtpEmail(
@@ -1162,17 +1327,195 @@ router.get('/providers/catalog', (c) => {
   });
 });
 
+router.get('/authority-bootstrap', async (c) => {
+  const merchant = c.get('merchant');
+  const principalId = asString(c.req.query('principalId'));
+  const operatorId = asString(c.req.query('operatorId'));
+  const subjectTypeValue = asString(c.req.query('subjectType'));
+  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
+  const subjectRef = asString(c.req.query('subjectRef'));
+  const workbenchId = asString(c.req.query('workbenchId'));
+  if (!principalId) {
+    return c.json({ error: 'principalId is required' }, 400);
+  }
+
+  const bootstrap = await buildAuthorityBootstrapState(c.env, {
+    merchant,
+    principalId,
+    operatorId,
+    subjectType,
+    subjectRef,
+    workbenchId,
+  });
+  return c.json(bootstrap);
+});
+
+router.post('/authority-bootstrap', async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const principalId = asString(body.principalId);
+  const operatorId = asString(body.operatorId);
+  const subjectTypeValue = asString(body.subjectType);
+  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
+  const subjectRef = asString(body.subjectRef);
+  const workbenchId = asString(body.workbenchId);
+  if (!principalId) {
+    return c.json({ error: 'principalId is required' }, 400);
+  }
+
+  const autoApproveUsd = parsePositiveNumber(asString(body.autoApproveUsd));
+  const perActionUsd = parsePositiveNumber(asString(body.perActionUsd));
+  const dailyUsd = parsePositiveNumber(asString(body.dailyUsd));
+  const monthlyUsd = parsePositiveNumber(asString(body.monthlyUsd));
+  const otpEveryPaidAction = body.otpEveryPaidAction === true;
+  const fundingSnapshot = await getPrincipalFundingSnapshot(c.env, principalId);
+
+  const authorityProfile = await upsertAuthorityProfile(c.env, {
+    merchantId: merchant.id,
+    principalId,
+    operatorId,
+    walletStatus: fundingSnapshot.walletStatus,
+    preferredFundingRail: asString(body.preferredFundingRail) ?? 'card',
+    defaultPaymentMethodType: fundingSnapshot.defaultPaymentMethodType,
+    defaultPaymentReference: fundingSnapshot.defaultPaymentReference,
+    contactEmail: asString(body.contactEmail),
+    contactName: asString(body.contactName),
+    autonomyPolicy: {
+      autoApproveUsd: autoApproveUsd ?? 0,
+      otpEveryPaidAction,
+      setupSource: 'terminal_authority_bootstrap',
+    },
+    limits: {
+      perActionUsd: perActionUsd ?? 0,
+      dailyUsd: dailyUsd ?? 0,
+      monthlyUsd: monthlyUsd ?? 0,
+    },
+    metadata: {
+      source: 'terminal_authority_bootstrap',
+      workbenchId,
+      subjectType,
+      subjectRef,
+    },
+  });
+
+  const bootstrap = await buildAuthorityBootstrapState(c.env, {
+    merchant,
+    principalId,
+    operatorId: operatorId ?? authorityProfile.operatorId,
+    subjectType,
+    subjectRef,
+    workbenchId,
+  });
+  return c.json({
+    updated: true,
+    ...bootstrap,
+  });
+});
+
+router.get('/leases', async (c) => {
+  const merchant = c.get('merchant');
+  const principalId = asString(c.req.query('principalId'));
+  const operatorId = asString(c.req.query('operatorId'));
+  const capabilityId = asString(c.req.query('capabilityId'));
+  const workbenchId = asString(c.req.query('workbenchId'));
+  const statusValue = asString(c.req.query('status'));
+  const status = statusValue === 'active' || statusValue === 'revoked' || statusValue === 'expired' || statusValue === 'all'
+    ? statusValue
+    : 'active';
+
+  const leases = await listCapabilityAccessLeases(c.env, {
+    merchantId: merchant.id,
+    principalId,
+    operatorId,
+    capabilityId,
+    workbenchId,
+    status,
+    limit: 50,
+  });
+  return c.json({
+    leases,
+    summary: {
+      total: leases.length,
+      active: leases.filter((lease) => lease.status === 'active').length,
+      revoked: leases.filter((lease) => lease.status === 'revoked').length,
+      expired: leases.filter((lease) => lease.status === 'expired').length,
+    },
+  });
+});
+
+router.post('/leases/:leaseId/revoke', async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  try {
+    const lease = await revokeCapabilityAccessLease(c.env, {
+      merchantId: merchant.id,
+      leaseId: c.req.param('leaseId'),
+      reason: asString(body.reason),
+    });
+    return c.json({
+      revoked: true,
+      lease,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === 'CAPABILITY_ACCESS_LEASE_NOT_FOUND') {
+      return c.json({ error: 'Capability access lease not found' }, 404);
+    }
+    console.error('[capabilities] revoke lease failed:', msg);
+    return c.json({ error: 'Failed to revoke capability access lease' }, 500);
+  }
+});
+
 router.get('/terminal/control-plane', async (c) => {
   const merchant = c.get('merchant');
   const principalId = asString(c.req.query('principalId'));
+  const workbenchId = asString(c.req.query('workbenchId'));
   const capabilities = await listCapabilityBrokerRecords(c.env, merchant.id);
   const billing = await buildCapabilityUsageInvoiceSummary(c.env, merchant);
   const pendingActions = await listPendingHostedActions(c.env, merchant.id);
   const authorityProfile = principalId
     ? await getAuthorityProfile(c.env, merchant.id, principalId).catch(() => null)
     : null;
+  const activeLeases = principalId
+    ? await listCapabilityAccessLeases(c.env, {
+        merchantId: merchant.id,
+        principalId,
+        workbenchId,
+        status: 'active',
+        limit: 25,
+      }).catch(() => [])
+    : [];
+  const authorityBootstrap = principalId
+    ? await buildAuthorityBootstrapState(c.env, {
+        merchant,
+        principalId,
+        workbenchId,
+      }).catch(() => null)
+    : null;
 
   const suggestedToolCalls = [
+    {
+      tool: 'agentpay_read_authority_bootstrap',
+      endpoint: '/api/capabilities/authority-bootstrap',
+      purpose: 'Read whether this principal already has guardrails, funding readiness, provider access, and reusable workbench continuity.',
+    },
+    {
+      tool: 'agentpay_update_authority_bootstrap',
+      endpoint: '/api/capabilities/authority-bootstrap',
+      purpose: 'Set contact details, autonomy rules, spend limits, and preferred funding rail through the terminal-native control plane.',
+    },
     {
       tool: 'agentpay_resolve_provider_access',
       endpoint: '/api/capabilities/access-resolve',
@@ -1182,6 +1525,16 @@ router.get('/terminal/control-plane', async (c) => {
       tool: 'agentpay_execute_with_workbench_lease',
       endpoint: '/api/capabilities/lease-execute',
       purpose: 'Execute a capability from the same workbench using an opaque lease token instead of storing raw provider secrets locally.',
+    },
+    {
+      tool: 'agentpay_list_workbench_leases',
+      endpoint: '/api/capabilities/leases',
+      purpose: 'Inspect which opaque leases are still active for a workbench so persistent access stays understandable and revocable.',
+    },
+    {
+      tool: 'agentpay_revoke_workbench_lease',
+      endpoint: '/api/capabilities/leases/:leaseId/revoke',
+      purpose: 'Revoke a local workbench lease immediately without touching the vaulted provider secret.',
     },
     {
       tool: 'agentpay_create_onboarding_session',
@@ -1213,12 +1566,14 @@ router.get('/terminal/control-plane', async (c) => {
       name: merchant.name,
     },
     authorityProfile,
+    authorityBootstrap,
     billing: {
       ...billing,
       outstandingUsd: billing.outstandingUsd,
       payable: billing.outstandingUsd > 0,
     },
     capabilities,
+    workbenchLeases: activeLeases,
     pendingActions,
     providerCatalog: getCapabilityProviderCatalog(),
     suggestedToolCalls,
@@ -1503,24 +1858,8 @@ router.post('/onboarding-sessions', async (c) => {
     }
   }
 
-  let walletStatus = 'missing';
-  if (principalId) {
-    const sql = createDb(c.env);
-    try {
-      const rows = await sql<Array<{ stripe_pm_id: string }>>`
-        SELECT stripe_pm_id
-        FROM principal_payment_methods
-        WHERE principal_id = ${principalId}
-        ORDER BY is_default DESC, created_at DESC
-        LIMIT 1
-      `;
-      if (rows[0]?.stripe_pm_id) walletStatus = 'ready';
-    } catch {
-      walletStatus = 'missing';
-    } finally {
-      await sql.end().catch(() => {});
-    }
-  }
+  const fundingSnapshot = await getPrincipalFundingSnapshot(c.env, principalId);
+  const walletStatus = fundingSnapshot.walletStatus;
 
   try {
     const sessionToken = crypto.randomUUID();

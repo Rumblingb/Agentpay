@@ -239,3 +239,105 @@ export async function touchCapabilityAccessLease(
     await sql?.end().catch(() => {});
   }
 }
+
+export async function listCapabilityAccessLeases(
+  env: Env,
+  input: {
+    merchantId: string;
+    principalId?: string | null;
+    operatorId?: string | null;
+    capabilityId?: string | null;
+    workbenchId?: string | null;
+    status?: CapabilityAccessLeaseStatus | 'all' | null;
+    limit?: number;
+  },
+): Promise<CapabilityAccessLeaseView[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 25, 100));
+  let sql: Sql | undefined;
+  try {
+    sql = createDb(env);
+    const rows = await sql<CapabilityAccessLeaseRow[]>`
+      SELECT *
+      FROM capability_access_leases
+      WHERE merchant_id = ${input.merchantId}::uuid
+      ORDER BY updated_at DESC
+      LIMIT ${limit}
+    `;
+    return rows
+      .map((row) => toView(row))
+      .filter((lease) => {
+        if (input.principalId && lease.principalId !== input.principalId) return false;
+        if (input.operatorId && lease.operatorId !== input.operatorId) return false;
+        if (input.capabilityId && lease.capabilityId !== input.capabilityId) return false;
+        if (input.workbenchId && lease.workbenchId !== input.workbenchId) return false;
+        if (input.status && input.status !== 'all' && lease.status !== input.status) return false;
+        return true;
+      });
+  } catch (err) {
+    if (!isMissingRelationError(err)) throw err;
+    return [...memoryLeases.values()]
+      .filter((lease) => {
+        if (lease.merchantId !== input.merchantId) return false;
+        if (input.principalId && lease.principalId !== input.principalId) return false;
+        if (input.operatorId && lease.operatorId !== input.operatorId) return false;
+        if (input.capabilityId && lease.capabilityId !== input.capabilityId) return false;
+        if (input.workbenchId && lease.workbenchId !== input.workbenchId) return false;
+        if (input.status && input.status !== 'all' && lease.status !== input.status) return false;
+        return true;
+      })
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, limit);
+  } finally {
+    await sql?.end().catch(() => {});
+  }
+}
+
+export async function revokeCapabilityAccessLease(
+  env: Env,
+  input: {
+    merchantId: string;
+    leaseId: string;
+    reason?: string | null;
+  },
+): Promise<CapabilityAccessLeaseView> {
+  let sql: Sql | undefined;
+  try {
+    sql = createDb(env);
+    const rows = await sql<CapabilityAccessLeaseRow[]>`
+      UPDATE capability_access_leases
+      SET status = 'revoked',
+          revoked_at = NOW(),
+          updated_at = NOW(),
+          metadata_json = COALESCE(metadata_json, '{}'::jsonb) || ${JSON.stringify({
+            revokedReason: input.reason ?? null,
+          })}::jsonb
+      WHERE id = ${input.leaseId}::uuid
+        AND merchant_id = ${input.merchantId}::uuid
+      RETURNING *
+    `;
+    const row = rows[0];
+    if (!row) throw new Error('CAPABILITY_ACCESS_LEASE_NOT_FOUND');
+    return toView(row);
+  } catch (err) {
+    if (!isMissingRelationError(err)) throw err;
+    const lease = memoryLeases.get(input.leaseId);
+    if (!lease || lease.merchantId !== input.merchantId) {
+      throw new Error('CAPABILITY_ACCESS_LEASE_NOT_FOUND');
+    }
+    const now = new Date().toISOString();
+    const next: CapabilityAccessLeaseView = {
+      ...lease,
+      status: 'revoked',
+      revokedAt: now,
+      updatedAt: now,
+      metadata: {
+        ...lease.metadata,
+        revokedReason: input.reason ?? null,
+      },
+    };
+    memoryLeases.set(input.leaseId, next);
+    return next;
+  } finally {
+    await sql?.end().catch(() => {});
+  }
+}

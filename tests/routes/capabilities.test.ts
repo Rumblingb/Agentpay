@@ -1189,10 +1189,118 @@ describe('capabilitiesRouter', () => {
           created_at: new Date('2026-04-16T12:00:00.000Z'),
           updated_at: new Date('2026-04-16T12:01:00.000Z'),
         },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_1',
+          subject_type: 'workspace',
+          subject_ref: 'workbench_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'active',
+          metadata_json: JSON.stringify({ source: 'access_resolve' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: null,
+          last_used_at: new Date('2026-04-16T12:05:00.000Z'),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:05:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'authority_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          status: 'active',
+          wallet_status: 'ready',
+          preferred_funding_rail: 'card',
+          default_payment_method_type: 'card',
+          default_payment_reference: 'pm_1',
+          contact_email: 'rajiv_baskaran@agentpay.so',
+          contact_name: 'Rajiv Baskaran',
+          autonomy_policy_json: JSON.stringify({ autoApproveUsd: 2 }),
+          limits_json: JSON.stringify({ dailyUsd: 25 }),
+          metadata_json: JSON.stringify({}),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:01:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          stripe_pm_id: 'pm_1',
+          payment_method_type: 'card',
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'cap_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_key: 'firecrawl_primary',
+          capability_type: 'external_api',
+          capability_scope: 'firecrawl',
+          provider: 'firecrawl',
+          subject_type: 'merchant',
+          subject_ref: 'merchant_1',
+          status: 'active',
+          secret_payload_json: {},
+          metadata: {
+            authScheme: 'bearer',
+            credentialKind: 'api_key',
+            baseUrl: 'https://api.firecrawl.dev',
+            allowedHosts: ['api.firecrawl.dev'],
+            scopes: [],
+            freeCalls: 5,
+            paidUnitPriceUsdMicros: 20000,
+          },
+          expires_at: null,
+          revoked_at: null,
+          last_used_at: null,
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:00:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_1',
+          subject_type: 'workspace',
+          subject_ref: 'workbench_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'active',
+          metadata_json: JSON.stringify({ source: 'access_resolve' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: null,
+          last_used_at: new Date('2026-04-16T12:05:00.000Z'),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:05:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'action_pending_1',
+          action_type: 'auth_required',
+          entity_type: 'capability_onboarding',
+          entity_id: 'principal_1',
+          title: 'Finish setup',
+          summary: 'Connect APIs once.',
+          resume_url: 'https://host.example.com/resume',
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+        },
       ]]));
 
     const res = await capabilitiesRouter.fetch(
-      new Request('http://agentpay.test/terminal/control-plane?principalId=principal_1', {
+      new Request('http://agentpay.test/terminal/control-plane?principalId=principal_1&workbenchId=local_ws_1', {
         headers: authHeaders(),
       }),
       authEnv(),
@@ -1206,9 +1314,229 @@ describe('capabilitiesRouter', () => {
     expect(body.capabilities).toHaveLength(1);
     expect(body.pendingActions).toHaveLength(1);
     expect(body.authorityProfile.walletStatus).toBe('ready');
-    expect(body.suggestedToolCalls).toHaveLength(5);
-    expect(body.suggestedToolCalls[0].tool).toBe('agentpay_resolve_provider_access');
-    expect(body.suggestedToolCalls[1].tool).toBe('agentpay_execute_with_workbench_lease');
+    expect(body.workbenchLeases).toHaveLength(1);
+    expect(body.authorityBootstrap.status).toBe('ready');
+    expect(body.suggestedToolCalls).toHaveLength(9);
+    expect(body.suggestedToolCalls[0].tool).toBe('agentpay_read_authority_bootstrap');
+    expect(body.suggestedToolCalls[2].tool).toBe('agentpay_resolve_provider_access');
+  });
+
+  it('returns an authority bootstrap snapshot with missing funding and provider access called out', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'authority_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          status: 'active',
+          wallet_status: 'missing',
+          preferred_funding_rail: 'card',
+          default_payment_method_type: null,
+          default_payment_reference: null,
+          contact_email: 'rajiv_baskaran@agentpay.so',
+          contact_name: 'Rajiv Baskaran',
+          autonomy_policy_json: JSON.stringify({ autoApproveUsd: 1, otpEveryPaidAction: true }),
+          limits_json: JSON.stringify({ dailyUsd: 25 }),
+          metadata_json: JSON.stringify({}),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:01:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[{
+        id: 'action_pending_1',
+        action_type: 'auth_required',
+        entity_type: 'capability_onboarding',
+        entity_id: 'principal_1',
+        title: 'Finish setup',
+        summary: 'Connect APIs once.',
+        resume_url: 'https://host.example.com/resume',
+        expires_at: new Date('2099-04-16T12:30:00.000Z'),
+      }]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/authority-bootstrap?principalId=principal_1&subjectType=workspace&subjectRef=workbench_1&workbenchId=local_ws_1', {
+        headers: authHeaders(),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('needs_funding_method');
+    expect(body.missing).toContain('payment_method');
+    expect(body.missing).toContain('provider_access');
+    expect(body.nextAction.tool).toBe('agentpay_create_onboarding_session');
+  });
+
+  it('updates authority bootstrap defaults from the terminal control plane', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'authority_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          status: 'active',
+          wallet_status: 'missing',
+          preferred_funding_rail: 'card',
+          default_payment_method_type: null,
+          default_payment_reference: null,
+          contact_email: 'rajiv_baskaran@agentpay.so',
+          contact_name: 'Rajiv Baskaran',
+          autonomy_policy_json: JSON.stringify({ autoApproveUsd: 3, otpEveryPaidAction: true }),
+          limits_json: JSON.stringify({ perActionUsd: 8, dailyUsd: 30, monthlyUsd: 300 }),
+          metadata_json: JSON.stringify({ source: 'terminal_authority_bootstrap' }),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:01:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'authority_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          status: 'active',
+          wallet_status: 'missing',
+          preferred_funding_rail: 'card',
+          default_payment_method_type: null,
+          default_payment_reference: null,
+          contact_email: 'rajiv_baskaran@agentpay.so',
+          contact_name: 'Rajiv Baskaran',
+          autonomy_policy_json: JSON.stringify({ autoApproveUsd: 3, otpEveryPaidAction: true }),
+          limits_json: JSON.stringify({ perActionUsd: 8, dailyUsd: 30, monthlyUsd: 300 }),
+          metadata_json: JSON.stringify({ source: 'terminal_authority_bootstrap' }),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:01:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[{
+        id: 'action_pending_1',
+        action_type: 'auth_required',
+        entity_type: 'capability_onboarding',
+        entity_id: 'principal_1',
+        title: 'Finish setup',
+        summary: 'Connect APIs once.',
+        resume_url: 'https://host.example.com/resume',
+        expires_at: new Date('2099-04-16T12:30:00.000Z'),
+      }]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/authority-bootstrap', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          principalId: 'principal_1',
+          operatorId: 'operator_1',
+          workbenchId: 'local_ws_1',
+          autoApproveUsd: 3,
+          perActionUsd: 8,
+          dailyUsd: 30,
+          monthlyUsd: 300,
+          otpEveryPaidAction: true,
+          contactEmail: 'rajiv_baskaran@agentpay.so',
+          contactName: 'Rajiv Baskaran',
+          preferredFundingRail: 'card',
+        }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.updated).toBe(true);
+    expect(body.guardrails.autoApproveUsd).toBe(3);
+    expect(body.guardrails.otpEveryPaidAction).toBe(true);
+    expect(body.status).toBe('needs_funding_method');
+  });
+
+  it('lists active workbench leases through the control plane API', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_firecrawl',
+          subject_type: 'workspace',
+          subject_ref: 'workbench_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'active',
+          metadata_json: JSON.stringify({ source: 'access_resolve' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: null,
+          last_used_at: new Date('2026-04-16T12:05:00.000Z'),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:05:00.000Z'),
+        },
+      ]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/leases?principalId=principal_1&workbenchId=local_ws_1', {
+        headers: authHeaders(),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.summary.total).toBe(1);
+    expect(body.leases[0].workbenchId).toBe('local_ws_1');
+  });
+
+  it('revokes a workbench lease without touching the vaulted capability', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_firecrawl',
+          subject_type: 'workspace',
+          subject_ref: 'workbench_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'revoked',
+          metadata_json: JSON.stringify({ revokedReason: 'lost_device' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: new Date('2026-04-16T12:10:00.000Z'),
+          last_used_at: new Date('2026-04-16T12:05:00.000Z'),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:10:00.000Z'),
+        },
+      ]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/leases/lease_1/revoke', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ reason: 'lost_device' }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.revoked).toBe(true);
+    expect(body.lease.status).toBe('revoked');
+    expect(body.lease.metadata.revokedReason).toBe('lost_device');
   });
 
   it('reuses existing governed access for the same workbench', async () => {
