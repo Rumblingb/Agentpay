@@ -464,6 +464,28 @@ export function buildHostedActionResumeRedirect(
     redirect.searchParams.set('agentpayActionSessionId', session.sessionId);
     redirect.searchParams.set('agentpayActionStatus', session.status);
     redirect.searchParams.set('agentpayActionType', session.actionType);
+    const resultPayload = input.resultPayload ?? session.resultPayload;
+    const connectedCapabilities = Array.isArray(resultPayload.connectedCapabilities)
+      ? resultPayload.connectedCapabilities.filter((value) => typeof value === 'object' && value !== null)
+      : [];
+    const workbenchLeases = Array.isArray(resultPayload.workbenchLeases)
+      ? resultPayload.workbenchLeases.filter((value) => typeof value === 'object' && value !== null)
+      : [];
+    if (connectedCapabilities.length > 0) {
+      redirect.searchParams.set('agentpayConnectedCapabilityCount', String(connectedCapabilities.length));
+    }
+    if (workbenchLeases.length > 0) {
+      redirect.searchParams.set('agentpayReusableLeaseCount', String(workbenchLeases.length));
+    }
+    const workbench = resultPayload.workbench;
+    if (typeof workbench === 'object' && workbench !== null) {
+      const workbenchId = typeof (workbench as Record<string, unknown>).workbenchId === 'string'
+        ? (workbench as Record<string, unknown>).workbenchId
+        : null;
+      if (workbenchId) {
+        redirect.searchParams.set('agentpayWorkbenchId', workbenchId);
+      }
+    }
     return Response.redirect(redirect.toString(), 302);
   }
 

@@ -1083,6 +1083,7 @@ router.post('/connect-sessions/:sessionId/hosted', async (c) => {
         },
       });
       return buildHostedActionResumeRedirect(actionSession, {
+        resultPayload: actionSession.resultPayload,
         fallbackText: 'AgentPay recorded this connected capability. Return to your host and resume the task.',
       });
     }
@@ -1236,6 +1237,8 @@ router.post('/onboarding-sessions/:sessionId/hosted', async (c) => {
 
     const principalId = asString(stored.displayPayload.principalId);
     const operatorId = asString(stored.displayPayload.operatorId);
+    const workbenchId = asString(stored.displayPayload.workbenchId);
+    const workbenchLabel = asString(stored.displayPayload.workbenchLabel);
     const merchantId = stored.session.merchant_id;
 
     const authorityProfile = principalId
@@ -1292,12 +1295,54 @@ router.post('/onboarding-sessions/:sessionId/hosted', async (c) => {
       });
     }
 
+    const workbenchLeases = [];
+    if (workbenchId) {
+      for (const capability of connectedCapabilities) {
+        const lease = await createCapabilityAccessLease(c.env, {
+          merchantId,
+          capabilityId: capability.capabilityId,
+          subjectType,
+          subjectRef,
+          principalId,
+          operatorId,
+          workbenchId,
+          workbenchLabel,
+          metadata: {
+            source: 'capability_onboarding_hosted',
+            provider: capability.provider,
+            capabilityKey: capability.capabilityKey,
+          },
+          expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+        }).catch(() => null);
+        if (!lease) continue;
+        workbenchLeases.push({
+          leaseId: lease.lease.id,
+          token: lease.leaseToken,
+          workbenchId: lease.lease.workbenchId,
+          workbenchLabel: lease.lease.workbenchLabel,
+          capabilityId: capability.capabilityId,
+          capabilityKey: capability.capabilityKey,
+          provider: capability.provider,
+          expiresAt: lease.lease.expiresAt,
+          executeEndpoint: '/api/capabilities/lease-execute',
+          storageAdvice: 'Persist this opaque lease in the local workbench if needed, but never store raw provider secrets locally.',
+        });
+      }
+    }
+
     const actionSession = await syncHostedActionSession(c.env, {
       sessionId,
       status: 'completed',
       resultPayload: {
         authorityProfileId: authorityProfile?.id ?? null,
         connectedCapabilities,
+        workbench: workbenchId
+          ? {
+              workbenchId,
+              workbenchLabel,
+            }
+          : null,
+        workbenchLeases,
         funding: {
           walletStatus: walletStatus ?? 'missing',
           preferredFundingRail,
@@ -1321,10 +1366,12 @@ router.post('/onboarding-sessions/:sessionId/hosted', async (c) => {
       metadata: {
         completedFrom: 'capability_onboarding_hosted',
         connectedCount: connectedCapabilities.length,
+        workbenchLeaseCount: workbenchLeases.length,
       },
     });
 
     return buildHostedActionResumeRedirect(actionSession, {
+      resultPayload: actionSession.resultPayload,
       fallbackText: 'AgentPay finished onboarding. Return to your host and keep going.',
     });
   } catch (err) {
@@ -1827,6 +1874,8 @@ router.post('/onboarding-sessions', async (c) => {
   const subjectRef = asString(body.subjectRef);
   const principalId = asString(body.principalId);
   const operatorId = asString(body.operatorId);
+  const workbenchId = asString(body.workbenchId);
+  const workbenchLabel = asString(body.workbenchLabel);
   const resumeUrl = asString(body.resumeUrl);
   if (!subjectType || !subjectRef) {
     return c.json({ error: 'subjectType and subjectRef are required' }, 400);
@@ -1900,6 +1949,8 @@ router.post('/onboarding-sessions', async (c) => {
         subjectRef,
         principalId,
         operatorId,
+        workbenchId,
+        workbenchLabel,
         contactEmail: asString(body.contactEmail),
         contactName: asString(body.contactName),
         preferredFundingRail: asString(body.preferredFundingRail) ?? 'card',
@@ -1916,6 +1967,7 @@ router.post('/onboarding-sessions', async (c) => {
         sessionTokenHash,
         principalId,
         operatorId,
+        workbenchId,
         providerCount: providers.length,
       },
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -1983,6 +2035,8 @@ router.post('/onboarding-sessions', async (c) => {
             baseUrl: provider.baseUrl,
           })),
           walletStatus,
+          workbenchId,
+          workbenchLabel,
           preferredFundingRail: asString(body.preferredFundingRail) ?? 'card',
           actionSessionId: hydrated.sessionId,
           actionStatusUrl: actionSession.statusUrl,
@@ -2058,6 +2112,8 @@ async function createProviderAccessAction(
       subjectRef: input.subjectRef,
       principalId: input.principalId,
       operatorId: input.operatorId,
+      workbenchId: asString(input.body.workbenchId),
+      workbenchLabel: asString(input.body.workbenchLabel),
       contactEmail: asString(input.body.contactEmail),
       contactName: asString(input.body.contactName),
       preferredFundingRail: asString(input.body.preferredFundingRail) ?? 'card',
@@ -2071,6 +2127,7 @@ async function createProviderAccessAction(
         partnershipStatus,
         setupHint: provider.setupHint,
         proofHeadline: provider.proofHeadline,
+        workbenchId: asString(input.body.workbenchId),
       },
     },
     metadata: {
@@ -2081,6 +2138,7 @@ async function createProviderAccessAction(
       partnershipStatus,
       setupHint: provider.setupHint,
       proofHeadline: provider.proofHeadline,
+      workbenchId: asString(input.body.workbenchId),
     },
     expiresAt: new Date(Date.now() + 30 * 60 * 1000),
   });

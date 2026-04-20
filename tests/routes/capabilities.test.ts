@@ -710,6 +710,8 @@ describe('capabilitiesRouter', () => {
             subjectRef: 'merchant_1',
             principalId: 'principal_1',
             operatorId: 'operator_1',
+            workbenchId: 'local_ws_1',
+            workbenchLabel: 'Main repo',
             contactEmail: 'rajiv_baskaran@agentpay.so',
             contactName: 'Rajiv Baskaran',
             preferredFundingRail: 'card',
@@ -783,6 +785,48 @@ describe('capabilitiesRouter', () => {
           updated_at: new Date('2026-04-16T12:01:00.000Z'),
         },
       ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_firecrawl',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_firecrawl',
+          subject_type: 'merchant',
+          subject_ref: 'merchant_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'active',
+          metadata_json: JSON.stringify({ source: 'capability_onboarding_hosted', provider: 'firecrawl' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: null,
+          last_used_at: null,
+          created_at: new Date('2026-04-16T12:02:00.000Z'),
+          updated_at: new Date('2026-04-16T12:02:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'lease_databento',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_vault_entry_id: 'cap_databento',
+          subject_type: 'merchant',
+          subject_ref: 'merchant_1',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          workbench_id: 'local_ws_1',
+          workbench_label: 'Main repo',
+          lease_token_hash: 'hash',
+          status: 'active',
+          metadata_json: JSON.stringify({ source: 'capability_onboarding_hosted', provider: 'databento' }),
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          revoked_at: null,
+          last_used_at: null,
+          created_at: new Date('2026-04-16T12:02:00.000Z'),
+          updated_at: new Date('2026-04-16T12:02:00.000Z'),
+        },
+      ]]))
       .mockImplementationOnce(() => makeSql([
         [{
           id: 'action_session_onboarding',
@@ -824,6 +868,14 @@ describe('capabilitiesRouter', () => {
               { capabilityId: 'cap_firecrawl', capabilityKey: 'firecrawl_primary', provider: 'firecrawl' },
               { capabilityId: 'cap_databento', capabilityKey: 'databento_primary', provider: 'databento' },
             ],
+            workbench: {
+              workbenchId: 'local_ws_1',
+              workbenchLabel: 'Main repo',
+            },
+            workbenchLeases: [
+              { leaseId: 'lease_firecrawl', workbenchId: 'local_ws_1', provider: 'firecrawl' },
+              { leaseId: 'lease_databento', workbenchId: 'local_ws_1', provider: 'databento' },
+            ],
           }),
           metadata_json: JSON.stringify({ completedFrom: 'capability_onboarding_hosted' }),
           expires_at: new Date('2099-04-16T12:30:00.000Z'),
@@ -863,6 +915,9 @@ describe('capabilitiesRouter', () => {
     expect(location).toContain('https://host.example.com/resume');
     expect(location).toContain('agentpayActionStatus=completed');
     expect(location).toContain('agentpayActionType=auth_required');
+    expect(location).toContain('agentpayConnectedCapabilityCount=2');
+    expect(location).toContain('agentpayReusableLeaseCount=2');
+    expect(location).toContain('agentpayWorkbenchId=local_ws_1');
   });
 
   it('gates paid usage once free calls are exhausted', async () => {
