@@ -419,6 +419,7 @@ type CapabilityCredentialField = {
 type HostedOnboardingProvider = {
   provider: string;
   label: string;
+  category?: string;
   capabilityKey: string;
   baseUrl: string;
   allowedHosts: string[];
@@ -428,6 +429,11 @@ type HostedOnboardingProvider = {
   freeCalls: number;
   paidUnitPriceUsdMicros: number;
   description: string;
+  partnershipStatus?: string | null;
+  docsUrl?: string | null;
+  setupHint?: string | null;
+  approvalHeadline?: string | null;
+  proofHeadline?: string | null;
   required: boolean;
   fields: CapabilityCredentialField[];
 };
@@ -593,6 +599,9 @@ function buildOnboardingPage(input: {
                 <div class="provider">
                   <div class="pill">${htmlEscape(provider.label)}</div>
                   <div class="small">${htmlEscape(provider.description)}</div>
+                  ${provider.setupHint ? `<div class="small" style="margin-top:8px;"><strong>Why connect now:</strong> ${htmlEscape(provider.setupHint)}</div>` : ''}
+                  ${provider.proofHeadline ? `<div class="small" style="margin-top:6px;"><strong>Proof path:</strong> ${htmlEscape(provider.proofHeadline)}</div>` : ''}
+                  ${provider.docsUrl ? `<div class="small" style="margin-top:6px;"><strong>Docs:</strong> ${htmlEscape(provider.docsUrl)}</div>` : ''}
                   <div class="small" style="margin-top:8px;"><strong>Capability key:</strong> ${htmlEscape(provider.capabilityKey)}</div>
                   <div class="small"><strong>Base URL:</strong> ${htmlEscape(provider.baseUrl)}</div>
                   <ul class="host-list">${provider.allowedHosts.map((host) => `<li>${htmlEscape(host)}</li>`).join('')}</ul>
@@ -811,6 +820,7 @@ function buildRequestedProviderInput(
   return buildOnboardingProviderFromInput({
     provider: normalizedProvider,
     label: providerLabel,
+    category: providerDefaults?.category,
     capabilityKey: buildRequestedCapabilityKey(body, providerLabel),
     baseUrl: requestedBaseUrl ?? providerDefaults?.defaultBaseUrl,
     allowedHosts: Array.isArray(body.allowedHosts)
@@ -823,6 +833,11 @@ function buildRequestedProviderInput(
       ? body.paidUnitPriceUsdMicros
       : providerDefaults?.paidUnitPriceUsdMicros ?? 25_000,
     description: asString(body.description) ?? `AgentPay intake for ${providerLabel}. If delegated auth is unavailable, AgentPay will vault the credential once and keep the secret out of agent context.`,
+    partnershipStatus: asString(body.partnershipStatus) ?? providerDefaults?.partnershipStatus ?? 'generic',
+    docsUrl: asString(body.requestedDocsUrl) ?? providerDefaults?.docsUrl ?? null,
+    setupHint: asString(body.setupHint) ?? providerDefaults?.setupHint ?? `Connect ${providerLabel} once so AgentPay can own the approval, policy, and continuity seam.`,
+    approvalHeadline: asString(body.approvalHeadline) ?? providerDefaults?.approvalHeadline ?? `Connect ${providerLabel} once and keep the raw credential out of agent context.`,
+    proofHeadline: asString(body.proofHeadline) ?? providerDefaults?.proofHeadline ?? `AgentPay can resume the exact blocked ${providerLabel} call after the human step clears.`,
     required: true,
   }, env, new Set<string>());
 }
@@ -859,6 +874,7 @@ function buildOnboardingProviderFromInput(
   return {
     provider,
     label: asString(providerInput.label) ?? defaults?.label ?? provider,
+    category: asString(providerInput.category) ?? defaults?.category ?? 'generic',
     capabilityKey,
     baseUrl: normalizeCapabilityBaseUrl(baseUrl, env),
     allowedHosts: normalizeAllowedCapabilityHosts(allowedHosts, env),
@@ -870,6 +886,11 @@ function buildOnboardingProviderFromInput(
       ? providerInput.paidUnitPriceUsdMicros
       : (defaults?.paidUnitPriceUsdMicros ?? 0),
     description: asString(providerInput.description) ?? defaults?.description ?? 'Securely vaulted capability access.',
+    partnershipStatus: asString(providerInput.partnershipStatus) ?? defaults?.partnershipStatus ?? 'generic',
+    docsUrl: asString(providerInput.docsUrl) ?? defaults?.docsUrl ?? null,
+    setupHint: asString(providerInput.setupHint) ?? defaults?.setupHint ?? null,
+    approvalHeadline: asString(providerInput.approvalHeadline) ?? defaults?.approvalHeadline ?? null,
+    proofHeadline: asString(providerInput.proofHeadline) ?? defaults?.proofHeadline ?? null,
     required: providerInput.required !== false,
     fields: buildCredentialFields(credentialKind, asString(providerInput.label) ?? defaults?.label ?? provider),
   };
@@ -1950,8 +1971,14 @@ router.post('/onboarding-sessions', async (c) => {
           providers: providers.map((provider) => ({
             provider: provider.provider,
             label: provider.label,
+            category: provider.category ?? 'generic',
             capabilityKey: provider.capabilityKey,
             description: provider.description,
+            partnershipStatus: provider.partnershipStatus ?? null,
+            docsUrl: provider.docsUrl ?? null,
+            setupHint: provider.setupHint ?? null,
+            approvalHeadline: provider.approvalHeadline ?? null,
+            proofHeadline: provider.proofHeadline ?? null,
             allowedHosts: provider.allowedHosts,
             baseUrl: provider.baseUrl,
           })),
@@ -2011,7 +2038,7 @@ async function createProviderAccessAction(
   const normalizedProvider = requestedProviderKey ?? 'generic_rest_api';
   const partnershipStatus = normalizedProvider === 'generic_rest_api'
     ? 'delegated_auth_needed'
-    : 'preset_available';
+    : (provider.partnershipStatus ?? 'preset_available');
   const providerLabel = buildRequestedProviderLabel(input.body, getCapabilityProviderDefaults(provider.provider));
   const walletStatus = 'missing';
   const sessionToken = crypto.randomUUID();
@@ -2022,7 +2049,7 @@ async function createProviderAccessAction(
     entityType: 'capability_onboarding',
     entityId: input.principalId ?? input.subjectRef,
     title: `Finish ${provider.label} setup in AgentPay`,
-    summary: `AgentPay can take ${provider.label} from request to governed execution without a dashboard. The only remaining dependency is delegated auth or partnership support from the provider.`,
+    summary: provider.approvalHeadline ?? `AgentPay can take ${provider.label} from request to governed execution without a dashboard. The only remaining dependency is delegated auth or partnership support from the provider.`,
     audience: input.audience,
     authType: input.authType,
     resumeUrl: input.resumeUrl,
@@ -2042,6 +2069,8 @@ async function createProviderAccessAction(
         requestedProviderName: providerLabel,
         requestedDocsUrl,
         partnershipStatus,
+        setupHint: provider.setupHint,
+        proofHeadline: provider.proofHeadline,
       },
     },
     metadata: {
@@ -2050,6 +2079,8 @@ async function createProviderAccessAction(
       requestedProviderName: providerLabel,
       requestedDocsUrl,
       partnershipStatus,
+      setupHint: provider.setupHint,
+      proofHeadline: provider.proofHeadline,
     },
     expiresAt: new Date(Date.now() + 30 * 60 * 1000),
   });
@@ -2083,16 +2114,22 @@ async function createProviderAccessAction(
       docsUrl: requestedDocsUrl,
       baseUrl: provider.baseUrl,
       allowedHosts: provider.allowedHosts,
+      category: provider.category ?? 'generic',
+      partnershipStatus,
+      setupHint: provider.setupHint ?? null,
+      proofHeadline: provider.proofHeadline ?? null,
     },
     nextAction: {
       type: 'auth_required',
       title: `Finish ${provider.label} setup`,
-      summary: 'A human needs to connect the provider once in AgentPay. After that, agents can request governed execution through tool calls only.',
+      summary: provider.approvalHeadline ?? 'A human needs to connect the provider once in AgentPay. After that, agents can request governed execution through tool calls only.',
       displayPayload: {
         kind: 'capability_onboarding',
         onboardingUrl: onboardingUrl.toString(),
         partnershipStatus,
         requestedProviderName: providerLabel,
+        setupHint: provider.setupHint ?? null,
+        proofHeadline: provider.proofHeadline ?? null,
       },
     },
   };

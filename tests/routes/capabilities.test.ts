@@ -654,6 +654,9 @@ describe('capabilitiesRouter', () => {
     expect(body.nextAction.displayPayload.kind).toBe('capability_onboarding');
     expect(body.nextAction.displayPayload.walletStatus).toBe('missing');
     expect(body.nextAction.displayPayload.providers).toHaveLength(2);
+    expect(body.nextAction.displayPayload.providers[0].category).toBe('browser');
+    expect(body.nextAction.displayPayload.providers[0].partnershipStatus).toBe('flagship');
+    expect(body.nextAction.displayPayload.providers[1].proofHeadline).toContain('exact query');
     expect(body.nextAction.displayPayload.onboardingUrl).toContain('/api/capabilities/onboarding-sessions/action_session_onboarding/hosted?token=');
   });
 
