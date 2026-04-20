@@ -5,6 +5,7 @@ import { isMcpAccessToken } from '../lib/mcpAccessTokens';
 import {
   type CapabilitySubjectType,
   createCapabilityConnectSession,
+  findSubjectCapabilityAccess,
   getCapability,
   getCapabilityMetadata,
   getCapabilityConnectSession,
@@ -488,6 +489,140 @@ async function listPendingHostedActions(
   } finally {
     await sql.end().catch(() => {});
   }
+}
+
+type PendingCapabilityOnboardingAction = {
+  sessionId: string;
+  title: string;
+  summary: string | null;
+  resumeUrl: string | null;
+  expiresAt: string;
+  onboardingUrl: string | null;
+  partnershipStatus: string | null;
+  providerLabel: string | null;
+  capabilityKey: string | null;
+};
+
+async function findReusablePendingOnboardingAction(
+  env: Env,
+  input: {
+    merchantId: string;
+    subjectType: CapabilitySubjectType;
+    subjectRef: string;
+    provider: string;
+    capabilityKey: string;
+  },
+): Promise<PendingCapabilityOnboardingAction | null> {
+  const sql = createDb(env);
+  try {
+    const rows = await sql<Array<{
+      id: string;
+      title: string;
+      summary: string | null;
+      resume_url: string | null;
+      expires_at: Date;
+      display_payload_json: unknown;
+      metadata_json: unknown;
+    }>>`
+      SELECT id, title, summary, resume_url, expires_at, display_payload_json, metadata_json
+      FROM hosted_action_sessions
+      WHERE merchant_id = ${input.merchantId}::uuid
+        AND status = 'pending'
+        AND entity_type = 'capability_onboarding'
+      ORDER BY created_at DESC
+      LIMIT 20
+    `;
+
+    for (const row of rows) {
+      const displayPayload = parseJsonb<Record<string, unknown>>(row.display_payload_json, {});
+      if (asString(displayPayload.subjectType) !== input.subjectType) continue;
+      if (asString(displayPayload.subjectRef) !== input.subjectRef) continue;
+
+      const providers = Array.isArray(displayPayload.providers)
+        ? displayPayload.providers.filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value))
+        : [];
+      const matchedProvider = providers.find((provider) => {
+        const providerName = asString(provider.provider);
+        const providerCapabilityKey = asString(provider.capabilityKey);
+        return providerName === input.provider || providerCapabilityKey === input.capabilityKey;
+      });
+      if (!matchedProvider) continue;
+
+      const metadata = parseJsonb<Record<string, unknown>>(row.metadata_json, {});
+      const intake = asRecord(displayPayload.intake);
+      return {
+        sessionId: row.id,
+        title: row.title,
+        summary: row.summary,
+        resumeUrl: row.resume_url,
+        expiresAt: row.expires_at.toISOString(),
+        onboardingUrl: asString(displayPayload.onboardingUrl),
+        partnershipStatus: asString(intake?.partnershipStatus) ?? asString(metadata.partnershipStatus),
+        providerLabel: asString(matchedProvider.label) ?? asString(intake?.requestedProviderName),
+        capabilityKey: asString(matchedProvider.capabilityKey),
+      };
+    }
+
+    return null;
+  } catch {
+    return null;
+  } finally {
+    await sql.end().catch(() => {});
+  }
+}
+
+function buildRequestedProviderLabel(
+  body: Record<string, unknown>,
+  providerDefaults: ReturnType<typeof getCapabilityProviderDefaults>,
+): string {
+  return asString(body.requestedProviderName) ?? providerDefaults?.label ?? 'Requested API';
+}
+
+function buildRequestedCapabilityKey(
+  body: Record<string, unknown>,
+  providerLabel: string,
+): string {
+  return asString(body.capabilityKey)
+    ?? `${providerLabel.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'requested_api'}_primary`;
+}
+
+function buildRequestedProviderInput(
+  body: Record<string, unknown>,
+  env: Env,
+): HostedOnboardingProvider {
+  const requestedBaseUrl = asString(body.requestedBaseUrl);
+  const requestedAuthScheme = asString(body.requestedAuthScheme);
+  const requestedCredentialKind = asString(body.requestedCredentialKind);
+  const requestedProviderKey = asString(body.provider);
+  const normalizedProvider = requestedProviderKey ?? 'generic_rest_api';
+  const providerDefaults = getCapabilityProviderDefaults(normalizedProvider);
+  const providerLabel = buildRequestedProviderLabel(body, providerDefaults);
+  let fallbackAllowedHosts: string[] | undefined;
+  if (requestedBaseUrl) {
+    try {
+      fallbackAllowedHosts = [new URL(requestedBaseUrl).host];
+    } catch {
+      fallbackAllowedHosts = undefined;
+    }
+  }
+
+  return buildOnboardingProviderFromInput({
+    provider: normalizedProvider,
+    label: providerLabel,
+    capabilityKey: buildRequestedCapabilityKey(body, providerLabel),
+    baseUrl: requestedBaseUrl ?? providerDefaults?.defaultBaseUrl,
+    allowedHosts: Array.isArray(body.allowedHosts)
+      ? body.allowedHosts
+      : (fallbackAllowedHosts ?? providerDefaults?.allowedHosts),
+    authScheme: requestedAuthScheme ?? providerDefaults?.authScheme ?? 'bearer',
+    credentialKind: requestedCredentialKind ?? providerDefaults?.credentialKind ?? 'api_key',
+    freeCalls: typeof body.freeCalls === 'number' ? body.freeCalls : providerDefaults?.freeCalls ?? 0,
+    paidUnitPriceUsdMicros: typeof body.paidUnitPriceUsdMicros === 'number'
+      ? body.paidUnitPriceUsdMicros
+      : providerDefaults?.paidUnitPriceUsdMicros ?? 25_000,
+    description: asString(body.description) ?? `AgentPay intake for ${providerLabel}. If delegated auth is unavailable, AgentPay will vault the credential once and keep the secret out of agent context.`,
+    required: true,
+  }, env, new Set<string>());
 }
 
 function buildOnboardingProviderFromInput(
@@ -996,6 +1131,11 @@ router.get('/terminal/control-plane', async (c) => {
 
   const suggestedToolCalls = [
     {
+      tool: 'agentpay_resolve_provider_access',
+      endpoint: '/api/capabilities/access-resolve',
+      purpose: 'Resolve "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow.',
+    },
+    {
       tool: 'agentpay_create_onboarding_session',
       endpoint: '/api/capabilities/onboarding-sessions',
       purpose: 'Collect guardrails, funding preference, and one or more provider credentials in a single terminal-driven flow.',
@@ -1035,6 +1175,179 @@ router.get('/terminal/control-plane', async (c) => {
     providerCatalog: getCapabilityProviderCatalog(),
     suggestedToolCalls,
   });
+});
+
+router.post('/access-resolve', async (c) => {
+  const merchant = c.get('merchant');
+  const presentedToken = c.req.header('authorization') ?? c.req.header('x-api-key') ?? '';
+  const audience = c.get('mcpAudience') ?? 'generic';
+  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const subjectTypeValue = asString(body.subjectType);
+  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
+  const subjectRef = asString(body.subjectRef);
+  const resumeUrl = asString(body.resumeUrl);
+  const principalId = asString(body.principalId);
+  const operatorId = asString(body.operatorId);
+  if (!subjectType || !subjectRef) {
+    return c.json({ error: 'subjectType and subjectRef are required' }, 400);
+  }
+  if (resumeUrl && !isSafeHostedActionResumeUrl(resumeUrl)) {
+    return c.json({ error: 'resumeUrl must be a valid https URL or localhost URL' }, 400);
+  }
+
+  const requestedProviderName = asString(body.requestedProviderName);
+  const requestedProviderKey = asString(body.provider);
+  if (!requestedProviderName && !requestedProviderKey) {
+    return c.json({ error: 'requestedProviderName or provider is required' }, 400);
+  }
+
+  let requestedProvider: HostedOnboardingProvider;
+  try {
+    requestedProvider = buildRequestedProviderInput(body, c.env);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith('PROVIDER_INPUT_INVALID:') || msg === 'CAPABILITY_BASE_URL_INVALID' || msg === 'CAPABILITY_BASE_URL_INSECURE') {
+      return c.json({ error: 'requestedBaseUrl and auth details are required for unknown providers' }, 400);
+    }
+    if (msg === 'CAPABILITY_HOST_BLOCKED') {
+      return c.json({ error: 'Requested provider host is blocked by AgentPay network policy' }, 403);
+    }
+    return c.json({ error: 'Failed to normalize provider request' }, 500);
+  }
+
+  const existingCapability = await findSubjectCapabilityAccess(c.env, {
+    merchantId: merchant.id,
+    subjectType,
+    subjectRef,
+    provider: requestedProvider.provider,
+    capabilityKey: requestedProvider.capabilityKey,
+    statuses: ['active'],
+  }).catch(() => null);
+  const authorityProfile = principalId
+    ? await getAuthorityProfile(c.env, merchant.id, principalId).catch(() => null)
+    : null;
+
+  if (existingCapability) {
+    const policy = getCapabilityMetadata(existingCapability);
+    return c.json({
+      status: 'ready',
+      reusedExistingAccess: true,
+      continuity: {
+        mode: 'persistent_governed_access',
+        scope: {
+          subjectType,
+          subjectRef,
+        },
+        promise: 'The same workbench can reuse this governed capability without re-entering the credential.',
+      },
+      authorityProfile,
+      capability: {
+        id: existingCapability.id,
+        capabilityKey: existingCapability.capabilityKey,
+        provider: existingCapability.provider,
+        status: existingCapability.status,
+        baseUrl: policy.baseUrl,
+        allowedHosts: policy.allowedHosts,
+        freeCalls: policy.freeCalls,
+        paidUnitPriceUsdMicros: policy.paidUnitPriceUsdMicros,
+      },
+      nextAction: null,
+      execute: {
+        endpoint: `/api/capabilities/${existingCapability.id}/execute`,
+        method: 'POST',
+      },
+    });
+  }
+
+  const pendingOnboarding = await findReusablePendingOnboardingAction(c.env, {
+    merchantId: merchant.id,
+    subjectType,
+    subjectRef,
+    provider: requestedProvider.provider,
+    capabilityKey: requestedProvider.capabilityKey,
+  });
+  if (pendingOnboarding) {
+    return c.json({
+      status: 'auth_required',
+      reusedPendingAction: true,
+      continuity: {
+        mode: 'resume_existing_setup',
+        scope: {
+          subjectType,
+          subjectRef,
+        },
+        promise: 'A setup flow is already in progress for this workbench, so AgentPay is reusing it instead of asking again.',
+      },
+      authorityProfile,
+      actionSession: {
+        sessionId: pendingOnboarding.sessionId,
+        status: 'pending',
+        statusUrl: new URL(`/api/actions/${pendingOnboarding.sessionId}`, c.env.API_BASE_URL).toString(),
+      },
+      requestedProvider: {
+        provider: requestedProvider.provider,
+        label: pendingOnboarding.providerLabel ?? requestedProvider.label,
+        capabilityKey: pendingOnboarding.capabilityKey ?? requestedProvider.capabilityKey,
+        baseUrl: requestedProvider.baseUrl,
+        allowedHosts: requestedProvider.allowedHosts,
+      },
+      nextAction: {
+        type: 'auth_required',
+        title: pendingOnboarding.title,
+        summary: pendingOnboarding.summary ?? 'Finish the existing AgentPay setup once and the workbench will keep governed access for future runs.',
+        displayPayload: {
+          kind: 'capability_onboarding',
+          onboardingUrl: pendingOnboarding.onboardingUrl,
+          partnershipStatus: pendingOnboarding.partnershipStatus,
+          reusedPendingAction: true,
+          expiresAt: pendingOnboarding.expiresAt,
+        },
+      },
+    });
+  }
+
+  try {
+    const created = await createProviderAccessAction({
+      env: c.env,
+      merchant,
+      audience,
+      authType,
+      body,
+      subjectType,
+      subjectRef,
+      principalId,
+      operatorId,
+      resumeUrl,
+    });
+    return c.json({
+      ...created,
+      continuity: {
+        mode: 'new_setup_required',
+        scope: {
+          subjectType,
+          subjectRef,
+        },
+        promise: 'Once this setup is completed, the workbench can keep governed access and reuse it on future runs.',
+      },
+      authorityProfile,
+    }, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith('PROVIDER_INPUT_INVALID:') || msg === 'CAPABILITY_BASE_URL_INVALID' || msg === 'CAPABILITY_BASE_URL_INSECURE') {
+      return c.json({ error: 'requestedBaseUrl and auth details are required for unknown providers' }, 400);
+    }
+    if (msg === 'CAPABILITY_HOST_BLOCKED') {
+      return c.json({ error: 'Requested provider host is blocked by AgentPay network policy' }, 403);
+    }
+    return c.json({ error: 'Failed to resolve provider access' }, 500);
+  }
 });
 
 router.post('/onboarding-sessions', async (c) => {
@@ -1095,10 +1408,12 @@ router.post('/onboarding-sessions', async (c) => {
         || msg === 'CAPABILITY_BASE_URL_INSECURE'
         || msg === 'CAPABILITY_ALLOWED_HOST_INVALID'
       ) {
-        return c.json({ error: `Provider ${provider} has invalid network policy settings` }, 400);
+        const providerName = asString(providerBody?.provider) ?? 'requested provider';
+        return c.json({ error: `Provider ${providerName} has invalid network policy settings` }, 400);
       }
       if (msg === 'CAPABILITY_HOST_BLOCKED') {
-        return c.json({ error: `Provider ${provider} targets a blocked host` }, 403);
+        const providerName = asString(providerBody?.provider) ?? 'requested provider';
+        return c.json({ error: `Provider ${providerName} targets a blocked host` }, 403);
       }
       throw err;
     }
@@ -1231,112 +1546,79 @@ router.post('/onboarding-sessions', async (c) => {
   }
 });
 
-router.post('/provider-requests', async (c) => {
-  const merchant = c.get('merchant');
-  const presentedToken = c.req.header('authorization') ?? c.req.header('x-api-key') ?? '';
-  const audience = c.get('mcpAudience') ?? 'generic';
-  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
-  let body: Record<string, unknown>;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  const requestedProviderName = asString(body.requestedProviderName);
-  const requestedBaseUrl = asString(body.requestedBaseUrl);
-  const requestedDocsUrl = asString(body.requestedDocsUrl);
-  const requestedAuthScheme = asString(body.requestedAuthScheme);
-  const requestedCredentialKind = asString(body.requestedCredentialKind);
-  const requestedProviderKey = asString(body.provider);
-  const subjectTypeValue = asString(body.subjectType);
-  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
-  const subjectRef = asString(body.subjectRef);
-  const resumeUrl = asString(body.resumeUrl);
-  if (!subjectType || !subjectRef) {
-    return c.json({ error: 'subjectType and subjectRef are required' }, 400);
-  }
-  if (!requestedProviderName && !requestedProviderKey) {
-    return c.json({ error: 'requestedProviderName or provider is required' }, 400);
-  }
-  if (resumeUrl && !isSafeHostedActionResumeUrl(resumeUrl)) {
-    return c.json({ error: 'resumeUrl must be a valid https URL or localhost URL' }, 400);
-  }
-
-  const normalizedProvider = requestedProviderKey ?? 'generic_rest_api';
-  const providerDefaults = getCapabilityProviderDefaults(normalizedProvider);
-  const providerLabel = requestedProviderName ?? providerDefaults?.label ?? 'Requested API';
-  let fallbackAllowedHosts: string[] | undefined;
-  if (requestedBaseUrl) {
-    try {
-      fallbackAllowedHosts = [new URL(requestedBaseUrl).host];
-    } catch {
-      fallbackAllowedHosts = undefined;
-    }
-  }
-  const providerInput: Record<string, unknown> = {
-    provider: normalizedProvider,
-    label: providerLabel,
-    capabilityKey: asString(body.capabilityKey) ?? `${providerLabel.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'requested_api'}_primary`,
-    baseUrl: requestedBaseUrl ?? providerDefaults?.defaultBaseUrl,
-    allowedHosts: Array.isArray(body.allowedHosts)
-      ? body.allowedHosts
-      : (fallbackAllowedHosts ?? providerDefaults?.allowedHosts),
-    authScheme: requestedAuthScheme ?? providerDefaults?.authScheme ?? 'bearer',
-    credentialKind: requestedCredentialKind ?? providerDefaults?.credentialKind ?? 'api_key',
-    freeCalls: typeof body.freeCalls === 'number' ? body.freeCalls : providerDefaults?.freeCalls ?? 0,
-    paidUnitPriceUsdMicros: typeof body.paidUnitPriceUsdMicros === 'number' ? body.paidUnitPriceUsdMicros : providerDefaults?.paidUnitPriceUsdMicros ?? 25_000,
-    description: asString(body.description) ?? `AgentPay intake for ${providerLabel}. If delegated auth is unavailable, AgentPay will vault the credential once and keep the secret out of agent context.`,
-    required: true,
+async function createProviderAccessAction(
+  input: {
+    env: Env;
+    merchant: Variables['merchant'];
+    audience: string;
+    authType: string;
+    body: Record<string, unknown>;
+    subjectType: CapabilitySubjectType;
+    subjectRef: string;
+    principalId: string | null;
+    operatorId: string | null;
+    resumeUrl: string | null;
+  },
+): Promise<{
+  status: 'auth_required';
+  partnershipStatus: string;
+  actionSession: {
+    sessionId: string;
+    status: string;
+    statusUrl: string;
   };
-
-  let provider: HostedOnboardingProvider;
-  try {
-    provider = buildOnboardingProviderFromInput(providerInput, c.env, new Set<string>());
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.startsWith('PROVIDER_INPUT_INVALID:') || msg === 'CAPABILITY_BASE_URL_INVALID' || msg === 'CAPABILITY_BASE_URL_INSECURE') {
-      return c.json({ error: 'requestedBaseUrl and auth details are required for unknown providers' }, 400);
-    }
-    if (msg === 'CAPABILITY_HOST_BLOCKED') {
-      return c.json({ error: 'Requested provider host is blocked by AgentPay network policy' }, 403);
-    }
-    return c.json({ error: 'Failed to normalize provider request' }, 500);
-  }
-
-  const principalId = asString(body.principalId);
-  const operatorId = asString(body.operatorId);
-  const walletStatus = principalId
-    ? 'missing'
-    : 'missing';
+  requestedProvider: {
+    provider: string;
+    label: string;
+    capabilityKey: string;
+    docsUrl: string | null;
+    baseUrl: string;
+    allowedHosts: string[];
+  };
+  nextAction: {
+    type: 'auth_required';
+    title: string;
+    summary: string;
+    displayPayload: Record<string, unknown>;
+  };
+}> {
+  const requestedDocsUrl = asString(input.body.requestedDocsUrl);
+  const requestedProviderKey = asString(input.body.provider);
+  const provider = buildRequestedProviderInput(input.body, input.env);
+  const normalizedProvider = requestedProviderKey ?? 'generic_rest_api';
+  const partnershipStatus = normalizedProvider === 'generic_rest_api'
+    ? 'delegated_auth_needed'
+    : 'preset_available';
+  const providerLabel = buildRequestedProviderLabel(input.body, getCapabilityProviderDefaults(provider.provider));
+  const walletStatus = 'missing';
   const sessionToken = crypto.randomUUID();
   const sessionTokenHash = await sha256Hex(sessionToken);
-  const actionSession = await createHostedActionSession(c.env, {
-    merchant,
+  const actionSession = await createHostedActionSession(input.env, {
+    merchant: input.merchant,
     actionType: 'auth_required',
     entityType: 'capability_onboarding',
-    entityId: principalId ?? subjectRef,
+    entityId: input.principalId ?? input.subjectRef,
     title: `Finish ${provider.label} setup in AgentPay`,
     summary: `AgentPay can take ${provider.label} from request to governed execution without a dashboard. The only remaining dependency is delegated auth or partnership support from the provider.`,
-    audience,
-    authType,
-    resumeUrl,
+    audience: input.audience,
+    authType: input.authType,
+    resumeUrl: input.resumeUrl,
     displayPayload: {
-      subjectType,
-      subjectRef,
-      principalId,
-      operatorId,
-      contactEmail: asString(body.contactEmail),
-      contactName: asString(body.contactName),
-      preferredFundingRail: asString(body.preferredFundingRail) ?? 'card',
-      autonomyPolicy: typeof body.autonomyPolicy === 'object' && body.autonomyPolicy && !Array.isArray(body.autonomyPolicy) ? body.autonomyPolicy : {},
-      limits: typeof body.limits === 'object' && body.limits && !Array.isArray(body.limits) ? body.limits : {},
+      subjectType: input.subjectType,
+      subjectRef: input.subjectRef,
+      principalId: input.principalId,
+      operatorId: input.operatorId,
+      contactEmail: asString(input.body.contactEmail),
+      contactName: asString(input.body.contactName),
+      preferredFundingRail: asString(input.body.preferredFundingRail) ?? 'card',
+      autonomyPolicy: typeof input.body.autonomyPolicy === 'object' && input.body.autonomyPolicy && !Array.isArray(input.body.autonomyPolicy) ? input.body.autonomyPolicy : {},
+      limits: typeof input.body.limits === 'object' && input.body.limits && !Array.isArray(input.body.limits) ? input.body.limits : {},
       walletStatus,
       providers: [provider],
       intake: {
         requestedProviderName: providerLabel,
         requestedDocsUrl,
-        partnershipStatus: normalizedProvider === 'generic_rest_api' ? 'delegated_auth_needed' : 'preset_available',
+        partnershipStatus,
       },
     },
     metadata: {
@@ -1344,14 +1626,14 @@ router.post('/provider-requests', async (c) => {
       providerRequest: true,
       requestedProviderName: providerLabel,
       requestedDocsUrl,
-      partnershipStatus: normalizedProvider === 'generic_rest_api' ? 'delegated_auth_needed' : 'preset_available',
+      partnershipStatus,
     },
     expiresAt: new Date(Date.now() + 30 * 60 * 1000),
   });
 
-  const onboardingUrl = new URL(`/api/capabilities/onboarding-sessions/${actionSession.session.sessionId}/hosted`, c.env.API_BASE_URL);
+  const onboardingUrl = new URL(`/api/capabilities/onboarding-sessions/${actionSession.session.sessionId}/hosted`, input.env.API_BASE_URL);
   onboardingUrl.searchParams.set('token', sessionToken);
-  const hydrated = await syncHostedActionSession(c.env, {
+  const hydrated = await syncHostedActionSession(input.env, {
     sessionId: actionSession.session.sessionId,
     displayPayload: {
       onboardingUrl: onboardingUrl.toString(),
@@ -1363,9 +1645,9 @@ router.post('/provider-requests', async (c) => {
     },
   }).catch(() => actionSession.session);
 
-  return c.json({
+  return {
     status: 'auth_required',
-    partnershipStatus: normalizedProvider === 'generic_rest_api' ? 'delegated_auth_needed' : 'preset_available',
+    partnershipStatus,
     actionSession: {
       sessionId: hydrated.sessionId,
       status: hydrated.status,
@@ -1386,11 +1668,65 @@ router.post('/provider-requests', async (c) => {
       displayPayload: {
         kind: 'capability_onboarding',
         onboardingUrl: onboardingUrl.toString(),
-        partnershipStatus: normalizedProvider === 'generic_rest_api' ? 'delegated_auth_needed' : 'preset_available',
+        partnershipStatus,
         requestedProviderName: providerLabel,
       },
     },
-  }, 201);
+  };
+}
+
+router.post('/provider-requests', async (c) => {
+  const merchant = c.get('merchant');
+  const presentedToken = c.req.header('authorization') ?? c.req.header('x-api-key') ?? '';
+  const audience = c.get('mcpAudience') ?? 'generic';
+  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const requestedProviderName = asString(body.requestedProviderName);
+  const requestedProviderKey = asString(body.provider);
+  const subjectTypeValue = asString(body.subjectType);
+  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
+  const subjectRef = asString(body.subjectRef);
+  const resumeUrl = asString(body.resumeUrl);
+  if (!subjectType || !subjectRef) {
+    return c.json({ error: 'subjectType and subjectRef are required' }, 400);
+  }
+  if (!requestedProviderName && !requestedProviderKey) {
+    return c.json({ error: 'requestedProviderName or provider is required' }, 400);
+  }
+  if (resumeUrl && !isSafeHostedActionResumeUrl(resumeUrl)) {
+    return c.json({ error: 'resumeUrl must be a valid https URL or localhost URL' }, 400);
+  }
+
+  try {
+    const created = await createProviderAccessAction({
+      env: c.env,
+      merchant,
+      audience,
+      authType,
+      body,
+      subjectType,
+      subjectRef,
+      principalId: asString(body.principalId),
+      operatorId: asString(body.operatorId),
+      resumeUrl,
+    });
+    return c.json(created, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith('PROVIDER_INPUT_INVALID:') || msg === 'CAPABILITY_BASE_URL_INVALID' || msg === 'CAPABILITY_BASE_URL_INSECURE') {
+      return c.json({ error: 'requestedBaseUrl and auth details are required for unknown providers' }, 400);
+    }
+    if (msg === 'CAPABILITY_HOST_BLOCKED') {
+      return c.json({ error: 'Requested provider host is blocked by AgentPay network policy' }, 403);
+    }
+    return c.json({ error: 'Failed to normalize provider request' }, 500);
+  }
 });
 
 router.get('/billing/current', async (c) => {

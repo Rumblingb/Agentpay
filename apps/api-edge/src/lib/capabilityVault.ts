@@ -600,6 +600,51 @@ export async function getCapability(
   }
 }
 
+export async function findSubjectCapabilityAccess(
+  env: Env,
+  input: {
+    merchantId: string;
+    subjectType: CapabilitySubjectType;
+    subjectRef: string;
+    provider?: string | null;
+    capabilityKey?: string | null;
+    statuses?: CapabilityStatus[];
+  },
+): Promise<CapabilityVaultRecord | null> {
+  const sql = createDb(env);
+  try {
+    const statuses = input.statuses && input.statuses.length > 0
+      ? input.statuses
+      : ['active'];
+    const provider = input.provider?.trim() || null;
+    const capabilityKey = input.capabilityKey?.trim() || null;
+    const rows = await sql<CapabilityVaultRow[]>`
+      SELECT *
+      FROM capability_vault_entries
+      WHERE merchant_id = ${input.merchantId}::uuid
+        AND subject_type = ${input.subjectType}
+        AND subject_ref = ${input.subjectRef}
+        AND status = ANY(${statuses}::text[])
+        AND (
+          ${provider}::text IS NULL
+          OR provider = ${provider}
+          OR capability_scope = ${provider}
+        )
+        AND (
+          ${capabilityKey}::text IS NULL
+          OR capability_key = ${capabilityKey}
+        )
+      ORDER BY
+        CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+        updated_at DESC
+      LIMIT 1
+    `;
+    return rows[0] ? mapCapabilityRow(rows[0]) : null;
+  } finally {
+    await sql.end().catch(() => {});
+  }
+}
+
 export async function retrieveCapabilitySecret(
   env: Env,
   merchantId: string,

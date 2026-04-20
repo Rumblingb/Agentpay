@@ -10,11 +10,14 @@ The product surface is:
 2. AgentPay decides whether it already has authority and a credential path.
 3. Human only appears when AgentPay needs one-time setup, approval, funding, or OTP.
 4. Agent resumes the exact blocked action.
+5. The same workbench reuses governed access on future runs instead of asking again.
 
 Everything else should be readable and operable through tool calls.
 
 ## Canonical Tool-Call Surfaces
 
+- `POST /api/capabilities/access-resolve`
+  - resolves "my agent needs this API" into existing governed access, a reusable pending setup, or a new AgentPay onboarding flow
 - `GET /api/capabilities/terminal/control-plane`
   - terminal-native read model for authority, pending actions, billing, capabilities, and next tool calls
 - `POST /api/capabilities/provider-requests`

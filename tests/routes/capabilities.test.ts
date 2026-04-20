@@ -1206,7 +1206,137 @@ describe('capabilitiesRouter', () => {
     expect(body.capabilities).toHaveLength(1);
     expect(body.pendingActions).toHaveLength(1);
     expect(body.authorityProfile.walletStatus).toBe('ready');
-    expect(body.suggestedToolCalls).toHaveLength(3);
+    expect(body.suggestedToolCalls).toHaveLength(4);
+    expect(body.suggestedToolCalls[0].tool).toBe('agentpay_resolve_provider_access');
+  });
+
+  it('reuses existing governed access for the same workbench', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'cap_databento',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          capability_key: 'databento_primary',
+          capability_type: 'external_api',
+          capability_scope: 'databento',
+          provider: 'databento',
+          subject_type: 'workspace',
+          subject_ref: 'workbench_1',
+          status: 'active',
+          secret_payload_json: {},
+          metadata: {
+            authScheme: 'bearer',
+            credentialKind: 'api_key',
+            baseUrl: 'https://hist.databento.com/v0',
+            allowedHosts: ['hist.databento.com'],
+            scopes: [],
+            freeCalls: 3,
+            paidUnitPriceUsdMicros: 75000,
+          },
+          expires_at: null,
+          revoked_at: null,
+          last_used_at: new Date('2026-04-16T12:02:00.000Z'),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:02:00.000Z'),
+        },
+      ]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'authority_1',
+          merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+          principal_id: 'principal_1',
+          operator_id: 'operator_1',
+          status: 'active',
+          wallet_status: 'ready',
+          preferred_funding_rail: 'card',
+          default_payment_method_type: 'card',
+          default_payment_reference: 'pm_1',
+          contact_email: 'rajiv_baskaran@agentpay.so',
+          contact_name: 'Rajiv Baskaran',
+          autonomy_policy_json: JSON.stringify({ autoApproveUsd: 5 }),
+          limits_json: JSON.stringify({ dailyUsd: 50 }),
+          metadata_json: JSON.stringify({}),
+          created_at: new Date('2026-04-16T12:00:00.000Z'),
+          updated_at: new Date('2026-04-16T12:02:00.000Z'),
+        },
+      ]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/access-resolve', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          provider: 'databento',
+          subjectType: 'workspace',
+          subjectRef: 'workbench_1',
+          principalId: 'principal_1',
+          operatorId: 'operator_1',
+        }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('ready');
+    expect(body.reusedExistingAccess).toBe(true);
+    expect(body.capability.provider).toBe('databento');
+    expect(body.continuity.mode).toBe('persistent_governed_access');
+    expect(body.execute.endpoint).toBe('/api/capabilities/cap_databento/execute');
+  });
+
+  it('reuses a pending onboarding flow for the same workbench and provider', async () => {
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[]]))
+      .mockImplementationOnce(() => makeSql([[
+        {
+          id: 'action_session_reuse',
+          title: 'Finish Databento setup in AgentPay',
+          summary: 'Complete setup once and keep governed access for this workbench.',
+          resume_url: 'https://host.example.com/resume',
+          expires_at: new Date('2099-04-16T12:30:00.000Z'),
+          display_payload_json: JSON.stringify({
+            subjectType: 'workspace',
+            subjectRef: 'workbench_1',
+            onboardingUrl: 'http://agentpay.test/api/capabilities/onboarding-sessions/action_session_reuse/hosted?token=reuse-token',
+            providers: [
+              {
+                provider: 'databento',
+                label: 'Databento',
+                capabilityKey: 'databento_primary',
+              },
+            ],
+            intake: {
+              partnershipStatus: 'preset_available',
+            },
+          }),
+          metadata_json: JSON.stringify({
+            partnershipStatus: 'preset_available',
+          }),
+        },
+      ]]));
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/access-resolve', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          provider: 'databento',
+          subjectType: 'workspace',
+          subjectRef: 'workbench_1',
+        }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('auth_required');
+    expect(body.reusedPendingAction).toBe(true);
+    expect(body.actionSession.sessionId).toBe('action_session_reuse');
+    expect(body.nextAction.displayPayload.onboardingUrl).toContain('/api/capabilities/onboarding-sessions/action_session_reuse/hosted?token=');
   });
 
   it('creates a provider request intake for unknown APIs', async () => {
