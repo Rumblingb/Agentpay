@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+interval="${1:-10}"
+bill_outbox="/Users/baskar_viji/.openclaw/workspace-bill/OUTBOX.md"
+agency_outbox="/Users/baskar_viji/.openclaw/workspace-agency-os/OUTBOX.md"
+summary_dir="/Users/baskar_viji/.openclaw/workspace-bill/memory"
+while true; do
+  clear
+  date '+%Y-%m-%d %H:%M:%S %Z'
+  echo
+  echo '=== Bill OUTBOX ==='
+  tail -n 20 "$bill_outbox" 2>/dev/null || true
+  echo
+  echo '=== Agency OS OUTBOX ==='
+  tail -n 20 "$agency_outbox" 2>/dev/null || true
+  echo
+  latest=$(find "$summary_dir" -maxdepth 1 -name 'native-prediction-loop-*' | sort | tail -n 1)
+  echo '=== Latest Bill Summary ==='
+  if [[ -n "$latest" ]]; then
+    tail -n 20 "$latest"
+  else
+    echo 'none'
+  fi
+  sleep "$interval"
+done
