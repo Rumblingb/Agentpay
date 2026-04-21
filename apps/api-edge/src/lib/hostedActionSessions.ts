@@ -479,8 +479,9 @@ export function buildHostedActionResumeRedirect(
     }
     const workbench = resultPayload.workbench;
     if (typeof workbench === 'object' && workbench !== null) {
-      const workbenchId = typeof (workbench as Record<string, unknown>).workbenchId === 'string'
-        ? (workbench as Record<string, unknown>).workbenchId
+      const workbenchRecord = workbench as Record<string, unknown>;
+      const workbenchId = typeof workbenchRecord.workbenchId === 'string'
+        ? workbenchRecord.workbenchId
         : null;
       if (workbenchId) {
         redirect.searchParams.set('agentpayWorkbenchId', workbenchId);

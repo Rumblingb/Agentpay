@@ -1,8 +1,8 @@
 import { createDb } from './db';
 import type { Env } from '../types';
 
-export type ProductSignalAudience = 'openai' | 'anthropic' | 'generic';
-export type ProductSignalAuthType = 'api_key' | 'mcp_token' | 'none';
+export type ProductSignalAudience = 'openai' | 'anthropic' | 'generic' | 'workbench';
+export type ProductSignalAuthType = 'api_key' | 'mcp_token' | 'none' | 'workbench_lease';
 export type ProductSignalSurface = 'mcp' | 'capabilities' | 'payments' | 'billing' | 'webhooks' | 'admin';
 
 export interface ProductSignalEventInput {
