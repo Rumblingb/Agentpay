@@ -36,6 +36,7 @@ import postgres from 'postgres';
 import type { Env } from '../types';
 
 export type Sql = ReturnType<typeof postgres>;
+export type DbEnv = Pick<Env, 'DATABASE_URL' | 'HYPERDRIVE'>;
 
 /**
  * Creates a postgres.js client for the current Workers invocation.
@@ -45,7 +46,7 @@ export type Sql = ReturnType<typeof postgres>;
  */
 
 
-export function createDb(env: Env): Sql {
+export function createDb(env: DbEnv): Sql {
   const hyperdrive = env.HYPERDRIVE?.connectionString;
 
   const connectionString = hyperdrive ?? env.DATABASE_URL;

@@ -24,7 +24,11 @@ import {
   buildCapabilityUsageInvoiceSummary,
   createCapabilityUsageInvoiceCheckout,
 } from '../lib/mcpInvoices';
-import { recordProductSignalEvent } from '../lib/productSignals';
+import {
+  recordProductSignalEvent,
+  type ProductSignalAudience,
+  type ProductSignalAuthType,
+} from '../lib/productSignals';
 import {
   buildHostedActionResumeRedirect,
   createHostedActionSession,
@@ -477,7 +481,7 @@ function parsePositiveNumber(value: string | null): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function parseCheckboxValue(value: FormDataEntryValue | null): boolean {
+function parseCheckboxValue(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   return value === 'on' || value === 'true' || value === '1';
 }
@@ -2078,6 +2082,10 @@ async function createProviderAccessAction(
     docsUrl: string | null;
     baseUrl: string;
     allowedHosts: string[];
+    category?: string;
+    partnershipStatus?: string | null;
+    setupHint?: string | null;
+    proofHeadline?: string | null;
   };
   nextAction: {
     type: 'auth_required';
@@ -2558,8 +2566,8 @@ async function executeCapabilityRequest(input: {
   merchant: MerchantContext;
   capabilityId: string;
   body: Record<string, unknown>;
-  audience: string;
-  authType: string;
+  audience: ProductSignalAudience;
+  authType: ProductSignalAuthType;
   authorizationHeader?: string | null;
   xApiKeyHeader?: string | null;
   leaseContext?: {
@@ -2874,9 +2882,7 @@ async function executeCapabilityRequest(input: {
       audience: input.audience,
       authType: input.authType,
       surface: 'capabilities',
-      signalType: result.status === 'approval_required'
-        ? 'capability_next_action_returned'
-        : 'capability_execution_completed',
+      signalType: 'capability_execution_completed',
       status: result.status,
       requestId: asString(input.body.requestId),
       entityType: 'capability',
@@ -2887,7 +2893,7 @@ async function executeCapabilityRequest(input: {
         billable: result.usage.billable,
         usedCalls: result.usage.usedCalls,
         freeCalls: result.usage.freeCalls,
-        nextActionType: result.status === 'approval_required' ? result.nextAction.type : null,
+        nextActionType: null,
         leaseId: input.leaseContext?.leaseId ?? null,
       },
     });
