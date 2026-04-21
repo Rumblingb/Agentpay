@@ -1,3 +1,4 @@
+import type { Env } from '../types';
 import { createDb, parseJsonb, type Sql } from './db';
 
 export type AuthorityProfileStatus = 'active' | 'revoked' | 'paused';
@@ -21,6 +22,8 @@ type AuthorityProfileRow = {
   created_at: Date;
   updated_at: Date;
 };
+
+type DbEnv = Pick<Env, 'DATABASE_URL' | 'HYPERDRIVE'>;
 
 export type AuthorityProfileView = {
   id: string;
@@ -75,7 +78,7 @@ function memoryKey(merchantId: string, principalId: string): string {
 }
 
 export async function getAuthorityProfile(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   merchantId: string,
   principalId: string,
 ): Promise<AuthorityProfileView | null> {
@@ -99,7 +102,7 @@ export async function getAuthorityProfile(
 }
 
 export async function upsertAuthorityProfile(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   input: {
     merchantId: string;
     principalId: string;
