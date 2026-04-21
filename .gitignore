@@ -25,14 +25,17 @@ lcov.info
 output.txt
 test-output.txt
 *.log
+.tmp/
+.expo/
+image-vid/
 
 # IDE configuration
 .idea/
 .vscode/
 dist/
 
-Agentpay/
-Agentpay_backup/
+/Agentpay/
+/Agentpay_backup/
 coverage/
 dist/
 .idea/
@@ -40,6 +43,7 @@ dist/
 # Cloudflare Workers — apps/api-edge
 apps/api-edge/node_modules/
 apps/api-edge/.wrangler/
+apps/api-edge/.expo/
 # Local dev secrets — never commit
 apps/api-edge/.dev.vars
 
@@ -66,7 +70,6 @@ backups/
 **/backups/
 sensitive_backup_*
 **/sensitive_backup_*
-docs/archive/
 
 # Additional secret file patterns
 .env.test
@@ -82,7 +85,6 @@ docs/internal/
 docs/FOUNDER_COMMAND_CENTER.md
 core-private/
 ops/command-center/
-ops/mac-mini/
 scripts/bootstrap-command-center.ps1
 scripts/command-center-doctor.ps1
 scripts/generate-command-center.mjs
@@ -90,6 +92,27 @@ scripts/generate-command-center.mjs
 .claude/settings.local.json
 .claude/worktrees/
 audit/weekly-report.md
+
+# Intentionally versioned operator/runtime surfaces
+!ops/mac-mini/
+!ops/mac-mini/**
+
+# Growth runtime artifacts
+ops/growth/drafts/community-latest.md
+ops/growth/drafts/community-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+ops/growth/drafts/content-latest.md
+ops/growth/drafts/content-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+ops/growth/drafts/outbound-latest.md
+ops/growth/drafts/outbound-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+ops/growth/outbound/latest-summary.md
+ops/growth/outbound/sent-log.json
+ops/growth/outbound/sent-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].json
+ops/growth/reports/weekly-latest.md
+ops/growth/reports/weekly-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+ops/growth/research/patterns-latest.md
+ops/growth/research/patterns-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+ops/growth/signals/latest.json
+ops/growth/signals/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].json
 
 dist/
 *.err

@@ -27,3 +27,4 @@ Operating rules:
 - Human review stays in the loop for outbound and community posting.
 - Keep the message on the wedge: one OTP, zero API keys, governed paid execution.
 - Do not lead with Ace or RCM on public growth surfaces while the infrastructure wedge is the acquisition engine.
+- Generated snapshots, queues, and send logs are runtime artifacts. Keep curated strategy docs and templates in Git; let volatile daily outputs stay local.
