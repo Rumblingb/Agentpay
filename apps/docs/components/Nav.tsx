@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 const links = [
   { href: '/',            label: 'Overview'    },
   { href: '/quickstart',  label: 'Quickstart'  },
+  { href: '/mcp',         label: 'MCP Tools'   },
+  { href: '/examples',    label: 'Examples'    },
   { href: '/adapters',    label: 'Adapters'    },
   { href: '/passport',    label: 'AgentPassport' },
   { href: '/pricing',     label: 'Pricing'     },

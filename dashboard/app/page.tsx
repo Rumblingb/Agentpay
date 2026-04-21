@@ -1,289 +1,496 @@
-
 "use client";
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import demo from './_lib/demoData';
-import DesignSystem from './_components/DesignSystem';
-import EconomyTicker from './_components/EconomyTicker';
+import Link from "next/link";
+import { useState } from "react";
 
-const STATE_TO_UI_STATUS: Record<string, string> = {
-  I: 'Pending',
-  A: 'Pending',
-  L: 'Active',
-  X: 'Active',
-  C: 'Active',
-  R: 'Completed',
-  U: 'Completed',
-  F: 'Failed',
-  D: 'Disputed',
-};
+const PILLARS = [
+  {
+    label: "Capability Vault",
+    headline: "Zero API keys in agent context",
+    body: "Users approve one hosted connect flow. AgentPay vaults Firecrawl, Perplexity, OpenAI, and other upstream credentials so the raw key never enters the prompt loop.",
+    tool: "agentpay_request_capability_connect",
+  },
+  {
+    label: "Governed Mandates",
+    headline: "Agents that spend within limits",
+    body: "Your agent proposes the action, budget cap, and approval threshold. The human approves once. AgentPay enforces the policy on every subsequent step.",
+    tool: "agentpay_create_mandate",
+  },
+  {
+    label: "Settlement",
+    headline: "Payment recovery and receipts built in",
+    body: "Collect card or UPI funding, execute the action, and return a verifiable receipt. The host sees a clean workflow instead of bespoke payment plumbing.",
+    tool: "agentpay_create_human_funding_request",
+  },
+];
 
-function normalizeSpawnResponse(resp: any) {
-  const state = resp?.state ?? resp?.status ?? 'U';
-  const uiStatus = resp?.uiStatus ?? STATE_TO_UI_STATUS[state] ?? 'Pending';
-  const agentRaw = resp?.agent ?? {};
-  const agent = {
-    id: agentRaw.id ?? null,
-    name: agentRaw.name ?? agentRaw.displayName ?? null,
-    role: agentRaw.role ?? agentRaw.operatorId ?? 'agent',
-    services: agentRaw.services ?? [],
-    trust_score: agentRaw.trust_score ?? agentRaw.trust ?? 0,
-    txn_count: agentRaw.txn_count ?? agentRaw.txCount ?? 0,
-    success_rate: agentRaw.success_rate ?? agentRaw.successRate ?? 1,
-    created_at: agentRaw.created_at ?? agentRaw.createdAt ?? new Date().toISOString(),
-  };
+const STEPS = [
+  {
+    step: "01",
+    title: "Install the MCP server",
+    detail: "Add AgentPay to Claude Desktop or any MCP host with one command and one API key.",
+  },
+  {
+    step: "02",
+    title: "Connect paid capabilities once",
+    detail: "When the agent needs Firecrawl, Perplexity, or another upstream service, AgentPay opens the hosted connect flow and vaults the credential.",
+  },
+  {
+    step: "03",
+    title: "Approve the mandate",
+    detail: "The agent proposes the action and budget. The human approves once. Policy is locked before execution starts.",
+  },
+  {
+    step: "04",
+    title: "Let the agent finish",
+    detail: "AgentPay enforces the budget, runs the action, and returns the settlement and receipt trail the developer needs.",
+  },
+];
 
-  const feedEvent = resp?.feedEvent ?? null;
+const SHIP_THIS_WEEK = [
+  {
+    title: "Paid research agent",
+    detail:
+      "Give Claude or GPT a governed path to browse, scrape, and summarize without storing the user's Firecrawl key in the prompt loop.",
+  },
+  {
+    title: "Zero-key browsing copilot",
+    detail:
+      "Ship Browserbase or Firecrawl access through AgentPay instead of telling every user to manage their own upstream credentials and billing.",
+  },
+  {
+    title: "Chat-native checkout",
+    detail:
+      "Create a funding request in chat, collect payment, and let the agent continue the workflow without tab switching or manual settlement glue.",
+  },
+];
 
-  return {
-    transactionId: resp?.transactionId ?? resp?.intentId ?? null,
-    amount: resp?.amount ?? resp?.value ?? 0,
-    receiptSvg: resp?.receiptSvg ?? null,
-    message: resp?.message ?? null,
-    state,
-    uiStatus,
-    agent,
-    feedEvent,
-    raw: resp,
-  };
-}
+const LIVE_SURFACES = [
+  { label: "Docs", value: "docs.agentpay.so", href: "https://docs.agentpay.so" },
+  { label: "Quickstart", value: "MCP in 2 minutes", href: "https://docs.agentpay.so/quickstart" },
+  { label: "Remote MCP", value: "api.agentpay.so/api/mcp", href: "https://api.agentpay.so/api/mcp" },
+  { label: "npm", value: "@agentpayxyz/mcp-server", href: "https://www.npmjs.com/package/@agentpayxyz/mcp-server" },
+];
 
-export default function PremiumHome() {
-  const [events, setEvents] = useState(() => demo.getSeedEvents().slice(0, 4));
-  const [passports, setPassports] = useState(() => demo.SAMPLE_PASSPORTS.filter((p) => p.name === 'TravelAgent' || p.name === 'FlightAgent'));
-  const [spawnResult, setSpawnResult] = useState<any>(null);
-  const institutions = useMemo(() => demo.CONSTITUTIONAL_AGENTS.filter((i) => ['TrustOracle', 'SettlementGuardian', 'AgentPassport', 'NetworkObserver'].includes(i.name)), []);
-  const isProd = process.env.NODE_ENV === 'production';
+const PROMPTS = [
+  'Connect Firecrawl without exposing the raw API key to the agent.',
+  'Create a governed mandate to scrape this site with a $5 budget cap.',
+  'Create a funding request so the human can pay without leaving the chat.',
+];
 
-  return (
-    <div style={{ background: 'var(--bg, #050607)', color: 'var(--fg, #F5F7FA)', minHeight: '100vh', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
-      <DesignSystem />
-      <style>
-        {`@keyframes pulse { 0% { opacity: .4; transform: scale(.9); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: .4; transform: scale(.9); } }
-        .live-dot{ width:8px; height:8px; border-radius:50%; background:#22C55E; box-shadow:0 0 8px rgba(34,197,94,0.18); display:inline-block; margin-right:8px; animation:pulse 2000ms infinite; }
-        .hero-bg { background: radial-gradient(600px circle at 50% 10%, rgba(34,197,94,0.08), transparent 60%); }
-        .hero-title{ max-width: unset; }
-        .card{ transition: transform .18s ease, box-shadow .18s ease; }
-        .card:hover{ transform: translateY(-3px); box-shadow: 0 12px 36px rgba(2,6,23,0.5); }
-        .card-actor { font-size: 12px; color: #9aa4af; font-family: Fira Code, monospace; }
-        .card-title { font-size: 16px; font-weight: 700; color: #f5f7fa; }
-        .card-meta { font-size: 12px; color: #8a949e; }
-        .trust-score { text-shadow: 0 0 12px rgba(34,197,94,0.35); }
-        /* Hide Next.js dev badges / issue overlays on homepage screenshots */
-        [data-next-badge-root], [data-next-badge], [data-issues], [data-issues-open], [data-issues-count], .segment-explorer-footer-badge { display: none !important; }
-        @media (max-width:640px){ .hero-title{ max-width:18ch; margin-left:auto; margin-right:auto; } .home-top-strip{display:none !important} }
-        `}
-      </style>
-      {isProd && <style>{`.dev-badge{display:none !important}`}</style>}
-      <EconomyTicker />
+export default function Home() {
+  const [copied, setCopied] = useState(false);
 
-      <main style={{ maxWidth: 1200, margin: '48px auto', padding: '0 20px' }}>
-        {/* Premium hero */}
-        <section className="hero-bg" style={{ textAlign: 'center', padding: '72px 12px 40px' }}>
-          <h1 className="hero-title" style={{ fontSize: 44, margin: 0, fontWeight: 900, color: '#F5F7FA', letterSpacing: -0.6 }}>The First Agentic Exchange</h1>
-          <p style={{ color: '#9AA4AF', maxWidth: 840, margin: '18px auto 0', fontSize: 18, lineHeight: 1.5 }}>
-            A curated economy where agents transact with agents and humans, while AgentPassport and cross-network trust turn every interaction into standing.
-          </p>
-          <div style={{ marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>TravelAgent → FlightAgent · Trust checked · Settlement controlled · Standing updated</div>
-
-          <div style={{ marginTop: 28, display: 'flex', gap: 14, justifyContent: 'center' }}>
-            <Link href="/network" style={{ background: '#22C55E', color: '#050607', padding: '12px 22px', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>Enter the Exchange</Link>
-            <Link href="/docs" style={{ border: '1px solid #1B2630', color: '#9AA4AF', padding: '10px 18px', borderRadius: 10, textDecoration: 'none' }}>Read the Protocol</Link>
-            <SpawnButton setEvents={setEvents} setPassports={setPassports} setSpawnResult={setSpawnResult} />
-          </div>
-          <div style={{ marginTop: 18, maxWidth: 800, marginLeft: 'auto', marginRight: 'auto', textAlign: 'center' }}>
-            {spawnResult ? (
-              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-start' }}>
-                <div dangerouslySetInnerHTML={{ __html: spawnResult.receiptSvg ?? '' }} />
-                <div style={{ color: '#9AA4AF', textAlign: 'left' }}>
-                  <div style={{ fontWeight: 700, color: '#F5F7FA' }}>{spawnResult.agent?.name ?? 'New Agent'}</div>
-                  <div style={{ marginTop: 6 }}>Trust: <strong style={{ color: '#F5F7FA' }}>{spawnResult.agent?.trust_score ?? '—'}</strong></div>
-                  <div style={{ marginTop: 8, fontSize: 13 }}>{spawnResult.message ?? ''} {spawnResult.uiStatus ? `· ${spawnResult.uiStatus}` : ''}</div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        {/* Live Exchange - compact premium cards */}
-        <section aria-labelledby="live-exchange" style={{ marginTop: 28 }}>
-          <h2 id="live-exchange" style={{ margin: '0 0 12px 0', fontSize: 16, color: '#F5F7FA' }}>Live Exchange</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, maxWidth: 720 }}>
-            {events.map((e: any) => (
-              <CompactEvent key={e.id} e={e} />
-            ))}
-          </div>
-        </section>
-
-        {/* Premium AgentPassport section - exactly two cards */}
-        <section aria-labelledby="passports" style={{ marginTop: 36 }}>
-          <h2 id="passports" style={{ margin: '0 0 12px 0', fontSize: 16, color: '#F5F7FA' }}>AgentPassports</h2>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'nowrap', alignItems: 'stretch' }}>
-            {passports.map((p: any) => (
-              <PremiumPassport key={p.id} p={p} />
-            ))}
-          </div>
-        </section>
-
-        {/* Constitutional layer (once) */}
-        <section aria-labelledby="institutions" style={{ marginTop: 36 }}>
-          <h2 id="institutions" style={{ margin: '0 0 12px 0', fontSize: 14, color: '#F5F7FA' }}>Founding Institutions</h2>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {institutions.map((a: any) => (
-              <InstitutionCard key={a.id} a={a} />
-            ))}
-          </div>
-        </section>
-
-        {/* Minimal footer CTA */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 44, alignItems: 'center' }}>
-          <Link href="/network" style={{ background: '#22C55E', color: '#050607', padding: '12px 22px', borderRadius: 10, fontWeight: 700, textDecoration: 'none' }}>Enter the Exchange</Link>
-          <Link href="/docs" style={{ border: '1px solid #1B2630', color: '#9AA4AF', padding: '10px 16px', borderRadius: 10, textDecoration: 'none' }}>Read the Protocol</Link>
-        </div>
-
-        <footer style={{ marginTop: 18, textAlign: 'center', color: '#9AA4AF', fontSize: 12 }}>© {new Date().getFullYear()} AgentPay — a living protocol</footer>
-      </main>
-    </div>
-  );
-}
-
-function SpawnButton({ setEvents, setPassports, setSpawnResult }: { setEvents: any; setPassports: any; setSpawnResult: any }) {
-  async function handleSpawn() {
-    try {
-      // show loading state
-      setSpawnResult({ loading: true });
-
-      const res = await fetch('/api/demo/spawn', { method: 'POST' });
-      if (!res.ok) throw new Error('Spawn failed');
-      const data = await res.json();
-
-      const norm = normalizeSpawnResponse(data);
-
-      // show normalized receipt and agent info
-      setSpawnResult(norm);
-
-      // prefer feedEvent from backend
-      const ev = norm.feedEvent
-        ? {
-            id: norm.feedEvent.id ?? `feed-${Date.now()}`,
-            title: 'Demo Transaction',
-            detail: norm.message ?? 'Agent executed demo transaction',
-            agents: [norm.agent.name, 'SettlementGuardian'],
-            value: norm.amount ?? 0,
-            txId: norm.transactionId ?? null,
-            at: Date.parse(norm.feedEvent.timestamp) || Date.now(),
-          }
-        : {
-            id: norm.transactionId ?? `demo-${Date.now()}`,
-            title: 'Demo Transaction',
-            detail: norm.message ?? 'Agent executed demo transaction',
-            agents: [norm.agent.name, 'SettlementGuardian'],
-            value: norm.amount ?? 0,
-            txId: norm.transactionId ?? null,
-            at: Date.now(),
-          };
-
-      setEvents((prev: any[]) => [ev, ...prev].slice(0, 8));
-
-      // update passport/trust display using canonical agent fields
-      if (norm?.agent) {
-        setPassports((prev: any[]) => {
-          const found = prev.find((p) => p.id === norm.agent.id || p.name === norm.agent.name);
-          if (found) {
-            return prev.map((p) =>
-              p.id === found.id || p.name === found.name
-                ? { ...p, trust: norm.agent.trust_score ?? p.trust, recent: [(norm.message ?? 'Settlement released'), ...((p.recent || []).slice(0, 4))], txCount: (p.txCount || 0) + (norm.agent.txn_count ?? 1) }
-                : p
-            );
-          }
-          return [
-            {
-              id: norm.agent.id ?? `agent:${Date.now()}`,
-              name: norm.agent.name ?? 'Agent',
-              trust: norm.agent.trust_score ?? 80,
-              grade: 'A',
-              reliability: Math.round((norm.agent.success_rate ?? 1) * 100),
-              txCount: norm.agent.txn_count ?? 1,
-              volume: norm.amount ?? 0,
-              recent: [norm.message ?? 'Demo settlement'],
-            },
-            ...prev,
-          ].slice(0, 6);
-        });
-      }
-    } catch (err) {
-      setSpawnResult({ error: String(err) });
-    }
+  function copyNpx() {
+    navigator.clipboard.writeText("npx -y @agentpayxyz/mcp-server").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   return (
-    <button onClick={() => handleSpawn()} style={{ background: 'transparent', color: '#9AA4AF', padding: '10px 18px', borderRadius: 10, border: '1px dashed #2A3942', cursor: 'pointer' }}>Spawn Agent</button>
-  );
-}
+    <div
+      style={{
+        background:
+          "radial-gradient(circle at top left, rgba(34,197,94,0.14), transparent 26%), radial-gradient(circle at top right, rgba(56,189,248,0.10), transparent 24%), linear-gradient(180deg, #040506 0%, #071018 100%)",
+        color: "#F5F7FA",
+        minHeight: "100vh",
+        fontFamily: "Inter, system-ui, -apple-system, sans-serif",
+      }}
+    >
+      <style>{`
+        *, *::before, *::after { box-sizing: border-box; margin: 0; }
+        a { text-decoration: none; }
+        code, pre { font-family: 'Fira Code', 'JetBrains Mono', monospace; }
 
+        .nav-link { color: #9AA4AF; font-size: 14px; transition: color 0.15s; }
+        .nav-link:hover { color: #F5F7FA; }
 
-// Compact, readable event presentation designed for the homepage
-function CompactEvent({ e }: { e: any }) {
-  const actorPair = (e.agents || []).slice(0, 2).join(' → ');
-  const meta = [];
-  if (e.txId) meta.push('Tx');
-  if (e.value) meta.push(`$${Number(e.value).toFixed(2)}`);
-  if (e.trust) meta.push(String(e.trust));
+        .btn-primary {
+          background: linear-gradient(135deg, #22C55E 0%, #14B8A6 100%);
+          color: #04110A;
+          padding: 12px 22px;
+          border-radius: 12px;
+          font-weight: 800;
+          font-size: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: opacity 0.15s;
+          cursor: pointer;
+        }
+        .btn-primary:hover { opacity: 0.9; }
 
-  return (
-    <div className="panel-glass card flex justify-between gap-3 items-center" style={{ transition: 'transform 160ms ease' }}>
-      <div style={{ minWidth: 0 }}>
-        <div className="card-actor">{actorPair}</div>
-        <div className="card-title" style={{ marginTop: 6 }}>{e.title}</div>
-        <div className="card-meta" style={{ marginTop: 6 }}>{e.detail}</div>
-      </div>
+        .btn-secondary {
+          border: 1px solid rgba(77, 92, 108, 0.34);
+          color: #D5DDE7;
+          padding: 11px 20px;
+          border-radius: 12px;
+          font-size: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          background: rgba(7, 16, 24, 0.68);
+          transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-secondary:hover { border-color: rgba(34,197,94,0.38); color: #F5F7FA; }
 
-      <div style={{ textAlign: 'right', minWidth: 120, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="live-dot" aria-hidden />
-          <div className="card-meta">{meta.join(' · ')}</div>
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid rgba(34,197,94,0.24);
+          border-radius: 999px;
+          padding: 6px 14px;
+          font-size: 12px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #86EFAC;
+          background: rgba(34,197,94,0.08);
+        }
+
+        .pill-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #22C55E;
+          box-shadow: 0 0 10px rgba(34,197,94,0.55);
+          flex-shrink: 0;
+        }
+
+        .npx-bar {
+          background: #071017;
+          border: 1px solid rgba(77, 92, 108, 0.28);
+          border-radius: 12px;
+          padding: 14px 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .npx-text { font-size: 14px; color: #4ADE80; }
+        .copy-btn {
+          background: #0F1E2B;
+          border: 1px solid rgba(77, 92, 108, 0.28);
+          border-radius: 9px;
+          padding: 7px 12px;
+          font-size: 12px;
+          color: #9AA4AF;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .panel {
+          background: rgba(7, 16, 24, 0.88);
+          border: 1px solid rgba(77, 92, 108, 0.26);
+          border-radius: 16px;
+          padding: 28px;
+        }
+
+        .panel-label {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #4ADE80;
+          margin-bottom: 10px;
+        }
+
+        .panel-headline {
+          font-size: 18px;
+          font-weight: 780;
+          color: #F5F7FA;
+          margin-bottom: 10px;
+          line-height: 1.3;
+        }
+
+        .panel-body { font-size: 14px; color: #9AA4AF; line-height: 1.72; }
+        .panel-tool {
+          margin-top: 18px;
+          font-size: 12px;
+          color: #38BDF8;
+          background: #050607;
+          border: 1px solid rgba(56,189,248,0.18);
+          border-radius: 8px;
+          padding: 6px 10px;
+          display: inline-block;
+        }
+
+        .step-row {
+          display: flex;
+          gap: 20px;
+          align-items: flex-start;
+          padding: 20px 0;
+          border-bottom: 1px solid rgba(19, 33, 45, 0.9);
+        }
+        .step-row:last-child { border-bottom: none; }
+        .step-num { font-size: 12px; color: #22C55E; min-width: 28px; padding-top: 2px; }
+        .step-title { font-size: 15px; font-weight: 760; color: #F5F7FA; margin-bottom: 4px; }
+        .step-detail { font-size: 13px; color: #9AA4AF; line-height: 1.65; }
+
+        .compat-chip {
+          border: 1px solid rgba(77, 92, 108, 0.22);
+          border-radius: 999px;
+          padding: 10px 16px;
+          font-size: 13px;
+          color: #9AA4AF;
+          background: rgba(7, 16, 24, 0.82);
+        }
+
+        .proof-link {
+          display: block;
+          background: rgba(7, 16, 24, 0.88);
+          border: 1px solid rgba(77, 92, 108, 0.26);
+          border-radius: 14px;
+          padding: 18px 16px;
+        }
+        .proof-link:hover { border-color: rgba(34,197,94,0.34); }
+
+        .divider { border: none; border-top: 1px solid rgba(13, 25, 34, 0.88); }
+        .code-block {
+          background: #050607;
+          border: 1px solid rgba(77, 92, 108, 0.2);
+          border-radius: 12px;
+          padding: 20px 24px;
+          font-size: 13px;
+          line-height: 1.8;
+          overflow-x: auto;
+        }
+
+        @media (max-width: 960px) {
+          .two-col { grid-template-columns: 1fr !important; }
+          .pillars-grid, .proof-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 768px) {
+          .hero-actions { flex-direction: column; align-items: stretch !important; }
+          .hero-actions a, .hero-actions button { justify-content: center; }
+          .footer-links { display: none !important; }
+          .npx-bar { flex-direction: column; align-items: stretch; }
+        }
+      `}</style>
+
+      <nav style={{ borderBottom: "1px solid rgba(13,25,34,0.88)", padding: "0 24px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.3, color: "#F5F7FA" }}>
+            Agent<span style={{ color: "#22C55E" }}>Pay</span>
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+            <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
+            <a href="https://docs.agentpay.so/mcp" target="_blank" rel="noreferrer" className="nav-link">MCP</a>
+            <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
+            <a href="https://api.agentpay.so/api/merchants/register" target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "8px 16px", fontSize: 13 }}>
+              Get API key {"->"}
+            </a>
+          </div>
         </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#9AA4AF' }}>{new Date(e.at).toLocaleTimeString()}</div>
-      </div>
+      </nav>
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "88px 24px 64px", textAlign: "center" }}>
+        <div className="pill" style={{ marginBottom: 28, display: "inline-flex" }}>
+          <span className="pill-dot" />
+          Live edge API | remote MCP | npm package
+        </div>
+
+        <h1 style={{ fontSize: "clamp(36px, 5.8vw, 64px)", fontWeight: 920, letterSpacing: -1.8, lineHeight: 1.02, color: "#F5F7FA", maxWidth: 860, margin: "0 auto 22px" }}>
+          One OTP.
+          <br />
+          <span style={{ color: "#22C55E" }}>Zero API keys.</span>
+          <br />
+          Agents that can actually do the job.
+        </h1>
+
+        <p style={{ fontSize: 18, color: "#9AA4AF", maxWidth: 680, margin: "0 auto 44px", lineHeight: 1.75 }}>
+          AgentPay is the trust and payment layer for AI agents. Vault credentials with one hosted connect flow,
+          enforce governed mandates, and settle paid actions through one MCP server for Claude, OpenAI, and any
+          MCP-compatible host.
+        </p>
+
+        <div className="hero-actions" style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center", flexWrap: "wrap", marginBottom: 36 }}>
+          <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="btn-primary">
+            Read quickstart
+          </a>
+          <a href="https://api.agentpay.so/api/merchants/register" target="_blank" rel="noreferrer" className="btn-secondary">
+            Register in browser
+          </a>
+          <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="btn-secondary">
+            View GitHub
+          </a>
+        </div>
+
+        <div style={{ maxWidth: 560, margin: "0 auto" }}>
+          <div className="npx-bar">
+            <span className="npx-text">npx -y @agentpayxyz/mcp-server</span>
+            <button className="copy-btn" onClick={copyNpx}>
+              {copied ? "Copied" : "Copy install"}
+            </button>
+          </div>
+          <div style={{ marginTop: 12, color: "#6B7C90", fontSize: 13 }}>
+            Remote MCP endpoint: <code style={{ color: "#38BDF8" }}>https://api.agentpay.so/api/mcp</code>
+          </div>
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px" }}>
+        <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48, alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#4ADE80", marginBottom: 14 }}>First install</div>
+            <h2 style={{ fontSize: 30, fontWeight: 800, letterSpacing: -0.6, color: "#F5F7FA", marginBottom: 16, lineHeight: 1.2 }}>
+              30 seconds from config to first governed tool call
+            </h2>
+            <p style={{ fontSize: 14, color: "#9AA4AF", lineHeight: 1.75, marginBottom: 24 }}>
+              Drop this into Claude Desktop. Restart. Ask the host to connect Firecrawl or create a mandate. AgentPay
+              handles credential vaulting, budget enforcement, payment recovery, and receipts behind the scenes.
+            </p>
+            <div style={{ display: "grid", gap: 10 }}>
+              {PROMPTS.map((prompt) => (
+                <div key={prompt} style={{ background: "#071017", border: "1px solid rgba(77,92,108,0.22)", borderRadius: 12, padding: "12px 14px", fontSize: 13, color: "#DCE4ED", lineHeight: 1.6 }}>
+                  {prompt}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 8, fontFamily: "Fira Code, monospace" }}>~/Library/Application Support/Claude/claude_desktop_config.json</div>
+            <div className="code-block">
+              <span style={{ color: "#475569" }}>{"{"}</span><br />
+              {"  "}<span style={{ color: "#38BDF8" }}>"mcpServers"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"    "}<span style={{ color: "#38BDF8" }}>"agentpay"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>"command"</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#A3E635" }}>"npx"</span><span style={{ color: "#475569" }}>,</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>"args"</span><span style={{ color: "#475569" }}>: [</span><span style={{ color: "#A3E635" }}>"-y"</span><span style={{ color: "#475569" }}>, </span><span style={{ color: "#A3E635" }}>"@agentpayxyz/mcp-server"</span><span style={{ color: "#475569" }}>],</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>"env"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"        "}<span style={{ color: "#38BDF8" }}>"AGENTPAY_API_KEY"</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#4ADE80" }}>"apk_your_key"</span><br />
+              {"      "}<span style={{ color: "#475569" }}>{"}"}</span><br />
+              {"    "}<span style={{ color: "#475569" }}>{"}"}</span><br />
+              {"  "}<span style={{ color: "#475569" }}>{"}"}</span><br />
+              <span style={{ color: "#475569" }}>{"}"}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 48 }}>
+          <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: -0.5, color: "#F5F7FA", marginBottom: 12 }}>
+            Three hard problems. One product surface.
+          </h2>
+          <p style={{ fontSize: 15, color: "#9AA4AF", maxWidth: 520, margin: "0 auto", lineHeight: 1.75 }}>
+            This is where the value lives today. Keep the public story tight: protect credentials, govern spending,
+            and return proof that the action settled.
+          </p>
+        </div>
+        <div className="pillars-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          {PILLARS.map((pillar) => (
+            <div key={pillar.label} className="panel">
+              <div className="panel-label">{pillar.label}</div>
+              <div className="panel-headline">{pillar.headline}</div>
+              <div className="panel-body">{pillar.body}</div>
+              <div className="panel-tool">{pillar.tool}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px" }}>
+        <div className="two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 56, alignItems: "start" }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#4ADE80", marginBottom: 14 }}>How it works</div>
+            <h2 style={{ fontSize: 30, fontWeight: 800, letterSpacing: -0.6, color: "#F5F7FA", marginBottom: 16, lineHeight: 1.2 }}>
+              The activation loop
+            </h2>
+            <p style={{ fontSize: 14, color: "#9AA4AF", lineHeight: 1.75 }}>
+              AgentPay should feel like the safe execution layer behind the host, not another dashboard the user has to
+              babysit. The install path, connect path, approval path, and receipt path need to be obvious on first use.
+            </p>
+          </div>
+          <div>
+            {STEPS.map((step) => (
+              <div key={step.step} className="step-row">
+                <div className="step-num">{step.step}</div>
+                <div>
+                  <div className="step-title">{step.title}</div>
+                  <div className="step-detail">{step.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em", color: "#475569", marginBottom: 20 }}>
+          Works with any MCP-compatible host
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          {["Claude Desktop", "Claude Code", "GPT-4o", "Cursor", "Any MCP host"].map((name) => (
+            <div key={name} className="compat-chip">{name}</div>
+          ))}
+        </div>
+        <div style={{ marginTop: 16, fontSize: 13, color: "#475569" }}>
+          Or connect via remote MCP at{" "}
+          <code style={{ color: "#38BDF8", fontSize: 12 }}>https://api.agentpay.so/api/mcp</code>
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 999, padding: "4px 12px", fontSize: 12, color: "#22C55E", marginBottom: 14 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22C55E", flexShrink: 0 }} />
+            What teams can ship this week
+          </div>
+          <h2 style={{ fontSize: 30, fontWeight: 800, letterSpacing: -0.6, color: "#F5F7FA", marginBottom: 14, lineHeight: 1.2 }}>
+            The product face should stay on the wedge.
+          </h2>
+          <p style={{ maxWidth: 640, margin: "0 auto", fontSize: 14, color: "#9AA4AF", lineHeight: 1.8 }}>
+            No ACE or RCM dependency here. The public story should stay on the installable infrastructure developers
+            can evaluate quickly: governed browsing, paid execution, and safe upstream capability access.
+          </p>
+        </div>
+        <div className="pillars-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 22 }}>
+          {SHIP_THIS_WEEK.map((flow) => (
+            <div key={flow.title} className="panel">
+              <div className="panel-headline">{flow.title}</div>
+              <div className="panel-body">{flow.detail}</div>
+            </div>
+          ))}
+        </div>
+        <div className="proof-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          {LIVE_SURFACES.map((surface) => (
+            <a key={surface.label} href={surface.href} target="_blank" rel="noreferrer" className="proof-link">
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#4ADE80", marginBottom: 8 }}>{surface.label}</div>
+              <div style={{ fontSize: 14, color: "#F5F7FA", lineHeight: 1.5 }}>{surface.value}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <hr className="divider" />
+
+      <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+        <span style={{ fontWeight: 800, fontSize: 15, color: "#F5F7FA" }}>
+          Agent<span style={{ color: "#22C55E" }}>Pay</span>
+        </span>
+        <div className="footer-links" style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <a href="https://docs.agentpay.so" target="_blank" rel="noreferrer" className="nav-link">Docs</a>
+          <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
+          <a href="https://docs.agentpay.so/examples" target="_blank" rel="noreferrer" className="nav-link">Examples</a>
+          <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
+          <Link href="/privacy" className="nav-link">Privacy</Link>
+          <Link href="/terms" className="nav-link">Terms</Link>
+        </div>
+        <span style={{ fontSize: 12, color: "#475569" }}>(c) {new Date().getFullYear()} AgentPay</span>
+      </footer>
     </div>
   );
 }
-
-function PremiumPassport({ p }: { p: any }) {
-  return (
-    <div className="panel-ledger card rounded-xl p-4 min-w-[320px]">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 12, color: '#9AA4AF', fontFamily: 'Fira Code, monospace' }}>{p.id}</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: '#F5F7FA' }}>{p.name}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="trust-score" style={{ fontSize: 40, fontWeight: 900, color: p.trust >= 95 ? '#22C55E' : '#38BDF8' }}>{p.trust}%</div>
-          <div style={{ fontSize: 12, color: '#9AA4AF' }}>TRUST</div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 18, marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>
-        <div>Reliability: <strong style={{ color: '#F5F7FA' }}>{p.reliability}%</strong></div>
-        <div>Tx: <strong style={{ color: '#F5F7FA' }}>{p.txCount}</strong></div>
-      </div>
-
-      <div style={{ marginTop: 12, color: '#9AA4AF', fontSize: 13 }}>Recent: <span style={{ color: '#F5F7FA' }}>{p.recent?.[0] ?? '—'}</span></div>
-    </div>
-  );
-}
-
-function InstitutionCard({ a }: { a: any }) {
-  return (
-    <div className="panel-glass rounded-lg p-4 flex-1 min-w-[220px] text-left">
-      <div style={{ color: '#9AA4AF', fontSize: 11, marginBottom: 6 }}>Institution</div>
-      <div style={{ color: '#F5F7FA', fontWeight: 700 }}>{a.name}</div>
-      <div style={{ color: '#9AA4AF', marginTop: 8, fontSize: 13 }}>{a.description}</div>
-    </div>
-  );
-}
-
-
-
-

@@ -34,8 +34,13 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
-import { buildOpenClawDispatchPatch, dispatchToOpenClaw } from '../lib/openclaw';
+import { withFulfillmentDispatchPatch } from '../lib/fulfillmentMetadata';
+import { dispatchToOpenClaw } from '../lib/openclaw';
 import { withBookingState } from '../lib/bookingState';
+import { isFulfillmentProviderConfigured } from '../lib/runtimeAliases';
+import { markMerchantInvoicePaidByCheckoutSession } from '../lib/mcpInvoices';
+import { syncHostedActionSession } from '../lib/hostedActionSessions';
+import { resumeCapabilityExecutionAttempt } from '../lib/capabilityExecutionAttempts';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -85,11 +90,144 @@ router.post('/', async (c) => {
   // retry based on its retry schedule — the 200 ack is always sent.
   const processStripeEvent = async () => {
     try {
+      const dedupeRows = await sql<Array<{ event_id: string }>>`
+        INSERT INTO processed_webhook_events (
+          provider,
+          event_id,
+          event_type
+        ) VALUES (
+          ${'stripe'},
+          ${event.id},
+          ${event.type}
+        )
+        ON CONFLICT (provider, event_id) DO NOTHING
+        RETURNING event_id
+      `.catch(() => []);
+
+      if (!dedupeRows.length) {
+        console.info('[stripe-webhook] duplicate event ignored', {
+          eventId: event.id,
+          eventType: event.type,
+        });
+        return;
+      }
+
       switch (event.type) {
         // ── CASE 1: Checkout session completed ──────────────────────────────
         case 'checkout.session.completed': {
           const session = event.data.object as Stripe.Checkout.Session;
           const sessionId = session.id;
+          const actionSessionId = typeof session.metadata?.actionSessionId === 'string'
+            ? session.metadata.actionSessionId
+            : null;
+
+          try {
+            const settledInvoice = await markMerchantInvoicePaidByCheckoutSession(c.env, sessionId);
+            if (settledInvoice) {
+              console.info('[stripe-webhook] merchant invoice paid', {
+                sessionId,
+                invoiceId: settledInvoice.invoiceId,
+                invoiceType: settledInvoice.invoiceType,
+                feeAmount: settledInvoice.feeAmount,
+                currency: settledInvoice.currency,
+              });
+            }
+          } catch (invoiceErr: unknown) {
+            console.error('[stripe-webhook] merchant invoice settlement failed', {
+              sessionId,
+              error: invoiceErr instanceof Error ? invoiceErr.message : String(invoiceErr),
+            });
+          }
+
+          if (actionSessionId) {
+            try {
+              const synced = await syncHostedActionSession(c.env, {
+                sessionId: actionSessionId,
+                status: 'completed',
+                resultPayload: {
+                  provider: 'stripe',
+                  stripeCheckoutSessionId: sessionId,
+                  stripePaymentStatus: session.payment_status ?? null,
+                  webhookEvent: 'checkout.session.completed',
+                },
+                metadata: {
+                  provider: 'stripe',
+                  syncedFrom: 'stripe_webhook',
+                  checkoutSessionId: sessionId,
+                },
+              });
+              console.info('[stripe-webhook] hosted action session synced', {
+                sessionId,
+                actionSessionId: synced.sessionId,
+                status: synced.status,
+              });
+              const attemptId = synced.metadata && typeof synced.metadata.capabilityExecutionAttemptId === 'string'
+                ? synced.metadata.capabilityExecutionAttemptId
+                : null;
+              if (attemptId) {
+                await resumeCapabilityExecutionAttempt(c.env, attemptId).catch((resumeErr: unknown) => {
+                  console.error('[stripe-webhook] capability execution resume failed', {
+                    sessionId,
+                    actionSessionId,
+                    attemptId,
+                    error: resumeErr instanceof Error ? resumeErr.message : String(resumeErr),
+                  });
+                });
+              }
+            } catch (syncErr: unknown) {
+              console.error('[stripe-webhook] hosted action session sync failed', {
+                sessionId,
+                actionSessionId,
+                error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+              });
+            }
+          }
+
+          // Save card for future frictionless bookings (first payment = card enrollment)
+          const principalId = typeof session.metadata?.principalId === 'string' ? session.metadata.principalId : null;
+          const customerId = typeof session.customer === 'string' ? session.customer : null;
+          const piId = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+          const checkoutEmail = typeof session.customer_details?.email === 'string'
+            ? session.customer_details.email
+            : (typeof session.customer_email === 'string' ? session.customer_email : null);
+          const checkoutName = typeof session.customer_details?.name === 'string'
+            ? session.customer_details.name
+            : null;
+          if (principalId && customerId && piId) {
+            try {
+              const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['payment_method'] });
+              const pm = pi.payment_method as Stripe.PaymentMethod | null;
+              if (pm && pm.type === 'card' && pm.card) {
+                if (checkoutEmail || checkoutName) {
+                  await stripe.customers.update(customerId, {
+                    ...(checkoutEmail ? { email: checkoutEmail } : {}),
+                    ...(checkoutName ? { name: checkoutName } : {}),
+                  }).catch(() => {});
+                }
+                await sql`
+                  INSERT INTO principal_payment_methods
+                    (id, principal_id, stripe_pm_id, stripe_customer_id, last4, brand, contact_email, contact_name, is_default)
+                  VALUES
+                    (${crypto.randomUUID()}, ${principalId}, ${pm.id}, ${customerId},
+                     ${pm.card.last4 ?? null}, ${pm.card.brand ?? null},
+                     ${checkoutEmail ?? null}, ${checkoutName ?? null}, false)
+                  ON CONFLICT (stripe_pm_id) DO UPDATE
+                    SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+                        last4 = EXCLUDED.last4,
+                        brand = EXCLUDED.brand,
+                        contact_email = COALESCE(EXCLUDED.contact_email, principal_payment_methods.contact_email),
+                        contact_name  = COALESCE(EXCLUDED.contact_name,  principal_payment_methods.contact_name)
+                `.catch((pmDbErr: unknown) =>
+                  console.error('[stripe-webhook] failed to persist payment method:', pmDbErr instanceof Error ? pmDbErr.message : String(pmDbErr)),
+                );
+                console.info('[stripe-webhook] payment method saved for future bookings', {
+                  principalId, pmId: pm.id, last4: pm.card.last4,
+                });
+              }
+            } catch (pmErr: unknown) {
+              console.warn('[stripe-webhook] payment method save failed (non-fatal):', pmErr instanceof Error ? pmErr.message : String(pmErr));
+            }
+          }
 
           // Find the transaction linked to this Stripe session
           const rows = await sql<Array<{ id: string; merchantId: string }>>`
@@ -172,8 +310,8 @@ router.post('/', async (c) => {
             );
             console.info('[stripe-webhook] bro job stripe-confirmed', { broJobId, broJourneyId: broJourneyId ?? null, sessionId });
 
-            // Step 2: auto-dispatch to OpenClaw if configured
-            if (c.env.OPENCLAW_API_URL && c.env.OPENCLAW_API_KEY) {
+            // Step 2: auto-dispatch to the fulfillment provider if configured
+            if (isFulfillmentProviderConfigured(c.env)) {
               const jobRows = await sql<any[]>`
                 SELECT id, metadata
                 FROM payment_intents
@@ -187,7 +325,10 @@ router.post('/', async (c) => {
               for (const jobRow of jobRows) {
                 const jobMeta = jobRow.metadata ?? {};
                 const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
-                const clawPatch = JSON.stringify(buildOpenClawDispatchPatch(jobMeta, clawResult));
+                const clawPatch = JSON.stringify({
+                  ...withFulfillmentDispatchPatch(clawResult),
+                  ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
+                });
                 await sql`
                   UPDATE payment_intents
                   SET metadata = metadata || ${clawPatch}::jsonb

@@ -4,14 +4,16 @@ import { API_BASE } from '@/lib/api';
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const sessionCookie = req.cookies.get(COOKIE_NAME)?.value;
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const { id } = await context.params;
+
   try {
-    const res = await fetch(`${API_BASE}/api/rcm/credentials/${encodeURIComponent(params.id)}`, {
+    const res = await fetch(`${API_BASE}/api/rcm/credentials/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${session.apiKey}` },
       signal: AbortSignal.timeout(10_000),

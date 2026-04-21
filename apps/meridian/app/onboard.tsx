@@ -436,6 +436,11 @@ export default function OnboardScreen() {
         return;
       }
 
+      if (!BRO_KEY) {
+        setVoiceFillHint(missingBroKeyMessage());
+        return;
+      }
+
       try {
         const res = await fetchWithTimeout(`${BASE}/api/voice/extract-profile`, {
           method: 'POST',

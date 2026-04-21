@@ -10,7 +10,7 @@ import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { verifyRazorpayWebhook } from '../lib/razorpay';
 import { createDb } from '../lib/db';
-import { buildOpenClawDispatchPatch, dispatchToOpenClaw } from '../lib/openclaw';
+import { dispatchToOpenClaw } from '../lib/openclaw';
 import { createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
 import { withBookingState } from '../lib/bookingState';
 
@@ -180,7 +180,13 @@ router.post('/', async (c) => {
           for (const jobRow of jobRows) {
             const jobMeta = jobRow.metadata ?? {};
             const clawResult = await dispatchToOpenClaw(c.env, jobRow.id, jobMeta);
-            const clawPatch = JSON.stringify(buildOpenClawDispatchPatch(jobMeta, clawResult));
+                const clawPatch = JSON.stringify({
+                  openclawDispatched: clawResult.status === 'dispatched',
+                  openclawJobId: clawResult.openclawJobId ?? null,
+                  openclawDispatchedAt: clawResult.dispatchedAt,
+                  openclawError: clawResult.error ?? null,
+                  ...withBookingState(clawResult.status === 'dispatched' ? 'securing' : 'payment_confirmed'),
+                });
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${clawPatch}::jsonb

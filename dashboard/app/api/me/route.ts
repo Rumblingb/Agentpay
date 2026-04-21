@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const profile = await fetchProfile(session.apiKey);
-    return NextResponse.json(profile);
+    return NextResponse.json({ ...profile, sessionExpiresAt: session.exp });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch profile' }, { status: 502 });
   }

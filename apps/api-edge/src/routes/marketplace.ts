@@ -17,7 +17,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb, parseJsonb } from '../lib/db';
-import { parseJsonBody } from '../lib/requestBody';
 import { MARKETPLACE_TAKE_RATE_BPS } from '../lib/feeLedger';
 import { recordFloatAccrual } from '../lib/floatYield';
 import { createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
@@ -376,9 +375,8 @@ router.post('/hire', async (c) => {
 // ---------------------------------------------------------------------------
 router.post('/hire/:jobId/complete', async (c) => {
   const { jobId } = c.req.param();
-  const parsed = await parseJsonBody<any>(c);
-  if (!parsed.ok) return parsed.response;
-  const body = parsed.body;
+  let body: any = {};
+  try { body = await c.req.json(); } catch {}
 
   const { hirerId, agentKey, completionSecret, completionProof } = body;
   // Three auth paths — at least one required:

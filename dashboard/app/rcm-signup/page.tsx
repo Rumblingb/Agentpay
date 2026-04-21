@@ -18,35 +18,20 @@ function validateName(v: string): string {
   return '';
 }
 
-function passwordStrength(v: string): 0 | 1 | 2 | 3 {
-  if (v.length < 8) return v.length > 0 ? 1 : 0;
-  const hasUpper = /[A-Z]/.test(v);
-  const hasNum = /[0-9]/.test(v);
-  const hasSymbol = /[^A-Za-z0-9]/.test(v);
-  const variety = [hasUpper, hasNum, hasSymbol].filter(Boolean).length;
-  if (variety >= 2) return 3;
-  if (variety === 1) return 2;
-  return 1;
-}
-
 // ── Field ─────────────────────────────────────────────────────────────────────
 
 function Field({
-  label, type, value, onChange, onBlur, placeholder, autoComplete, error, hint, strength, inputRef,
+  label, type, value, onChange, onBlur, placeholder, autoComplete, error, inputRef,
 }: {
   label: string; type: string; value: string;
   onChange: (v: string) => void; onBlur?: () => void;
   placeholder: string; autoComplete?: string;
-  error?: string; hint?: string;
-  strength?: 0 | 1 | 2 | 3;
+  error?: string;
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   const [focused, setFocused] = useState(false);
   const C = { border: '#1c1c1c', accentBorder: 'rgba(16,185,129,0.35)', errorBorder: 'rgba(244,63,94,0.35)' };
   const borderColor = error ? C.errorBorder : focused ? C.accentBorder : C.border;
-
-  const strengthColors = ['transparent', '#f59e0b', '#a3e635', '#10b981'];
-  const strengthLabels = ['', 'Weak', 'Fair', 'Strong'];
 
   return (
     <div>
@@ -70,19 +55,7 @@ function Field({
           transition: 'border-color 0.15s', fontFamily: 'Inter, system-ui, sans-serif',
         }}
       />
-      {/* Password strength bar */}
-      {strength !== undefined && value.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-            {[1, 2, 3].map(n => (
-              <div key={n} style={{ flex: 1, height: 3, borderRadius: 2, background: strength >= n ? strengthColors[strength] : '#1c1c1c', transition: 'background 0.2s' }} />
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: strengthColors[strength] }}>{strengthLabels[strength]}</div>
-        </div>
-      )}
       {error && <div style={{ marginTop: 6, fontSize: 12, color: '#fb7185' }}>{error}</div>}
-      {!error && hint && <div style={{ marginTop: 6, fontSize: 12, color: '#555' }}>{hint}</div>}
     </div>
   );
 }
@@ -91,16 +64,13 @@ function Field({
 
 export default function RcmSignupPage() {
   const router = useRouter();
-  const nameRef = useRef<HTMLInputElement>(null);
-  const [form, setForm] = useState({ email: '', name: '', password: '' });
-  const [errors, setErrors] = useState({ email: '', name: '', password: '' });
+  const emailRef = useRef<HTMLInputElement>(null);
+  const [form, setForm] = useState({ email: '', name: '' });
+  const [errors, setErrors] = useState({ email: '', name: '' });
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [legalAccepted, setLegalAccepted] = useState(false);
-  const [legalError, setLegalError] = useState('');
 
-  // Autofocus email on mount
-  useEffect(() => { nameRef.current?.focus(); }, []);
+  useEffect(() => { emailRef.current?.focus(); }, []);
 
   function setField(field: keyof typeof form) {
     return (v: string) => {
@@ -119,11 +89,8 @@ export default function RcmSignupPage() {
     e.preventDefault();
     const emailErr = validateEmail(form.email);
     const nameErr = validateName(form.name);
-    const passErr = form.password.length < 8 ? 'Password must be at least 8 characters.' : '';
-    const lglErr = !legalAccepted ? 'You must accept the Terms, Privacy Policy, and Business Associate Agreement to continue.' : '';
-    setErrors({ email: emailErr, name: nameErr, password: passErr });
-    setLegalError(lglErr);
-    if (emailErr || nameErr || passErr || lglErr) return;
+    setErrors({ email: emailErr, name: nameErr });
+    if (emailErr || nameErr) return;
 
     setLoading(true);
     setApiError('');
@@ -131,21 +98,13 @@ export default function RcmSignupPage() {
       const res = await fetch('/api/rcm-signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          password: form.password,
-          legalAccepted: true,
-          legalAcceptedAt: new Date().toISOString(),
-          legalVersion: 'rcm-2026-04-15',
-        }),
+        body: JSON.stringify({ name: form.name, email: form.email }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (res.ok && data.success) {
         router.push('/rcm-onboard');
       } else {
-        const msg = data.error ?? 'Something went wrong.';
-        setApiError(msg);
+        setApiError(data.error ?? 'Something went wrong.');
       }
     } catch {
       setApiError('Network error — check your connection and try again.');
@@ -154,7 +113,6 @@ export default function RcmSignupPage() {
     }
   }
 
-  const strength = passwordStrength(form.password);
   const isDuplicate = apiError.toLowerCase().includes('already registered') || apiError.toLowerCase().includes('already in use');
 
   return (
@@ -190,7 +148,7 @@ export default function RcmSignupPage() {
           <div style={{ background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.18)', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#fb7185', marginBottom: 20, lineHeight: 1.5 }}>
             {apiError}
             {isDuplicate && (
-              <> · <Link href="/login" style={{ color: '#fca5a5', fontWeight: 600, textDecoration: 'none' }}>Sign in instead →</Link></>
+              <> · <Link href="/rcm-login" style={{ color: '#fca5a5', fontWeight: 600, textDecoration: 'none' }}>Sign in instead →</Link></>
             )}
           </div>
         )}
@@ -205,7 +163,7 @@ export default function RcmSignupPage() {
             placeholder="you@yourpractice.com"
             autoComplete="email"
             error={errors.email}
-            inputRef={nameRef}
+            inputRef={emailRef}
           />
           <Field
             label="Practice or billing company name"
@@ -217,33 +175,6 @@ export default function RcmSignupPage() {
             autoComplete="organization"
             error={errors.name}
           />
-          <Field
-            label="Password"
-            type="password"
-            value={form.password}
-            onChange={setField('password')}
-            placeholder="At least 8 characters"
-            autoComplete="new-password"
-            error={errors.password}
-            strength={strength}
-            hint={form.password.length === 0 ? 'Mix letters, numbers, and symbols for a stronger password' : undefined}
-          />
-
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginTop: 4 }}>
-            <input
-              type="checkbox"
-              checked={legalAccepted}
-              onChange={e => { setLegalAccepted(e.target.checked); if (e.target.checked) setLegalError(''); }}
-              style={{ marginTop: 2, accentColor: '#10b981', width: 16, height: 16, flexShrink: 0 }}
-            />
-            <span style={{ fontSize: 12, color: '#737373', lineHeight: 1.6 }}>
-              I agree to the{' '}
-              <Link href="/terms" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Terms of Service</Link>,{' '}
-              <Link href="/privacy" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Privacy Policy</Link>, and{' '}
-              <Link href="/baa" target="_blank" style={{ color: '#a3e635', textDecoration: 'underline' }}>Business Associate Agreement</Link>. I confirm I am authorized to bind this practice.
-            </span>
-          </label>
-          {legalError && <div style={{ marginTop: -10, fontSize: 12, color: '#fb7185' }}>{legalError}</div>}
 
           <button
             type="submit"
@@ -276,7 +207,7 @@ export default function RcmSignupPage() {
 
         <p style={{ marginTop: 20, fontSize: 13, color: '#444' }}>
           Already have an account?{' '}
-          <Link href="/login" style={{ color: '#737373', textDecoration: 'none', fontWeight: 500 }}>Sign in →</Link>
+          <Link href="/rcm-login" style={{ color: '#737373', textDecoration: 'none', fontWeight: 500 }}>Sign in →</Link>
         </p>
 
       </div>

@@ -168,6 +168,94 @@ function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
+interface ResendEmailPayload {
+  from: string;
+  to: string[];
+  subject: string;
+  html: string;
+}
+
+interface EmailDeliveryResult {
+  status: 'sent' | 'failed' | 'not_configured';
+  provider: 'resend';
+  providerMessageId?: string;
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function truncateForLog(value: string, max = 300): string {
+  return value.length > max ? `${value.slice(0, max)}...` : value;
+}
+
+async function sendResendEmail(
+  env: Env,
+  operation: string,
+  payload: ResendEmailPayload,
+): Promise<EmailDeliveryResult> {
+  if (!env.RESEND_API_KEY) {
+    console.warn(`[merchants] ${operation}: RESEND_API_KEY not set; email not sent`);
+    return { status: 'not_configured', provider: 'resend' };
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await response.text();
+    const parsed = parseJsonObject(text);
+    const providerMessageId = typeof parsed?.id === 'string' ? parsed.id : undefined;
+
+    if (!response.ok) {
+      console.error(`[merchants] ${operation}: Resend rejected email`, {
+        status: response.status,
+        body: truncateForLog(text),
+        recipients: payload.to,
+      });
+      return { status: 'failed', provider: 'resend' };
+    }
+
+    console.info(`[merchants] ${operation}: Resend accepted email`, {
+      status: response.status,
+      providerMessageId,
+      recipients: payload.to,
+    });
+    return { status: 'sent', provider: 'resend', providerMessageId };
+  } catch (err) {
+    console.error(
+      `[merchants] ${operation}: Resend request failed`,
+      err instanceof Error ? err.message : err,
+    );
+    return { status: 'failed', provider: 'resend' };
+  }
+}
+
+function scheduleBackgroundTask(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  task: Promise<unknown>,
+): void {
+  const executionCtx = c.executionCtx;
+  if (executionCtx && typeof executionCtx.waitUntil === 'function') {
+    executionCtx.waitUntil(task);
+    return;
+  }
+  void task;
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/merchants/register
 // Public — no auth required.
@@ -184,22 +272,39 @@ router.post('/register', async (c) => {
 
   const { name, email, walletAddress, webhookUrl } = body as Record<string, string | undefined>;
 
-  // Validation — mirrors registerSchema (Joi) from Express route
+  // Validation
   if (!name || typeof name !== 'string' || name.length < 3 || name.length > 255) {
     return c.json({ error: 'Validation error', details: ['"name" must be 3–255 characters'] }, 400);
   }
   if (!email || !isValidEmail(email)) {
     return c.json({ error: 'Validation error', details: ['"email" must be a valid email'] }, 400);
   }
-  if (!walletAddress || walletAddress.length < 32 || walletAddress.length > 44) {
-    return c.json({ error: 'Validation error', details: ['"walletAddress" must be 32–44 characters'] }, 400);
+  // walletAddress is optional — only validate format when provided
+  if (walletAddress !== undefined && walletAddress !== null &&
+      (typeof walletAddress !== 'string' || walletAddress.length < 32 || walletAddress.length > 44)) {
+    return c.json({ error: 'Validation error', details: ['"walletAddress" must be a valid Solana address (32–44 characters)'] }, 400);
   }
   if (webhookUrl !== undefined && webhookUrl !== null && !isValidUri(webhookUrl as string)) {
     return c.json({ error: 'Validation error', details: ['"webhookUrl" must be a valid URI'] }, 400);
   }
 
+  const normalizedName = name.trim();
+  const normalizedEmail = email.trim().toLowerCase();
+  const resolvedWalletAddress = (typeof walletAddress === 'string' && walletAddress.trim()) ? walletAddress.trim() : null;
+
   const sql = createDb(c.env);
   try {
+    const existingMerchant = await sql<Array<{ id: string }>>`
+      SELECT id
+      FROM merchants
+      WHERE LOWER(email) = ${normalizedEmail}
+      LIMIT 1
+    `;
+
+    if (existingMerchant.length) {
+      return c.json({ error: 'Email or wallet address is already registered' }, 400);
+    }
+
     const merchantId = crypto.randomUUID();
     const apiKey = randomHex(32);          // 64-char hex, matches Node.js randomBytes(32).toString('hex')
     const keyPrefix = apiKey.substring(0, 8);
@@ -209,21 +314,46 @@ router.post('/register', async (c) => {
     await sql`
       INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, key_prefix,
                              wallet_address, webhook_url, is_active, created_at)
-      VALUES (${merchantId}, ${name}, ${email}, ${hash}, ${salt}, ${keyPrefix},
-              ${walletAddress}, ${webhookUrl ?? null}, true, NOW())
+      VALUES (${merchantId}, ${normalizedName}, ${normalizedEmail}, ${hash}, ${salt}, ${keyPrefix},
+              ${resolvedWalletAddress}, ${webhookUrl ?? null}, true, NOW())
     `;
 
-    console.info('[merchants] registered', { merchantId, email });
+    console.info('[merchants] registered', { merchantId, email: normalizedEmail });
 
-    return c.json(
-      {
+    const emailDelivery = await sendResendEmail(c.env, 'register', {
+      from: 'AgentPay <notifications@agentpay.so>',
+      to: [normalizedEmail],
+      subject: 'Your AgentPay API key',
+      html: `<!doctype html><html><body style="margin:0;padding:32px;background:#f8fafc;font-family:system-ui,sans-serif;color:#0f172a;">
+        <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;">
+          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Welcome to AgentPay</h1>
+          <p style="margin:0 0 20px;color:#475569;line-height:1.6;">Here is your API key, ${normalizedName}. Keep it secret — it will not be shown again.</p>
+          <div style="background:#0f172a;border-radius:12px;padding:20px;margin-bottom:24px;">
+            <p style="margin:0 0 6px;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">API Key</p>
+            <code style="font-family:monospace;font-size:13px;color:#4ade80;word-break:break-all;">${apiKey}</code>
+          </div>
+          <p style="margin:0 0 8px;font-size:13px;color:#475569;">Your merchant ID: <code style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${merchantId}</code></p>
+          <p style="margin:16px 0 0;font-size:13px;color:#64748b;">Add this to your MCP server config as <code style="font-family:monospace;">AGENTPAY_API_KEY</code>. If you lose this key, use the account recovery flow to get a new one.</p>
+        </div>
+      </body></html>`,
+    });
+
+    if (emailDelivery.status !== 'sent') {
+      return c.json({
         success: true,
         merchantId,
         apiKey,
-        message: 'Store your API key securely. You will not be able to view it again.',
-      },
-      201,
-    );
+        message: 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
+        emailDelivery,
+      }, 201);
+    }
+
+    return c.json({
+      success: true,
+      merchantId,
+      message: `Your API key has been sent to ${normalizedEmail}. Check your inbox.`,
+      emailDelivery,
+    }, 201);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     // Duplicate email or wallet address (Postgres unique constraint)
@@ -822,10 +952,6 @@ router.post('/payments/:transactionId/verify', authenticateApiKey, (c) => {
 //   - a 15-minute expiry
 //   - an HMAC preventing forgery
 //
-// In production this token would be emailed to the merchant address.
-// Until an email service is wired up, it is returned in the response body
-// (protected by rate limiting on the /api/merchants/* route group).
-//
 // Security: always returns a generic success message whether or not the
 // email is found, to prevent account enumeration.
 // ---------------------------------------------------------------------------
@@ -842,6 +968,7 @@ router.post('/recover/request', async (c) => {
   if (!email || typeof email !== 'string' || !isValidEmail(email)) {
     return c.json({ error: '"email" must be a valid email address' }, 400);
   }
+  const normalizedEmail = email.trim().toLowerCase();
 
   const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
   if (!signingSecret) return c.json({ error: 'Server configuration error' }, 500);
@@ -856,7 +983,7 @@ router.post('/recover/request', async (c) => {
     const rows = await sql<Array<{ id: string; apiKeyHash: string }>>`
       SELECT id, api_key_hash AS "apiKeyHash"
       FROM merchants
-      WHERE email = ${email.toLowerCase()} AND is_active = true
+      WHERE LOWER(email) = ${normalizedEmail} AND is_active = true
       LIMIT 1
     `;
 
@@ -874,15 +1001,46 @@ router.post('/recover/request', async (c) => {
     const mac = await hmacSign(payload, signingSecret);
     const recoveryToken = `${payload}:${mac}`;
 
-    // In production: send recoveryToken via email to the merchant.
-    // Currently: log server-side and return in response body until email service exists.
-    console.info('[merchants] recovery token issued', { merchantId, email: email.toLowerCase(), expiresAt });
+    console.info('[merchants] recovery token issued', { merchantId, email: normalizedEmail, expiresAt });
 
-    return c.json({
-      ...GENERIC_RESPONSE,
-      recoveryToken,
-      note: 'DEVELOPMENT MODE: token returned in response. In production this will be emailed only.',
-    });
+    const encodedEmail = encodeURIComponent(normalizedEmail);
+    const encodedToken = encodeURIComponent(recoveryToken);
+    const recoveryUrl = `https://app.agentpay.so/rcm-login?email=${encodedEmail}&token=${encodedToken}`;
+    scheduleBackgroundTask(c, sendResendEmail(c.env, 'recover/request', {
+      from: 'Ace Billing <notifications@agentpay.so>',
+      to: [normalizedEmail],
+      subject: 'Recover access to Ace Billing',
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#000;font-family:Inter,system-ui,sans-serif;color:#f8fafc;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#000;padding:40px 20px;">
+  <tr><td align="center">
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+      <tr><td style="padding-bottom:24px;">
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#10b981,#059669);text-align:center;vertical-align:middle;">
+            <span style="font-size:16px;color:#000;">&#x2666;</span>
+          </td>
+          <td style="padding-left:10px;font-size:17px;font-weight:700;letter-spacing:-0.03em;color:#f8fafc;">Ace</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding-bottom:12px;">
+        <h1 style="margin:0;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:#f8fafc;">Recover access to Ace Billing</h1>
+      </td></tr>
+      <tr><td style="padding-bottom:24px;">
+        <p style="margin:0;font-size:15px;color:#94a3b8;line-height:1.6;">Click the button below to recover access. This link expires in 15 minutes.</p>
+      </td></tr>
+      <tr><td style="padding-bottom:32px;">
+        <a href="${recoveryUrl}" style="display:inline-block;background:#4ade80;color:#000;font-size:14px;font-weight:700;text-decoration:none;padding:13px 24px;border-radius:12px;letter-spacing:-0.01em;">Recover access &rarr;</a>
+      </td></tr>
+      <tr><td>
+        <p style="margin:0;font-size:12px;color:#334155;line-height:1.5;">If you didn&rsquo;t request this, ignore this email.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`,
+    }));
+
+    return c.json(GENERIC_RESPONSE);
   } catch (err: unknown) {
     console.error('[merchants] recover/request error:', err instanceof Error ? err.message : err);
     return c.json(GENERIC_RESPONSE); // never reveal internal errors
@@ -948,7 +1106,7 @@ router.post('/recover/confirm', async (c) => {
       SELECT id, api_key_hash AS "apiKeyHash"
       FROM merchants
       WHERE id = ${tokenMerchantId}::uuid
-        AND email = ${email.toLowerCase()}
+        AND LOWER(email) = ${email.trim().toLowerCase()}
         AND is_active = true
       LIMIT 1
     `;

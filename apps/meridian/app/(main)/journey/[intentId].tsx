@@ -18,7 +18,7 @@ import {
   journeyTrustLine,
 } from '../../../lib/journeySession';
 import { journeyRecovery } from '../../../lib/journeyRecovery';
-import { loadCurrentJourneySession, loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
+import { loadJourneySession, patchJourneySession, saveJourneySession, type JourneySession } from '../../../lib/storage';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type TripContext } from '../../../lib/trip';
 import { trackClientEvent } from '../../../lib/telemetry';
 import { C } from '../../../lib/theme';
@@ -59,170 +59,6 @@ function timelineLegs(trip: TripContext | null | undefined) {
   return trip?.legs ?? [];
 }
 
-type IntentStatusPayload = Awaited<ReturnType<typeof getIntentStatus>>;
-type ExecutionPayload = Awaited<ReturnType<typeof getConciergeExecution>> | null;
-
-function inferJourneyState(params: {
-  data: IntentStatusPayload;
-  tripContext: TripContext | null;
-  currentState?: JourneySession['state'];
-}): JourneySession['state'] {
-  const { data, tripContext, currentState } = params;
-  if (['failed', 'expired', 'rejected'].includes(data.status)) return 'attention';
-  if (tripContext?.phase === 'in_transit') return 'in_transit';
-  if (tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived') return 'arriving';
-  if (tripContext?.watchState?.bookingState === 'payment_pending') return 'payment_pending';
-  if (['completed', 'confirmed', 'verified'].includes(data.status)) return 'ticketed';
-  return currentState ?? 'securing';
-}
-
-function buildJourneySessionFromRemote(params: {
-  routeIntentId: string;
-  currentSession?: JourneySession | null;
-  data: IntentStatusPayload;
-  execution: ExecutionPayload;
-}): JourneySession {
-  const currentSession = params.currentSession ?? null;
-  const proof = params.data.metadata?.completionProof ?? {};
-  const serverTrip = parseTripContext(params.data.metadata?.tripContext) ?? currentSession?.tripContext ?? null;
-  const paymentConfirmed = paymentConfirmedFromMetadata(params.data.metadata);
-  const paymentRequired = !!(currentSession?.fiatAmount && currentSession.fiatAmount > 0);
-  const nextTripContext = serverTrip
-    ? syncTripBookingState(serverTrip, {
-        phase:
-          params.data.status === 'completed' || params.data.status === 'confirmed' || params.data.status === 'verified'
-            ? 'booked'
-            : params.data.status === 'failed' || params.data.status === 'expired' || params.data.status === 'rejected'
-            ? 'attention'
-            : serverTrip.phase,
-        bookingConfirmed: ['completed', 'confirmed', 'verified'].includes(params.data.status),
-        paymentConfirmed,
-        paymentRequired,
-        bookingRef: proof.bookingRef ?? currentSession?.bookingRef ?? undefined,
-        origin: proof.fromStation ?? currentSession?.fromStation ?? undefined,
-        destination: proof.toStation ?? currentSession?.toStation ?? undefined,
-        departureTime:
-          proof.departureDatetime
-          ?? proof.departureTime
-          ?? currentSession?.departureDatetime
-          ?? currentSession?.departureTime
-          ?? undefined,
-        arrivalTime: proof.arrivalTime ?? currentSession?.arrivalTime ?? undefined,
-        operator: proof.operator ?? currentSession?.operator ?? undefined,
-        finalLegSummary: proof.finalLegSummary ?? currentSession?.finalLegSummary ?? undefined,
-        failed: ['failed', 'expired', 'rejected'].includes(params.data.status),
-      })
-    : currentSession?.tripContext ?? null;
-
-  const fallbackTitle =
-    nextTripContext?.title
-    || [proof.fromStation ?? nextTripContext?.origin, proof.toStation ?? nextTripContext?.destination].filter(Boolean).join(' → ')
-    || currentSession?.title
-    || 'Journey';
-
-  return {
-    intentId: params.data.intentId ?? currentSession?.intentId ?? params.routeIntentId,
-    jobId:
-      currentSession?.jobId
-      ?? (typeof params.data.metadata?.jobId === 'string' ? params.data.metadata.jobId : null)
-      ?? (params.execution?.jobId ?? null),
-    journeyId:
-      currentSession?.journeyId
-      ?? (typeof params.data.metadata?.journeyId === 'string' ? params.data.metadata.journeyId : null)
-      ?? null,
-    title: fallbackTitle,
-    state: inferJourneyState({
-      data: params.data,
-      tripContext: nextTripContext,
-      currentState: currentSession?.state,
-    }),
-    intentStatus: params.data.status ?? currentSession?.intentStatus ?? null,
-    bookingState: nextTripContext?.watchState?.bookingState ?? params.execution?.bookingState ?? currentSession?.bookingState ?? null,
-    fromStation: proof.fromStation ?? nextTripContext?.origin ?? currentSession?.fromStation ?? null,
-    toStation: proof.toStation ?? nextTripContext?.destination ?? currentSession?.toStation ?? null,
-    departureTime: proof.departureTime ?? currentSession?.departureTime ?? null,
-    departureDatetime:
-      proof.departureDatetime
-      ?? nextTripContext?.departureTime
-      ?? currentSession?.departureDatetime
-      ?? currentSession?.departureTime
-      ?? null,
-    arrivalTime: proof.arrivalTime ?? nextTripContext?.arrivalTime ?? currentSession?.arrivalTime ?? null,
-    platform: proof.platform ?? currentSession?.platform ?? null,
-    operator: proof.operator ?? nextTripContext?.operator ?? currentSession?.operator ?? null,
-    bookingRef: proof.bookingRef ?? nextTripContext?.bookingRef ?? currentSession?.bookingRef ?? null,
-    finalLegSummary: proof.finalLegSummary ?? nextTripContext?.finalLegSummary ?? currentSession?.finalLegSummary ?? null,
-    fiatAmount:
-      currentSession?.fiatAmount
-      ?? (typeof params.data.metadata?.fiatAmount === 'number' ? params.data.metadata.fiatAmount : null),
-    currencySymbol:
-      currentSession?.currencySymbol
-      ?? (typeof params.data.metadata?.currencySymbol === 'string' ? params.data.metadata.currencySymbol : null),
-    currencyCode:
-      currentSession?.currencyCode
-      ?? (typeof params.data.metadata?.currencyCode === 'string' ? params.data.metadata.currencyCode : null),
-    tripContext: nextTripContext,
-    shareToken:
-      (typeof params.data.metadata?.shareToken === 'string' ? params.data.metadata.shareToken : null)
-      ?? currentSession?.shareToken
-      ?? null,
-    walletPassUrl:
-      (typeof params.data.metadata?.walletPassUrl === 'string' ? params.data.metadata.walletPassUrl : null)
-      ?? (typeof params.data.metadata?.appleWalletUrl === 'string' ? params.data.metadata.appleWalletUrl : null)
-      ?? (typeof params.data.metadata?.passUrl === 'string' ? params.data.metadata.passUrl : null)
-      ?? currentSession?.walletPassUrl
-      ?? null,
-    quoteExpiresAt:
-      (typeof params.data.metadata?.quoteExpiresAt === 'string' ? params.data.metadata.quoteExpiresAt : null)
-      ?? (typeof params.data.metadata?.expiresAt === 'string' ? params.data.metadata.expiresAt : null)
-      ?? currentSession?.quoteExpiresAt
-      ?? null,
-    paymentConfirmedAt:
-      (typeof params.data.metadata?.paymentConfirmedAt === 'string' ? params.data.metadata.paymentConfirmedAt : null)
-      ?? currentSession?.paymentConfirmedAt
-      ?? null,
-    openclawDispatchedAt:
-      (typeof params.data.metadata?.openclawDispatchedAt === 'string' ? params.data.metadata.openclawDispatchedAt : null)
-      ?? currentSession?.openclawDispatchedAt
-      ?? null,
-    pendingFulfilment:
-      typeof params.data.metadata?.pendingFulfilment === 'boolean'
-        ? params.data.metadata.pendingFulfilment
-        : currentSession?.pendingFulfilment ?? null,
-    fulfilmentFailed:
-      params.data.metadata?.fulfilmentFailed === true
-        ? true
-        : currentSession?.fulfilmentFailed ?? null,
-    rerouteOfferTitle:
-      (typeof params.data.metadata?.rerouteOfferTitle === 'string' ? params.data.metadata.rerouteOfferTitle : null)
-      ?? currentSession?.rerouteOfferTitle
-      ?? null,
-    rerouteOfferBody:
-      (typeof params.data.metadata?.rerouteOfferBody === 'string' ? params.data.metadata.rerouteOfferBody : null)
-      ?? currentSession?.rerouteOfferBody
-      ?? null,
-    rerouteOfferTranscript:
-      (typeof params.data.metadata?.rerouteOfferTranscript === 'string' ? params.data.metadata.rerouteOfferTranscript : null)
-      ?? currentSession?.rerouteOfferTranscript
-      ?? null,
-    rerouteOfferActionLabel:
-      params.execution?.rerouteOfferActionLabel
-      ?? (typeof params.data.metadata?.rerouteOfferActionLabel === 'string' ? params.data.metadata.rerouteOfferActionLabel : null)
-      ?? currentSession?.rerouteOfferActionLabel
-      ?? null,
-    executionStatus: params.execution?.status ?? currentSession?.executionStatus ?? null,
-    recoveryBucket: params.execution?.recoveryBucket ?? currentSession?.recoveryBucket ?? null,
-    recoveryAction: params.execution?.recommendedAction ?? currentSession?.recoveryAction ?? null,
-    recoveryReason: params.execution?.recoveryReason ?? currentSession?.recoveryReason ?? null,
-    executionSummary: params.execution?.summary ?? currentSession?.executionSummary ?? null,
-    manualReviewRequired:
-      typeof params.execution?.manualReviewRequired === 'boolean'
-        ? params.execution.manualReviewRequired
-        : currentSession?.manualReviewRequired ?? null,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 export default function JourneyScreen() {
   const { intentId, rerouteTitle, rerouteBody, rerouteTranscript, rerouteActionLabel } = useLocalSearchParams<{
     intentId: string;
@@ -233,7 +69,6 @@ export default function JourneyScreen() {
   }>();
   const [session, setSession] = useState<JourneySession | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingNote, setLoadingNote] = useState('Loading your journey…');
   const [error, setError] = useState<string | null>(null);
   const [walletTrackedFor, setWalletTrackedFor] = useState<string | null>(null);
   const [rerouteTrackedFor, setRerouteTrackedFor] = useState<string | null>(null);
@@ -270,61 +105,112 @@ export default function JourneyScreen() {
       getIntentStatus(lookupId),
       getConciergeExecution(lookupId).catch(() => null),
     ]);
-    const nextSession = buildJourneySessionFromRemote({
-      routeIntentId: intentId,
-      currentSession,
-      data,
-      execution,
-    });
+    const proof = data.metadata?.completionProof ?? {};
+    const serverTrip = parseTripContext(data.metadata?.tripContext) ?? currentSession.tripContext ?? null;
+    const paymentConfirmed = paymentConfirmedFromMetadata(data.metadata);
+    const nextTripContext = serverTrip
+      ? syncTripBookingState(serverTrip, {
+          phase:
+            data.status === 'completed' || data.status === 'confirmed' || data.status === 'verified'
+              ? 'booked'
+              : data.status === 'failed' || data.status === 'expired' || data.status === 'rejected'
+              ? 'attention'
+              : serverTrip.phase,
+          bookingConfirmed: ['completed', 'confirmed', 'verified'].includes(data.status),
+          paymentConfirmed,
+          paymentRequired: !!(currentSession.fiatAmount && currentSession.fiatAmount > 0),
+          bookingRef: proof.bookingRef ?? currentSession.bookingRef ?? undefined,
+          origin: proof.fromStation ?? currentSession.fromStation ?? undefined,
+          destination: proof.toStation ?? currentSession.toStation ?? undefined,
+          departureTime:
+            proof.departureDatetime
+            ?? proof.departureTime
+            ?? currentSession.departureDatetime
+            ?? currentSession.departureTime
+            ?? undefined,
+          arrivalTime: proof.arrivalTime ?? currentSession.arrivalTime ?? undefined,
+          operator: proof.operator ?? currentSession.operator ?? undefined,
+          finalLegSummary: proof.finalLegSummary ?? currentSession.finalLegSummary ?? undefined,
+          failed: ['failed', 'expired', 'rejected'].includes(data.status),
+        })
+      : null;
+
+    const nextSession: JourneySession = {
+      ...currentSession,
+      intentId: data.intentId ?? currentSession.intentId,
+      intentStatus: data.status ?? currentSession.intentStatus ?? null,
+      title: nextTripContext?.title ?? currentSession.title,
+      state:
+        ['failed', 'expired', 'rejected'].includes(data.status) ? 'attention'
+        : nextTripContext?.phase === 'in_transit' ? 'in_transit'
+        : nextTripContext?.phase === 'arriving' || nextTripContext?.phase === 'arrived' ? 'arriving'
+        : nextTripContext?.watchState?.bookingState === 'payment_pending' ? 'payment_pending'
+        : ['completed', 'confirmed', 'verified'].includes(data.status) ? 'ticketed'
+        : currentSession.state,
+      bookingState: nextTripContext?.watchState?.bookingState ?? currentSession.bookingState,
+      fromStation: proof.fromStation ?? currentSession.fromStation ?? null,
+      toStation: proof.toStation ?? currentSession.toStation ?? null,
+      departureTime: proof.departureTime ?? currentSession.departureTime ?? null,
+      departureDatetime: proof.departureDatetime ?? currentSession.departureDatetime ?? null,
+      arrivalTime: proof.arrivalTime ?? currentSession.arrivalTime ?? null,
+      platform: proof.platform ?? currentSession.platform ?? null,
+      operator: proof.operator ?? currentSession.operator ?? null,
+      bookingRef: proof.bookingRef ?? currentSession.bookingRef ?? null,
+      finalLegSummary: proof.finalLegSummary ?? currentSession.finalLegSummary ?? null,
+      tripContext: nextTripContext ?? currentSession.tripContext,
+      shareToken: data.metadata?.shareToken ?? currentSession.shareToken ?? null,
+      walletPassUrl:
+        data.metadata?.walletPassUrl
+        ?? data.metadata?.appleWalletUrl
+        ?? data.metadata?.passUrl
+        ?? currentSession.walletPassUrl
+        ?? null,
+      quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? currentSession.quoteExpiresAt ?? null,
+      paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? currentSession.paymentConfirmedAt ?? null,
+      openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? currentSession.openclawDispatchedAt ?? null,
+      pendingFulfilment:
+        typeof data.metadata?.pendingFulfilment === 'boolean'
+          ? data.metadata.pendingFulfilment
+          : currentSession.pendingFulfilment ?? null,
+      fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : currentSession.fulfilmentFailed ?? null,
+      rerouteOfferTitle: data.metadata?.rerouteOfferTitle ?? currentSession.rerouteOfferTitle ?? null,
+      rerouteOfferBody: data.metadata?.rerouteOfferBody ?? currentSession.rerouteOfferBody ?? null,
+      rerouteOfferTranscript: data.metadata?.rerouteOfferTranscript ?? currentSession.rerouteOfferTranscript ?? null,
+      rerouteOfferActionLabel:
+        execution?.rerouteOfferActionLabel
+        ?? (typeof data.metadata?.rerouteOfferActionLabel === 'string' ? data.metadata.rerouteOfferActionLabel : null)
+        ?? currentSession.rerouteOfferActionLabel
+        ?? null,
+      executionStatus: execution?.status ?? currentSession.executionStatus ?? null,
+      recoveryBucket: execution?.recoveryBucket ?? currentSession.recoveryBucket ?? null,
+      recoveryAction: execution?.recommendedAction ?? currentSession.recoveryAction ?? null,
+      recoveryReason: execution?.recoveryReason ?? currentSession.recoveryReason ?? null,
+      executionSummary: execution?.summary ?? currentSession.executionSummary ?? null,
+      manualReviewRequired:
+        typeof execution?.manualReviewRequired === 'boolean'
+          ? execution.manualReviewRequired
+          : currentSession.manualReviewRequired ?? null,
+      updatedAt: new Date().toISOString(),
+    };
 
     await saveJourneySession(nextSession);
     setSession(nextSession);
     setError(null);
     return nextSession;
-  }, [intentId]);
+  }, []);
 
   const refreshSession = useCallback(async () => {
     if (!intentId) return;
     setLoading(true);
-    setLoadingNote('Loading your saved journey…');
-    setError(null);
     try {
       const stored = await loadJourneySession(intentId);
-      if (stored) {
-        setSession(stored);
-        setError(null);
+      if (!stored) {
+        setError('Ace could not find this journey yet.');
+        setSession(null);
         return;
       }
-
-      const current = await loadCurrentJourneySession();
-      if (current && (current.intentId === intentId || current.jobId === intentId || current.journeyId === intentId)) {
-        setSession(current);
-        setError(null);
-        return;
-      }
-
-      setLoadingNote('Checking the live booking state…');
-      const [data, execution] = await Promise.all([
-        getIntentStatus(intentId),
-        getConciergeExecution(intentId).catch(() => null),
-      ]);
-      const hydrated = buildJourneySessionFromRemote({
-        routeIntentId: intentId,
-        currentSession: current,
-        data,
-        execution,
-      });
-      await saveJourneySession(hydrated);
-      setSession(hydrated);
+      setSession(stored);
       setError(null);
-    } catch (err: any) {
-      const message = typeof err?.message === 'string' ? err.message : 'Ace could not load this journey right now.';
-      setSession(null);
-      setError(
-        message.includes('404')
-          ? 'Ace is still pulling this journey into view. Give it a moment, then try again.'
-          : message,
-      );
     } finally {
       setLoading(false);
     }
@@ -726,11 +612,7 @@ export default function JourneyScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.emptyWrap}>
-          <ActivityIndicator color="#93c5fd" style={{ marginBottom: 18 }} />
-          <Text style={styles.emptyTitle}>Loading journey</Text>
-          <Text style={styles.emptyBody}>{loadingNote}</Text>
-        </View>
+        <ActivityIndicator color="#93c5fd" style={{ marginTop: 120 }} />
       </SafeAreaView>
     );
   }
@@ -740,10 +622,7 @@ export default function JourneyScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyTitle}>Journey not ready</Text>
-          <Text style={styles.emptyBody}>{error ?? 'Ace is still pulling this journey into view.'}</Text>
-          <Pressable onPress={() => { void refreshSession(); }} style={[styles.primaryBtn, { marginBottom: 12 }]}>
-            <Text style={styles.primaryBtnText}>Try again</Text>
-          </Pressable>
+          <Text style={styles.emptyBody}>{error ?? 'Ace could not find this journey yet.'}</Text>
           <Pressable onPress={() => router.replace('/(main)/converse')} style={styles.primaryBtn}>
             <Text style={styles.primaryBtnText}>Back to Ace</Text>
           </Pressable>
