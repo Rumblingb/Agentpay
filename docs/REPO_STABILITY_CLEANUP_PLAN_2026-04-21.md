@@ -4,8 +4,8 @@
 
 This plan exists to keep the repo stable after the terminal-native AgentPay merge to `main`.
 
-Nothing in this document is a deletion instruction for today.
-It is a review list for later cleanup once product direction, ownership, and proof surfaces are clearer.
+This document started as a review list before cleanup began.
+The narrow safe cleanup that followed is recorded in `docs/REPO_SAFE_CLEANUP_2026-04-21.md`.
 
 ## What We Preserved On Purpose
 
@@ -46,10 +46,10 @@ Later decision needed:
 - move to `docs/archive/` if it is historical
 - split to a dedicated ops repo if it remains important but should not live in the main product tree
 
-Important:
+Current status:
 
-- `.gitignore` currently blocks `ops/mac-mini/` even though the files are tracked again
-- that mismatch should be reconciled in a future hygiene pass
+- `.gitignore` no longer blocks `ops/mac-mini/`
+- ownership is still a later product/repo decision
 
 ### 3. Legacy RCM And Dashboard Helpers
 
@@ -111,10 +111,9 @@ Priority docs to keep current:
 
 ## Recommended Next Cleanup Sequence
 
-1. Reconcile `.gitignore` with tracked surfaces, especially `ops/mac-mini`.
-2. Decide whether generated growth outputs belong in Git.
-3. Mark legacy-but-preserved files as either supported, archived, or pending removal.
-4. Run a dedicated archive/remove pass only after ownership is explicit.
+1. Decide whether `ops/mac-mini` stays as an actively supported operator surface, moves to archive, or splits to a dedicated repo.
+2. Mark legacy-but-preserved files as either supported, archived, or pending removal.
+3. Run a dedicated archive/remove pass only after ownership is explicit.
 
 ## Rule For The Cleanup Pass
 

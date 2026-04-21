@@ -12,7 +12,7 @@ This is the first automation lane because it is the fastest credible path to:
 - manager trust
 - outcome-linked release events
 
-For the exact state machine, retry loop, payloads, and inbox shape, see [agentpay-rcm-claim-status-contract.md](/C:/Users/visha/agentpay/docs/agentpay-rcm-claim-status-contract.md).
+For the exact state machine, retry loop, payloads, and inbox shape, see [agentpay-rcm-claim-status-contract.md](agentpay-rcm-claim-status-contract.md).
 
 ## Supported billing contexts
 

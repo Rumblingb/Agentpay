@@ -38,7 +38,7 @@ The strategy is directionally right, but there are five holes that need to stay 
 5. Insurance payment is not AgentPay settlement
    - payer money movement, remittance, and platform milestone release are related but separate events
 
-See [agentpay-rcm-connector-strategy.md](/C:/Users/visha/agentpay/docs/agentpay-rcm-connector-strategy.md) for the connector-first operating stance.
+See [agentpay-rcm-connector-strategy.md](agentpay-rcm-connector-strategy.md) for the connector-first operating stance.
 
 ## What stays untouched
 
@@ -240,8 +240,8 @@ The repo should prefer:
 - specialized agents per lane
 - explicit approval and exception boundaries
 
-See [agentpay-rcm-autonomy-loop.md](/C:/Users/visha/agentpay/docs/agentpay-rcm-autonomy-loop.md) for the concrete multi-agent retry and learning model.
-See [agentpay-rcm-claim-status-contract.md](/C:/Users/visha/agentpay/docs/agentpay-rcm-claim-status-contract.md) for the exact first-lane implementation contract.
+See [agentpay-rcm-autonomy-loop.md](agentpay-rcm-autonomy-loop.md) for the concrete multi-agent retry and learning model.
+See [agentpay-rcm-claim-status-contract.md](agentpay-rcm-claim-status-contract.md) for the exact first-lane implementation contract.
 
 ## Work item shape
 
