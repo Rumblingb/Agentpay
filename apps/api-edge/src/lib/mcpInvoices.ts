@@ -18,7 +18,15 @@ export async function listMerchantInvoicesByType(
   env: Env,
   merchantId: string,
   invoiceType: string,
-): Promise<Array<{ id: string; status: string; feeAmount: number; currency: string; createdAt: string }>> {
+): Promise<Array<{
+  id: string;
+  invoiceId: string;
+  status: string;
+  feeAmount: number;
+  currency: string;
+  createdAt: string;
+  checkoutSessionId: string | null;
+}>> {
   const sql = createDb(env);
   try {
     const rows = await sql<Array<{
@@ -27,8 +35,9 @@ export async function listMerchantInvoicesByType(
       fee_amount: string | number;
       currency: string;
       created_at: Date;
+      external_checkout_session_id: string | null;
     }>>`
-      SELECT id, status, fee_amount, currency, created_at
+      SELECT id, status, fee_amount, currency, created_at, external_checkout_session_id
       FROM merchant_invoices
       WHERE merchant_id = ${merchantId}
         AND invoice_type = ${invoiceType}
@@ -37,10 +46,12 @@ export async function listMerchantInvoicesByType(
     `;
     return rows.map((r) => ({
       id: r.id,
+      invoiceId: r.id,
       status: r.status,
       feeAmount: Number(r.fee_amount ?? 0),
       currency: r.currency,
       createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+      checkoutSessionId: r.external_checkout_session_id ?? null,
     }));
   } finally {
     await sql.end().catch(() => {});

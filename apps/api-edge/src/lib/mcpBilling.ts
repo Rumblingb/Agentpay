@@ -111,7 +111,8 @@ export function getHostedMcpPublicPricing() {
       note: 'Applied when AgentPay brokers the human funding step or governed payment authority. Underlying processor fees are separate.',
     },
     collectionPolicy: {
-      minimumCollectableUsd: 1.00,
+      minimumCollectableUsd: 5.00,
+      behavior: 'accrue_until_threshold',
       note: 'Charges accrue and are collected once they exceed the minimum threshold.',
     },
   };
