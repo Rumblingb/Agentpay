@@ -31,8 +31,29 @@ const RELEVANCE_TERMS = [
   { term: "automation", weight: 18 },
 ];
 
+const QUERY_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "that",
+  "this",
+  "your",
+]);
+
 function normalizeText(item) {
-  return `${item.title} ${item.summary} ${item.keyword}`.toLowerCase();
+  return `${item.title} ${item.summary}`.toLowerCase();
+}
+
+function queryTokens(query) {
+  return query
+    .toLowerCase()
+    .replaceAll("@", " ")
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !QUERY_STOPWORDS.has(token));
 }
 
 function relevanceScore(item) {
@@ -46,6 +67,14 @@ function relevanceScore(item) {
   if (item.url.includes("github.com")) score += 15;
   if (haystack.includes("browser extensions")) score -= 80;
   if (haystack.includes("wall street") && !haystack.includes("payment")) score -= 20;
+  if (haystack.includes("tolkien") || haystack.includes("middle-earth") || haystack.includes("game of thrones")) {
+    score -= 180;
+  }
+
+  const matchedQueryTokens = queryTokens(item.keyword).filter((token) => haystack.includes(token));
+  if (matchedQueryTokens.length >= 2) score += 45;
+  else if (matchedQueryTokens.length === 1) score += 15;
+
   return score;
 }
 
