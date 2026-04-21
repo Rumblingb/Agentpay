@@ -48,7 +48,11 @@ import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
 import { createHostedCardCheckout, createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
 import { isMcpAccessToken } from '../lib/mcpAccessTokens';
-import { recordProductSignalEvent } from '../lib/productSignals';
+import {
+  recordProductSignalEvent,
+  type ProductSignalAudience,
+  type ProductSignalAuthType,
+} from '../lib/productSignals';
 import {
   createStripeClient,
   stripeCustomerIdFromRef,
@@ -159,7 +163,7 @@ router.use('*', async (c, next) => {
         webhookUrl: merchant.webhook_url ?? null,
         parentMerchantId: merchant.parent_merchant_id ?? null,
       });
-      c.set('mcpAudience', 'internal');
+      c.set('mcpAudience', 'generic');
       await next();
       return;
     } finally {
@@ -183,6 +187,12 @@ function maskEmail(email: string | null | undefined): string | null {
   const [localPart, domain] = email.split('@');
   const prefix = localPart.slice(0, Math.min(3, localPart.length));
   return `${prefix}***@${domain ?? '***'}`;
+}
+
+function compactStringRecord(record: Record<string, string | null | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
 }
 
 async function getActivePrincipalMandate(
@@ -311,8 +321,8 @@ router.post('/authority-bootstrap', async (c) => {
 router.post('/funding-request', async (c) => {
   const presentedToken = c.req.header('authorization') ?? c.req.header('x-api-key') ?? '';
   const normalizedToken = presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken;
-  const audience = c.get('mcpAudience') ?? 'generic';
-  const authType = isMcpAccessToken(normalizedToken) ? 'mcp_token' : 'api_key';
+  const audience: ProductSignalAudience = c.get('mcpAudience') ?? 'generic';
+  const authType: ProductSignalAuthType = isMcpAccessToken(normalizedToken) ? 'mcp_token' : 'api_key';
   let body: {
     rail?: unknown;
     amount?: unknown;
@@ -426,12 +436,12 @@ router.post('/funding-request', async (c) => {
         customerName: typeof body.customerName === 'string' ? body.customerName : undefined,
         customerPhone: typeof body.customerPhone === 'string' ? body.customerPhone : undefined,
         customerEmail: typeof body.customerEmail === 'string' ? body.customerEmail : undefined,
-        notes: {
+        notes: compactStringRecord({
           requestId,
           source: 'agentpay_hosted_mcp',
           actionSessionId: actionSession.session.sessionId,
           capabilityExecutionAttemptId: capabilityExecutionAttemptId ?? undefined,
-        },
+        }),
       });
 
       if (!upi) {
@@ -547,14 +557,14 @@ router.post('/funding-request', async (c) => {
         customerEmail: typeof body.customerEmail === 'string' ? body.customerEmail : undefined,
         customerId: stripeCustomerId,
         principalId: normalizedPrincipalId,
-        metadata: {
+        metadata: compactStringRecord({
           requestId,
           source: 'agentpay_hosted_mcp',
           actionSessionId: actionSession.session.sessionId,
           currency: fundingCurrency,
           capabilityExecutionAttemptId: capabilityExecutionAttemptId ?? undefined,
           authorityProfileId: authorityProfileId ?? undefined,
-        },
+        }),
       }).catch(async (err) => {
         await syncHostedActionSession(c.env, {
           sessionId: actionSession.session.sessionId,

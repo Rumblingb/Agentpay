@@ -32,6 +32,10 @@ export type ConciergeExecutionSnapshot = {
   quoteExpiresAt: string | null;
   paymentConfirmedAt: string | null;
   dispatchStartedAt: string | null;
+  dispatchStatus: string | null;
+  dispatchAttemptCount: number;
+  dispatchError: string | null;
+  nextDispatchRetryAt: string | null;
   rerouteOfferActionLabel: string | null;
   updatedAt: string | null;
 };
@@ -112,6 +116,10 @@ export function buildConciergeExecutionSnapshot(params: {
     quoteExpiresAt: asString(metadata.quoteExpiresAt) ?? asString(metadata.expiresAt),
     paymentConfirmedAt: asString(metadata.paymentConfirmedAt),
     dispatchStartedAt: asString(metadata.openclawDispatchedAt),
+    dispatchStatus: asString(metadata.dispatchStatus),
+    dispatchAttemptCount: asNumber(metadata.dispatchAttemptCount),
+    dispatchError: asString(metadata.dispatchError) ?? asString(metadata.openclawError),
+    nextDispatchRetryAt: asString(metadata.nextDispatchRetryAt),
     rerouteOfferActionLabel: deriveRerouteOfferActionLabel(metadata),
     updatedAt: params.updatedAt ?? null,
   };

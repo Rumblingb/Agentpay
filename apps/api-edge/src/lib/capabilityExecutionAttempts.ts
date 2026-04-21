@@ -1,4 +1,4 @@
-import type { MerchantContext } from '../types';
+import type { Env, MerchantContext } from '../types';
 import { createDb, parseJsonb, type Sql } from './db';
 import type { CapabilityExecutionResult } from './capabilityBroker';
 import { executeCapabilityProxy, getCapabilityProviderDefaults } from './capabilityBroker';
@@ -52,6 +52,8 @@ type MerchantRow = {
   wallet_address: string | null;
   webhook_url: string | null;
 };
+
+type DbEnv = Pick<Env, 'DATABASE_URL' | 'HYPERDRIVE'>;
 
 export type CapabilityExecutionAttemptView = {
   id: string;
@@ -158,7 +160,7 @@ async function getMerchantContext(sql: Sql, merchantId: string): Promise<Merchan
 }
 
 export async function createCapabilityExecutionAttempt(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   input: {
     merchantId: string;
     capabilityId: string;
@@ -316,7 +318,7 @@ export async function createCapabilityExecutionAttempt(
 }
 
 export async function getCapabilityExecutionAttempt(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   merchantId: string,
   attemptId: string,
 ): Promise<CapabilityExecutionAttemptView | null> {
@@ -341,7 +343,7 @@ export async function getCapabilityExecutionAttempt(
 }
 
 export async function attachHostedActionSessionToExecutionAttempt(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   input: {
     attemptId: string;
     hostedActionSessionId: string;
@@ -388,7 +390,7 @@ export async function attachHostedActionSessionToExecutionAttempt(
 }
 
 export async function beginCapabilityExecutionAttemptResume(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   attemptId: string,
 ): Promise<{ attempt: CapabilityExecutionAttemptView | null; acquired: boolean }> {
   let sql: Sql | undefined;
@@ -436,7 +438,7 @@ export async function beginCapabilityExecutionAttemptResume(
 }
 
 export async function completeCapabilityExecutionAttempt(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   input: {
     attemptId: string;
     status: CapabilityExecutionAttemptStatus;
@@ -497,7 +499,7 @@ export async function completeCapabilityExecutionAttempt(
 }
 
 export async function resumeCapabilityExecutionAttempt(
-  env: { DATABASE_URL?: string; HYPERDRIVE?: { connectionString?: string } },
+  env: DbEnv,
   attemptId: string,
 ): Promise<{
   attempt: CapabilityExecutionAttemptView | null;
