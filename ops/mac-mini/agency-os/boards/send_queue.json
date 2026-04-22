@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "purpose": "Outbound packets staged for founder approval, sending, and follow-up.",
+  "packets": []
+}

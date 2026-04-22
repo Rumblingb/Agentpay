@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "purpose": "Lightweight P&L and reinvestment board for revenue, costs, runway, model/API spend, tools, contractors, and budget gates.",
+  "revenue": [],
+  "costs": [],
+  "budget_gates": [
+    {
+      "threshold": "first_cash",
+      "rule": "fund product proof and platform submission work first"
+    },
+    {
+      "threshold": "1000_mrr",
+      "rule": "permit limited paid tooling/API spend with founder approval"
+    },
+    {
+      "threshold": "3000_mrr",
+      "rule": "consider one contractor or specialist with founder approval"
+    },
+    {
+      "threshold": "10000_mrr",
+      "rule": "consider scaled outbound/content/ads experiments with founder approval"
+    }
+  ]
+}

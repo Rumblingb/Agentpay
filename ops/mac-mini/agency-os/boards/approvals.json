@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "purpose": "Founder approval queue for external sends, public claims, spend, charges, discounts, refunds, partner submissions, customer promises, and irreversible actions.",
+  "requests": []
+}
