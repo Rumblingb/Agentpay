@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "purpose": "Append-only archive of evaluated AgentPay Labs experiment runs, inspired by HyperAgents lineage archives and autoresearch result tables.",
+  "runs": []
+}

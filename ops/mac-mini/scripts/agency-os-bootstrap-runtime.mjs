@@ -28,7 +28,13 @@ const boardFiles = [
   "approvals.json",
   "pnl.json",
   "platform_submissions.json",
-  "research_backlog.json"
+  "research_backlog.json",
+  "lab_experiments.json",
+  "lab_archive.json",
+  "lab_metrics.json",
+  "lab_skill_library.json",
+  "lab_reflections.json",
+  "lab_safety_reviews.json"
 ];
 
 async function readJson(filePath) {

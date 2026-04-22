@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "purpose": "AgentPay Labs evaluator output. The lab loop writes measured board health, experiment readiness, and safety posture here.",
+  "last_evaluated_at": null,
+  "overall_score": null,
+  "dimensions": {
+    "experiment_contracts": null,
+    "approval_gates": null,
+    "outbound_readiness": null,
+    "revenue_traceability": null,
+    "product_truth": null,
+    "safety_coverage": null
+  },
+  "issues": [],
+  "next_actions": []
+}

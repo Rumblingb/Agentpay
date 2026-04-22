@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "purpose": "Canonical AgentPay Labs experiment queue. Experiments are proposals until evaluated, approved, and archived.",
+  "experiments": [
+    {
+      "id": "EXP-001",
+      "owner": "outbound-ops",
+      "surface": "boards/send_queue.json",
+      "hypothesis": "A founder-approved MCP billing gateway pitch to MCP builders will produce more qualified replies than generic AgentPay positioning.",
+      "editable_paths": [
+        "boards/send_queue.json"
+      ],
+      "read_paths": [
+        "boards/product_truth.json",
+        "boards/crm.json",
+        "boards/platform_submissions.json"
+      ],
+      "budget": {
+        "time_minutes": 45,
+        "model_budget_usd": 0.5,
+        "external_actions": "none"
+      },
+      "metrics": [
+        "packet_completeness",
+        "approval_readiness",
+        "reply_path_clarity"
+      ],
+      "approval_required": true,
+      "rollback_rule": "Discard packet if it lacks a named recipient, proof claim, follow-up date, or founder approval status.",
+      "expected_artifact": "send-ready outbound packet staged for founder approval",
+      "status": "proposed"
+    },
+    {
+      "id": "EXP-002",
+      "owner": "revenue-ops",
+      "surface": "boards/revenue.json",
+      "hypothesis": "A revenue packet with buyer, amount, due date, next step, and payment path will expose faster first-cash opportunities than broad GTM notes.",
+      "editable_paths": [
+        "boards/revenue.json"
+      ],
+      "read_paths": [
+        "boards/crm.json",
+        "boards/product_truth.json",
+        "boards/pnl.json"
+      ],
+      "budget": {
+        "time_minutes": 30,
+        "model_budget_usd": 0.25,
+        "external_actions": "none"
+      },
+      "metrics": [
+        "buyer_specificity",
+        "cash_path_clarity",
+        "follow_up_date_present"
+      ],
+      "approval_required": true,
+      "rollback_rule": "Discard packet if amount, owner, due date, or next follow-up is missing.",
+      "expected_artifact": "collection or first-cash packet staged for founder review",
+      "status": "proposed"
+    },
+    {
+      "id": "EXP-003",
+      "owner": "partnerships-ops",
+      "surface": "boards/platform_submissions.json",
+      "hypothesis": "Treating OpenAI and Anthropic as distribution partners will clarify the fastest platform submission path for AgentPay Labs.",
+      "editable_paths": [
+        "boards/platform_submissions.json"
+      ],
+      "read_paths": [
+        "boards/product_truth.json",
+        "boards/content_queue.json"
+      ],
+      "budget": {
+        "time_minutes": 60,
+        "model_budget_usd": 0.75,
+        "external_actions": "none"
+      },
+      "metrics": [
+        "requirement_coverage",
+        "rejection_risk_clarity",
+        "next_submission_step"
+      ],
+      "approval_required": true,
+      "rollback_rule": "Discard packet if it does not list exact platform requirement gaps and the next owner/date.",
+      "expected_artifact": "platform partner submission checklist",
+      "status": "proposed"
+    }
+  ]
+}
