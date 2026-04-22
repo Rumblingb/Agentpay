@@ -159,3 +159,29 @@ export function summarizeCommitThemes(commits) {
   }
   return [...buckets.entries()].map(([theme, count]) => ({ theme, count }));
 }
+
+let cachedGithubToken;
+
+export function getGithubToken() {
+  if (cachedGithubToken !== undefined) {
+    return cachedGithubToken;
+  }
+
+  if (process.env.GITHUB_TOKEN?.trim()) {
+    cachedGithubToken = process.env.GITHUB_TOKEN.trim();
+    return cachedGithubToken;
+  }
+
+  try {
+    const token = execFileSync("gh", ["auth", "token"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    cachedGithubToken = token || null;
+    return cachedGithubToken;
+  } catch {
+    cachedGithubToken = null;
+    return cachedGithubToken;
+  }
+}

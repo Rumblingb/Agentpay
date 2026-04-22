@@ -3,6 +3,7 @@ import {
   draftsDir,
   ensureDir,
   fetchJson,
+  getGithubToken,
   isoNow,
   outboundDir,
   readJson,
@@ -22,8 +23,9 @@ function githubHeaders() {
   const headers = {
     "x-github-api-version": "2022-11-28",
   };
-  if (process.env.GITHUB_TOKEN) {
-    headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const token = getGithubToken();
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
   }
   return headers;
 }
@@ -43,23 +45,39 @@ async function enrichGithubLead(signal) {
 
   const repo = await fetchJson(`https://api.github.com/repos/${signal.title}`, {
     headers: githubHeaders(),
-  }).catch(() => null);
-  if (!repo) return null;
+  }).catch((error) => ({
+    __fetchError: error instanceof Error ? error.message : String(error),
+  }));
+  if (!repo || repo.__fetchError) {
+    return {
+      signal,
+      repo: null,
+      owner: null,
+      contactEmail: null,
+      error: repo?.__fetchError ?? "repo_lookup_failed",
+    };
+  }
 
   const ownerLogin = repo.owner?.login;
   const owner = ownerLogin
-    ? await fetchJson(`https://api.github.com/users/${ownerLogin}`, { headers: githubHeaders() }).catch(() => null)
+    ? await fetchJson(`https://api.github.com/users/${ownerLogin}`, { headers: githubHeaders() }).catch((error) => ({
+      __fetchError: error instanceof Error ? error.message : String(error),
+    }))
     : null;
 
-  const contactEmail = owner?.email
+  const ownerFetchError = owner && typeof owner === "object" && "__fetchError" in owner ? owner.__fetchError : null;
+  const normalizedOwner = ownerFetchError ? null : owner;
+
+  const contactEmail = normalizedOwner?.email
     || extractEmail(repo.homepage)
     || null;
 
   return {
     signal,
     repo,
-    owner,
+    owner: normalizedOwner,
     contactEmail,
+    error: ownerFetchError,
   };
 }
 
@@ -127,16 +145,18 @@ async function sendEmail({ to, subject, body }) {
 
 async function main() {
   await ensureDir(outboundDir);
-  const latestSignals = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [] });
+  const latestSignals = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [], topGithubSignals: [] });
   const existingLog = await readJson(path.join(outboundDir, "sent-log.json"), []);
   const latestDrafts = await readText(path.join(draftsDir, "outbound-latest.md"), "");
   const sentRecently = new Set(
     existingLog
-      .filter((entry) => new Date(entry.sentAt ?? 0).getTime() >= dedupeWindowCutoff())
+      .filter((entry) =>
+        entry.sendStatus === "sent"
+        && new Date(entry.sentAt ?? 0).getTime() >= dedupeWindowCutoff())
       .map((entry) => `${entry.to}:${entry.signalUrl}`),
   );
 
-  const candidateSignals = (latestSignals.topSignals ?? [])
+  const candidateSignals = (latestSignals.topGithubSignals?.length ? latestSignals.topGithubSignals : latestSignals.topSignals ?? [])
     .filter((signal) => signal.source === "github")
     .filter((signal) => scoreSignal(signal) >= MIN_FIT_SCORE)
     .slice(0, MAX_DAILY_SENDS * 3);
@@ -151,6 +171,16 @@ async function main() {
   for (const lead of enriched) {
     if (results.filter((entry) => entry.sendStatus === "sent").length >= MAX_DAILY_SENDS) {
       break;
+    }
+
+    if (lead.error && !lead.contactEmail) {
+      results.push({
+        signalTitle: lead.signal.title,
+        signalUrl: lead.signal.url,
+        sendStatus: "skipped_enrichment_failed",
+        error: lead.error,
+      });
+      continue;
     }
 
     if (!lead.contactEmail) {

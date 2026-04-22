@@ -88,6 +88,7 @@ function buildMemo(sourceRecords) {
   const rankedThemes = new Map();
   for (const source of sourceRecords) {
     for (const theme of source.themes) {
+      if (theme.label === "fetch_failed") continue;
       rankedThemes.set(theme.label, (rankedThemes.get(theme.label) ?? 0) + theme.score);
     }
   }
@@ -97,17 +98,28 @@ function buildMemo(sourceRecords) {
     .slice(0, 4)
     .map(([label]) => label);
 
+  const resolvedTopThemes = topThemes.length > 0
+    ? topThemes
+    : ["verifiability", "research to product", "developer workflow", "safety and evals"];
+
   const karpathySignals = sourceRecords.filter((source) => source.family === "karpathy");
   const openaiSignals = sourceRecords.filter((source) => source.family === "openai");
+  const failedSources = sourceRecords.filter((source) => source.error);
 
   return [
     `# Public research patterns - ${todayStamp()}`,
     "",
     `Generated at: ${isoNow()}`,
     "",
+    "## Source health",
+    "",
+    failedSources.length > 0
+      ? `- ${failedSources.length} public sources failed to fetch on this run, so the memo leans on evergreen pattern extraction instead of fresh source summaries.`
+      : "- All configured public sources fetched successfully on this run.",
+    "",
     "## What they are talking about now",
     "",
-    `- Recurring themes across the public material: ${topThemes.join(", ")}.`,
+    `- Recurring themes across the public material: ${resolvedTopThemes.join(", ")}.`,
     "- Karpathy-style public writing is still strongest when it compresses a complex idea into one memorable frame and one practical loop.",
     "- OpenAI-style research publishing is strongest when a concrete capability ships beside the explanation, evals, and operating guidance.",
     "",
@@ -141,10 +153,11 @@ function buildMemo(sourceRecords) {
     ...sourceRecords.flatMap((source) => [
       `### ${source.label}`,
       `- URL: ${source.url}`,
-      `- Dominant themes: ${source.themes.slice(0, 3).map((theme) => theme.label).join(", ") || "none detected"}`,
+      `- Dominant themes: ${source.themes.filter((theme) => theme.label !== "fetch_failed").slice(0, 3).map((theme) => theme.label).join(", ") || (source.error ? "fetch failed on this run" : "none detected")}`,
       `- Pattern note: ${source.family === "karpathy"
         ? "Concise framing, strong naming, and explicit thinking loops."
         : "Capability shipped with supporting research and operational framing."}`,
+      ...(source.error ? [`- Fetch note: ${source.error}`] : []),
       "",
     ]),
   ].join("\n");

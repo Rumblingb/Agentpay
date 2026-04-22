@@ -34,9 +34,9 @@ function emailDraft(signal) {
 }
 
 async function main() {
-  const latest = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [] });
+  const latest = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [], topGithubSignals: [] });
   const selected = pickTop(
-    (latest.topSignals ?? []).filter((signal) =>
+    (latest.topGithubSignals?.length ? latest.topGithubSignals : latest.topSignals ?? []).filter((signal) =>
       signal.source === "github"
       || (signal.source === "hackernews" && (/^show hn:|^launch hn:/i.test(signal.title) || signal.url.includes("github.com"))),
     ),
@@ -45,7 +45,7 @@ async function main() {
   const sections = [
     "# Outbound drafts",
     "",
-    "These are plain-text first-touch drafts. Do not automate sending without a human pass.",
+    "These are plain-text first-touch drafts. Auto-send is allowed only through the governed outbound sender safeguards.",
     "",
   ];
 

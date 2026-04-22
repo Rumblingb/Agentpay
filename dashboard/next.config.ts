@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
-import path from "path";
 
-const monorepoRoot = path.join(__dirname, "..");
+const dashboardRoot = __dirname;
 
 // AGENTPAY_API_BASE_URL is evaluated at build time by next.config.ts (server-only).
 // Do NOT fall back to a NEXT_PUBLIC_ variable here — that would expose the backend
@@ -11,9 +10,9 @@ const BACKEND_URL =
   "http://localhost:8787";
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: monorepoRoot,
+  outputFileTracingRoot: dashboardRoot,
   turbopack: {
-    root: monorepoRoot,
+    root: dashboardRoot,
   },
   async rewrites() {
     return {

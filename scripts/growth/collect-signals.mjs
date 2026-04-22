@@ -4,9 +4,11 @@ import {
   ensureDir,
   fetchJson,
   getKeywords,
+  getGithubToken,
   isoNow,
   opsRoot,
   pickTop,
+  readJson,
   signalsDir,
   todayStamp,
   writeJson,
@@ -82,8 +84,9 @@ function githubHeaders() {
   const headers = {
     "x-github-api-version": "2022-11-28",
   };
-  if (process.env.GITHUB_TOKEN) {
-    headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const token = getGithubToken();
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
   }
   return headers;
 }
@@ -168,6 +171,8 @@ async function main() {
   await ensureDir(opsRoot);
   await ensureDir(signalsDir);
 
+  const previousLatest = await readJson(path.join(signalsDir, "latest.json"), null);
+
   for (const keyword of keywords) {
     for (const [source, loader] of [
       ["github", searchGitHub],
@@ -208,17 +213,36 @@ async function main() {
       fit: item.relevance >= 110 ? "high" : item.relevance >= 70 ? "medium" : "watch",
     }));
 
+  let topSignals = pickTop(deduped, 25);
+  let topGithubSignals = pickTop(
+    deduped.filter((item) => item.source === "github"),
+    25,
+  );
+  let degraded = null;
+
+  if (!topSignals.length && errors.length > 0 && previousLatest?.topSignals?.length) {
+    topSignals = previousLatest.topSignals;
+    topGithubSignals = previousLatest.topGithubSignals ?? previousLatest.topSignals.filter((item) => item.source === "github");
+    degraded = {
+      mode: "cached_signals_fallback",
+      reason: "all_live_fetches_failed",
+      fallbackGeneratedAt: previousLatest.generatedAt ?? null,
+    };
+  }
+
   const payload = {
     generatedAt: runAt,
     keywords,
     totals: {
       raw: collected.length,
       deduped: deduped.length,
-      top: Math.min(25, deduped.length),
+      top: topSignals.length,
       errors: errors.length,
     },
-    topSignals: pickTop(deduped, 25),
+    topSignals,
+    topGithubSignals,
     errors,
+    degraded,
   };
 
   await writeJson(path.join(signalsDir, `${date}.json`), payload);
