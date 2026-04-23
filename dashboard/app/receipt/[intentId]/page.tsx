@@ -126,9 +126,10 @@ function StatusBadge({ status }: { status: string }) {
 export default async function ReceiptPage({
   params,
 }: {
-  params: { intentId: string };
+  params: Promise<{ intentId: string }>;
 }) {
-  const data = await fetchReceiptData(params.intentId);
+  const { intentId } = await params;
+  const data = await fetchReceiptData(intentId);
   if (!data) notFound();
 
   const { intent, escrow, verificationSignature } = data;
