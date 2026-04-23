@@ -1,13 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
-root="$(cd -- "$(dirname -- "$0")/../../.." && pwd)"
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
 export PATH="/opt/homebrew/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-node_bin="$(command -v node || true)"
+
+node_bin="${NODE_BIN:-$(command -v node || true)}"
 if [[ -z "$node_bin" && -x /opt/homebrew/bin/node ]]; then
   node_bin="/opt/homebrew/bin/node"
 fi
+
 if [[ -z "$node_bin" ]]; then
-  echo "agency-os-sync: node not found" >&2
-  exit 1
+  echo "node not found in PATH" >&2
+  exit 127
 fi
-exec "$node_bin" "$root/ops/mac-mini/scripts/agency-os-sync.mjs"
+
+exec "$node_bin" "$root/ops/mac-mini/scripts/agency-os-evaluate.mjs" "$@"

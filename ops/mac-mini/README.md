@@ -53,7 +53,7 @@ Optional:
 ## Directories
 
 - `bin/` - founder/operator commands such as `bill-ask`, `agency-os-ask`, `stack-monitor`, and `stack-watch`
-- `bin/` also includes `agency-os-sync`, `agency-os-install-launchd`, `stack-dashboard`, `stack-openclaw-watch`, and `stack-activity-watch`
+- `bin/` also includes `agency-os-sync`, `agency-os-evolve`, `agency-os-bootstrap-runtime`, `agency-os-install-launchd`, `stack-dashboard`, `stack-openclaw-watch`, and `stack-activity-watch`
 - `scripts/` - supporting runtime scripts for the operator surface
 - `launchd/` - plist templates and service ownership notes
 - `runbooks/` - operator procedures
@@ -61,6 +61,29 @@ Optional:
 
 ## Agency OS docs
 
-- `AGENCY_OS_RUNTIME.md` - one-lane Agency OS runtime model with internal roles
+- `AGENCY_OS_RUNTIME.md` - one-lane Agency OS runtime model with internal roles and self-evolution loop
 - `AGENCY_OS_COST_POLICY.md` - cheap-by-default Agency OS operating policy
 - `FOUNDER_INTERFACE.md` - how to talk to Bill and the merged Agency OS surface and monitor both together
+
+## Live Agency OS runtime
+
+Live runtime state lives under:
+
+`~/.openclaw/workspace-agency-os`
+
+The repo owns templates, scripts, and docs. Live boards are not overwritten unless `--overwrite` is explicitly passed to `agency-os-bootstrap-runtime`.
+
+## Team Shape
+
+Agency OS tracks eight company-building cells:
+
+- offer-strategy
+- build-ops
+- outbound-ops
+- media-ops
+- revenue-ops
+- ads-ops
+- partnerships-ops
+- customer-ops
+
+Bill/Hedge remains separate.

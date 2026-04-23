@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "purpose": "Reflection log for each lab run: what worked, what failed, and what the next experiment should change.",
+  "reflections": []
+}

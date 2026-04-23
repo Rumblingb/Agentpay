@@ -10,6 +10,8 @@
     "test": "jest --runInBand",
     "test:smoke": "jest --runInBand tests/api-status.test.ts tests/routes/verify.test.ts tests/routes/receipt.test.ts",
     "test:workers-critical": "jest --runInBand tests/routes/wallets.test.ts tests/moltbook/spending-policy.test.ts tests/routes/verify.test.ts tests/routes/receipt.test.ts tests/api-status.test.ts",
+    "agency-os:evaluate": "node ops/mac-mini/scripts/agency-os-evaluate.mjs",
+    "agency-os:lab-loop": "node ops/mac-mini/scripts/agency-os-lab-loop.mjs",
     "growth:signals": "node scripts/growth/collect-signals.mjs",
     "growth:outreach": "node scripts/growth/draft-outreach.mjs",
     "growth:content": "node scripts/growth/draft-content.mjs",

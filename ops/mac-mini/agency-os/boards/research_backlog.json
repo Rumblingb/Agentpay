@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "purpose": "Research queue for the AgentPay Labs self-sustaining agentic agency roadmap.",
+  "items": [
+    {
+      "owner": "offer-strategy",
+      "topic": "first ICP and wedge",
+      "question": "Which buyer pays first: MCP developers, AI agencies, SaaS tools, merchants, or RCM teams?",
+      "status": "open"
+    },
+    {
+      "owner": "build-ops",
+      "topic": "safe MCP billing gateway",
+      "question": "What tool schemas, approval policies, OAuth scopes, and audit logs are required for safe agent billing?",
+      "status": "open"
+    },
+    {
+      "owner": "partnerships-ops",
+      "topic": "OpenAI and Claude distribution",
+      "question": "What are the exact submission requirements, rejection risks, and fastest paths to ChatGPT Apps, Codex plugins, and Claude Connector Directory?",
+      "status": "open"
+    },
+    {
+      "owner": "revenue-ops",
+      "topic": "first cash offer",
+      "question": "What paid pilot offer can sell fastest while producing reusable AgentPay product modules?",
+      "status": "open"
+    },
+    {
+      "owner": "chief-agent",
+      "topic": "safety and evals",
+      "question": "What evals catch harmful writes, hallucinated payment status, prompt injection, and unauthorized spend before launch?",
+      "status": "open"
+    }
+  ]
+}
