@@ -109,6 +109,8 @@ model Merchant {
   capabilityAccessLeases   CapabilityAccessLease[]
   capabilityAccessLogs     CapabilityAccessLog[]
   capabilityUsageEvents    CapabilityUsageEvent[]
+  authorityProfiles        AuthorityProfile[]
+  capabilityExecutionAttempts CapabilityExecutionAttempt[]
   oauthAuthorizationCodes  OauthAuthorizationCode[]
   oauthEmailLinkAttempts   OauthEmailLinkAttempt[]
   hostedActionSessions     HostedActionSession[]
@@ -143,6 +145,7 @@ model CapabilityVaultEntry {
   accessLeases        CapabilityAccessLease[]
   accessLogs          CapabilityAccessLog[]
   usageEvents         CapabilityUsageEvent[]
+  executionAttempts   CapabilityExecutionAttempt[]
 
   @@unique([merchantId, capabilityKey])
   @@index([merchantId, status])
@@ -170,6 +173,8 @@ model CapabilityConnectSession {
 
   merchant       Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   capabilityVaultEntry CapabilityVaultEntry @relation(fields: [capabilityVaultEntryId], references: [id], onDelete: Cascade)
+  accessLogs     CapabilityAccessLog[]
+  usageEvents    CapabilityUsageEvent[]
 
   @@index([merchantId, createdAt(sort: Desc)])
   @@index([capabilityVaultEntryId, sessionState])
@@ -380,6 +385,7 @@ model HostedActionSession {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityExecutionAttempts CapabilityExecutionAttempt[]
 
   @@index([merchantId, createdAt(sort: Desc)])
   @@index([status, expiresAt(sort: Desc)])
@@ -406,6 +412,7 @@ model AuthorityProfile {
   updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  capabilityExecutionAttempts CapabilityExecutionAttempt[]
 
   @@unique([merchantId, principalId])
   @@index([operatorId])
@@ -1097,6 +1104,7 @@ model RcmWorkspace {
 
   merchant  Merchant      @relation(fields: [merchantId], references: [id])
   workItems RcmWorkItem[]
+  principalMandates PrincipalMandate[]
 
   @@index([merchantId])
   @@index([workspaceType])
