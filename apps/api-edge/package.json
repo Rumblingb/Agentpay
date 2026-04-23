@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "hono": "^4.12.14",
     "postgres": "^3.4.8",
     "stripe": "^20.4.1"
