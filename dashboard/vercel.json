@@ -1,5 +1,5 @@
 {
-  "buildCommand": "next build",
+  "buildCommand": "next build --webpack",
   "headers": [
     {
       "source": "/(.*)",
