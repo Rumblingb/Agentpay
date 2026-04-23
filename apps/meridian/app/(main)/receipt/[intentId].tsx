@@ -7,7 +7,7 @@
  * - Saves trip to AsyncStorage for My Trips history
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -27,13 +27,19 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import { getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
+import * as MailComposer from 'expo-mail-composer';
+import * as Sharing from 'expo-sharing';
+import { getConciergeExecution, getReceipt, type Receipt, reportIssue, registerJobWatch, getIntentStatus, createCheckoutSession, createUpiPaymentLink } from '../../../lib/api';
 import { formatMoney, formatMoneyAmount } from '../../../lib/money';
 import { useStore } from '../../../lib/store';
-import { loadActiveTrip, saveActiveTrip, upsertTrip } from '../../../lib/storage';
-import { scheduleHotelNotifications, scheduleJourneyNotifications, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
+import { loadActiveTrip, loadJourneySession, patchJourneySession, saveActiveTrip, saveJourneySession, upsertTrip, recordRouteMemory, type JourneySession } from '../../../lib/storage';
+import { scheduleHotelNotifications, scheduleJourneyNotifications, scheduleProactiveRerouteReminder, scheduleProactiveRouteReminder, scheduleTravelDayNudge, requestNotificationPermission, getExpoPushToken } from '../../../lib/notifications';
 import { fetchWeatherForStation, type WeatherData } from '../../../lib/weather';
 import { applyTripDisruption, parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, type ProactiveCard, type TripContext } from '../../../lib/trip';
+import { loadProfileRaw } from '../../../lib/profile';
+import { createReceiptPdf, type ReceiptPdfSection } from '../../../lib/receiptPdf';
+import { trackClientEvent } from '../../../lib/telemetry';
+import { journeyRecovery } from '../../../lib/journeyRecovery';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const QR_SIZE = Math.min(SCREEN_W - 80, 280);
@@ -107,6 +113,15 @@ function formatLegMoment(value?: string) {
     return parsed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
   return value;
+}
+
+function fallbackCurrencySymbol(code?: string | null): string {
+  const resolved = (code ?? '').toUpperCase();
+  if (resolved === 'GBP') return '£';
+  if (resolved === 'INR') return '₹';
+  if (resolved === 'USD') return '$';
+  if (resolved === 'EUR') return 'EUR ';
+  return resolved ? `${resolved} ` : '';
 }
 
 function isRollbackState(bookingState: TripContext['watchState'] extends infer T ? T extends { bookingState?: infer B } ? B : never : never, totalLegs: number) {
@@ -211,9 +226,35 @@ export default function ReceiptScreen() {
   const [shareToken, setShareToken] = useState<string | null>(shareTokenParam ?? null);
   const [hotelDetails, setHotelDetails] = useState<{ city: string; checkIn: string; checkOut: string; bestOption: { name: string; stars: number; ratePerNight: number; totalCost: number; currency: string; area: string; bookingUrl?: string } } | null>(null);
   const [partnerCheckoutUrl, setPartnerCheckoutUrl] = useState<string | null>(null);
+  const [walletPassUrl, setWalletPassUrl] = useState<string | null>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [paymentCheckLoading, setPaymentCheckLoading] = useState(false);
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
+  const [walletNote, setWalletNote] = useState<string | null>(null);
+  const [travellerName, setTravellerName] = useState<string | null>(null);
+  const [travellerEmail, setTravellerEmail] = useState<string | null>(null);
+  const [exportAction, setExportAction] = useState<'pdf' | 'email' | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  const [journeySession, setJourneySession] = useState<JourneySession | null>(null);
+  const rerouteReminderScheduledRef = useRef(false);
+  const walletTelemetryTrackedRef = useRef(false);
+  const rerouteTelemetryTrackedRef = useRef(false);
+  const exportPdfUriRef = useRef<string | null>(null);
+
+  const logReceiptEvent = (params: {
+    event: string;
+    severity?: 'info' | 'warning' | 'error';
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void trackClientEvent({
+      event: params.event,
+      screen: 'receipt',
+      severity: params.severity,
+      message: params.message,
+      metadata: params.metadata,
+    });
+  };
 
   const hasJourneyDetails = !!(bookingRef || departureTime || fromStation);
   const repeatRoutePrompt = repeatPrompt({
@@ -232,21 +273,91 @@ export default function ReceiptScreen() {
   const paymentRequired = !!((fiatAmountNum ?? receipt?.amount ?? 0) > 0);
   const bookingState = tripContext?.watchState?.bookingState;
   const rolledBackJourney = isRollbackState(bookingState, tripLegs.length || 1);
-  const receiptStatusLabel = receipt?.verifiedAt
-    ? 'Payment cleared'
-    : rolledBackJourney
-    ? 'Journey safely unwound'
-    : bookingState === 'payment_pending'
-    ? 'Awaiting payment'
-    : bookingState === 'failed'
-    ? 'Needs attention'
-    : receipt
-    ? 'Booking confirmed'
-    : 'Journey details ready';
+  const liveJourneySession: JourneySession = {
+    ...(journeySession ?? {}),
+    intentId,
+    jobId: journeySession?.jobId ?? null,
+    journeyId: journeySession?.journeyId ?? null,
+    title: tripContext?.title ?? journeySession?.title ?? (fromStation && toStation ? `${fromStation} -> ${toStation}` : 'Journey'),
+    state:
+      rolledBackJourney || bookingState === 'failed' || bookingState === 'refunded' ? 'attention'
+      : receipt?.verifiedAt ? 'ticketed'
+      : bookingState === 'payment_pending' ? 'payment_pending'
+      : 'ticketed',
+    intentStatus: journeySession?.intentStatus ?? receipt?.status ?? null,
+    bookingState: tripContext?.watchState?.bookingState ?? journeySession?.bookingState,
+    fromStation: fromStation ?? journeySession?.fromStation ?? null,
+    toStation: toStation ?? journeySession?.toStation ?? null,
+    departureTime: departureTime ?? journeySession?.departureTime ?? null,
+    departureDatetime: departureDatetime ?? journeySession?.departureDatetime ?? null,
+    arrivalTime: arrivalTime ?? journeySession?.arrivalTime ?? null,
+    platform: platform ?? journeySession?.platform ?? null,
+    operator: operator ?? journeySession?.operator ?? null,
+    bookingRef: bookingRef ?? journeySession?.bookingRef ?? null,
+    finalLegSummary: preservedFinalLegSummary ?? journeySession?.finalLegSummary ?? null,
+    fiatAmount: fiatAmountNum ?? journeySession?.fiatAmount ?? null,
+    currencySymbol: fiatSymbol ?? journeySession?.currencySymbol ?? null,
+    currencyCode: fiatCode ?? journeySession?.currencyCode ?? null,
+    tripContext: tripContext ?? journeySession?.tripContext ?? null,
+    shareToken: shareToken ?? journeySession?.shareToken ?? null,
+    walletPassUrl: walletPassUrl ?? journeySession?.walletPassUrl ?? null,
+    walletLastOpenedAt: journeySession?.walletLastOpenedAt ?? null,
+    quoteExpiresAt: journeySession?.quoteExpiresAt ?? null,
+    paymentConfirmedAt: receipt?.verifiedAt ?? journeySession?.paymentConfirmedAt ?? null,
+    openclawDispatchedAt: journeySession?.openclawDispatchedAt ?? null,
+    pendingFulfilment: journeySession?.pendingFulfilment ?? null,
+    fulfilmentFailed: journeySession?.fulfilmentFailed ?? null,
+    rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
+    rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
+    rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+    rerouteOfferActionLabel: journeySession?.rerouteOfferActionLabel ?? null,
+    executionStatus: journeySession?.executionStatus ?? null,
+    recoveryBucket: journeySession?.recoveryBucket ?? null,
+    recoveryAction: journeySession?.recoveryAction ?? null,
+    recoveryReason: journeySession?.recoveryReason ?? null,
+    executionSummary: journeySession?.executionSummary ?? null,
+    manualReviewRequired: journeySession?.manualReviewRequired ?? null,
+    supportState: journeySession?.supportState ?? 'none',
+    supportRequestedAt: journeySession?.supportRequestedAt ?? null,
+    supportSummary: journeySession?.supportSummary ?? null,
+    lastEventKey: journeySession?.lastEventKey ?? null,
+    lastEventAt: journeySession?.lastEventAt ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  const recoveryState = journeyRecovery(liveJourneySession);
+  const receiptStatusLabel = recoveryState.statusLabel;
+  const liveReroutePrompt =
+    liveJourneySession.rerouteOfferTranscript
+    || transcript
+    || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : null);
+  const liveRerouteActionLabel = liveJourneySession.rerouteOfferActionLabel ?? 'Find alternatives';
+
+  useEffect(() => {
+    if (!walletPassUrl || walletTelemetryTrackedRef.current) return;
+    walletTelemetryTrackedRef.current = true;
+    logReceiptEvent({
+      event: 'wallet_available',
+      metadata: { intentId, source: 'receipt' },
+    });
+  }, [intentId, walletPassUrl]);
+
+  useEffect(() => {
+    if (!cards.some((card) => ['delay_risk', 'connection_risk', 'platform_changed', 'gate_changed'].includes(card.kind)) || rerouteTelemetryTrackedRef.current) {
+      return;
+    }
+    rerouteTelemetryTrackedRef.current = true;
+    logReceiptEvent({
+      event: 'reroute_offer_available',
+      metadata: { intentId, source: 'receipt' },
+    });
+  }, [cards, intentId]);
 
   // ── Fetch receipt ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!intentId) return;
+    void loadJourneySession(intentId).then((session) => {
+      if (session) setJourneySession(session);
+    });
     getReceipt(intentId)
       .then((r) => {
         setReceipt(r);
@@ -254,6 +365,12 @@ export default function ReceiptScreen() {
         if (hd?.bestOption) setHotelDetails(hd);
         const checkoutUrl = (r as any)?.metadata?.partnerCheckoutUrl;
         if (checkoutUrl) setPartnerCheckoutUrl(checkoutUrl);
+        const passUrl =
+          (r as any)?.metadata?.walletPassUrl
+          || (r as any)?.metadata?.appleWalletUrl
+          || (r as any)?.metadata?.passUrl
+          || null;
+        if (passUrl) setWalletPassUrl(passUrl);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -264,6 +381,32 @@ export default function ReceiptScreen() {
       setPartnerCheckoutUrl(partnerCheckoutUrlParam);
     }
   }, [partnerCheckoutUrlParam]);
+
+  useEffect(() => {
+    let active = true;
+    loadProfileRaw()
+      .then((profile) => {
+        if (!active || !profile) return;
+        setTravellerName(profile.legalName?.trim() || null);
+        setTravellerEmail(profile.email?.trim() || null);
+      })
+      .catch(() => null);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    exportPdfUriRef.current = null;
+    setExportNote(null);
+  }, [intentId, bookingRef, receipt?.verifiedAt]);
+
+  useEffect(() => {
+    if (walletPassUrl) return;
+    if (partnerCheckoutUrlParam?.endsWith('.pkpass')) {
+      setWalletPassUrl(partnerCheckoutUrlParam);
+    }
+  }, [partnerCheckoutUrlParam, walletPassUrl]);
 
   useEffect(() => {
     if (finalLegSummary) {
@@ -361,6 +504,17 @@ export default function ReceiptScreen() {
       finalLegSummary: preservedFinalLegSummary ?? undefined,
     });
     if (nextTripContext) setTripContext(nextTripContext);
+    const isEstimatedDisplay = (() => {
+      try {
+        const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+        if (td && td.dataSource === 'estimated') return true;
+        if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+        return false;
+      } catch {
+        return false;
+      }
+    })();
+
     const entry = {
       intentId,
       title:         nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
@@ -377,12 +531,36 @@ export default function ReceiptScreen() {
       currencySymbol: fiatSymbol,
       currencyCode:  fiatCode,
       tripContext:   nextTripContext,
+      // Helpful flag for tracing whether this displayed amount was an estimate
+      isEstimated:   isEstimatedDisplay,
       shareToken,
       savedAt:       new Date().toISOString(),
     };
     void upsertTrip(entry);
+    void recordRouteMemory({
+      origin: fromStation ?? null,
+      destination: toStation ?? destination ?? null,
+      departureTime: departureTime ?? null,
+      travelDate: departureDatetime ?? departureTime ?? null,
+      typicalFareGbp: typeof receipt.amount === 'number' && receipt.currency === 'GBP' ? receipt.amount : null,
+    }).then((memory) => {
+      if (!memory) return;
+      const weekday = memory.weekdays[memory.weekdays.length - 1];
+      if (weekday == null) return;
+      void scheduleProactiveRouteReminder({
+        routeKey: memory.routeKey,
+        route: `${memory.origin} to ${memory.destination}`,
+        origin: memory.origin,
+        destination: memory.destination,
+        count: memory.count,
+        typicalFareGbp: memory.typicalFareGbp ?? null,
+        weekday,
+        minutesOfDay: memory.minutesOfDay ?? null,
+      });
+    });
     void saveActiveTrip({
       intentId,
+      journeyId: null,
       status: 'ticketed',
       title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} → ${toStation}` : 'Journey'),
       fromStation: fromStation ?? null,
@@ -398,9 +576,59 @@ export default function ReceiptScreen() {
       currencyCode: fiatCode,
       tripContext: nextTripContext,
       shareToken,
+      walletPassUrl,
       updatedAt: new Date().toISOString(),
     });
-  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired]);
+    const nextSession: JourneySession = {
+      ...(journeySession ?? {}),
+      intentId,
+      jobId: journeySession?.jobId ?? null,
+      journeyId: journeySession?.journeyId ?? null,
+      title: nextTripContext?.title ?? (fromStation && toStation ? `${fromStation} -> ${toStation}` : 'Journey'),
+      state: receipt?.verifiedAt ? 'ticketed' : bookingState === 'payment_pending' ? 'payment_pending' : 'ticketed',
+      intentStatus: journeySession?.intentStatus ?? receipt.status ?? null,
+      bookingState: nextTripContext?.watchState?.bookingState ?? bookingState,
+      fromStation: fromStation ?? null,
+      toStation: toStation ?? null,
+      departureTime: departureTime ?? null,
+      departureDatetime: departureDatetime ?? departureTime ?? null,
+      arrivalTime: arrivalTime ?? nextTripContext?.arrivalTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? null,
+      bookingRef: bookingRef ?? null,
+      finalLegSummary: preservedFinalLegSummary ?? null,
+      fiatAmount: fiatAmountNum,
+      currencySymbol: fiatSymbol,
+      currencyCode: fiatCode,
+      tripContext: nextTripContext,
+      shareToken,
+      walletPassUrl,
+      walletLastOpenedAt: journeySession?.walletLastOpenedAt ?? null,
+      quoteExpiresAt: journeySession?.quoteExpiresAt ?? null,
+      paymentConfirmedAt: receipt.verifiedAt ?? journeySession?.paymentConfirmedAt ?? null,
+      openclawDispatchedAt: journeySession?.openclawDispatchedAt ?? null,
+      pendingFulfilment: journeySession?.pendingFulfilment ?? null,
+      fulfilmentFailed: journeySession?.fulfilmentFailed ?? null,
+      rerouteOfferTitle: journeySession?.rerouteOfferTitle ?? null,
+      rerouteOfferBody: journeySession?.rerouteOfferBody ?? null,
+      rerouteOfferTranscript: journeySession?.rerouteOfferTranscript ?? null,
+      rerouteOfferActionLabel: journeySession?.rerouteOfferActionLabel ?? null,
+      executionStatus: journeySession?.executionStatus ?? null,
+      recoveryBucket: journeySession?.recoveryBucket ?? null,
+      recoveryAction: journeySession?.recoveryAction ?? null,
+      recoveryReason: journeySession?.recoveryReason ?? null,
+      executionSummary: journeySession?.executionSummary ?? null,
+      manualReviewRequired: journeySession?.manualReviewRequired ?? null,
+      supportState: journeySession?.supportState ?? 'none',
+      supportRequestedAt: journeySession?.supportRequestedAt ?? null,
+      supportSummary: journeySession?.supportSummary ?? null,
+      lastEventKey: journeySession?.lastEventKey ?? null,
+      lastEventAt: journeySession?.lastEventAt ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    setJourneySession(nextSession);
+    void saveJourneySession(nextSession);
+  }, [receipt, intentId, bookingRef, fromStation, toStation, departureTime, departureDatetime, arrivalTime, platform, operator, preservedFinalLegSummary, fiatAmountNum, fiatSymbol, fiatCode, tripContext, shareToken, paymentRequired, walletPassUrl, bookingState, journeySession?.intentId]);
 
   // ── Schedule departure notifications ─────────────────────────────────────
   // Prefer departureDatetime (ISO, precise) over departureTime (HH:MM, heuristic)
@@ -415,6 +643,13 @@ export default function ReceiptScreen() {
         arrivalISO: arrivalTime ?? tripContext?.arrivalTime ?? null,
         destination: toStation ?? destination ?? tripContext?.destination ?? null,
         finalLegSummary: preservedFinalLegSummary ?? tripContext?.finalLegSummary ?? null,
+        shareToken,
+      });
+      await scheduleTravelDayNudge({
+        intentId,
+        departureISO: depStr,
+        route,
+        platform: platform ?? null,
         shareToken,
       });
       // Register for platform change push notifications
@@ -455,6 +690,83 @@ export default function ReceiptScreen() {
     })();
   }, [intentId, hotelDetails, tripContext, shareToken, partnerCheckoutUrl]);
 
+  useEffect(() => {
+    const route = [fromStation, toStation].filter(Boolean).join(' to ');
+    const transcriptForRecovery =
+      transcript
+      || (route ? `${route} next available` : null);
+    const shouldNudge =
+      isDelayed
+      || hasPlatformChanged
+      || hasGateUpdated
+      || !!tripContext?.watchState?.delayRisk
+      || !!tripContext?.watchState?.connectionRisk;
+    if (!intentId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
+    rerouteReminderScheduledRef.current = true;
+
+    const offerTitle = hasPlatformChanged
+      ? 'Ace spotted a cleaner platform move'
+      : hasGateUpdated
+      ? 'Ace spotted a cleaner gate move'
+      : isDelayed || tripContext?.watchState?.delayRisk
+      ? 'Ace can line up a cleaner train'
+      : 'Ace can protect the connection';
+    const offerBody = hasPlatformChanged
+      ? `Platform ${notifiedPlatform ?? 'details'} changed. Ace can line up the next best route without losing context.`
+      : hasGateUpdated
+      ? `Gate ${notifiedGate ?? 'details'} changed. Ace can reshape the next clean step for you.`
+      : isDelayed || tripContext?.watchState?.delayRisk
+      ? 'Timing shifted. Ace can line up the next strongest option before this becomes a scramble.'
+      : 'The onward connection is getting tight. Ace can line up a cleaner route now.';
+    const offerActionLabel = hasPlatformChanged || hasGateUpdated
+      ? 'Find alternatives'
+      : tripContext?.watchState?.connectionRisk
+      ? 'Protect connection'
+      : 'Find alternatives';
+
+    void (async () => {
+      await patchJourneySession(intentId, {
+        rerouteOfferTitle: offerTitle,
+        rerouteOfferBody: offerBody,
+        rerouteOfferTranscript: transcriptForRecovery,
+        rerouteOfferActionLabel: offerActionLabel,
+        lastEventKey: 'reroute_offer',
+        lastEventAt: new Date().toISOString(),
+      }).catch(() => null);
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleProactiveRerouteReminder({
+        intentId,
+        route,
+        reason: hasPlatformChanged
+          ? 'The platform changed.'
+          : hasGateUpdated
+          ? 'The gate changed.'
+          : isDelayed || tripContext?.watchState?.delayRisk
+          ? 'The trip looks delayed.'
+          : 'The connection is getting tight.',
+        transcript: transcriptForRecovery,
+        shareToken,
+        offerTitle,
+        offerBody,
+        offerActionLabel,
+      });
+    })();
+  }, [
+    intentId,
+    fromStation,
+    toStation,
+    transcript,
+    isDelayed,
+    hasPlatformChanged,
+    hasGateUpdated,
+    notifiedPlatform,
+    notifiedGate,
+    tripContext?.watchState?.delayRisk,
+    tripContext?.watchState?.connectionRisk,
+    shareToken,
+  ]);
+
   const handleShare = async () => {
     const heading = receipt ? `Ace — ${modeMeta.title}` : 'Ace — Saved details';
     const detailLine = fromStation && toStation
@@ -486,9 +798,278 @@ export default function ReceiptScreen() {
     });
   };
 
+  const buildExpensePdf = async () => {
+    if (exportPdfUriRef.current) {
+      const existing = await FileSystem.getInfoAsync(exportPdfUriRef.current).catch(() => null);
+      if (existing?.exists) {
+        return { uri: exportPdfUriRef.current };
+      }
+    }
+
+    const routeText = fromStation && toStation
+      ? `${fromStation} to ${toStation}`
+      : flightDetails
+      ? `${flightDetails.origin} to ${flightDetails.destination}`
+      : hotelDetails?.bestOption
+      ? `${hotelDetails.bestOption.name}, ${hotelDetails.city}`
+      : tripContext?.title ?? 'Journey details';
+    const departureLabel = departureDatetime ?? departureTime ?? hotelDetails?.checkIn ?? flightDetails?.departureAt ?? null;
+    const arrivalLabel = arrivalTime ?? hotelDetails?.checkOut ?? flightDetails?.arrivalAt ?? null;
+    const processedLabel = receipt?.verifiedAt
+      ? new Date(receipt.verifiedAt).toLocaleString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
+    const amountText = (() => {
+      const isEstimatedDisplay = (() => {
+        try {
+          const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+          if (td && td.dataSource === 'estimated') return true;
+          if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+          return false;
+        } catch {
+          return false;
+        }
+      })();
+      const base = fiatAmountNum != null
+        ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
+        : receipt
+        ? formatMoney(receipt.amount, fallbackCurrencySymbol(receipt.currency), receipt.currency)
+        : 'Recorded';
+      return isEstimatedDisplay ? `${base} (estimated)` : base;
+    })();
+
+    const sections: ReceiptPdfSection[] = [
+      {
+        title: 'Journey',
+        rows: [
+          { label: 'Receipt type', value: modeMeta.title },
+          { label: 'Trip', value: routeText },
+          ...(departureLabel ? [{ label: 'Departure', value: departureLabel }] : []),
+          ...(arrivalLabel ? [{ label: 'Arrival', value: arrivalLabel }] : []),
+          ...(operator ? [{ label: 'Operator', value: operator }] : []),
+          ...(platform ? [{ label: 'Platform / gate', value: platform }] : []),
+          ...(preservedFinalLegSummary ? [{ label: 'Next step', value: preservedFinalLegSummary }] : []),
+          ...(bookingRef ? [{ label: 'Reference', value: bookingRef }] : []),
+        ],
+      },
+      {
+        title: 'Traveller',
+        rows: [
+          ...(travellerName ? [{ label: 'Name', value: travellerName }] : []),
+          ...(travellerEmail ? [{ label: 'Email', value: travellerEmail }] : []),
+        ],
+      },
+      {
+        title: 'Settlement',
+        rows: [
+          { label: 'Status', value: receiptStatusLabel },
+          { label: 'Amount', value: amountText },
+          { label: 'Currency', value: fiatCode ?? receipt?.currency ?? 'GBP' },
+          ...(processedLabel ? [{ label: 'Processed', value: processedLabel }] : []),
+          { label: 'Intent ID', value: intentId },
+          ...(receipt?.signature ? [{ label: 'Settlement signature', value: receipt.signature }] : []),
+        ],
+      },
+    ].filter((section) => section.rows.length > 0);
+
+    const pdf = await createReceiptPdf({
+      fileStem: bookingRef ? `ace-receipt-${bookingRef}` : `ace-receipt-${intentId}`,
+      title: bookingRef ? `Expense receipt - ${bookingRef}` : 'Expense receipt',
+      eyebrow: 'Ace travel receipt',
+      statusLabel: receiptStatusLabel,
+      amountText,
+      subtitle: routeText,
+      generatedAtLabel: new Date().toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      footerNote: 'Generated by Ace from the live journey record for finance and expense submission.',
+      sections,
+    });
+
+    exportPdfUriRef.current = pdf.uri;
+    return pdf;
+  };
+
+  const handleExportPdf = async () => {
+    if (exportAction) return;
+    setExportAction('pdf');
+    setExportNote(null);
+    try {
+      const { uri } = await buildExpensePdf();
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Export Ace expense receipt',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        await Share.share({
+          title: 'Ace expense receipt',
+          message: `Ace prepared a receipt PDF for ${bookingRef ?? intentId}.`,
+          url: uri,
+        });
+      }
+      setExportNote('Expense-ready PDF prepared.');
+      logReceiptEvent({
+        event: 'receipt_pdf_exported',
+        metadata: { intentId, source: 'receipt' },
+      });
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not prepare the PDF right now.';
+      setExportNote(message);
+      logReceiptEvent({
+        event: 'receipt_pdf_export_failed',
+        severity: 'warning',
+        message,
+        metadata: { intentId, source: 'receipt' },
+      });
+    } finally {
+      setExportAction(null);
+    }
+  };
+
+  const handleEmailReceipt = async () => {
+    if (exportAction) return;
+    setExportAction('email');
+    setExportNote(null);
+    try {
+      const { uri } = await buildExpensePdf();
+      const mailAvailable = await MailComposer.isAvailableAsync();
+      if (!mailAvailable) {
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          throw new Error('Mail is unavailable on this device.');
+        }
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Share Ace expense receipt',
+          UTI: 'com.adobe.pdf',
+        });
+        setExportNote('Mail is unavailable on this device, so Ace opened the receipt in Share instead.');
+      } else {
+        const subject = bookingRef ? `Ace receipt ${bookingRef}` : `Ace receipt ${intentId}`;
+        const routeSummary = fromStation && toStation
+          ? `${fromStation} to ${toStation}`
+          : tripContext?.title ?? 'your recent journey';
+        await MailComposer.composeAsync({
+          recipients: travellerEmail ? [travellerEmail] : undefined,
+          subject,
+          body: `Attached is the Ace receipt for ${routeSummary}.`,
+          attachments: [uri],
+        });
+        setExportNote(
+          travellerEmail
+            ? `Draft email opened with ${travellerEmail} prefilled.`
+            : 'Draft email opened with the receipt attached.',
+        );
+      }
+      logReceiptEvent({
+        event: 'receipt_email_started',
+        metadata: { intentId, source: 'receipt' },
+      });
+    } catch (error: any) {
+      const message = error?.message ?? 'Ace could not open email right now.';
+      setExportNote(message);
+      logReceiptEvent({
+        event: 'receipt_email_failed',
+        severity: 'warning',
+        message,
+        metadata: { intentId, source: 'receipt' },
+      });
+    } finally {
+      setExportAction(null);
+    }
+  };
+
   const handleDone = () => {
     reset();
     router.replace('/(main)/converse');
+  };
+
+  const handleAddToWallet = async () => {
+    if (!walletPassUrl) return;
+    try {
+      await Linking.openURL(walletPassUrl);
+      const openedAt = new Date().toISOString();
+      setJourneySession((current) => current ? { ...current, walletPassUrl, walletLastOpenedAt: openedAt, updatedAt: openedAt } : current);
+      await patchJourneySession(intentId, {
+        walletPassUrl,
+        walletLastOpenedAt: openedAt,
+        updatedAt: openedAt,
+      }).catch(() => null);
+      logReceiptEvent({
+        event: 'wallet_opened',
+        metadata: { intentId, source: 'receipt' },
+      });
+      setWalletNote('Pass opened in Wallet.');
+    } catch (error: any) {
+      logReceiptEvent({
+        event: 'wallet_open_failed',
+        severity: 'warning',
+        message: error?.message ?? 'Wallet failed to open from Receipt.',
+        metadata: { intentId, source: 'receipt' },
+      });
+      setWalletNote('Could not open Wallet. Use the ticket code below.');
+    }
+  };
+
+  const handleProactiveCardPress = async (card: ProactiveCard) => {
+    if (card.kind === 'destination_suggestion' && (toStation || destination)) {
+      const target = encodeURIComponent((toStation ?? destination)!);
+      const citymapperUrl = `citymapper://directions?endname=${target}&endaddress=${target}`;
+      const mapsUrl = `https://maps.google.com/?q=${target}`;
+      try {
+        const canOpen = await Linking.canOpenURL(citymapperUrl);
+        await Linking.openURL(canOpen ? citymapperUrl : mapsUrl);
+      } catch {
+        await Linking.openURL(mapsUrl);
+      }
+      logReceiptEvent({
+        event: 'journey_navigation_opened',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
+      return;
+    }
+
+    if (card.kind === 'leave_now' && (toStation || destination)) {
+      const target = encodeURIComponent((toStation ?? destination)!);
+      await Linking.openURL(`https://maps.google.com/?q=${target}`);
+      logReceiptEvent({
+        event: 'journey_navigation_opened',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
+      return;
+    }
+
+      if (['delay_risk', 'connection_risk'].includes(card.kind)) {
+        const routePrompt = liveReroutePrompt;
+        if (routePrompt) {
+          logReceiptEvent({
+            event: 'reroute_offer_accepted',
+            metadata: { intentId, source: 'receipt', cardKind: card.kind },
+          });
+          router.replace({ pathname: '/(main)/converse', params: { prefill: routePrompt } } as any);
+        }
+        return;
+      }
+
+    if (['platform_changed', 'gate_changed'].includes(card.kind)) {
+      logReceiptEvent({
+        event: 'journey_signal_acknowledged',
+        metadata: { intentId, source: 'receipt', cardKind: card.kind },
+      });
+      return;
+    }
   };
 
   const openPendingPayment = async () => {
@@ -497,12 +1078,16 @@ export default function ReceiptScreen() {
     if (!amount) return;
     setPayLoading(true);
     setPaymentRecoveryNote('Complete payment, then return here. Ace will keep watching the booking.');
+    logReceiptEvent({
+      event: 'payment_recovery_opened',
+      metadata: { intentId, currencyCode: fiatCode ?? 'GBP' },
+    });
     try {
       if ((fiatCode ?? 'GBP').toUpperCase() === 'INR') {
         const { shortUrl } = await createUpiPaymentLink({
           jobId: intentId,
           amountInr: Math.round(amount),
-          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
         });
         await Linking.openURL(shortUrl);
       } else {
@@ -527,11 +1112,58 @@ export default function ReceiptScreen() {
     if (!intentId || paymentCheckLoading) return;
     setPaymentCheckLoading(true);
     try {
-      const status = await getIntentStatus(intentId);
+      const [status, execution] = await Promise.all([
+        getIntentStatus(intentId),
+        getConciergeExecution(intentId).catch(() => null),
+      ]);
+      const nextQuoteExpiresAt = status.metadata?.quoteExpiresAt ?? status.metadata?.expiresAt ?? null;
+      const nextPaymentConfirmedAt = status.metadata?.paymentConfirmedAt ?? null;
+      const nextDispatchStartedAt = status.metadata?.openclawDispatchedAt ?? null;
+      const nextPendingFulfilment =
+        typeof status.metadata?.pendingFulfilment === 'boolean' ? status.metadata.pendingFulfilment : null;
+      const nextFulfilmentFailed = status.metadata?.fulfilmentFailed === true;
       const serverTrip = parseTripContext(status.metadata?.tripContext);
       if (serverTrip) {
         setTripContext(serverTrip);
       }
+      setJourneySession((current) => current ? {
+        ...current,
+        intentStatus: status.status ?? current.intentStatus ?? null,
+        quoteExpiresAt: nextQuoteExpiresAt ?? current.quoteExpiresAt ?? null,
+        paymentConfirmedAt: nextPaymentConfirmedAt ?? current.paymentConfirmedAt ?? null,
+        openclawDispatchedAt: nextDispatchStartedAt ?? current.openclawDispatchedAt ?? null,
+        pendingFulfilment: nextPendingFulfilment ?? current.pendingFulfilment ?? null,
+        fulfilmentFailed: nextFulfilmentFailed ? true : current.fulfilmentFailed ?? null,
+        executionStatus: execution?.status ?? current.executionStatus ?? null,
+        recoveryBucket: execution?.recoveryBucket ?? current.recoveryBucket ?? null,
+        recoveryAction: execution?.recommendedAction ?? current.recoveryAction ?? null,
+        recoveryReason: execution?.recoveryReason ?? current.recoveryReason ?? null,
+        executionSummary: execution?.summary ?? current.executionSummary ?? null,
+        manualReviewRequired:
+          typeof execution?.manualReviewRequired === 'boolean'
+            ? execution.manualReviewRequired
+            : current.manualReviewRequired ?? null,
+        rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? current.rerouteOfferActionLabel ?? null,
+        tripContext: serverTrip ?? current.tripContext ?? null,
+        updatedAt: new Date().toISOString(),
+      } : current);
+      await patchJourneySession(intentId, {
+        intentStatus: status.status ?? null,
+        quoteExpiresAt: nextQuoteExpiresAt,
+        paymentConfirmedAt: nextPaymentConfirmedAt,
+        openclawDispatchedAt: nextDispatchStartedAt,
+        pendingFulfilment: nextPendingFulfilment,
+        ...(execution?.status ? { executionStatus: execution.status } : {}),
+        ...(execution?.recoveryBucket ? { recoveryBucket: execution.recoveryBucket } : {}),
+        ...(execution?.recommendedAction ? { recoveryAction: execution.recommendedAction } : {}),
+        ...(execution?.recoveryReason ? { recoveryReason: execution.recoveryReason } : {}),
+        ...(execution?.summary ? { executionSummary: execution.summary } : {}),
+        ...(typeof execution?.manualReviewRequired === 'boolean' ? { manualReviewRequired: execution.manualReviewRequired } : {}),
+        ...(execution?.rerouteOfferActionLabel ? { rerouteOfferActionLabel: execution.rerouteOfferActionLabel } : {}),
+        ...(nextFulfilmentFailed ? { fulfilmentFailed: true } : {}),
+        ...(serverTrip ? { tripContext: serverTrip } : {}),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       if (paymentConfirmedFromMetadata(status.metadata)) {
         const refreshedReceipt = await getReceipt(intentId);
         setReceipt(refreshedReceipt);
@@ -572,6 +1204,14 @@ export default function ReceiptScreen() {
         description: issueText.trim(),
         hirerId: agentId ?? '',
       });
+      await patchJourneySession(intentId ?? '', {
+        supportState: 'requested',
+        supportRequestedAt: new Date().toISOString(),
+        supportSummary: issueText.trim() || 'Support requested from receipt.',
+        lastEventKey: 'support_requested',
+        lastEventAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       setIssueSent(true);
       setIssueText('');
     } catch {
@@ -609,11 +1249,11 @@ export default function ReceiptScreen() {
             <Pressable
               style={styles.cancelBannerBtn}
               onPress={() => {
-                const query = transcript || (fromStation && toStation ? `${fromStation} to ${toStation} next available` : undefined);
+                const query = liveReroutePrompt ?? undefined;
                 router.replace({ pathname: '/(main)/converse', params: query ? { prefill: query } : undefined } as any);
               }}
             >
-              <Text style={styles.cancelBannerBtnText}>Ask Ace</Text>
+              <Text style={styles.cancelBannerBtnText}>{liveRerouteActionLabel}</Text>
             </Pressable>
           </View>
         )}
@@ -744,7 +1384,7 @@ export default function ReceiptScreen() {
 
         {((receipt && !loading) || (!loading && hasJourneyDetails)) && (
           <>
-            <Text style={styles.receiptEyebrow}>Ace journey brief</Text>
+            <Text style={styles.receiptEyebrow}>Journey</Text>
             {/* Success badge */}
             <View style={styles.badge}>
               <LinearGradient colors={['#052e16', '#14532d']} style={styles.badgeGrad}>
@@ -753,11 +1393,24 @@ export default function ReceiptScreen() {
             </View>
 
             <Text style={styles.amount}>
-              {fiatAmountNum != null
-                ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
-                : receipt
-                ? `${fiatSymbol}${receipt.amount}`
-                : 'Journey details'}
+              {(() => {
+                const isEstimatedDisplay = (() => {
+                  try {
+                    const td = (tripContext?.legs && tripContext.legs[0] && (tripContext.legs[0] as any).trainDetails) || null;
+                    if (td && td.dataSource === 'estimated') return true;
+                    if (journeySession?.quoteExpiresAt && !receipt?.verifiedAt) return true;
+                    return false;
+                  } catch {
+                    return false;
+                  }
+                })();
+                const base = fiatAmountNum != null
+                  ? formatMoney(fiatAmountNum, fiatSymbol, fiatCode)
+                  : receipt
+                  ? `${fiatSymbol}${receipt.amount}`
+                  : 'Journey details';
+                return isEstimatedDisplay ? `${base} (estimated)` : base;
+              })()}
             </Text>
             <Text style={styles.subtitle}>
               {fromStation && toStation
@@ -770,7 +1423,12 @@ export default function ReceiptScreen() {
             {cards.length > 0 && (
               <View style={styles.proactiveWrap}>
                 {cards.slice(0, 2).map((card) => (
-                  <ProactiveReceiptCard key={card.id} card={card} />
+                  <ProactiveReceiptCard
+                    key={card.id}
+                    card={card}
+                    actionLabel={proactiveCardActionLabel(card, liveJourneySession.rerouteOfferActionLabel)}
+                    onPress={() => { void handleProactiveCardPress(card); }}
+                  />
                 ))}
               </View>
             )}
@@ -785,14 +1443,12 @@ export default function ReceiptScreen() {
                 <View style={styles.paymentRecoveryCard}>
                   <View style={styles.paymentRecoveryHeader}>
                     <Ionicons name="card-outline" size={15} color="#93c5fd" />
-                    <Text style={styles.paymentRecoveryTitle}>Payment still needs to clear</Text>
+                    <Text style={styles.paymentRecoveryTitle}>{recoveryState.headline}</Text>
                   </View>
                   <Text style={styles.paymentRecoveryBody}>
-                    Ace has the journey lined up. Once payment clears, everything here updates automatically.
+                    {recoveryState.trustLine}
                   </Text>
-                  {paymentRecoveryNote ? (
-                    <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
-                  ) : null}
+                  <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote ?? recoveryState.etaLine}</Text>
                   <View style={styles.paymentRecoveryActions}>
                     <Pressable onPress={() => { void openPendingPayment(); }} style={styles.paymentRecoveryPrimary}>
                       <Text style={styles.paymentRecoveryPrimaryText}>
@@ -884,7 +1540,7 @@ export default function ReceiptScreen() {
                     ) : (
                       <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
                     )}
-                    <Text style={styles.showTicketText}>Show code</Text>
+                    <Text style={styles.showTicketText}>Open ticket code</Text>
                   </Pressable>
                 )}
               </View>
@@ -964,9 +1620,42 @@ export default function ReceiptScreen() {
             )}
 
             {/* Actions */}
-              <Pressable onPress={handleShare} style={styles.shareBtn}>
+              <View style={styles.exportCard}>
+                <Text style={styles.exportCardTitle}>Expense-ready receipt</Text>
+                <Text style={styles.exportCardBody}>
+                  Export a PDF or open an email draft with route, timing, traveller, fare, and booking reference details.
+                </Text>
+              </View>
+
+              <Pressable onPress={() => { void handleExportPdf(); }} style={styles.shareBtn} disabled={!!exportAction}>
+                {exportAction === 'pdf' ? (
+                  <ActivityIndicator color="#cbe8ff" size="small" />
+                ) : (
+                  <Ionicons name="document-text-outline" size={18} color="#cbe8ff" />
+                )}
+                <Text style={[styles.shareBtnText, styles.exportPrimaryText]}>
+                  {exportAction === 'pdf' ? 'Preparing PDF...' : 'Export PDF'}
+                </Text>
+              </Pressable>
+
+              <Pressable onPress={() => { void handleEmailReceipt(); }} style={styles.shareBtn} disabled={!!exportAction}>
+                {exportAction === 'email' ? (
+                  <ActivityIndicator color="#93c5fd" size="small" />
+                ) : (
+                  <Ionicons name="mail-outline" size={18} color="#93c5fd" />
+                )}
+                <Text style={[styles.shareBtnText, styles.exportSecondaryText]}>
+                  {exportAction === 'email' ? 'Opening email...' : 'Email receipt'}
+                </Text>
+              </Pressable>
+
+              {exportNote && (
+                <Text style={styles.exportNote}>{exportNote}</Text>
+              )}
+
+              <Pressable onPress={handleShare} style={styles.shareBtn} disabled={!!exportAction}>
                 <Ionicons name="share-outline" size={18} color="#818cf8" />
-                <Text style={styles.shareBtnText}>Share this journey</Text>
+                <Text style={styles.shareBtnText}>Share journey</Text>
               </Pressable>
 
               {repeatRoutePrompt && (
@@ -975,7 +1664,7 @@ export default function ReceiptScreen() {
                   style={styles.shareBtn}
                 >
                   <Ionicons name="refresh-outline" size={18} color="#93c5fd" />
-                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Ask Ace for this again</Text>
+                  <Text style={[styles.shareBtnText, { color: '#93c5fd' }]}>Run this with Ace again</Text>
                 </Pressable>
               )}
 
@@ -996,9 +1685,28 @@ export default function ReceiptScreen() {
               </Pressable>
             )}
 
+            {walletPassUrl && (
+              <Pressable onPress={() => { void handleAddToWallet(); }} style={styles.shareBtn}>
+                <Ionicons name="wallet-outline" size={18} color="#cbe8ff" />
+                <Text style={[styles.shareBtnText, { color: '#cbe8ff' }]}>
+                  {journeySession?.walletLastOpenedAt ? 'Open Wallet' : 'Add pass to Wallet'}
+                </Text>
+              </Pressable>
+            )}
+
+            {walletNote && (
+              <Text style={styles.walletNote}>{walletNote}</Text>
+            )}
+
             <Pressable onPress={() => setShowIssue(true)} style={styles.issueBtn}>
               <Ionicons name="alert-circle-outline" size={15} color="#6b7280" />
-              <Text style={styles.issueBtnText}>Something not right?</Text>
+              <Text style={styles.issueBtnText}>
+                {liveJourneySession.supportState === 'requested'
+                  ? 'Update support'
+                  : liveJourneySession.manualReviewRequired
+                  ? 'Add detail'
+                  : 'Report an issue'}
+              </Text>
             </Pressable>
 
             <Pressable onPress={handleDone} style={styles.doneBtn}>
@@ -1068,9 +1776,11 @@ export default function ReceiptScreen() {
       >
         <View style={issueStyles.container}>
           <View style={issueStyles.handle} />
-          <Text style={issueStyles.title}>Report an issue</Text>
+          <Text style={issueStyles.title}>Something wrong?</Text>
           <Text style={issueStyles.subtitle}>
-            Describe the problem and Ace will look into it.
+            {liveJourneySession.manualReviewRequired
+              ? 'Ace already attached the live trip. Add any extra detail support should see.'
+              : 'Tell us what happened. We already have your trip details.'}
           </Text>
           {issueSent ? (
             <View style={issueStyles.sentBox}>
@@ -1202,7 +1912,7 @@ function JourneyTimeline({
           ) : (
             <Ionicons name="qr-code-outline" size={18} color="#4ade80" />
           )}
-          <Text style={styles.showTicketText}>Show code</Text>
+          <Text style={styles.showTicketText}>Open ticket code</Text>
         </Pressable>
       )}
     </View>
@@ -1299,7 +2009,32 @@ const rowStyles = StyleSheet.create({
   pillText: { fontSize: 12, color: '#4ade80', fontWeight: '600' },
 });
 
-function ProactiveReceiptCard({ card }: { card: ProactiveCard }) {
+function proactiveCardActionLabel(card: ProactiveCard, rerouteActionLabel?: string | null): string | null {
+  switch (card.kind) {
+    case 'delay_risk':
+    case 'connection_risk':
+      return rerouteActionLabel ?? 'Find alternatives';
+    case 'platform_changed':
+    case 'gate_changed':
+      return 'Got it';
+    case 'destination_suggestion':
+      return 'Open map';
+    case 'leave_now':
+      return 'Navigate';
+    default:
+      return card.ctaLabel ?? null;
+  }
+}
+
+function ProactiveReceiptCard({
+  card,
+  actionLabel,
+  onPress,
+}: {
+  card: ProactiveCard;
+  actionLabel?: string | null;
+  onPress?: () => void;
+}) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
@@ -1307,6 +2042,11 @@ function ProactiveReceiptCard({ card }: { card: ProactiveCard }) {
       <View style={{ flex: 1 }}>
         <Text style={styles.proactiveTitle}>{card.title}</Text>
         <Text style={styles.proactiveBody}>{card.body}</Text>
+        {actionLabel && onPress && (
+          <Pressable onPress={onPress} style={styles.proactiveActionBtn}>
+            <Text style={styles.proactiveActionText}>{actionLabel}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -1418,7 +2158,7 @@ const styles = StyleSheet.create({
   },
   receiptEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#d8e6f5',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
@@ -1440,6 +2180,61 @@ const styles = StyleSheet.create({
   proactiveDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
   proactiveTitle: { fontSize: 12, color: '#f9fafb', fontWeight: '700', marginBottom: 2 },
   proactiveBody: { fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  proactiveActionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+  },
+  proactiveActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cbe8ff',
+  },
+  walletNote: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#7f95aa',
+    textAlign: 'center',
+  },
+  exportCard: {
+    width: '100%',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.18)',
+    backgroundColor: 'rgba(8, 16, 30, 0.78)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+  },
+  exportCardTitle: {
+    fontSize: 13,
+    color: '#e6f1fb',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  exportCardBody: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#8ea3b8',
+  },
+  exportPrimaryText: {
+    color: '#cbe8ff',
+  },
+  exportSecondaryText: {
+    color: '#93c5fd',
+  },
+  exportNote: {
+    marginTop: 2,
+    marginBottom: 10,
+    fontSize: 12,
+    color: '#8ea3b8',
+    textAlign: 'center',
+  },
 
   card: {
     width: '100%',
@@ -1519,11 +2314,11 @@ const styles = StyleSheet.create({
 
   journeyCard: {
     width: '100%',
-    backgroundColor: 'rgba(10, 26, 10, 0.9)',
+    backgroundColor: 'rgba(8, 18, 34, 0.94)',
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(53, 83, 122, 0.34)',
     marginBottom: 14,
   },
   journeyHeader: {
@@ -1536,13 +2331,15 @@ const styles = StyleSheet.create({
   journeyTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   journeyRefWrap: {
     alignItems: 'center',
-    backgroundColor: '#052e16',
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: 'rgba(53, 83, 122, 0.24)',
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
@@ -1559,7 +2356,7 @@ const styles = StyleSheet.create({
   journeyRef: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     letterSpacing: 2.5,
     fontFamily: 'monospace',
   },
@@ -1620,16 +2417,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginTop: 14,
-    backgroundColor: '#052e16',
+    backgroundColor: '#0b1320',
     borderRadius: 12,
     paddingVertical: 13,
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(53, 83, 122, 0.28)',
   },
   showTicketText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#4ade80',
+    color: '#dcecff',
     letterSpacing: 0.3,
   },
 

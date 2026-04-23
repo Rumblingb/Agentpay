@@ -76,6 +76,82 @@ function patchEXJavaScriptRuntime(runtimePath) {
   console.log('[withExpoModulesPatch] OK Patched EXJavaScriptRuntime.mm for RN 0.76+');
 }
 
+function patchIosPodfileCppStandard(projectRoot) {
+  const podfilePath = path.join(projectRoot, 'ios', 'Podfile');
+  if (!fs.existsSync(podfilePath)) {
+    console.log('[withExpoModulesPatch] INFO Podfile not found for iOS C++ patch');
+    return;
+  }
+
+  let content = fs.readFileSync(podfilePath, 'utf8');
+  const startMarker = '# ACE_CXX20_BEGIN';
+  const endMarker = '# ACE_CXX20_END';
+  const targetMarker = "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'";
+
+  const snippet = `    ${startMarker}
+    projects = [installer.pods_project]
+    if installer.respond_to?(:generated_projects)
+      projects.concat(installer.generated_projects)
+    end
+
+    projects.compact.each do |project|
+      project.targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
+          config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+        end
+      end
+      project.save
+    end
+
+    installer.aggregate_targets.each do |aggregate_target|
+      user_project = aggregate_target.user_project
+      next unless user_project
+
+      user_project.native_targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
+          config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+        end
+      end
+      user_project.save
+    end
+    ${endMarker}
+`;
+
+  if (content.includes(startMarker) && content.includes(endMarker)) {
+    content = content.replace(
+      new RegExp(`${startMarker}[\\s\\S]*?${endMarker}\\n?`, 'm'),
+      snippet,
+    );
+    fs.writeFileSync(podfilePath, content);
+    console.log('[withExpoModulesPatch] OK Refreshed Podfile C++20 patch block');
+    return;
+  }
+
+  if (content.includes("config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'")) {
+    content = content.replaceAll(
+      "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'",
+      "config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'",
+    );
+  }
+
+  if (content.includes('react_native_post_install(')) {
+    content = content.replace(
+      /(react_native_post_install\([\s\S]*?\)\n)/,
+      `$1${snippet}`,
+    );
+  } else if (content.includes('post_install do |installer|')) {
+    content = content.replace('post_install do |installer|\n', `post_install do |installer|\n${snippet}`);
+  } else {
+    console.log('[withExpoModulesPatch] INFO Podfile post_install block not found');
+    return;
+  }
+
+  fs.writeFileSync(podfilePath, content);
+  console.log('[withExpoModulesPatch] OK Patched Podfile to force gnu++20 across pods and generated projects');
+}
+
 const withExpoModulesPatchAndroid = (config) =>
   withDangerousMod(config, [
     'android',
@@ -167,6 +243,7 @@ const withExpoModulesPatchIOS = (config) =>
       patchEXJavaScriptRuntime(
         path.join(expoModulesCoreRoot, 'ios', 'JSI', 'EXJavaScriptRuntime.mm'),
       );
+      patchIosPodfileCppStandard(projectRoot);
 
       return config;
     },

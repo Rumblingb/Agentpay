@@ -1,5 +1,9 @@
 # AgentPay Merchant Dashboard
 
+> Status: legacy surface. The canonical AgentPay runtime is now terminal- and host-native through MCP tool calls, hosted actions, and governed capability flows.
+
+If a choice exists between expanding this dashboard and expanding the terminal-native control plane, choose the control plane.
+
 A Next.js App Router dashboard for AgentPay merchants, deployable on Vercel.
 
 ## Location

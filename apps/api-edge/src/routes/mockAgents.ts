@@ -150,7 +150,7 @@ async function sendConfirmationEmail(opts: {
       <div style="width:40px;height:40px;background:#052e16;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">🚂</div>
       <div>
         <div style="font-size:18px;font-weight:700;color:#4ade80;">Booking Confirmed</div>
-        <div style="font-size:12px;color:#4b5563;">via Bro · Powered by AgentPay</div>
+        <div style="font-size:12px;color:#4b5563;">via Ace · Powered by AgentPay</div>
       </div>
     </div>
 
@@ -176,7 +176,7 @@ async function sendConfirmationEmail(opts: {
     </div>
 
     <div style="font-size:12px;color:#374151;text-align:center;line-height:18px;">
-      Booked by Bro on your behalf · agentpay.gg<br>
+      Booked by Ace on your behalf · agentpay.gg<br>
       Your payment was held in escrow and released on delivery.
     </div>
   </div>
@@ -190,7 +190,7 @@ async function sendConfirmationEmail(opts: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Bro <bookings@agentpay.gg>',
+      from: 'Ace <bookings@agentpay.gg>',
       to: [opts.to],
       subject: `${opts.bookingRef} — Train from ${opts.from} to ${opts.to_station}`,
       html,

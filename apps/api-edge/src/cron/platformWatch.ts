@@ -48,12 +48,25 @@ async function sendExpoPush(
   title: string,
   body: string,
   data: Record<string, unknown>,
-): Promise<void> {
-  await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ to: token, title, body, data, sound: 'default' }),
-  });
+): Promise<boolean> {
+  try {
+    const res = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ to: token, title, body, data, sound: 'default' }),
+    });
+    if (!res.ok) return false;
+    const json = await res.json() as any;
+    // Expo returns { data: { status: 'ok' | 'error', ... } }
+    const ticket = json?.data;
+    if (ticket?.status === 'error') {
+      broLog('expo_push_error', { token, details: ticket.details ?? ticket.message });
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function runPlatformWatch(env: Env): Promise<void> {
@@ -142,33 +155,60 @@ export async function runPlatformWatch(env: Env): Promise<void> {
           } catch { /* non-fatal */ }
 
           const cancelledTime = departureDatetime ? departureDatetime.slice(11, 16) : 'your train';
-          const pushBody = destination
-            ? `Your ${cancelledTime} to ${destination} is cancelled.${altText || ' Ask Bro for alternatives.'}`
-            : `Your train is cancelled.${altText || ' Ask Bro for alternatives.'}`;
 
           const transcript = altService && destination
             ? `Rebook my cancelled ${cancelledTime} to ${destination} — put me on the ${(altService as any).departureTime} instead`
             : `My train to ${destination ?? origin} was cancelled — find me the next one`;
 
-          await sendExpoPush(
+          // If we found an alternative, build a richer offer-style push that deep-links
+          // into the live Journey surface with the specific train pre-populated.
+          const rerouteTitle = altService
+            ? `Your ${cancelledTime} to ${destination ?? origin} is cancelled`
+            : undefined;
+          const rerouteBody = altService
+            ? `I found the ${(altService as any).departureTime}${(altService as any).estimatedFareGbp ? ` · £${(altService as any).estimatedFareGbp}` : ''}. Tap to switch.`
+            : undefined;
+          const rerouteActionLabel = altService
+            ? `Switch to ${(altService as any).departureTime}`
+            : undefined;
+
+          const pushAction = altService ? 'proactive_reroute' : 'cancelled';
+          const pushBody = rerouteBody
+            ?? (destination
+              ? `Your ${cancelledTime} to ${destination} is cancelled. Ask Ace for alternatives.`
+              : `Your train is cancelled. Ask Ace for alternatives.`);
+
+          const cancellationSent = await sendExpoPush(
             pushToken,
-            '⚠️ Train cancelled',
+            rerouteTitle ?? '⚠️ Train cancelled',
             pushBody,
             {
               intentId: row.id,
-              screen:   'receipt',
-              action:   'cancelled',
+              screen:   altService ? 'journey' : 'receipt',
+              action:   pushAction,
               transcript,
-              destination: destination ?? origin,
+              rerouteTitle:  rerouteTitle ?? undefined,
+              rerouteBody:   rerouteBody ?? undefined,
+              rerouteActionLabel: rerouteActionLabel ?? undefined,
+              destination:   destination ?? origin,
               disruptionRoute: route,
             },
           );
-          await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Bro for alternatives.'}`, sql);
+          await fanOutToTripRoom(row.id, `⚠️ Cancelled: ${route}.${altText || ' Ask Ace for alternatives.'}`, sql);
 
-          metaUpdates.cancellationNotified = true;
-          // Deactivate watch — journey is cancelled
-          metaUpdates.platformWatchActive = 'false';
-          needsUpdate = true;
+          if (cancellationSent) {
+            // Persist the reroute offer into the job so Journey polling can surface it.
+            if (rerouteTitle && rerouteBody) {
+              metaUpdates.rerouteOfferTitle      = rerouteTitle;
+              metaUpdates.rerouteOfferBody       = rerouteBody;
+              metaUpdates.rerouteOfferTranscript = transcript;
+              metaUpdates.rerouteOfferActionLabel = rerouteActionLabel ?? null;
+            }
+            metaUpdates.cancellationNotified = true;
+            // Deactivate watch — journey is cancelled
+            metaUpdates.platformWatchActive = 'false';
+            needsUpdate = true;
+          }
         }
 
         // ── Platform change ───────────────────────────────────────────────────
@@ -178,7 +218,7 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             from: lastPlatform ?? 'unknown', to: status.platform,
           });
 
-          await sendExpoPush(
+          const platformSent = await sendExpoPush(
             pushToken,
             '🚂 Platform changed',
             `${route} · Now Platform ${status.platform}`,
@@ -192,9 +232,11 @@ export async function runPlatformWatch(env: Env): Promise<void> {
           );
           await fanOutToTripRoom(row.id, `🚂 Platform changed: ${route} · Now Platform ${status.platform}`, sql);
 
-          // Update stored platform to prevent re-notify
-          metaUpdates['trainDetails'] = { ...meta.trainDetails, platform: status.platform };
-          needsUpdate = true;
+          if (platformSent) {
+            // Update stored platform to prevent re-notify
+            metaUpdates['trainDetails'] = { ...meta.trainDetails, platform: status.platform };
+            needsUpdate = true;
+          }
         }
 
         // ── Delay > 10 min (notify once, offer earlier service if available) ───
@@ -230,25 +272,51 @@ export async function runPlatformWatch(env: Env): Promise<void> {
             }
           } catch { /* non-fatal */ }
 
-          const delayBody = `${route} running ${status.delayMinutes} min late.${delayAltText || ' Check app for alternatives.'}`;
+          // If we have an alternative, surface a specific offer rather than a generic nudge.
+          const hasDelayAlt = !!delayAltTranscript;
+          const delayRerouteTitle = hasDelayAlt
+            ? `${status.delayMinutes} min delay on your ${departureDatetime?.slice(11, 16) ?? 'train'}`
+            : undefined;
+          const delayRerouteBody  = hasDelayAlt ? delayAltText.trim() : undefined;
+          const delayRerouteActionLabel = hasDelayAlt
+            ? (() => {
+                const match = delayAltText.match(/The (\d{1,2}:\d{2})/);
+                return match?.[1] ? `Switch to ${match[1]}` : 'Find alternatives';
+              })()
+            : undefined;
+          const delayAction       = hasDelayAlt ? 'proactive_reroute' : 'delay';
+          const delayBody         = delayRerouteBody
+            ?? `${route} running ${status.delayMinutes} min late. Check app for alternatives.`;
 
-          await sendExpoPush(
+          const delaySent = await sendExpoPush(
             pushToken,
-            `⏱ ${status.delayMinutes} min delay`,
+            delayRerouteTitle ?? `⏱ ${status.delayMinutes} min delay`,
             delayBody,
             {
               intentId: row.id,
-              screen: 'receipt',
-              action: 'delay',
-              delayMinutes: status.delayMinutes,
-              transcript: delayAltTranscript,
+              screen:   hasDelayAlt ? 'journey' : 'receipt',
+              action:   delayAction,
+              delayMinutes:  status.delayMinutes,
+              transcript:    delayAltTranscript ?? undefined,
+              rerouteTitle:  delayRerouteTitle  ?? undefined,
+              rerouteBody:   delayRerouteBody   ?? undefined,
+              rerouteActionLabel: delayRerouteActionLabel ?? undefined,
               disruptionRoute: route,
             },
           );
           await fanOutToTripRoom(row.id, `⏱ ${route} running ${status.delayMinutes} min late.${delayAltText}`, sql);
 
-          metaUpdates.delayNotified = true;
-          needsUpdate = true;
+          if (delaySent) {
+            // Persist reroute offer so the Journey screen can show it on next poll.
+            if (delayRerouteTitle && delayRerouteBody) {
+              metaUpdates.rerouteOfferTitle      = delayRerouteTitle;
+              metaUpdates.rerouteOfferBody       = delayRerouteBody;
+              metaUpdates.rerouteOfferTranscript = delayAltTranscript ?? undefined;
+              metaUpdates.rerouteOfferActionLabel = delayRerouteActionLabel ?? null;
+            }
+            metaUpdates.delayNotified = true;
+            needsUpdate = true;
+          }
         }
 
         // ── Boarding tip push (T-25 to T-35 min, once per journey) ──────────
@@ -266,17 +334,18 @@ export async function runPlatformWatch(env: Env): Promise<void> {
                 )
               : undefined;
             if (pushToken && tipKey) {
-              const route2 = destination ? `${origin} → ${destination}` : origin;
-              await sendExpoPush(
+              const tipSent = await sendExpoPush(
                 pushToken,
                 `🚂 ${tipKey} boarding tip`,
                 BOARDING_TIPS[tipKey]!,
                 { intentId: row.id, screen: 'receipt', action: 'boarding_tip' },
               );
-              broLog('boarding_tip_sent', { jobId: row.id, operator: tipKey, minsToDepart });
+              if (tipSent) {
+                broLog('boarding_tip_sent', { jobId: row.id, operator: tipKey, minsToDepart });
+                metaUpdates.boardingTipSent = true;
+                needsUpdate = true;
+              }
             }
-            metaUpdates.boardingTipSent = true;
-            needsUpdate = true;
           }
         }
 

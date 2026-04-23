@@ -25,6 +25,8 @@ import type { Context, Next } from 'hono';
 import type { Env, Variables } from '../types';
 import { pbkdf2Hex } from '../lib/pbkdf2';
 import { createDb } from '../lib/db';
+import { isMcpAccessToken, verifyMcpAccessToken } from '../lib/mcpAccessTokens';
+import { buildMcpWwwAuthenticateHeader } from '../lib/mcpOAuth';
 
 // ---------------------------------------------------------------------------
 // Key format helpers — mirrors src/services/merchants.ts exactly
@@ -50,6 +52,79 @@ function extractRawKey(apiKey: string): string {
   return apiKey;
 }
 
+function parsePresentedToken(authHeader?: string | null): string | null {
+  if (!authHeader) return null;
+  if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
+  if (authHeader.startsWith('Bearer')) return authHeader.slice(6).trim();
+  return authHeader;
+}
+
+async function authenticateMcpToken(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  token: string,
+): Promise<boolean> {
+  const signingSecret = c.env.AGENTPAY_SIGNING_SECRET;
+  if (!signingSecret) return false;
+
+  const claims = await verifyMcpAccessToken(token, signingSecret);
+  if (!claims) return false;
+
+  const testMode = c.env.AGENTPAY_TEST_MODE === 'true';
+  if (testMode && claims.sub === '26e7ac4f-017e-4316-bf4f-9a1b37112510') {
+    c.set('merchant', {
+      id: claims.sub,
+      name: 'Test Merchant',
+      email: claims.email,
+      walletAddress: '9B5X2Fwc4PQHqbXkhmr8vgYKHjgP7V8HBzMgMTf8H',
+      webhookUrl: null,
+    });
+    return true;
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{
+      id: string;
+      name: string;
+      email: string;
+      walletAddress: string | null;
+      webhookUrl: string | null;
+      parentMerchantId: string | null;
+      keyPrefix: string;
+    }>>`
+      SELECT id,
+             name,
+             email,
+             wallet_address     AS "walletAddress",
+             webhook_url        AS "webhookUrl",
+             parent_merchant_id AS "parentMerchantId",
+             key_prefix         AS "keyPrefix"
+      FROM merchants
+      WHERE id = ${claims.sub}
+        AND is_active = true
+      LIMIT 1
+    `;
+
+    const merchant = rows[0];
+    if (!merchant || merchant.keyPrefix !== claims.keyPrefix || merchant.email.toLowerCase() !== claims.email.toLowerCase()) {
+      return false;
+    }
+
+    c.set('merchant', {
+      id: merchant.id,
+      name: merchant.name,
+      email: merchant.email,
+      walletAddress: merchant.walletAddress,
+      webhookUrl: merchant.webhookUrl ?? null,
+      parentMerchantId: merchant.parentMerchantId ?? null,
+    });
+    c.set('mcpAudience', claims.audience);
+    return true;
+  } finally {
+    sql.end().catch(() => {});
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
@@ -58,6 +133,18 @@ export async function authenticateApiKey(
   c: Context<{ Bindings: Env; Variables: Variables }>,
   next: Next,
 ): Promise<void | Response> {
+  const mcpTransportRequest = c.req.path === '/api/mcp';
+  const unauthorizedResponse = (
+    body: Record<string, unknown>,
+    error = 'invalid_token',
+  ) => {
+    const response = c.json(body, 401);
+    if (mcpTransportRequest) {
+      response.headers.set('WWW-Authenticate', buildMcpWwwAuthenticateHeader(c.env.API_BASE_URL, error));
+    }
+    return response;
+  };
+
   try {
     // 1. Extract header — Authorization (Bearer or raw) or x-api-key
     const authHeader =
@@ -65,23 +152,35 @@ export async function authenticateApiKey(
 
     if (!authHeader) {
       console.warn('[auth] missing authorization header');
-      return c.json({ code: 'AUTH_MISSING', message: 'Provide a token or API key.' }, 401);
+      return unauthorizedResponse({ code: 'AUTH_MISSING', message: 'Provide a token or API key.' }, 'invalid_token');
     }
 
     // 2. Strip "Bearer " prefix — mirrors src/middleware/auth.ts exactly
-    let apiKey: string;
-    if (authHeader.startsWith('Bearer ')) {
-      apiKey = authHeader.slice(7);
-    } else if (authHeader.startsWith('Bearer')) {
-      apiKey = authHeader.slice(6).trim();
-    } else {
-      apiKey = authHeader;
-    }
+    const apiKey = parsePresentedToken(authHeader);
 
     // 3. Guard against empty / literal "undefined" strings
     if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
       console.warn('[auth] empty or literal-undefined API key');
-      return c.json({ code: 'AUTH_INVALID', message: 'Invalid API key provided' }, 401);
+      return unauthorizedResponse({ code: 'AUTH_INVALID', message: 'Invalid API key provided' }, 'invalid_token');
+    }
+
+    if (isMcpAccessToken(apiKey)) {
+      const authenticated = await authenticateMcpToken(c, apiKey);
+      if (!authenticated) {
+        return unauthorizedResponse(
+          {
+            code: 'AUTH_INVALID',
+            message: 'Invalid MCP access token',
+            help: {
+              suggestion: 'Mint a fresh MCP access token and try again.',
+              fix: 'Call POST /api/mcp/tokens with a valid AgentPay API key to mint a short-lived remote MCP token.',
+            },
+          },
+          'invalid_token',
+        );
+      }
+      await next();
+      return;
     }
 
     // 4. Test-mode bypass — matches src/middleware/auth.ts TEST_KEYS list.
@@ -111,21 +210,23 @@ export async function authenticateApiKey(
       id: string;
       name: string;
       email: string;
-      walletAddress: string;
+      walletAddress: string | null;
       webhookUrl: string | null;
       createdAt: Date;
       apiKeyHash: string;
       apiKeySalt: string;
+      parentMerchantId: string | null;
     }>;
 
     try {
       rows = await sql<typeof rows>`
         SELECT id, name, email,
-               wallet_address  AS "walletAddress",
-               webhook_url     AS "webhookUrl",
-               created_at      AS "createdAt",
-               api_key_hash    AS "apiKeyHash",
-               api_key_salt    AS "apiKeySalt"
+               wallet_address     AS "walletAddress",
+               webhook_url        AS "webhookUrl",
+               created_at         AS "createdAt",
+               api_key_hash       AS "apiKeyHash",
+               api_key_salt       AS "apiKeySalt",
+               parent_merchant_id AS "parentMerchantId"
         FROM merchants
         WHERE key_prefix = ${keyPrefix}
           AND is_active = true
@@ -137,7 +238,7 @@ export async function authenticateApiKey(
 
     if (!rows.length) {
       console.warn(`[auth] prefix not found: ${keyPrefix}`);
-      return c.json(
+      return unauthorizedResponse(
         {
           code: 'AUTH_INVALID',
           message: 'Invalid API key',
@@ -147,7 +248,7 @@ export async function authenticateApiKey(
             fix: 'Generate a new API key at https://dashboard.agentpay.gg/api-keys',
           },
         },
-        401,
+        'invalid_token',
       );
     }
 
@@ -162,6 +263,7 @@ export async function authenticateApiKey(
           email: row.email,
           walletAddress: row.walletAddress,
           webhookUrl: row.webhookUrl ?? null,
+          parentMerchantId: row.parentMerchantId ?? null,
         });
         await next();
         return;
@@ -170,7 +272,7 @@ export async function authenticateApiKey(
 
     // Hash mismatch — key found but wrong password
     console.warn(`[auth] hash mismatch for prefix ${keyPrefix}`);
-    return c.json(
+    return unauthorizedResponse(
       {
         code: 'AUTH_INVALID',
         message: 'Invalid API key',
@@ -180,7 +282,7 @@ export async function authenticateApiKey(
           fix: 'Generate a new API key at https://dashboard.agentpay.gg/api-keys',
         },
       },
-      401,
+      'invalid_token',
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

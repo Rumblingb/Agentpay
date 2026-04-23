@@ -1,0 +1,13 @@
+{
+  "name": "practitioner-dashboard-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node mock-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}

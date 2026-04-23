@@ -207,7 +207,7 @@ export function buildBookingContext(profile: TravelProfile): string {
   const lines = [
     `TRAVELER PROFILE (shared for this booking only):`,
     `Name: ${profile.legalName}`,
-    `Date of birth: ${profile.dateOfBirth}`,
+    profile.dateOfBirth ? `Date of birth: ${profile.dateOfBirth}` : '',
     `Nationality: ${NATIONALITY_LABELS[profile.nationality]}`,
     `Phone: ${profile.phone}`,
     `Email: ${profile.email}`,
@@ -238,6 +238,7 @@ const SKILL_PROFILE_FIELDS: Record<string, (keyof TravelProfile)[]> = {
   book_bus:            ['legalName', 'email', 'phone'],
   book_taxi:      ['legalName', 'phone'],
   search_flights: ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
+  book_flight:    ['legalName', 'email', 'phone', 'dateOfBirth', 'nationality', 'documentType', 'documentNumber', 'documentExpiry'],
   research:       [],
 };
 

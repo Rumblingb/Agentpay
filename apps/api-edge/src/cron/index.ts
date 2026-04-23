@@ -6,8 +6,10 @@
  * handler.
  *
  * Cron schedule (defined in wrangler.toml [[triggers.crons]]):
- *   every 5 min  — liquidity monitor (matches liquidityService.ts CRON_INTERVAL_MS)
- *   every 15 min — reconciliation   (matches reconciliationDaemon.ts DEFAULT_INTERVAL_MS)
+ *   every 2 min  - RCM autonomy loop (claim status, eligibility, denial follow-up)
+ *   every 5 min  - liquidity monitor / live disruption watches
+ *   every 15 min - reconciliation / booking recovery
+ *   hourly       - proactive route pattern nudges (gated to 9pm London time)
  *
  * Note: The Solana listener (30-second poll) is NOT migrated here because
  * Cloudflare Cron Triggers have a minimum interval of 1 minute.  The Solana
@@ -26,6 +28,8 @@ import { runPlatformWatch } from './platformWatch';
 import { runFlightWatch } from './flightWatch';
 import { runMondayPattern } from './mondayPattern';
 import { runBookingRecoveryCron } from './bookingRecovery';
+import { runRcmAutonomyLoop } from './rcmAutonomyLoop';
+import { runRcmDailyBriefing } from './rcmDailyBriefing';
 
 /**
  * Routes a scheduled cron event to the correct handler by its cron expression.
@@ -41,6 +45,10 @@ export async function scheduledHandler(
 ): Promise<void> {
   // Route by cron expression (spaces matter — must match wrangler.toml exactly)
   switch (event.cron) {
+    case '*/2 * * * *':
+      ctx.waitUntil(runRcmAutonomyLoop(env));
+      break;
+
     case '*/5 * * * *':
       ctx.waitUntil(runLiquidityCron(env));
       ctx.waitUntil(runPlatformWatch(env));
@@ -52,8 +60,9 @@ export async function scheduledHandler(
       ctx.waitUntil(runBookingRecoveryCron(env));
       break;
 
-    case '0 9 * * 1':
+    case '0 * * * *':
       ctx.waitUntil(runMondayPattern(env));
+      ctx.waitUntil(runRcmDailyBriefing(env));
       break;
 
     default:

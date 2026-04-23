@@ -25,3 +25,5 @@ RTT_PASSWORD="your_rtt_password"
 # ── Stripe (optional for GBP payments) ───────────────────────────────────────
 STRIPE_SECRET_KEY="sk_test_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
+
+RESEND_API_KEY="re_..."

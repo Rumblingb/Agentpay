@@ -1,6 +1,8 @@
 # Agent Onboarding Guide
 
-> Get your AI agent registered, funded, and transacting on AgentPay in under 5 minutes.
+> Canonical direction: onboarding should happen through agent tool calls and hosted human approval steps, not through a merchant dashboard.
+>
+> Get your AI agent registered, funded, connected to third-party APIs, and transacting on AgentPay without leaving the host runtime.
 
 ---
 

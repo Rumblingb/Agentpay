@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "220841241095",
+    "project_id": "agentpay-8ba65",
+    "storage_bucket": "agentpay-8ba65.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:220841241095:android:58a210c729f7642b3d98a2",
+        "android_client_info": {
+          "package_name": "so.agentpay.meridian"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD511n2uUwRsHWcOYRPveJnSIVSWe1BLAI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

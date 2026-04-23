@@ -8,11 +8,11 @@
  */
 
 import { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { router } from 'expo-router';
-import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip } from '../lib/storage';
+import { loadCredentials, loadPrefs, loadHistory, loadActiveTrip, loadCurrentJourneySession } from '../lib/storage';
+import { shouldPreferJourney } from '../lib/journeyRouting';
 import { useStore } from '../lib/store';
-import { AceMark } from '../components/AceMark';
 
 export default function BootScreen() {
   const { hydrate } = useStore();
@@ -20,11 +20,12 @@ export default function BootScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const [creds, prefs, history, activeTrip] = await Promise.all([
+        const [creds, prefs, history, activeTrip, liveJourney] = await Promise.all([
           loadCredentials(),
           loadPrefs(),
           loadHistory(),
           loadActiveTrip(),
+          loadCurrentJourneySession(),
         ]);
 
         if (!creds || !prefs.onboarded) {
@@ -43,6 +44,11 @@ export default function BootScreen() {
           workStation:          prefs.workStation,
         });
 
+        if (liveJourney && shouldPreferJourney(liveJourney)) {
+          router.replace({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveJourney.intentId } });
+          return;
+        }
+
         router.replace('/(main)/converse');
       } catch {
         router.replace('/onboard');
@@ -53,7 +59,11 @@ export default function BootScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.iconMark}>
-        <AceMark size={108} ringColor="rgba(222, 240, 255, 0.9)" glowColor="#a9dcff" backgroundColor="#0b1320" />
+        <Image
+          source={require('../assets/ace-mark.png')}
+          style={styles.iconImage}
+          resizeMode="contain"
+        />
       </View>
 
       {/* Wordmark */}
@@ -72,25 +82,29 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   iconMark: {
-    width: 124,
-    height: 124,
+    width: 136,
+    height: 128,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: '#8fd4ff',
-    shadowOpacity: 0.22,
-    shadowRadius: 28,
+    marginBottom: 26,
+    shadowColor: '#c7e7ff',
+    shadowOpacity: 0.2,
+    shadowRadius: 34,
     shadowOffset: { width: 0, height: 0 },
   },
+  iconImage: {
+    width: 136,
+    height: 128,
+  },
   wordmark: {
-    color: '#f8fafc',
+    color: '#f5f7fa',
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: 6,
     marginBottom: 10,
   },
   tagline: {
-    color: '#475569',
+    color: '#7f8a98',
     fontSize: 13,
     letterSpacing: 0.3,
     fontWeight: '500',

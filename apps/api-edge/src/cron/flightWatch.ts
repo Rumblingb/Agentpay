@@ -34,12 +34,24 @@ async function sendExpoPush(
   title: string,
   body: string,
   data: Record<string, unknown>,
-): Promise<void> {
-  await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ to: token, title, body, data, sound: 'default' }),
-  });
+): Promise<boolean> {
+  try {
+    const res = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ to: token, title, body, data, sound: 'default' }),
+    });
+    if (!res.ok) return false;
+    const json = await res.json() as any;
+    const ticket = json?.data;
+    if (ticket?.status === 'error') {
+      broLog('expo_push_error', { token, details: ticket.details ?? ticket.message });
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface AviationstackFlight {
@@ -119,10 +131,10 @@ export async function runFlightWatch(env: Env): Promise<void> {
         // ── Cancellation ───────────────────────────────────────────────────
         if (status.flight_status === 'cancelled' && !meta.flightCancellationNotified) {
           const transcript = `My flight ${flightNum} was cancelled — find me an alternative`;
-          await sendExpoPush(
+          const delivered = await sendExpoPush(
             pushToken,
             '✈️ Flight cancelled',
-            `${flightNum} to ${destination ?? 'your destination'} has been cancelled. Contact your airline or let Bro find alternatives.`,
+            `${flightNum} to ${destination ?? 'your destination'} has been cancelled. Contact your airline or let Ace find alternatives.`,
             {
               intentId: row.id,
               screen: 'receipt',
@@ -132,11 +144,13 @@ export async function runFlightWatch(env: Env): Promise<void> {
               disruptionRoute: route,
             },
           );
-          await fanOutToTripRoom(row.id, `✈️ ${flightNum} cancelled. Contact airline or ask Bro for alternatives.`, sql);
-          metaUpdates.flightCancellationNotified = true;
-          metaUpdates.flightWatchActive = 'false';
-          needsUpdate = true;
-          broLog('flight_cancelled', { jobId: row.id, flightNum });
+          await fanOutToTripRoom(row.id, `✈️ ${flightNum} cancelled. Contact airline or ask Ace for alternatives.`, sql);
+          if (delivered) {
+            metaUpdates.flightCancellationNotified = true;
+            metaUpdates.flightWatchActive = 'false';
+            needsUpdate = true;
+          }
+          broLog('flight_cancelled', { jobId: row.id, flightNum, delivered });
         }
 
         // ── Delay > 15 min (once) ──────────────────────────────────────────
@@ -153,7 +167,7 @@ export async function runFlightWatch(env: Env): Promise<void> {
           const body = newDepEst
             ? `${flightNum} to ${destination ?? 'your destination'} is delayed ${delayMins} min. New departure: ${newDepEst}.`
             : `${flightNum} to ${destination ?? 'your destination'} is running ${delayMins} min late.`;
-          await sendExpoPush(
+          const delivered = await sendExpoPush(
             pushToken,
             `✈️ ${delayMins} min delay`,
             body,
@@ -166,9 +180,11 @@ export async function runFlightWatch(env: Env): Promise<void> {
             },
           );
           await fanOutToTripRoom(row.id, `✈️ ${route} delayed ${delayMins} min.`, sql);
-          metaUpdates.flightDelayNotified = true;
-          needsUpdate = true;
-          broLog('flight_delayed', { jobId: row.id, flightNum, delayMins });
+          if (delivered) {
+            metaUpdates.flightDelayNotified = true;
+            needsUpdate = true;
+          }
+          broLog('flight_delayed', { jobId: row.id, flightNum, delayMins, delivered });
         }
 
         // ── Gate assigned / changed ────────────────────────────────────────
@@ -179,7 +195,7 @@ export async function runFlightWatch(env: Env): Promise<void> {
           const body  = lastGate
             ? `${flightNum}: gate changed from ${lastGate} to ${newGate}.`
             : `${flightNum}: departing from Gate ${newGate}.`;
-          await sendExpoPush(
+          const delivered = await sendExpoPush(
             pushToken,
             title,
             body,
@@ -192,9 +208,11 @@ export async function runFlightWatch(env: Env): Promise<void> {
             },
           );
           await fanOutToTripRoom(row.id, `${title}: ${body}`, sql);
-          metaUpdates.flightGate = newGate;
-          needsUpdate = true;
-          broLog('flight_gate', { jobId: row.id, flightNum, gate: newGate, prev: lastGate ?? null });
+          if (delivered) {
+            metaUpdates.flightGate = newGate;
+            needsUpdate = true;
+          }
+          broLog('flight_gate', { jobId: row.id, flightNum, gate: newGate, prev: lastGate ?? null, delivered });
         }
 
         if (needsUpdate) {

@@ -15,4 +15,12 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
+config.resolver.assetExts = Array.from(
+  new Set([...(config.resolver.assetExts ?? []), 'glb', 'gltf']),
+);
+
+config.resolver.sourceExts = Array.from(
+  new Set([...(config.resolver.sourceExts ?? []), 'mjs', 'cjs']),
+);
+
 module.exports = config;

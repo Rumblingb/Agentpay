@@ -8,7 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/ace-mark.png",
       "resizeMode": "contain",
       "backgroundColor": "#080808"
     },
@@ -19,12 +19,12 @@
       "url": "https://u.expo.dev/17f2ea0c-cced-4664-bc42-36c0583bf021"
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "nativeVersion"
     },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "so.agentpay.meridian",
-      "buildNumber": "1",
+      "buildNumber": "11",
       "privacyManifests": {
         "NSPrivacyTracking": false,
         "NSPrivacyCollectedDataTypes": [],
@@ -81,13 +81,23 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#080808",
+      "translucent": false
+    },
+    "androidNavigationBar": {
+      "visible": "sticky-immersive",
+      "barStyle": "dark-content",
+      "backgroundColor": "#080808"
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080808"
       },
       "package": "so.agentpay.meridian",
-      "versionCode": 1,
+      "versionCode": 11,
       "permissions": [
         "android.permission.USE_FINGERPRINT",
         "android.permission.USE_BIOMETRIC",

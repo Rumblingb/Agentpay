@@ -7,19 +7,21 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "hono": "^4.12.7",
+    "hono": "^4.12.14",
     "postgres": "^3.4.8",
     "stripe": "^20.4.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260310.1",
-    "typescript": "^5.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2",
     "wrangler": "^4.72.0"
-  }
-  ,
+  },
   "overrides": {
     "undici": "7.24.1"
   }

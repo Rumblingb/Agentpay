@@ -24,11 +24,15 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import * as Linking from 'expo-linking';
-import { getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
-import { saveActiveTrip } from '../../../lib/storage';
+import { getConciergeExecution, getIntentStatus, createCheckoutSession, createUpiPaymentLink, reportIssue } from '../../../lib/api';
+import { patchJourneySession, saveActiveTrip, saveJourneySession } from '../../../lib/storage';
+import { requestNotificationPermission, scheduleProactiveRerouteReminder } from '../../../lib/notifications';
 import { useStore } from '../../../lib/store';
+import { getRememberedConfirmApprovedAt, trackClientEvent } from '../../../lib/telemetry';
 import { speak } from '../../../lib/tts';
 import { statusNarration } from '../../../lib/concierge';
+import { inferJourneyWalletUrl, journeySteps } from '../../../lib/journeySession';
+import { journeyRecovery } from '../../../lib/journeyRecovery';
 import { C } from '../../../lib/theme';
 import { parseTripContext, paymentConfirmedFromMetadata, syncTripBookingState, tripCards, updateTripContext, type ProactiveCard, type TripContext } from '../../../lib/trip';
 
@@ -36,122 +40,9 @@ const POLL_MS = 3000;
 
 type StatusPhase = 'executing' | 'done' | 'error';
 
-type ConciergeStageState = 'done' | 'current' | 'upcoming';
-
-type ConciergeStage = {
-  key: string;
-  label: string;
-  detail: string;
-  state: ConciergeStageState;
-};
-
 function activeLegIndex(legs: Array<{ status?: string }>): number {
   const active = legs.findIndex((leg) => !['completed', 'confirmed', 'verified', 'booked'].includes(String(leg.status ?? '')));
   return active >= 0 ? active : Math.max(0, legs.length - 1);
-}
-
-function buildConciergeStages(params: {
-  statusPhase: StatusPhase;
-  elapsed: number;
-  needsPayment: boolean | string | undefined;
-  paymentConfirmed: boolean;
-  isFullyDone: boolean;
-  isError: boolean;
-}): { headline: string; subline: string; eta: string; stages: ConciergeStage[] } {
-  const needsPayment = !!params.needsPayment;
-  const bookingCurrent =
-    params.isError ? 'attention'
-    : params.isFullyDone ? 'issued'
-    : needsPayment && !params.paymentConfirmed && params.statusPhase === 'done' ? 'payment'
-    : params.elapsed < 45 ? 'received'
-    : params.elapsed < 120 ? 'checking'
-    : params.elapsed < 240 ? 'securing'
-    : 'finalising';
-
-  const stageOrder = ['received', 'checking', 'securing', 'payment', 'issued'] as const;
-  const reachedIndex = (() => {
-    const idx = stageOrder.indexOf(bookingCurrent as any);
-    return idx >= 0 ? idx : 0;
-  })();
-
-  const stages: ConciergeStage[] = [
-    {
-      key: 'received',
-      label: 'Trip received',
-      detail: 'Ace has the route, traveller context, and booking brief.',
-      state: reachedIndex > 0 || bookingCurrent === 'received' ? (bookingCurrent === 'received' ? 'current' : 'done') : 'upcoming',
-    },
-    {
-      key: 'checking',
-      label: 'Checking live options',
-      detail: 'Ace is checking live availability, timing, and the strongest way to secure the trip.',
-      state: reachedIndex > 1 || bookingCurrent === 'checking' ? (bookingCurrent === 'checking' ? 'current' : 'done') : 'upcoming',
-    },
-    {
-      key: 'securing',
-      label: 'Securing the booking',
-      detail: 'Ace is carrying the booking through the live fulfilment flow now.',
-      state: reachedIndex > 2 || bookingCurrent === 'securing' || bookingCurrent === 'finalising'
-        ? (bookingCurrent === 'securing' || bookingCurrent === 'finalising' ? 'current' : 'done')
-        : 'upcoming',
-    },
-    {
-      key: 'payment',
-      label: needsPayment ? 'Waiting for payment' : 'No payment step needed',
-      detail: needsPayment
-        ? 'Once payment clears, Ace can finish ticket issue and lock the journey in.'
-        : 'This journey can move forward without a separate payment step.',
-      state: !needsPayment
-        ? (params.isFullyDone ? 'done' : 'upcoming')
-        : params.paymentConfirmed || params.isFullyDone
-        ? 'done'
-        : bookingCurrent === 'payment'
-        ? 'current'
-        : 'upcoming',
-    },
-    {
-      key: 'issued',
-      label: 'Ticket issued',
-      detail: 'Your booking reference, timing, and next steps are ready.',
-      state: params.isFullyDone ? 'done' : 'upcoming',
-    },
-  ];
-
-  if (params.isError) {
-    return {
-      headline: 'This journey needs intervention',
-      subline: 'Ace still has the trip, but something changed before it was safe to lock in.',
-      eta: 'This should normally complete within about 5 minutes. This one needs attention.',
-      stages,
-    };
-  }
-
-  if (params.isFullyDone) {
-    return {
-      headline: 'Your journey is locked in',
-      subline: 'Booking, payment, and ticketing are aligned.',
-      eta: 'Done. Your live trip state is now locked in.',
-      stages,
-    };
-  }
-
-  if (bookingCurrent === 'payment') {
-    return {
-      headline: 'Everything is lined up for payment',
-      subline: 'Ace has done the booking work. Paying now lets it finish the ticket issue cleanly.',
-      eta: 'Most requests reach this point inside about 5 minutes.',
-      stages,
-    };
-  }
-
-  return {
-    headline: 'Ace is handling the booking now',
-    subline: 'Ace is working through the live booking steps for you now.',
-    eta: params.elapsed < 300
-      ? 'Most bookings settle within about 5 minutes.'
-      : 'This is taking longer than usual, but Ace is still on it.',
-    stages,
-  };
 }
 
 function recoveryPrompt(params: {
@@ -173,8 +64,8 @@ function isRollbackState(bookingState: TripContext['watchState'] extends infer T
 }
 
 export default function StatusScreen() {
-  const { jobId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
-    useLocalSearchParams<{ jobId: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
+  const { jobId, intentId, fiatAmount, currencySymbol: paramSymbol, currencyCode: paramCode, tripContext: tripContextParam, shareToken: paramShareToken, journeyId: paramJourneyId, totalLegs: paramTotalLegs } =
+    useLocalSearchParams<{ jobId: string; intentId?: string; fiatAmount?: string; currencySymbol?: string; currencyCode?: string; tripContext?: string; shareToken?: string; journeyId?: string; totalLegs?: string }>();
   const totalLegs = paramTotalLegs ? Number(paramTotalLegs) : 1;
   const paymentRequired = !!(fiatAmount && parseFloat(fiatAmount) > 0);
   const { currentAgent, setPhase, agentId } = useStore();
@@ -197,15 +88,33 @@ export default function StatusScreen() {
   const [paymentRecoveryNote, setPaymentRecoveryNote] = useState<string | null>(null);
   const [tripContext, setTripContext]         = useState<TripContext | null>(() => parseTripContext(tripContextParam));
   const [shareToken, setShareToken]           = useState<string | null>(paramShareToken ?? null);
+  const [resolvedIntentId, setResolvedIntentId] = useState<string>(intentId ?? jobId);
+  const [intentStatusValue, setIntentStatusValue] = useState<string | null>(null);
+  const [quoteExpiresAt, setQuoteExpiresAt] = useState<string | null>(null);
+  const [paymentConfirmedAt, setPaymentConfirmedAt] = useState<string | null>(null);
+  const [dispatchStartedAt, setDispatchStartedAt] = useState<string | null>(null);
+  const [pendingFulfilment, setPendingFulfilment] = useState<boolean | null>(null);
+  const [fulfilmentFailed, setFulfilmentFailed] = useState(false);
+  const [executionStatus, setExecutionStatus] = useState<'queued' | 'payment_pending' | 'fulfilment_pending' | 'confirmed' | 'failed' | 'rolled_back' | 'attention_required' | null>(null);
+  const [recoveryBucket, setRecoveryBucket] = useState<string | null>(null);
+  const [recoveryAction, setRecoveryAction] = useState<'none' | 'retry_dispatch' | 'escalate_manual' | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState<string | null>(null);
+  const [executionSummary, setExecutionSummary] = useState<string | null>(null);
+  const [manualReviewRequired, setManualReviewRequired] = useState(false);
+  const [rerouteOfferTranscript, setRerouteOfferTranscript] = useState<string | null>(null);
+  const [rerouteOfferActionLabel, setRerouteOfferActionLabel] = useState<string | null>(null);
   const [showIssueModal, setShowIssueModal]   = useState(false);
   const [issueCategory, setIssueCategory]     = useState<'payment' | 'delay' | 'ticket' | 'other'>('payment');
   const [issueText, setIssueText]             = useState('');
   const [issueSending, setIssueSending]       = useState(false);
   const [issueSent, setIssueSent]             = useState(false);
+  const rerouteReminderScheduledRef           = useRef(false);
+  const ticketIssuedLoggedRef                 = useRef(false);
+  const currentIntentId = resolvedIntentId || intentId || jobId;
 
   const checkRef    = useRef(false);     // prevent double-narration
   const elapsedRef  = useRef(0);
-  const POLL_TIMEOUT_S = 90;             // give up polling after 90s
+  const POLL_TIMEOUT_S = 300;            // keep the live journey warm for up to 5 minutes
   const fadeSuccess = useRef(new Animated.Value(0)).current;
   const orbScale    = useRef(new Animated.Value(1)).current;
 
@@ -223,8 +132,9 @@ export default function StatusScreen() {
   useEffect(() => {
     if (!jobId) return;
     void saveActiveTrip({
-      intentId: jobId,
+      intentId: currentIntentId,
       jobId,
+      journeyId: paramJourneyId ?? null,
       status: 'securing',
       title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
       fromStation: fromStation ?? tripContext?.origin ?? null,
@@ -237,18 +147,95 @@ export default function StatusScreen() {
       currencySymbol: paramSymbol ?? null,
       currencyCode: paramCode ?? null,
       tripContext,
+      isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
       shareToken,
       updatedAt: new Date().toISOString(),
     });
-  }, [jobId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken]);
+    void saveJourneySession({
+      intentId: currentIntentId,
+      jobId,
+      journeyId: paramJourneyId ?? null,
+      title: tripContext?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
+      state: 'securing',
+      intentStatus: intentStatusValue,
+      bookingState: tripContext?.watchState?.bookingState ?? 'securing',
+      fromStation: fromStation ?? tripContext?.origin ?? null,
+      toStation: toStation ?? tripContext?.destination ?? null,
+      departureTime: departureTime ?? tripContext?.departureTime ?? null,
+      departureDatetime: tripContext?.departureTime ?? null,
+      arrivalTime: tripContext?.arrivalTime ?? null,
+      platform: platform ?? null,
+      operator: operator ?? tripContext?.operator ?? null,
+      bookingRef: tripContext?.bookingRef ?? null,
+      finalLegSummary: finalLegSummary ?? tripContext?.finalLegSummary ?? null,
+      fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+      currencySymbol: paramSymbol ?? null,
+      currencyCode: paramCode ?? null,
+      tripContext,
+      shareToken,
+      walletPassUrl: inferJourneyWalletUrl(tripContext),
+      quoteExpiresAt,
+      paymentConfirmedAt,
+      openclawDispatchedAt: dispatchStartedAt,
+      pendingFulfilment,
+      fulfilmentFailed,
+      executionStatus,
+      recoveryBucket,
+        recoveryAction,
+        recoveryReason,
+        executionSummary,
+        manualReviewRequired,
+        rerouteOfferTranscript,
+        rerouteOfferActionLabel,
+        updatedAt: new Date().toISOString(),
+      });
+  }, [jobId, currentIntentId, fromStation, toStation, departureTime, platform, operator, finalLegSummary, fiatAmount, paramSymbol, paramCode, tripContext, shareToken, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed, executionStatus, recoveryBucket, recoveryAction, recoveryReason, executionSummary, manualReviewRequired, rerouteOfferTranscript, rerouteOfferActionLabel]);
 
   useEffect(() => {
     if (statusPhase !== 'executing' || !jobId) return;
 
     const t = setInterval(async () => {
       try {
-        const data = await getIntentStatus(jobId);
+        const [data, execution] = await Promise.all([
+          getIntentStatus(jobId),
+          getConciergeExecution(jobId).catch(() => null),
+        ]);
+        if (data.intentId && data.intentId !== resolvedIntentId) {
+          setResolvedIntentId(data.intentId);
+        }
+          if (execution) {
+            setExecutionStatus(execution.status);
+            setRecoveryBucket(execution.recoveryBucket);
+            setRecoveryAction(execution.recommendedAction);
+            setRecoveryReason(execution.recoveryReason);
+            setExecutionSummary(execution.summary);
+            setManualReviewRequired(execution.manualReviewRequired);
+            setRerouteOfferActionLabel(execution.rerouteOfferActionLabel);
+          }
+          const nextRerouteTranscript =
+            typeof data.metadata?.rerouteOfferTranscript === 'string'
+              ? data.metadata.rerouteOfferTranscript
+              : null;
+          if (nextRerouteTranscript) {
+            setRerouteOfferTranscript(nextRerouteTranscript);
+          }
         const s = data.status;
+        setIntentStatusValue(s);
+        if (typeof data.metadata?.quoteExpiresAt === 'string' || typeof data.metadata?.expiresAt === 'string') {
+          setQuoteExpiresAt(data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? null);
+        }
+        if (typeof data.metadata?.paymentConfirmedAt === 'string') {
+          setPaymentConfirmedAt(data.metadata.paymentConfirmedAt);
+        }
+        if (typeof data.metadata?.openclawDispatchedAt === 'string') {
+          setDispatchStartedAt(data.metadata.openclawDispatchedAt);
+        }
+        if (typeof data.metadata?.pendingFulfilment === 'boolean') {
+          setPendingFulfilment(data.metadata.pendingFulfilment);
+        }
+        if (data.metadata?.fulfilmentFailed === true) {
+          setFulfilmentFailed(true);
+        }
         const serverTrip = parseTripContext(data.metadata?.tripContext);
         if (serverTrip) {
           setTripContext(serverTrip);
@@ -289,6 +276,21 @@ export default function StatusScreen() {
             if (paymentWasConfirmed) {
               setPaymentConfirmed(true);
             }
+            if (!ticketIssuedLoggedRef.current) {
+              ticketIssuedLoggedRef.current = true;
+              const confirmedAtMs = getRememberedConfirmApprovedAt(data.intentId ?? currentIntentId ?? jobId);
+              void trackClientEvent({
+                event: 'ticket_issued',
+                screen: 'status',
+                metadata: {
+                  intentId: data.intentId ?? currentIntentId,
+                  jobId,
+                  bookingRef: ref,
+                  paymentConfirmed: paymentWasConfirmed,
+                  time_from_confirm_ms: confirmedAtMs ? Date.now() - confirmedAtMs : null,
+                },
+              });
+            }
             const nextTripContext = syncTripBookingState(serverTrip ?? tripContext, {
               phase: 'booked',
               bookingConfirmed: true,
@@ -306,8 +308,9 @@ export default function StatusScreen() {
             setStatusPhase('done');
             setPhase('done');
             void saveActiveTrip({
-              intentId: jobId,
+              intentId: data.intentId ?? currentIntentId,
               jobId,
+              journeyId: paramJourneyId ?? null,
               status: 'ticketed',
               title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey'),
               fromStation: proof.fromStation ?? null,
@@ -321,9 +324,52 @@ export default function StatusScreen() {
               currencySymbol: paramSymbol ?? null,
               currencyCode: paramCode ?? null,
               tripContext: nextTripContext,
+              // ticketed implies finalised fare
+              isEstimated: false,
               shareToken: resolvedShareToken,
               updatedAt: new Date().toISOString(),
             });
+            void saveJourneySession({
+              intentId: data.intentId ?? currentIntentId,
+              jobId,
+              journeyId: paramJourneyId ?? null,
+              title: nextTripContext?.title ?? ([proof.fromStation, proof.toStation].filter(Boolean).join(' → ') || 'Journey'),
+              state: paymentWasConfirmed || !paymentRequired ? 'ticketed' : 'payment_pending',
+              intentStatus: s,
+              bookingState: nextTripContext?.watchState?.bookingState ?? 'issued',
+              fromStation: proof.fromStation ?? null,
+              toStation: proof.toStation ?? null,
+              departureTime: proof.departureTime ?? null,
+              departureDatetime: proof.departureDatetime ?? proof.departureTime ?? null,
+              arrivalTime: proof.arrivalTime ?? null,
+              platform: proof.platform ?? null,
+              operator: proof.operator ?? null,
+              bookingRef: ref,
+              finalLegSummary: proof.finalLegSummary ?? null,
+              fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+              currencySymbol: paramSymbol ?? null,
+              currencyCode: paramCode ?? null,
+              tripContext: nextTripContext,
+              shareToken: resolvedShareToken,
+              walletPassUrl: inferJourneyWalletUrl(nextTripContext),
+              quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? quoteExpiresAt,
+              paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? paymentConfirmedAt,
+              openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? dispatchStartedAt,
+              pendingFulfilment:
+                typeof data.metadata?.pendingFulfilment === 'boolean'
+                  ? data.metadata.pendingFulfilment
+                  : pendingFulfilment,
+              fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
+              executionStatus: execution?.status ?? executionStatus,
+              recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+                recoveryAction: execution?.recommendedAction ?? recoveryAction,
+                recoveryReason: execution?.recoveryReason ?? recoveryReason,
+                executionSummary: execution?.summary ?? executionSummary,
+                manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+                rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+                rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
+                updatedAt: new Date().toISOString(),
+              });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             const doneMsg = ref
               ? `Securing your ticket. Ace reference ${ref.replace(/-/g, ' ')}. Ticket details by email within 15 minutes.`
@@ -341,8 +387,8 @@ export default function StatusScreen() {
           clearInterval(t);
           setStatusPhase('error');
           const errMsg = s === 'expired'
-            ? 'Booking timed out. Please try again.'
-            : 'Booking couldn\'t be completed. Please try again.';
+            ? 'The hold expired before ticket issue finished. Ace kept the journey here so you can choose the next clean step.'
+            : 'This booking could not finish cleanly. Ace kept the journey context so you can recover without starting over.';
           setErrorMsg(errMsg);
           setPhase('error');
           const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
@@ -352,8 +398,9 @@ export default function StatusScreen() {
           });
           setTripContext(attentionTrip);
           void saveActiveTrip({
-            intentId: jobId,
+            intentId: data.intentId ?? currentIntentId,
             jobId,
+            journeyId: paramJourneyId ?? null,
             status: 'attention',
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
@@ -366,7 +413,48 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
             shareToken,
+            updatedAt: new Date().toISOString(),
+          });
+          void saveJourneySession({
+            intentId: data.intentId ?? currentIntentId,
+            jobId,
+            journeyId: paramJourneyId ?? null,
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
+            state: 'attention',
+            intentStatus: s,
+            bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            departureDatetime: departureDatetime ?? departureTime ?? null,
+            arrivalTime: null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            bookingRef: bookingRef ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
+            shareToken,
+            quoteExpiresAt: data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? quoteExpiresAt,
+            paymentConfirmedAt: data.metadata?.paymentConfirmedAt ?? paymentConfirmedAt,
+            openclawDispatchedAt: data.metadata?.openclawDispatchedAt ?? dispatchStartedAt,
+            pendingFulfilment:
+              typeof data.metadata?.pendingFulfilment === 'boolean'
+                ? data.metadata.pendingFulfilment
+                : pendingFulfilment,
+            fulfilmentFailed: data.metadata?.fulfilmentFailed === true ? true : fulfilmentFailed,
+            executionStatus: execution?.status ?? executionStatus,
+            recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+            recoveryAction: execution?.recommendedAction ?? recoveryAction,
+            recoveryReason: execution?.recoveryReason ?? recoveryReason,
+            executionSummary: execution?.summary ?? executionSummary,
+            manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+            rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+            rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
             updatedAt: new Date().toISOString(),
           });
           await speak(errMsg);
@@ -375,7 +463,7 @@ export default function StatusScreen() {
           // Show a soft message rather than spinning forever.
           clearInterval(t);
           setStatusPhase('error');
-          setErrorMsg('Taking longer than expected. Check your email for confirmation, or try again.');
+          setErrorMsg('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
           setPhase('error');
           const attentionTrip = syncTripBookingState(serverTrip ?? tripContext, {
             phase: 'attention',
@@ -384,8 +472,9 @@ export default function StatusScreen() {
           });
           setTripContext(attentionTrip);
           void saveActiveTrip({
-            intentId: jobId,
+            intentId: currentIntentId,
             jobId,
+            journeyId: paramJourneyId ?? null,
             status: 'attention',
             title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
             fromStation: fromStation ?? null,
@@ -398,10 +487,48 @@ export default function StatusScreen() {
             currencySymbol: paramSymbol ?? null,
             currencyCode: paramCode ?? null,
             tripContext: attentionTrip,
+            isEstimated: !!(quoteExpiresAt && !paymentConfirmedAt),
             shareToken,
             updatedAt: new Date().toISOString(),
           });
-          await speak('This is taking longer than expected. Check your email for a confirmation, or try again.');
+          void saveJourneySession({
+            intentId: currentIntentId,
+            jobId,
+            journeyId: paramJourneyId ?? null,
+            title: attentionTrip?.title ?? ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' → ') || 'Journey'),
+            state: 'attention',
+            intentStatus: intentStatusValue ?? 'pending',
+            bookingState: attentionTrip?.watchState?.bookingState ?? 'failed',
+            fromStation: fromStation ?? null,
+            toStation: toStation ?? null,
+            departureTime: departureTime ?? null,
+            departureDatetime: departureDatetime ?? departureTime ?? null,
+            arrivalTime: null,
+            platform: platform ?? null,
+            operator: operator ?? null,
+            bookingRef: bookingRef ?? null,
+            finalLegSummary: finalLegSummary ?? null,
+            fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+            currencySymbol: paramSymbol ?? null,
+            currencyCode: paramCode ?? null,
+            tripContext: attentionTrip,
+            shareToken,
+            quoteExpiresAt,
+            paymentConfirmedAt,
+            openclawDispatchedAt: dispatchStartedAt,
+            pendingFulfilment,
+            fulfilmentFailed,
+            executionStatus: execution?.status ?? executionStatus,
+            recoveryBucket: execution?.recoveryBucket ?? recoveryBucket,
+            recoveryAction: execution?.recommendedAction ?? recoveryAction,
+            recoveryReason: execution?.recoveryReason ?? recoveryReason,
+            executionSummary: execution?.summary ?? executionSummary,
+            manualReviewRequired: execution?.manualReviewRequired ?? manualReviewRequired,
+            rerouteOfferTranscript: nextRerouteTranscript ?? rerouteOfferTranscript,
+            rerouteOfferActionLabel: execution?.rerouteOfferActionLabel ?? rerouteOfferActionLabel,
+            updatedAt: new Date().toISOString(),
+          });
+          await speak('This is taking longer than usual, but Ace is still holding the journey here while the booking settles.');
         }
       } catch {
         // transient — keep polling
@@ -409,7 +536,7 @@ export default function StatusScreen() {
     }, POLL_MS);
 
     return () => clearInterval(t);
-  }, [statusPhase, jobId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, platform, operator, finalLegSummary, tripContext, paymentRequired]);
+  }, [statusPhase, jobId, currentIntentId, resolvedIntentId, setPhase, fiatAmount, paramSymbol, paramCode, fromStation, toStation, departureTime, departureDatetime, platform, operator, finalLegSummary, bookingRef, tripContext, paymentRequired, shareToken, paramJourneyId, dispatchStartedAt, executionStatus, executionSummary, fulfilmentFailed, manualReviewRequired, paymentConfirmedAt, pendingFulfilment, quoteExpiresAt, recoveryAction, recoveryBucket, recoveryReason, rerouteOfferTranscript, rerouteOfferActionLabel]);
 
   // ── Payment confirmation poll (runs after job completes, until paid) ──────
   // Times out after 10 minutes — payment confirmed via webhook anyway, user can re-open receipt
@@ -449,9 +576,10 @@ export default function StatusScreen() {
     if (nextTripContext) {
       setTripContext(nextTripContext);
       void saveActiveTrip({
-        intentId: jobId,
+        intentId: currentIntentId,
         jobId,
-        status: isError ? 'attention' : 'ticketed',
+        journeyId: paramJourneyId ?? null,
+          status: isError ? 'attention' : 'ticketed',
         title: nextTripContext.title,
         fromStation: fromStation ?? nextTripContext.origin ?? null,
         toStation: toStation ?? nextTripContext.destination ?? null,
@@ -464,18 +592,71 @@ export default function StatusScreen() {
         currencySymbol: paramSymbol ?? null,
         currencyCode: paramCode ?? null,
         tripContext: nextTripContext,
+          isEstimated: false,
         shareToken,
         updatedAt: new Date().toISOString(),
       });
+      void saveJourneySession({
+        intentId: currentIntentId,
+        jobId,
+        journeyId: paramJourneyId ?? null,
+        title: nextTripContext.title,
+        state: isError ? 'attention' : 'ticketed',
+        intentStatus: intentStatusValue ?? (isError ? 'failed' : 'completed'),
+        bookingState: nextTripContext.watchState?.bookingState ?? (isError ? 'failed' : 'issued'),
+        fromStation: fromStation ?? nextTripContext.origin ?? null,
+        toStation: toStation ?? nextTripContext.destination ?? null,
+        departureTime: departureTime ?? nextTripContext.departureTime ?? null,
+        departureDatetime: departureDatetime ?? nextTripContext.departureTime ?? null,
+        arrivalTime: nextTripContext.arrivalTime ?? null,
+        platform: platform ?? null,
+        operator: operator ?? nextTripContext.operator ?? null,
+        bookingRef: bookingRef ?? nextTripContext.bookingRef ?? null,
+        finalLegSummary: finalLegSummary ?? nextTripContext.finalLegSummary ?? null,
+        fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+        currencySymbol: paramSymbol ?? null,
+        currencyCode: paramCode ?? null,
+        tripContext: nextTripContext,
+        shareToken,
+        walletPassUrl: inferJourneyWalletUrl(nextTripContext),
+        quoteExpiresAt,
+        paymentConfirmedAt,
+        openclawDispatchedAt: dispatchStartedAt,
+        pendingFulfilment,
+        fulfilmentFailed,
+        updatedAt: new Date().toISOString(),
+      });
     }
-  }, [paymentConfirmed, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired]);
+  }, [paymentConfirmed, currentIntentId, jobId, tripContext, statusPhase, bookingRef, fromStation, toStation, departureDatetime, departureTime, operator, finalLegSummary, platform, fiatAmount, paramSymbol, paramCode, shareToken, paymentRequired, paramJourneyId, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed]);
 
   // ── Periodic narration during execution ───────────────────────────────────
   useEffect(() => {
     if (statusPhase !== 'executing' || !currentAgent) return;
     if (elapsed === 0 || elapsed % 20 !== 0) return;
-    speak(statusNarration(currentAgent, elapsed));
-  }, [elapsed, statusPhase, currentAgent]);
+    const paymentAmount = fiatAmount ? parseFloat(fiatAmount) : 0;
+    const voiceJourneyState =
+      tripContext?.watchState?.bookingState === 'payment_pending' ? 'payment_pending'
+      : tripContext?.phase === 'in_transit' ? 'in_transit'
+      : tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived' ? 'arriving'
+      : 'securing';
+    const voiceLine = journeyRecovery({
+      state: voiceJourneyState,
+      bookingState: tripContext?.watchState?.bookingState ?? null,
+      tripContext,
+      intentStatus: intentStatusValue,
+      quoteExpiresAt,
+      paymentConfirmedAt,
+      openclawDispatchedAt: dispatchStartedAt,
+      pendingFulfilment,
+      fulfilmentFailed,
+      fiatAmount: paymentAmount || null,
+      manualReviewRequired,
+      recoveryAction,
+      executionSummary,
+      recoveryReason,
+    }).voiceLine;
+    speak(statusNarration(currentAgent, elapsed, voiceLine));
+  }, [elapsed, statusPhase, currentAgent, fiatAmount, paymentConfirmed, tripContext, intentStatusValue, quoteExpiresAt, paymentConfirmedAt, dispatchStartedAt, pendingFulfilment, fulfilmentFailed, manualReviewRequired, recoveryAction, executionSummary, recoveryReason]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -488,20 +669,52 @@ export default function StatusScreen() {
   const rolledBackJourney = isRollbackState(bookingState, totalLegs);
   const cards = tripCards(tripContext);
   const currentLegIndex = activeLegIndex((tripContext as any)?.legs ?? []);
-  const conciergeFlow = buildConciergeStages({
-    statusPhase,
-    elapsed,
-    needsPayment,
-    paymentConfirmed,
-    isFullyDone,
-    isError,
+  const journeyState =
+    isError ? 'attention'
+    : isFullyDone ? 'ticketed'
+    : isDone && needsPayment && !paymentConfirmed ? 'payment_pending'
+    : tripContext?.phase === 'in_transit' ? 'in_transit'
+    : tripContext?.phase === 'arriving' || tripContext?.phase === 'arrived' ? 'arriving'
+    : 'securing';
+  const recoveryState = journeyRecovery({
+    state: journeyState,
+    bookingState: tripContext?.watchState?.bookingState ?? null,
+    tripContext,
+    intentStatus: intentStatusValue,
+    quoteExpiresAt,
+    paymentConfirmedAt,
+    openclawDispatchedAt: dispatchStartedAt,
+    pendingFulfilment,
+    fulfilmentFailed,
+    fiatAmount: fiatAmount ? parseFloat(fiatAmount) : null,
+    manualReviewRequired,
+    recoveryAction,
+    executionSummary,
+    recoveryReason,
   });
+  const conciergeSteps = journeySteps({
+    intentId: currentIntentId,
+    jobId,
+    title: tripContext?.title ?? ([fromStation, toStation].filter(Boolean).join(' → ') || 'Journey'),
+    state: journeyState,
+    bookingState: tripContext?.watchState?.bookingState ?? null,
+    tripContext,
+    updatedAt: new Date().toISOString(),
+  } as any);
+  const conciergeHeadline = recoveryState.headline;
+  const conciergeSubline = recoveryState.trustLine;
+  const conciergeEta = recoveryState.etaLine;
   const supportPrompt = recoveryPrompt({
     fromStation,
     toStation,
     bookingRef,
-    reason: isDone && needsPayment && !paymentConfirmed ? 'payment' : isError ? 'problem' : 'delay',
+    reason: recoveryState.bucket === 'awaiting_payment' ? 'payment' : recoveryState.shouldEscalate || isError ? 'problem' : 'delay',
   });
+  const liveReroutePrompt =
+    rerouteOfferTranscript
+    || ([fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ')
+      ? `${[fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ')} next available`
+      : null);
 
   const openIssueModal = (category: 'payment' | 'delay' | 'ticket' | 'other') => {
     setIssueCategory(category);
@@ -520,15 +733,23 @@ export default function StatusScreen() {
     if (!agentId || issueSending) return;
     setIssueSending(true);
     try {
-      const route = [fromStation, toStation].filter(Boolean).join(' -> ');
+      const route = [fromStation, toStation].filter(Boolean).join(' → ');
       const prefix = `[${issueCategory}]`;
       const summary = [prefix, route, bookingRef ? `ref ${bookingRef}` : null].filter(Boolean).join(' ');
       await reportIssue({
-        intentId: jobId,
+        intentId: currentIntentId,
         bookingRef,
         description: `${summary}\n${issueText.trim() || 'Customer requested help from live booking screen.'}`,
         hirerId: agentId,
       });
+      await patchJourneySession(currentIntentId, {
+        supportState: 'requested',
+        supportRequestedAt: new Date().toISOString(),
+        supportSummary: issueText.trim() || `Support requested for ${issueCategory}.`,
+        lastEventKey: 'support_requested',
+        lastEventAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }).catch(() => null);
       setIssueSent(true);
       setIssueText('');
     } catch (e: any) {
@@ -543,12 +764,24 @@ export default function StatusScreen() {
     setPayLoading(true);
     setPaymentRecoveryNote('Complete payment, then return here. Ace will keep checking automatically.');
     try {
+      void trackClientEvent({
+        event: 'payment_opened',
+        screen: 'status',
+        metadata: {
+          intentId: currentIntentId,
+          jobId,
+          journeyId: paramJourneyId ?? null,
+          fiatAmount: parseFloat(fiatAmount),
+          currencyCode: paramCode ?? 'GBP',
+          paymentRail: (paramCode ?? 'GBP').toUpperCase() === 'INR' ? 'upi' : 'checkout',
+        },
+      });
       if ((paramCode ?? 'GBP').toUpperCase() === 'INR') {
         const { shortUrl } = await createUpiPaymentLink({
           jobId,
           journeyId: paramJourneyId,
           amountInr: Math.round(parseFloat(fiatAmount)),
-          description: [fromStation, toStation].filter(Boolean).join(' -> ') || 'Ace booking',
+          description: [fromStation, toStation].filter(Boolean).join(' → ') || 'Ace booking',
         });
         await Linking.openURL(shortUrl);
       } else {
@@ -575,6 +808,22 @@ export default function StatusScreen() {
     setPaymentCheckLoading(true);
     try {
       const data = await getIntentStatus(jobId);
+      setIntentStatusValue(data.status);
+      if (typeof data.metadata?.paymentConfirmedAt === 'string') {
+        setPaymentConfirmedAt(data.metadata.paymentConfirmedAt);
+      }
+      if (typeof data.metadata?.openclawDispatchedAt === 'string') {
+        setDispatchStartedAt(data.metadata.openclawDispatchedAt);
+      }
+      if (typeof data.metadata?.quoteExpiresAt === 'string' || typeof data.metadata?.expiresAt === 'string') {
+        setQuoteExpiresAt(data.metadata?.quoteExpiresAt ?? data.metadata?.expiresAt ?? null);
+      }
+      if (typeof data.metadata?.pendingFulfilment === 'boolean') {
+        setPendingFulfilment(data.metadata.pendingFulfilment);
+      }
+      if (data.metadata?.fulfilmentFailed === true) {
+        setFulfilmentFailed(true);
+      }
       const serverTrip = parseTripContext(data.metadata?.tripContext);
       if (serverTrip) {
         setTripContext(serverTrip);
@@ -597,6 +846,82 @@ export default function StatusScreen() {
       setPaymentRecoveryNote(e?.message ?? 'Ace could not confirm payment yet. Please try again in a moment.');
     } finally {
       setPaymentCheckLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const route = [fromStation ?? tripContext?.origin, toStation ?? tripContext?.destination].filter(Boolean).join(' to ');
+    const transcriptForRecovery = route ? `${route} next available` : null;
+    const shouldNudge =
+      !!tripContext?.watchState?.delayRisk
+      || !!tripContext?.watchState?.connectionRisk
+      || statusPhase === 'error';
+    if (!jobId || !route || !transcriptForRecovery || !shouldNudge || rerouteReminderScheduledRef.current) return;
+    rerouteReminderScheduledRef.current = true;
+
+    const offerTitle = tripContext?.watchState?.connectionRisk
+      ? 'Ace can rescue the connection'
+      : statusPhase === 'error'
+      ? 'Ace can line up a cleaner route'
+      : 'Ace found a stronger way through';
+    const offerBody = tripContext?.watchState?.connectionRisk
+      ? 'The onward connection is getting tight. Ace can line up the next best option before it breaks.'
+      : statusPhase === 'error'
+      ? 'This booking hit friction. Ace kept the route context intact and can shape a cleaner alternative.'
+      : 'Timing shifted on this trip. Ace can line up the next best option before the delay gets expensive.';
+    const offerActionLabel = tripContext?.watchState?.connectionRisk
+      ? 'Protect connection'
+      : 'Find alternatives';
+
+    void (async () => {
+      await patchJourneySession(currentIntentId, {
+        rerouteOfferTitle: offerTitle,
+        rerouteOfferBody: offerBody,
+        rerouteOfferTranscript: transcriptForRecovery,
+        rerouteOfferActionLabel: offerActionLabel,
+        lastEventKey: 'reroute_offer',
+        lastEventAt: new Date().toISOString(),
+      }).catch(() => null);
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      await scheduleProactiveRerouteReminder({
+        intentId: currentIntentId,
+        route,
+        reason: tripContext?.watchState?.connectionRisk
+          ? 'The connection is getting tight.'
+          : statusPhase === 'error'
+          ? 'This booking needs a cleaner route.'
+          : 'The trip looks delayed.',
+        transcript: transcriptForRecovery,
+        shareToken,
+        offerTitle,
+        offerBody,
+        offerActionLabel,
+      });
+    })();
+  }, [
+    jobId,
+    fromStation,
+    toStation,
+    tripContext?.origin,
+    tripContext?.destination,
+    tripContext?.watchState?.delayRisk,
+    tripContext?.watchState?.connectionRisk,
+    statusPhase,
+    shareToken,
+  ]);
+
+  const handleProactiveCardPress = async (card: ProactiveCard) => {
+    if (['delay_risk', 'connection_risk'].includes(card.kind) && liveReroutePrompt) {
+      router.replace({ pathname: '/(main)/converse', params: { prefill: liveReroutePrompt } } as any);
+      return;
+    }
+    if (['platform_changed', 'gate_changed'].includes(card.kind)) {
+      return;
+    }
+    if ((card.kind === 'leave_now' || card.kind === 'destination_suggestion') && (toStation || tripContext?.destination)) {
+      const target = encodeURIComponent((toStation ?? tripContext?.destination)!);
+      await Linking.openURL(`https://maps.google.com/?q=${target}`);
     }
   };
 
@@ -658,24 +983,24 @@ export default function StatusScreen() {
               ? `All ${totalLegs} legs booked. Ticket details arrive by email for each leg.`
               : 'Ace has your journey moving. Ticket details arrive by email shortly.'
             : isDone && needsPayment && !paymentConfirmed
-            ? 'Your request is in. Tap below to pay and secure your ticket.'
+            ? recoveryState.trustLine
             : isError
-            ? (errorMsg ?? 'Something went wrong.')
-            : `${currentAgent?.name ?? 'Ace'} is lining everything up · ${elapsed}s`}
+            ? (errorMsg ?? recoveryState.trustLine)
+            : executionSummary ?? `${currentAgent?.name ?? 'Ace'} is lining everything up | ${elapsed}s`}
         </Text>
         <View style={styles.conciergeCard}>
           <View style={styles.conciergeHeader}>
             <Ionicons name="sparkles-outline" size={14} color="#93c5fd" />
-            <Text style={styles.conciergeEyebrow}>What Ace is doing</Text>
+            <Text style={styles.conciergeEyebrow}>Live handling</Text>
           </View>
-          <Text style={styles.conciergeHeadline}>{conciergeFlow.headline}</Text>
-          <Text style={styles.conciergeBody}>{conciergeFlow.subline}</Text>
+          <Text style={styles.conciergeHeadline}>{conciergeHeadline}</Text>
+          <Text style={styles.conciergeBody}>{conciergeSubline}</Text>
           <View style={styles.conciergeEtaPill}>
             <Ionicons name="time-outline" size={13} color="#cbd5e1" />
-            <Text style={styles.conciergeEtaText}>{conciergeFlow.eta}</Text>
+            <Text style={styles.conciergeEtaText}>{conciergeEta}</Text>
           </View>
           <View style={styles.conciergeSteps}>
-            {conciergeFlow.stages.map((stage, index) => (
+            {conciergeSteps.map((stage, index) => (
               <View key={stage.key} style={styles.conciergeStepRow}>
                 <View style={styles.conciergeRail}>
                   <View
@@ -685,7 +1010,7 @@ export default function StatusScreen() {
                       stage.state === 'current' && styles.conciergeDotCurrent,
                     ]}
                   />
-                  {index < conciergeFlow.stages.length - 1 && (
+                  {index < conciergeSteps.length - 1 && (
                     <View
                       style={[
                         styles.conciergeLine,
@@ -714,8 +1039,8 @@ export default function StatusScreen() {
             <Ionicons name="git-branch-outline" size={13} color="#818cf8" />
             <Text style={{ fontSize: 12, color: '#818cf8' }}>
               {rolledBackJourney
-                ? `${totalLegs}-leg journey · safely cancelled before confirmation`
-                : `${totalLegs}-leg journey · Leg ${Math.min(currentLegIndex + 1, totalLegs)} of ${totalLegs}`}
+                ? `${totalLegs}-leg journey | safely cancelled before confirmation`
+                : `${totalLegs}-leg journey | Leg ${Math.min(currentLegIndex + 1, totalLegs)} of ${totalLegs}`}
             </Text>
           </View>
         )}
@@ -830,9 +1155,14 @@ export default function StatusScreen() {
 
         {/* Payment button — shown until Stripe payment confirmed */}
         {cards.length > 0 && (
-          <View style={styles.proactiveWrap}>
-            {cards.slice(0, 2).map((card) => (
-              <ProactiveStatusCard key={card.id} card={card} />
+            <View style={styles.proactiveWrap}>
+              {cards.slice(0, 2).map((card) => (
+              <ProactiveStatusCard
+                key={card.id}
+                card={card}
+                actionLabel={proactiveCardActionLabel(card, rerouteOfferActionLabel)}
+                onPress={() => { void handleProactiveCardPress(card); }}
+              />
             ))}
           </View>
         )}
@@ -860,14 +1190,12 @@ export default function StatusScreen() {
           <View style={styles.paymentRecoveryCard}>
             <View style={styles.paymentRecoveryHeader}>
               <Ionicons name="refresh-outline" size={15} color="#93c5fd" />
-              <Text style={styles.paymentRecoveryTitle}>After payment</Text>
+              <Text style={styles.paymentRecoveryTitle}>{recoveryState.headline}</Text>
             </View>
             <Text style={styles.paymentRecoveryBody}>
-              Return here after payment and Ace will keep moving the booking forward.
+              {recoveryState.trustLine}
             </Text>
-            {paymentRecoveryNote ? (
-              <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote}</Text>
-            ) : null}
+            <Text style={styles.paymentRecoveryNote}>{paymentRecoveryNote ?? recoveryState.etaLine}</Text>
             <View style={styles.paymentRecoveryActions}>
               <Pressable
                 onPress={() => { void checkPaymentNow(); }}
@@ -936,7 +1264,13 @@ export default function StatusScreen() {
               if (paramCode)   qs.set('currencyCode',   paramCode);
               if (tripContext) qs.set('tripContext', JSON.stringify(tripContext));
               if (shareToken) qs.set('shareToken', shareToken);
-              router.push(`/receipt/${jobId}?${qs.toString()}`);
+              router.push({
+                pathname: '/(main)/receipt/[intentId]',
+                params: {
+                  intentId: currentIntentId,
+                  ...Object.fromEntries(qs.entries()),
+                },
+              });
             }}
               style={styles.receiptBtn}
             >
@@ -991,9 +1325,9 @@ export default function StatusScreen() {
       <Modal visible={showIssueModal} transparent animationType="fade" onRequestClose={() => setShowIssueModal(false)}>
         <View style={styles.modalScrim}>
           <View style={styles.issueModal}>
-            <Text style={styles.issueTitle}>Need help with this journey?</Text>
+            <Text style={styles.issueTitle}>What went wrong?</Text>
             <Text style={styles.issueBody}>
-              Ace support gets the live trip context from this screen automatically, so you do not have to explain everything again.
+              Support gets the full trip context. No need to re-explain.
             </Text>
             <View style={styles.issueChips}>
               {(['payment', 'delay', 'ticket', 'other'] as const).map((category) => (
@@ -1071,7 +1405,7 @@ function StatusAtmosphere() {
   return (
     <View pointerEvents="none" style={styles.atmosphere}>
       <LinearGradient
-        colors={['rgba(16, 185, 129, 0.14)', 'rgba(16, 185, 129, 0)']}
+        colors={['rgba(164, 212, 255, 0.16)', 'rgba(164, 212, 255, 0)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.atmosphereGlowLeft}
@@ -1097,7 +1431,32 @@ const statusStyles = StyleSheet.create({
   },
 });
 
-function ProactiveStatusCard({ card }: { card: ProactiveCard }) {
+function proactiveCardActionLabel(card: ProactiveCard, rerouteActionLabel?: string | null): string | null {
+  switch (card.kind) {
+    case 'delay_risk':
+    case 'connection_risk':
+      return rerouteActionLabel ?? 'Find alternatives';
+    case 'platform_changed':
+    case 'gate_changed':
+      return 'Got it';
+    case 'leave_now':
+      return 'Navigate';
+    case 'destination_suggestion':
+      return 'Open map';
+    default:
+      return card.ctaLabel ?? null;
+  }
+}
+
+function ProactiveStatusCard({
+  card,
+  actionLabel,
+  onPress,
+}: {
+  card: ProactiveCard;
+  actionLabel?: string | null;
+  onPress?: () => void;
+}) {
   const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : '#60a5fa';
   return (
     <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
@@ -1105,6 +1464,11 @@ function ProactiveStatusCard({ card }: { card: ProactiveCard }) {
       <View style={{ flex: 1 }}>
         <Text style={styles.proactiveTitle}>{card.title}</Text>
         <Text style={styles.proactiveBody}>{card.body}</Text>
+        {actionLabel && onPress && (
+          <Pressable onPress={onPress} style={styles.proactiveActionBtn}>
+            <Text style={styles.proactiveActionText}>{actionLabel}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -1345,6 +1709,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.textSecondary,
     lineHeight: 17,
+  },
+  proactiveActionBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#0b1320',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+  },
+  proactiveActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cbe8ff',
   },
 
   bookingRefWrap: {

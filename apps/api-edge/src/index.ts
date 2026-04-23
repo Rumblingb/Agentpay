@@ -49,9 +49,20 @@ import { tripRoomsRouter } from './routes/tripRooms';
 import { broInsightsRouter } from './routes/broInsights';
 import { airwallexWebhooksRouter } from './routes/webhooksAirwallex';
 import { sharedTravelRouter } from './routes/sharedTravel';
+import { walletPassRouter } from './routes/walletPass';
+import { rcmRouter } from './routes/rcm';
+import { aceIntentsRouter } from './routes/aceIntents';
+import { approvalsRouter } from './routes/approvals';
+import { paymentsSetupRouter } from './routes/paymentsSetup';
+import { mandateApprovalLinksRouter } from './routes/mandateApprovalLinks';
+import { mcpRouter } from './routes/mcp';
+import { mcpOAuthRouter } from './routes/mcpOAuth';
+import { capabilitiesRouter } from './routes/capabilities';
+import { actionsRouter } from './routes/actions';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
+import { setInternalAppFetcher } from './lib/internalAppFetch';
 
 // Re-export Durable Object class — required by Cloudflare Workers module format.
 export { SolanaListenerDO };
@@ -172,13 +183,40 @@ app.route('/trip', tripRoomsRouter);  // /trip/:token → joinable HTML web view
 // Shared travel units — couple/family linking foundation
 app.route('/api/shared-travel', sharedTravelRouter);
 
+// RCM vertical scaffold — autonomous billing operations surface
+app.route('/api/rcm', rcmRouter);
+
+// Apple Wallet .pkpass generation — GET /api/wallet/pass/:intentId
+app.route('/api/wallet/pass', walletPassRouter);
+
 // Concierge brain + skill registry — /api/concierge/intent, /api/skills
 app.route('/api/concierge', conciergeRouter);
 app.route('/api/skills', conciergeRouter);
 app.route('/api/admin', broInsightsRouter);
 app.route('/api/admin/insights', broInsightsRouter);
-// Admin shortcuts — bro-jobs debug lives in concierge router
+// Admin shortcuts — fulfillment debug endpoints live in the concierge router
 app.route('/api/admin', conciergeRouter);
+
+// Ace agentic intent layer — /api/ace/intents/*
+app.route('/api/ace/intents', aceIntentsRouter);
+app.route('/api/mandates', aceIntentsRouter);
+app.route('/api/public/mandates', mandateApprovalLinksRouter);
+
+// Approval sessions — /api/approvals/*
+app.route('/api/approvals', approvalsRouter);
+
+// Payment method setup (Stripe Setup Intent + saved cards) — /api/payments/*
+app.route('/api/payments', paymentsSetupRouter);
+
+// Hosted remote MCP — /api/mcp and /api/mcp/info
+app.route('/api/mcp', mcpRouter);
+app.route('/', mcpOAuthRouter);
+
+// Secure external capabilities — /api/capabilities/*
+app.route('/api/capabilities', capabilitiesRouter);
+
+// Hosted action sessions — resumable human-step continuity for funding/auth flows
+app.route('/api/actions', actionsRouter);
 
 // Verify routes — /api/verify/:txHash
 app.route('/api/verify', verifyRouter);
@@ -216,6 +254,11 @@ app.route('/api/demo', demoRouter);
 
 // Mock agents — /api/mock/* (demo booking webhooks)
 app.route('/api/mock', mockAgentsRouter);
+
+// Make the mounted Hono app available for safe in-process loopback requests
+// (for example, Worker-hosted MCP tool execution that needs to hit the same
+// API surface without bouncing back out through the public custom domain).
+setInternalAppFetcher((request, env, executionCtx) => Promise.resolve(app.fetch(request, env, executionCtx as never)));
 
 // Solana listener admin — POST /api/_admin/solana-listener/start  (admin-key protected)
 // This kicks the Durable Object to start its alarm chain.

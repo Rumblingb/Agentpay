@@ -1,7 +1,11 @@
 node_modules/
 .expo/
 android/
-ios/
+ios/*
+!ios/Ace/
+ios/Ace/*
+!ios/Ace/AppDelegate.mm
+!ios/Ace/Info.plist
 dist/
 web-build/
 dist-export-android/

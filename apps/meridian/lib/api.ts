@@ -4,9 +4,19 @@
  */
 
 import type { NearbyPlace, ProactiveCard, RouteData, TripContext } from '../../../packages/bro-trip/index';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, createMissingBroKeyError } from './runtimeConfig';
 
-const BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
-const BRO_KEY = process.env.EXPO_PUBLIC_BRO_KEY ?? '';
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
+
+function requiresBroKey(path: string): boolean {
+  return (
+    path.startsWith('/api/concierge/') ||
+    path.startsWith('/api/shared-travel/') ||
+    path.startsWith('/api/trip-rooms/') ||
+    path.startsWith('/api/support/')
+  );
+}
 
 async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 30_000): Promise<Response> {
   const controller = new AbortController();
@@ -22,6 +32,10 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!BRO_KEY && requiresBroKey(path)) {
+    throw createMissingBroKeyError();
+  }
+
   let res: Response;
   try {
     res = await fetchWithTimeout(`${BASE}${path}`, {
@@ -34,7 +48,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }, 30_000);
   } catch (e: any) {
     if (e.name === 'AbortError' || e.name === 'TimeoutError') {
-      throw new Error('Request timed out — hold to try again.');
+      throw new Error('Request timed out. Ask Ace again in a moment.');
     }
     throw new Error('Ace cannot reach the network right now. Try again in a moment.');
   }
@@ -270,6 +284,33 @@ export async function getIntentStatus(intentId: string): Promise<{
   return apiFetch(`/api/v1/payment-intents/${intentId}`);
 }
 
+export interface ConciergeExecutionSnapshot {
+  jobId: string;
+  intentId: string;
+  status: 'queued' | 'payment_pending' | 'fulfilment_pending' | 'confirmed' | 'failed' | 'rolled_back' | 'attention_required';
+  bookingState: 'planned' | 'priced' | 'payment_pending' | 'payment_confirmed' | 'securing' | 'issued' | 'failed' | 'refunded';
+  recoveryBucket: 'healthy' | 'awaiting_payment' | 'ready_for_dispatch' | 'stuck_securing' | 'fulfilment_failed' | 'issued' | 'refunded' | 'failed';
+  summary: string;
+  shouldEscalate: boolean;
+  recommendedAction: 'none' | 'retry_dispatch' | 'escalate_manual';
+  recoveryReason: string;
+  manualReviewRequired: boolean;
+  asyncExecution: boolean;
+  pendingFulfilment: boolean;
+  paymentConfirmed: boolean;
+  fulfilmentFailed: boolean;
+  retryCount: number;
+  quoteExpiresAt: string | null;
+  paymentConfirmedAt: string | null;
+  dispatchStartedAt: string | null;
+  rerouteOfferActionLabel: string | null;
+  updatedAt: string | null;
+}
+
+export async function getConciergeExecution(jobId: string): Promise<ConciergeExecutionSnapshot> {
+  return apiFetch(`/api/concierge/executions/${jobId}`);
+}
+
 /** Discover agents (text search) */
 export async function discoverAgents(params: {
   q?: string;
@@ -339,7 +380,7 @@ export interface ConciergePlanItem {
   routeData?: RouteData;
   /** Nearby place results for discovery and restaurant flows */
   nearbyPlaces?: NearbyPlace[];
-  /** Flight details — present for search_flights tool */
+  /** Flight details - present for search_flights / book_flight tools */
   flightDetails?: {
     origin: string;
     destination: string;
@@ -563,5 +604,42 @@ export async function listSharedTravelUnits(params: {
     headers: {
       'x-agent-key': params.agentKey,
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Payment methods — saved cards via Stripe Setup Intent
+// ---------------------------------------------------------------------------
+
+export interface PaymentMethod {
+  id: string;
+  paymentMethodId: string;
+  last4: string | null;
+  brand: string | null;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+/** List saved payment methods for a principal. */
+export async function getPaymentMethods(principalId: string): Promise<{ methods: PaymentMethod[] }> {
+  return apiFetch(`/api/payments/methods/${encodeURIComponent(principalId)}`);
+}
+
+/** Create a Stripe Setup Intent — returns clientSecret for the native payment sheet. */
+export async function createSetupIntent(principalId: string): Promise<{
+  clientSecret: string;
+  setupIntentId: string;
+  customerId: string;
+}> {
+  return apiFetch('/api/payments/setup-intent', {
+    method: 'POST',
+    body: JSON.stringify({ principalId }),
+  });
+}
+
+/** Remove a saved payment method by its DB row ID. */
+export async function deletePaymentMethod(methodId: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/api/payments/methods/${encodeURIComponent(methodId)}`, {
+    method: 'DELETE',
   });
 }

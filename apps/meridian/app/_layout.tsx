@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
+import { trackClientEvent } from '../lib/telemetry';
 
 export default function RootLayout() {
   const router = useRouter();
@@ -15,10 +16,40 @@ export default function RootLayout() {
       if (handledNotificationRef.current === responseId) return;
       handledNotificationRef.current = responseId;
       const data = response.notification.request.content.data as any;
+      void trackClientEvent({
+        event: 'notification_opened',
+        screen: 'root',
+        metadata: {
+          action: data?.action ?? null,
+          screen: data?.screen ?? null,
+          intentId: data?.intentId ? String(data.intentId) : null,
+        },
+      });
       if (data?.screen === 'converse' && data?.action === 'rebook' && data?.transcript) {
         // Cancellation rebook — open Ace with pre-filled transcript
         router.push({ pathname: '/(main)/converse', params: { prefill: data.transcript } });
+      } else if (data?.action === 'proactive_route' && (data?.transcript || data?.route)) {
+        router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
+      } else if (data?.action === 'proactive_reroute' && data?.intentId) {
+        router.push({
+          pathname: '/(main)/journey/[intentId]',
+          params: {
+            intentId: String(data.intentId),
+            rerouteTranscript: data?.transcript ? String(data.transcript) : undefined,
+            rerouteTitle: data?.rerouteTitle ? String(data.rerouteTitle) : undefined,
+            rerouteBody: data?.rerouteBody ? String(data.rerouteBody) : undefined,
+            rerouteActionLabel: data?.rerouteActionLabel ? String(data.rerouteActionLabel) : undefined,
+          },
+        });
+      } else if (data?.action === 'proactive_reroute' && (data?.transcript || data?.route)) {
+        router.push({ pathname: '/(main)/converse', params: { prefill: String(data.transcript ?? data.route) } });
+      } else if (data?.action === 'travel_day' && data?.intentId) {
+        router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: String(data.intentId) } });
       } else if (data?.intentId && data?.screen === 'receipt') {
+        if (['delay', 'platform_changed', 'gate_changed', 'arrival'].includes(String(data?.action ?? ''))) {
+          router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: String(data.intentId) } });
+          return;
+        }
         const params: Record<string, string> = { intentId: data.intentId };
         if (data?.action === 'cancelled') params.cancelled = 'true';
         if (data?.action === 'arrival') params.arrived = 'true';
@@ -47,7 +78,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="light" />
+      <StatusBar
+        style="light"
+        backgroundColor="#080808"
+        translucent={false}
+      />
       <Stack
         screenOptions={{
           headerShown: false,

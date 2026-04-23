@@ -110,6 +110,15 @@ export function PaymentConfirm({
           </LinearGradient>
         </Pressable>
 
+        {/* Dispatch ETA / fallback note */}
+        <View style={styles.note}>
+          <Text style={styles.noteTitle}>Handing off your booking</Text>
+          <Text style={styles.noteBody}>
+            Ace will hand off your booking now. Expect a confirmation within a few minutes.
+            If it takes longer, Ace will retry the handoff and notify you, or support can step in.
+          </Text>
+        </View>
+
         <Pressable onPress={onCancel} style={styles.cancelBtn}>
           <Text style={styles.cancelText}>Cancel</Text>
         </Pressable>
@@ -234,4 +243,14 @@ const styles = StyleSheet.create({
   confirmText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   cancelBtn: { alignItems: 'center', marginTop: 12, padding: 8 },
   cancelText: { fontSize: 14, color: '#6b7280' },
+  note: {
+    marginTop: 12,
+    backgroundColor: '#0b1220',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  noteTitle: { fontSize: 13, fontWeight: '700', color: '#e6eef8', marginBottom: 6 },
+  noteBody: { fontSize: 13, color: '#9ca3af', lineHeight: 18 },
 });

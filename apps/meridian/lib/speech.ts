@@ -14,11 +14,15 @@
 
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { Platform } from 'react-native';
+import { getLastTtsEndedAt } from './tts';
+import { AGENTPAY_API_BASE, BRO_CLIENT_KEY, createMissingBroKeyError } from './runtimeConfig';
 export { speak, stopSpeaking } from './tts';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.agentpay.so';
+const BASE = AGENTPAY_API_BASE;
+const BRO_KEY = BRO_CLIENT_KEY;
 
-async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -42,7 +46,20 @@ type StartRecordingOptions = {
   onSilence?: () => void;
   silenceMs?: number;
   maxDurationMs?: number;
+  onMeter?: (level: number) => void;
 };
+
+let recordingLevelCallback: ((level: number) => void) | null = null;
+
+function normalizeRecordingMetering(metering: number | null): number {
+  if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0;
+  // Android AAC reports a compressed dB range (-100 to 0) vs iOS (-160 to 0).
+  // iOS range set to 75 to keep visual feedback proportional to the
+  // -55 dB speech detection threshold (catches quiet voices at arm's length).
+  const range = Platform.OS === 'android' ? 70 : 75;
+  const normalized = Math.max(0, Math.min(1, (metering + range) / range));
+  return Math.pow(normalized, 1.35);
+}
 
 function clearRecordingTimers() {
   if (silenceTimer) {
@@ -60,17 +77,66 @@ async function resetRecordingMode(): Promise<void> {
   await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
 }
 
+async function prepareAudioSessionForRecording(): Promise<void> {
+  // On iOS, explicitly deactivate the current audio session (which may be
+  // in .playback from a previous TTS playback) before switching to
+  // .playAndRecord. Only do this if TTS has actually played — on first boot
+  // the session is already inactive and the deactivation/wait cycle can
+  // leave the mic cold (causing the bug seen in builds 28/29 vs 33+).
+  if (Platform.OS === 'ios') {
+    const lastTtsEndedAt = getLastTtsEndedAt();
+    const ttsAge = Date.now() - lastTtsEndedAt;
+    if (lastTtsEndedAt > 0 && ttsAge < 10_000) {
+      // speakBro left the session in .playback (allowsRecordingIOS: false,
+      // playsInSilentModeIOS: true). Do NOT call setAudioModeAsync(false) here —
+      // without playsInSilentModeIOS it collapses to .ambient, and the
+      // .ambient → .playAndRecord transition leaves the mic cold.
+      // The .playback → .playAndRecord path works reliably; just wait for the
+      // hardware to release from playback before startRecording re-arms it.
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+    return;
+  }
+
+  // On Android, the MediaPlayer from TTS playback holds AudioFocus with
+  // AUDIOFOCUS_GAIN. If we start recording immediately after playback ends,
+  // the mic can be blocked or return silent frames because the audio stack
+  // hasn't fully released focus back to the system.
+  // Reset the audio mode to release focus before re-acquiring for recording.
+  if (Platform.OS === 'android') {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch {
+      // Non-fatal — proceed with recording attempt
+    }
+    // Android AudioFocus handoff is async under the hood; 80ms is enough
+    // for the system to process the focus change before we claim it again.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+  }
+}
+
 export async function startRecording(options?: StartRecordingOptions): Promise<void> {
   startCancelled = false;
   clearRecordingTimers();
+  recordingLevelCallback = options?.onMeter ?? null;
+  recordingLevelCallback?.(0);
 
   const { granted } = await Audio.requestPermissionsAsync();
   if (!granted) throw new Error('Microphone permission denied.');
   if (startCancelled) return;
 
+  await prepareAudioSessionForRecording();
+  if (startCancelled) return;
+
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: true,
     playsInSilentModeIOS: true,
+    playThroughEarpieceAndroid: false,
+    staysActiveInBackground: false,
   });
 
   if (startCancelled) return;
@@ -96,13 +162,15 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
       linearPCMIsFloat: false,
     },
     web: { mimeType: 'audio/webm', bitsPerSecond: 32000 },
-    isMeteringEnabled: !!options?.autoStopOnSilence,
+    isMeteringEnabled: !!options?.autoStopOnSilence || !!options?.onMeter,
   });
 
   if (startCancelled) {
     try {
       await created.recording.stopAndUnloadAsync();
     } finally {
+      recordingLevelCallback?.(0);
+      recordingLevelCallback = null;
       await resetRecordingMode().catch(() => {});
     }
     return;
@@ -110,15 +178,24 @@ export async function startRecording(options?: StartRecordingOptions): Promise<v
 
   recording = created.recording;
 
-  if (options?.autoStopOnSilence) {
+  if (options?.autoStopOnSilence || options?.onMeter) {
     const silenceMs = options.silenceMs ?? 1700;
     const maxDurationMs = options.maxDurationMs ?? 12000;
     let heardSpeech = false;
-    created.recording.setProgressUpdateInterval(250);
+    // Use 120ms on Android too — 250ms was causing sluggish silence detection
+    // because the metering update could arrive 250ms after speech ended, making
+    // the silence window feel 250ms longer than intended.
+    created.recording.setProgressUpdateInterval(120);
     created.recording.setOnRecordingStatusUpdate((status) => {
       if (!status.isRecording || silenceCallbackFired) return;
       const metering = typeof status.metering === 'number' ? status.metering : null;
-      if (metering != null && metering > -38) {
+      recordingLevelCallback?.(normalizeRecordingMetering(metering));
+      // expo-av on iOS reports average power (dBFS), not peak.
+      // Quiet conversational speech at arm's length can average -50 to -55 dBFS;
+      // -55 catches the full range without triggering on ambient room noise.
+      // Android AAC metering uses a compressed range (-100→0).
+      const speechThreshold = Platform.OS === 'android' ? -52 : -55;
+      if (metering != null && metering > speechThreshold) {
         heardSpeech = true;
         if (silenceTimer) {
           clearTimeout(silenceTimer);
@@ -169,13 +246,21 @@ export async function stopRecording(): Promise<string | null> {
   }
 
   if (cleanupError) {
+    recordingLevelCallback?.(0);
+    recordingLevelCallback = null;
     throw new Error(`Could not finish recording cleanly. ${cleanupError.message}`);
   }
 
+  recordingLevelCallback?.(0);
+  recordingLevelCallback = null;
   return uri ?? null;
 }
 
 export async function transcribeAudio(uri: string): Promise<string> {
+  if (!BRO_KEY) {
+    throw createMissingBroKeyError();
+  }
+
   let info: FileSystem.FileInfo;
   try {
     info = await FileSystem.getInfoAsync(uri);
@@ -183,9 +268,9 @@ export async function transcribeAudio(uri: string): Promise<string> {
     throw new Error(`Audio file check failed: ${e.message}`);
   }
 
-  if (!info.exists) throw new Error('Audio file missing - try holding longer.');
+  if (!info.exists) throw new Error('Audio file missing - try speaking again.');
   if ((info as FileSystem.FileInfo & { size?: number }).size === 0) {
-    throw new Error('Audio file empty - try holding longer.');
+    throw new Error('Audio file empty - try speaking again.');
   }
 
   let base64Audio: string;
@@ -203,7 +288,10 @@ export async function transcribeAudio(uri: string): Promise<string> {
       `${BASE}/api/voice/transcribe`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(BRO_KEY ? { 'x-bro-key': BRO_KEY } : {}),
+        },
         body: JSON.stringify({ audio: base64Audio, mimeType: 'audio/m4a' }),
       },
       45_000,
@@ -216,6 +304,9 @@ export async function transcribeAudio(uri: string): Promise<string> {
     throw new Error(`Voice service unreachable: ${e.message}`);
   }
 
+  if (res.status === 401 || res.status === 403) {
+    throw createMissingBroKeyError();
+  }
   if (!res.ok) throw new Error(`Transcription failed (${res.status})`);
   const data = (await res.json()) as { transcript?: string; error?: string };
   if (data.error) throw new Error(`Transcription error: ${data.error}`);

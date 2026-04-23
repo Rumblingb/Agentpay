@@ -1,16 +1,16 @@
 /**
- * Converse — the Ace concierge screen
+ * Converse - the Ace concierge screen
  *
  * Flow:
- *   Hold to talk → Whisper STT → Phase 1 (plan, no hire)
- *   → Ace speaks price → fingerprint gate
- *   → Phase 2 (execute hire) → receipt
+ *   Voice / text request -> Whisper STT -> Phase 1 (plan, no hire)
+ *   -> Ace speaks price -> fingerprint gate
+ *   -> Phase 2 (execute hire) -> receipt
  *
  * Two biometric moments:
- *   1. Profile release — before sending profile to server (silent, in background)
- *   2. Payment confirm — after price announced, before hire fires
+ *   1. Profile release - before sending profile to server (silent, in background)
+ *   2. Payment confirm - after price announced, before hire fires
  *
- * Phases: idle → listening → thinking → confirming → done | error
+ * Phases: idle -> listening -> thinking -> confirming -> done | error
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,31 +21,36 @@ import {
   ScrollView,
   Pressable,
   SafeAreaView,
+  Image,
   TextInput,
+  Keyboard,
+  Animated,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C, PHASE_LABEL_COLOR } from '../../lib/theme';
+import { C } from '../../lib/theme';
 
-import { OrbAnimation } from '../../components/OrbAnimation';
+import { AceBrain } from '../../components/AceBrain';
+import { useSharedValue } from 'react-native-reanimated';
 import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
-import { speakBro, cancelSpeech } from '../../lib/tts';
-import { appendHistory, loadActiveTrip, type ActiveTrip } from '../../lib/storage';
+import { speakBro, cancelSpeech, preloadAudio } from '../../lib/tts';
+import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
 import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
+import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
 import { authenticateWithBiometrics } from '../../lib/biometric';
 import { getLocationContext } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
 import { formatMoneyAmount, isZeroDecimalCurrency } from '../../lib/money';
-import { tripCards, type ProactiveCard, type TripContext } from '../../lib/trip';
-import { trackClientEvent } from '../../lib/telemetry';
+import type { TripContext } from '../../lib/trip';
+import { rememberConfirmApproved, trackClientEvent } from '../../lib/telemetry';
 import { loadPreferredTravelUnit, type TravelUnit } from '../../lib/travelUnits';
+import { hasBroClientKey, isMissingBroKeyError, missingBroKeyMessage } from '../../lib/runtimeConfig';
 
 type MarketNationality = 'uk' | 'india' | 'other';
 
@@ -70,20 +75,11 @@ const MARKET_SUGGESTIONS: Record<MarketNationality, string[]> = {
   ],
 };
 
-// ── Phase labels ──────────────────────────────────────────────────────────────
-
-const PHASE_LABEL: Record<string, string> = {
-  idle:       'Where to?',
-  listening:  'Listening…',
-  thinking:   'On it…',
-  confirming: 'Confirm to book',
-  done:       'Booked',
-  error:      'Try again',
-};
-
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 const VOICE_ENABLED_KEY = 'bro.voiceEnabled';
+const ACE_GUIDANCE_SESSIONS_KEY = 'ace.guidanceSessions';
+const ACE_MARK_ASSET = require('../../assets/ace-mark.png');
 
 type BookingReadinessTone = 'ready' | 'warning';
 
@@ -100,6 +96,116 @@ type SharedTravelReadiness = {
 
 type BookingMode = 'solo' | 'shared';
 
+type FollowUpContext = {
+  originalRequest: string;
+  aceQuestion: string;
+  plan: ConciergePlanItem[];
+};
+
+function looksLikeOptionSelection(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    /\bfirst\b/,
+    /\b1st\b/,
+    /\boption\s*1\b/,
+    /\bsecond\b/,
+    /\b2nd\b/,
+    /\boption\s*2\b/,
+    /\bthird\b/,
+    /\b3rd\b/,
+    /\boption\s*3\b/,
+    /\bearliest\b/,
+    /\blatest\b/,
+    /\bmiddle\b/,
+    /\bcheapest\b/,
+    /\bcheaper\b/,
+    /\bfirst one\b/,
+    /\bsecond one\b/,
+    /\bthird one\b/,
+    /\bthat one\b/,
+    /\bthis one\b/,
+    /\bgo with\b/,
+    /\btake that\b/,
+    /\b\d{1,2}[:.]\d{2}\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeFreshIntent(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    /\bbook\b/,
+    /\bfind\b/,
+    /\bget me\b/,
+    /\btake me\b/,
+    /\btrain\b/,
+    /\bflight\b/,
+    /\bbus\b/,
+    /\bcoach\b/,
+    /\bhotel\b/,
+    /\bweather\b/,
+    /\bnavigate\b/,
+    /\brestaurant\b/,
+  ].some((pattern) => pattern.test(normalized)) && normalized.split(/\s+/).length > 4;
+}
+
+function shouldUseFollowUpContext(text: string, context: FollowUpContext | null): boolean {
+  if (!context) return false;
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (looksLikeOptionSelection(normalized)) return true;
+  if (looksLikeFreshIntent(normalized)) return false;
+  if (context.plan.length > 0) return false;
+  return normalized.split(/\s+/).length <= 6;
+}
+
+function describeFollowUpOption(option: ConciergePlanItem, index: number): string {
+  const trainDetails = (option as ConciergePlanItem & {
+    trainDetails?: {
+      departureTime?: string;
+      origin?: string;
+      destination?: string;
+      operator?: string;
+      country?: 'uk' | 'india' | 'eu';
+      fareInr?: number;
+      estimatedFareGbp?: number;
+    };
+  }).trainDetails;
+  if (trainDetails) {
+    const fare = trainDetails.country === 'india'
+      ? `INR ${trainDetails.fareInr ?? 0}`
+      : `GBP ${trainDetails.estimatedFareGbp ?? 0}`;
+    return `${index + 1}. ${trainDetails.departureTime} from ${trainDetails.origin} to ${trainDetails.destination} on ${trainDetails.operator}, estimated ${fare}`;
+  }
+  if (option.flightDetails) {
+    return `${index + 1}. ${option.flightDetails.departureAt} ${option.flightDetails.origin} to ${option.flightDetails.destination} on ${option.flightDetails.carrier} ${option.flightDetails.flightNumber}, ${option.flightDetails.currency} ${option.flightDetails.totalAmount}`;
+  }
+  if (option.hotelDetails?.bestOption) {
+    const best = option.hotelDetails.bestOption;
+    return `${index + 1}. ${best.name} in ${option.hotelDetails.city}, ${best.currency} ${best.totalCost} total`;
+  }
+  return `${index + 1}. ${option.displayName}`;
+}
+
+function buildFollowUpPlanningTranscript(params: {
+  reply: string;
+  context: FollowUpContext | null;
+}): string {
+  if (!params.context) return params.reply;
+  const optionsBlock = params.context.plan.length > 0
+    ? `\nPrevious options:\n${params.context.plan.map(describeFollowUpOption).join('\n')}`
+    : '';
+  return `User reply: ${params.reply}
+
+Ace follow-up context:
+- This reply refers to the immediately previous Ace follow-up.
+- Previous request: ${params.context.originalRequest}
+- Ace last reply: ${params.context.aceQuestion}${optionsBlock}
+
+Interpret ordinal replies like "first one", specific times, or short answers against that context. If the user clearly selected one of the previous options, continue with that option and do not ask them to repeat the route or say you lack previous context.`;
+}
+
 function firstSentence(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -110,7 +216,32 @@ function firstSentence(text: string): string {
 function speechPreview(text: string): string | null {
   const lead = firstSentence(text);
   if (!lead) return null;
-  return lead.length <= 140 ? lead : null;
+  if (lead.length <= 180) return lead;
+  const clause = lead.split(/[,:;—-]/)[0]?.trim() ?? '';
+  if (clause.length >= 18 && clause.length <= 180) {
+    return /[.!?]$/.test(clause) ? clause : `${clause}.`;
+  }
+  return null;
+}
+
+function speakableNarration(text: string): string | null {
+  const trimmed = sanitizeAceNarration(text);
+  if (!trimmed) return null;
+  if (trimmed.length <= 180) return trimmed;
+  const lead = firstSentence(trimmed);
+  if (lead.length <= 180) return lead;
+  const shortened = trimmed.slice(0, 176).trim();
+  return shortened ? `${shortened}.` : null;
+}
+
+function sanitizeAceNarration(text: string): string {
+  const cleaned = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(tools?\s+down|my tools?|tool calls?|internal systems?|backend state|system prompt|prompt)\b/i.test(sentence))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || text.trim();
 }
 
 function shouldAutoSpeak(params: {
@@ -119,12 +250,10 @@ function shouldAutoSpeak(params: {
   needsBiometric?: boolean;
   phase: 'plan' | 'execute' | 'error' | 'system';
 }): boolean {
-  const preview = speechPreview(params.narration);
+  const preview = speakableNarration(params.narration);
   if (!preview) return false;
   if (params.phase === 'error') return true;
   if (params.phase === 'system') return false;
-  if (params.phase === 'plan' && params.hasPlan && params.needsBiometric) return false;
-  if (params.phase === 'execute' && params.hasPlan) return false;
   return true;
 }
 
@@ -164,7 +293,7 @@ function hasExplicitOrigin(text: string): boolean {
 
 function looksLikeDestinationLedTrip(text: string): boolean {
   const normalized = text.trim().toLowerCase();
-  if (!normalized || hasExplicitOrigin(normalized)) return false;
+  if (!normalized || hasExplicitOrigin(normalized) || hasInlineOriginDestination(normalized)) return false;
   return [
     /\btickets?\s+(to|for)\b/,
     /\b(train|bus|coach|rail)\s+(to|for)\b/,
@@ -173,12 +302,65 @@ function looksLikeDestinationLedTrip(text: string): boolean {
   ].some((pattern) => pattern.test(normalized));
 }
 
+function hasInlineOriginDestination(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/^ace[,\s]+/, '');
+  if (!normalized.includes(' to ')) return false;
+  const match = normalized.match(/^(.+?)\s+to\s+(.+)$/);
+  if (!match) return false;
+
+  const origin = match[1].trim();
+  if (!origin || origin.split(/\s+/).length > 5) return false;
+
+  return ![
+    /\bbook\b/,
+    /\bfind\b/,
+    /\bget me\b/,
+    /\btake me\b/,
+    /\bneed\b/,
+    /\bshow me\b/,
+    /\bbest\b/,
+    /\bcheapest\b/,
+    /\bfastest\b/,
+    /\broute\b/,
+    /\btrip\b/,
+    /\btickets?\b/,
+    /\btrain\b/,
+    /\bflight\b/,
+    /\bbus\b/,
+    /\bcoach\b/,
+    /\bhotel\b/,
+    /\btomorrow\b/,
+    /\btoday\b/,
+    /\btonight\b/,
+    /\bnow\b/,
+  ].some((pattern) => pattern.test(origin));
+}
+
 function prepareIntentRequest(params: {
   text: string;
   nearestStation: StationGeo | null;
 }): { displayText: string; planningTranscript: string; assumptionNote: string | null } {
   const displayText = params.text.trim();
-  if (!displayText || !params.nearestStation || !looksLikeDestinationLedTrip(displayText)) {
+  if (!displayText) {
+    return {
+      displayText,
+      planningTranscript: displayText,
+      assumptionNote: null,
+    };
+  }
+
+  const inlineOriginDestination = hasInlineOriginDestination(displayText);
+  if (inlineOriginDestination) {
+    return {
+      displayText,
+      planningTranscript: `${displayText}
+
+Ace context: the customer has already given a route with both origin and destination inline. Treat the place before "to" as the departure point and avoid asking them to restate it unless the route is genuinely ambiguous.`,
+      assumptionNote: null,
+    };
+  }
+
+  if (!params.nearestStation || !looksLikeDestinationLedTrip(displayText)) {
     return {
       displayText,
       planningTranscript: displayText,
@@ -349,7 +531,7 @@ function activeTripStatusCopy(activeTrip: ActiveTrip): { pill: string; body: str
     : [activeTrip.departureTime, platformPart].filter(Boolean).join(' · ');
 
   return {
-    pill: 'Latest journey',
+    pill: 'Live journey',
     body: activeTrip.finalLegSummary || timingLine || 'Open for journey details',
   };
 }
@@ -569,9 +751,13 @@ export default function ConverseScreen() {
     fiatCode: string;
     assumptionNote?: string | null;
   } | null>(null);
+  const followUpContextRef = useRef<FollowUpContext | null>(null);
 
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const prefillFiredRef = useRef(false);
+  const voiceCaptureStartedAtRef = useRef<number | null>(null);
+  const planReceivedAtRef = useRef<number | null>(null);
+  const executionApprovedAtRef = useRef<number | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const [marketNationality, setMarketNationality] = useState<MarketNationality>('uk');
@@ -580,15 +766,46 @@ export default function ConverseScreen() {
   const [nearestStation, setNearestStation] = useState<StationGeo | null>(null);
   const [locationLabel, setLocationLabel] = useState<string | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const micAmplitude = useSharedValue(0);
+  const ttsAmplitude = useSharedValue(0);
+  const beginVoiceCaptureRef = useRef<(() => Promise<void>) | null>(null);
+  const handsFreeListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextSilenceMsRef = useRef(2800);
+  const keyboardVisibleRef = useRef(false);
+  const textFallbackVisibleRef = useRef(false);
+  const phaseRef = useRef(phase);
   const [confirmFxRate, setConfirmFxRate] = useState<number | null>(null);
   const [usualRoute, setUsualRoute] = useState<{ origin: string; destination: string; count: number; typicalFareGbp?: number } | null>(null);
+  const [routeMemory, setRouteMemory] = useState<RouteMemory | null>(null);
   const [preferredTravelUnit, setPreferredTravelUnit] = useState<TravelUnit | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode>('solo');
+  const [familyMemberCount, setFamilyMemberCount] = useState(0);
   const [textFallbackVisible, setTextFallbackVisible] = useState(false);
   const [textFallbackDraft, setTextFallbackDraft] = useState('');
   const [confirmRetryNote, setConfirmRetryNote] = useState<string | null>(null);
+  const [guidanceSessions, setGuidanceSessions] = useState(0);
+  const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
+  const presencePulse = useRef(new Animated.Value(0.84)).current;
+  const liveVoiceConfigured = hasBroClientKey();
+
+  const logConverseEvent = useCallback((params: {
+    event: string;
+    severity?: 'info' | 'warning' | 'error';
+    message?: string;
+    metadata?: Record<string, unknown>;
+  }) => {
+    void trackClientEvent({
+      event: params.event,
+      screen: 'converse',
+      severity: params.severity,
+      message: params.message,
+      metadata: params.metadata,
+    });
+  }, []);
 
   useEffect(() => {
+    if (turns.length === 0) return;
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [turns]);
 
@@ -597,10 +814,12 @@ export default function ConverseScreen() {
     (async () => {
       try {
         const profile = await loadProfileRaw();
-        if (!active || !profile?.nationality) return;
-        setMarketNationality(profile.nationality);
+        if (!active) return;
+        if (profile?.nationality) setMarketNationality(profile.nationality);
+        setFamilyMemberCount(profile?.familyMembers?.length ?? 0);
       } catch {
         // Keep the default UK launch market if the profile is unavailable.
+        if (active) setFamilyMemberCount(0);
       }
     })();
     return () => {
@@ -612,17 +831,32 @@ export default function ConverseScreen() {
     let active = true;
     (async () => {
       const trip = await loadActiveTrip();
-      if (active) setActiveTrip(trip);
+      if (active) setActiveTrip(trip && shouldTreatTripAsLive(trip) ? trip : null);
+
+      // If there is a live journey in a state the user should be watching,
+      // and this screen was opened normally (not from a notification prefill),
+      // redirect straight to the Journey surface so it becomes the gravity centre.
+      if (!prefill) {
+        const liveSession = await loadCurrentJourneySession().catch(() => null);
+        if (active && liveSession && shouldPreferJourney(liveSession)) {
+          router.replace({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveSession.intentId } });
+          return;
+        }
+      }
+
       const sharedUnit = await loadPreferredTravelUnit().catch(() => null);
+      const memories = await loadRouteMemories().catch(() => []);
       if (active) {
         setPreferredTravelUnit(sharedUnit);
         setBookingMode(sharedUnit ? 'shared' : 'solo');
+        setTravelModePromptDismissed(false);
+        setRouteMemory(deriveProactiveRouteMemory(memories));
       }
     })();
     return () => {
       active = false;
     };
-  }, []));
+  }, [prefill]));
 
 
   // Detect nearest station on mount (fire-and-forget, best-effort)
@@ -658,6 +892,67 @@ export default function ConverseScreen() {
 
   useEffect(() => {
     let active = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ACE_GUIDANCE_SESSIONS_KEY);
+        const current = Number(raw ?? '0');
+        const next = Number.isFinite(current) ? current + 1 : 1;
+        if (active) setGuidanceSessions(next);
+        await AsyncStorage.setItem(ACE_GUIDANCE_SESSIONS_KEY, String(next));
+      } catch {
+        if (active) setGuidanceSessions(1);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  const clearHandsFreeListenTimer = useCallback(() => {
+    if (handsFreeListenTimerRef.current) {
+      clearTimeout(handsFreeListenTimerRef.current);
+      handsFreeListenTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    clearHandsFreeListenTimer();
+  }, [clearHandsFreeListenTimer]);
+
+  useEffect(() => {
+    textFallbackVisibleRef.current = textFallbackVisible;
+  }, [textFallbackVisible]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      keyboardVisibleRef.current = true;
+      clearHandsFreeListenTimer();
+      // Only stop active recording — do NOT cancel Ace speech. Ace should
+      // finish speaking even when the keyboard appears (common on Android).
+      if (phaseRef.current === 'listening') {
+        void stopRecording().catch(() => null);
+        recordingActiveRef.current = false;
+        startingRecordingRef.current = false;
+        micAmplitude.value = 0;
+        phaseRef.current = 'idle';
+        setPhase('idle');
+      }
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardVisibleRef.current = false;
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [clearHandsFreeListenTimer, setPhase]);
+
+  useEffect(() => {
+    let active = true;
 
     if (phase !== 'confirming') {
       setConfirmFxRate(null);
@@ -690,18 +985,75 @@ export default function ConverseScreen() {
     };
   }, [phase, currencyCode]);
 
-  const speakIfEnabled = useCallback(async (text: string) => {
-    if (!voiceEnabled) return;
-    await speakBro(text);
-  }, [voiceEnabled]);
+  const armHandsFreeListen = useCallback((silenceMs: number) => {
+    if (!voiceEnabled || !liveVoiceConfigured) return;
+    if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
+    if (keyboardVisibleRef.current || textFallbackVisibleRef.current) return;
+    if (activeTrip && shouldTreatTripAsLive(activeTrip)) return;
+    clearHandsFreeListenTimer();
+    phaseRef.current = 'idle';
+    setPhase('idle');
+    nextSilenceMsRef.current = silenceMs;
+    handsFreeListenTimerRef.current = setTimeout(() => {
+      handsFreeListenTimerRef.current = null;
+      if (
+        !keyboardVisibleRef.current &&
+        !textFallbackVisibleRef.current &&
+        !recordingActiveRef.current &&
+        !startingRecordingRef.current &&
+        !finishingRecordingRef.current
+      ) {
+        void beginVoiceCaptureRef.current?.();
+      }
+    }, 80);
+  }, [activeTrip, clearHandsFreeListenTimer, liveVoiceConfigured, setPhase, voiceEnabled]);
+
+  const speakIfEnabled = useCallback(async (text: string, restartListening = true) => {
+    if (!voiceEnabled || !liveVoiceConfigured) return;
+    clearHandsFreeListenTimer();
+    let speakingStarted = false;
+    let result = { played: false };
+    try {
+      result = await speakBro(sanitizeAceNarration(text), {
+        onStart: () => {
+          if (speakingStarted) return;
+          speakingStarted = true;
+          setIsSpeaking(true);
+        },
+        onMeter: (v: number) => { ttsAmplitude.value = v; },
+      });
+    } finally {
+      setIsSpeaking(false);
+      ttsAmplitude.value = 0;
+    }
+    if (restartListening && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+      const cur = phaseRef.current;
+      // Don't auto-restart when a booking card is showing, payment is processing, or booking is done
+      if (cur !== 'confirming' && cur !== 'hiring' && cur !== 'executing' && cur !== 'done') {
+        armHandsFreeListen(result.played ? 1600 : 900);
+      }
+    }
+  }, [armHandsFreeListen, clearHandsFreeListenTimer, liveVoiceConfigured, voiceEnabled]);
 
   const openTextFallback = useCallback((message: string, seed?: string) => {
+    clearHandsFreeListenTimer();
+    cancelSpeech();
+    setIsSpeaking(false);
+    ttsAmplitude.value = 0;
+    if (phaseRef.current === 'listening') {
+      void stopRecording().catch(() => null);
+      recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+    }
     setError(message);
     setTextFallbackVisible(true);
     if (seed != null) {
       setTextFallbackDraft(seed);
     }
-  }, [setError]);
+  }, [clearHandsFreeListenTimer, setError, setPhase]);
 
   // ── Phase 1: plan ─────────────────────────────────────────────────────────
 
@@ -710,12 +1062,31 @@ export default function ConverseScreen() {
 
     const prepared = prepareIntentRequest({ text, nearestStation });
     const displayText = prepared.displayText;
+    const followUpContext = shouldUseFollowUpContext(displayText, followUpContextRef.current)
+      ? followUpContextRef.current
+      : null;
+    const planningTranscript = buildFollowUpPlanningTranscript({
+      reply: prepared.planningTranscript,
+      context: followUpContext,
+    });
+    const usingSharedTravel =
+      !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
 
     setTextFallbackVisible(false);
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setTranscript(displayText);
     setPhase('thinking');
+    const planStartedAt = Date.now();
+    logConverseEvent({
+      event: 'plan_requested',
+      metadata: {
+        bookingMode: usingSharedTravel ? 'shared' : 'solo',
+        textLength: displayText.length,
+        usedFollowUpContext: !!followUpContext,
+        usedLocationAssumption: !!prepared.assumptionNote,
+      },
+    });
 
     // Load travel profile for Phase 1 — preferences only, no identity data.
     // Full profile (legalName, email, phone, documents) is loaded AFTER biometric
@@ -723,7 +1094,6 @@ export default function ConverseScreen() {
     // reaches memory before the user explicitly authorises the booking.
     let profile: TravelProfile | null = null;
     let travelProfile: Record<string, unknown> | undefined;
-    const usingSharedTravel = !!preferredTravelUnit && (bookingMode === 'shared' || referencesSharedTravel(displayText));
     try {
       if (await hasProfile()) {
         profile = await loadProfileRaw();
@@ -763,25 +1133,28 @@ export default function ConverseScreen() {
 
     // Phase 1: get a plan from Claude — no hire fires yet
     const response = await planIntent({
-      transcript:   prepared.planningTranscript,
+      transcript:   planningTranscript,
       hirerId:      agentId,
       travelProfile,
     });
+    const narration = sanitizeAceNarration(response.narration);
 
     const meridianTurn = {
       role: 'meridian' as const,
-      text: response.narration,
+      text: narration,
       ts:   Date.now(),
     };
     addTurn(meridianTurn);
     await appendHistory(meridianTurn);
     if (shouldAutoSpeak({
-      narration: response.narration,
+      narration: narration,
       hasPlan: (response.plan?.length ?? 0) > 0,
       needsBiometric: response.needsBiometric,
       phase: 'plan',
     })) {
-      await speakIfEnabled(firstSentence(response.narration));
+      // restartListening=true when Ace is asking a follow-up — user can reply immediately
+      const shouldRestart = narrationStillNeedsAnswer(narration);
+      await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration), shouldRestart);
     }
 
     // Persist detected currency to store (used everywhere in app)
@@ -793,7 +1166,28 @@ export default function ConverseScreen() {
       setUsualRoute(response.usualRoute);
     }
 
-    const waitingForFollowUp = narrationStillNeedsAnswer(response.narration);
+    const waitingForFollowUp = narrationStillNeedsAnswer(narration);
+    if (waitingForFollowUp) {
+      followUpContextRef.current = {
+        originalRequest: followUpContext?.originalRequest ?? prepared.planningTranscript,
+        aceQuestion: narration,
+        plan: response.plan ?? [],
+      };
+    } else {
+      followUpContextRef.current = null;
+    }
+    logConverseEvent({
+      event: 'plan_received',
+      metadata: {
+        latencyMs: Date.now() - planStartedAt,
+        planItems: response.plan?.length ?? 0,
+        needsBiometric: !!response.needsBiometric,
+        waitingForFollowUp,
+        fiatAmount: response.fiatAmount ?? null,
+        currencyCode: response.currencyCode ?? currencyCode,
+      },
+    });
+    planReceivedAtRef.current = Date.now();
 
     // If plan needs biometric confirmation, store it only when Ace is no longer asking a follow-up.
     if (response.needsBiometric && response.plan && response.plan.length > 0 && !waitingForFollowUp) {
@@ -811,46 +1205,112 @@ export default function ConverseScreen() {
       const sharedReadiness = buildSharedTravelReadiness(usingSharedTravel && preferredTravelUnit ? preferredTravelUnit : null);
       // fullProfile is NOT stored here — it will be loaded after biometric in handleBiometricConfirm
       pendingPlanRef.current = {
-        transcript: prepared.planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
+        transcript: planningTranscript, plan: response.plan, travelProfile, fullProfile: undefined,
         readiness,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
         assumptionNote: prepared.assumptionNote,
       };
 
-      // Auto-confirm if total is within the spending limit (no fingerprint needed)
-      if (total > 0 && total <= autoConfirmLimitUsdc && !sharedReadiness.requiresManualConfirm) {
-        await executePhase2(pendingPlanRef.current);
-        return;
-      }
-
-      // Above limit — show confirmation card with price + fingerprint gate
+      // Always show the confirmation card — biometric is required for every purchase.
+      // The autoConfirmLimitUsdc preference is kept for future policy use but no longer
+      // bypasses the biometric gate, which is the primary fraud control.
       setConfirmRetryNote(null);
       setPhase('confirming');
+      logConverseEvent({
+        event: 'confirm_shown',
+        metadata: {
+          amountUsdc: total,
+          fiatAmount,
+          currencyCode: fiatCode,
+          planItems: response.plan.length,
+          requiresManualConfirm: sharedReadiness.requiresManualConfirm,
+        },
+      });
       return;
     }
 
     // No action needed yet (research, clarification, or error from Claude)
     pendingPlanRef.current = null;
     setPhase('idle');
-  }, [agentId, autoConfirmLimitUsdc, bookingMode, nearestStation, preferredTravelUnit, speakIfEnabled]);
+  }, [agentId, autoConfirmLimitUsdc, bookingMode, currencyCode, logConverseEvent, nearestStation, preferredTravelUnit, speakIfEnabled]);
 
   const runIntentWithUiFallback = useCallback(async (text: string) => {
     try {
       await handleIntent(text);
     } catch (e: any) {
       const msg = e?.message ?? 'Ace could not line that route up. Please try again.';
+      logConverseEvent({
+        event: 'plan_failed',
+        severity: 'warning',
+        message: msg,
+      });
       setError(msg);
       setPhase('error');
-      await speakIfEnabled(`Sorry. ${msg}`);
+      await speakIfEnabled(`Sorry. ${msg}`, false);
     }
-  }, [handleIntent, setError, setPhase, speakIfEnabled]);
+  }, [handleIntent, logConverseEvent, setError, setPhase, speakIfEnabled]);
 
   // Auto-fire a pre-filled transcript (e.g. from a disruption rebook notification tap)
   useEffect(() => {
     if (!prefill || prefillFiredRef.current || !agentId) return;
     prefillFiredRef.current = true;
+    logConverseEvent({
+      event: 'prefill_consumed',
+      metadata: { source: 'notification_or_link' },
+    });
     void runIntentWithUiFallback(prefill);
-  }, [prefill, agentId, runIntentWithUiFallback]);
+  }, [prefill, agentId, logConverseEvent, runIntentWithUiFallback]);
+
+  // Pre-fetch the opening greeting the moment the screen mounts so the audio
+  // file is ready before the 1.2s timer fires — instant first sound.
+  useEffect(() => {
+    if (!voiceEnabled || !liveVoiceConfigured) return;
+    const h = new Date().getHours();
+    const line = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+    void preloadAudio(line);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Always-on: auto-start listening 1.2s after mount once agentId is ready.
+  // Skipped if a prefill is pending (it will take priority) or a trip is active.
+  const alwaysOnFiredRef = useRef(false);
+  useEffect(() => {
+    if (alwaysOnFiredRef.current || !voiceEnabled || !liveVoiceConfigured || !agentId || prefill || (activeTrip && shouldTreatTripAsLive(activeTrip))) return;
+    alwaysOnFiredRef.current = true;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const liveSession = await loadCurrentJourneySession().catch(() => null);
+        if (liveSession && shouldPreferJourney(liveSession)) return;
+        // Only start if we're still idle and the keyboard isn't up
+        if (phaseRef.current === 'idle' && !keyboardVisibleRef.current && !textFallbackVisibleRef.current) {
+          // Speak a brief greeting so the user knows Ace is ready, then
+          // speakIfEnabled's restartListening path automatically arms the mic.
+          const h = new Date().getHours();
+          const openingLine = h < 12 ? 'Good morning.' : h < 17 ? 'Good afternoon.' : 'Good evening.';
+          void speakIfEnabledRef.current?.(openingLine, true);
+        }
+      })();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [activeTrip, agentId, liveVoiceConfigured, prefill, voiceEnabled]);
+
+  useEffect(() => {
+    if (phase !== 'done' || isSpeaking) return;
+    const timer = setTimeout(() => {
+      if (phaseRef.current !== 'done') return;
+      setPhase('idle');
+      if (
+        voiceEnabled &&
+        !keyboardVisibleRef.current &&
+        !textFallbackVisibleRef.current &&
+        !(activeTrip && shouldTreatTripAsLive(activeTrip))
+      ) {
+        nextSilenceMsRef.current = 2800;
+        void beginVoiceCaptureRef.current?.();
+      }
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [activeTrip, isSpeaking, phase, setPhase, voiceEnabled]);
 
   const handleTextFallbackSend = useCallback(async () => {
     const text = textFallbackDraft.trim();
@@ -859,15 +1319,30 @@ export default function ConverseScreen() {
     setTextFallbackDraft('');
     setConfirmRetryNote(null);
     setError(null);
-    await handleIntent(text);
-  }, [handleIntent, setError, textFallbackDraft]);
+    logConverseEvent({
+      event: 'text_fallback_submitted',
+      metadata: { length: text.length },
+    });
+    await runIntentWithUiFallback(text);
+  }, [logConverseEvent, runIntentWithUiFallback, setError, textFallbackDraft]);
 
   // ── Shared Phase 2 executor ───────────────────────────────────────────────
 
-  const executePhase2 = useCallback(async (pending: NonNullable<typeof pendingPlanRef.current>) => {
+  const executePhase2 = useCallback(async (
+    pending: NonNullable<typeof pendingPlanRef.current>,
+    trigger: 'auto_limit' | 'biometric',
+  ) => {
     setPhase('thinking');
     const { transcript: savedTranscript, plan, fullProfile } = pending;
     pendingPlanRef.current = null;
+    const executeStartedAt = Date.now();
+    logConverseEvent({
+      event: 'execute_started',
+      metadata: {
+        trigger,
+        planItems: plan.length,
+      },
+    });
 
     try {
       const response = await executeIntent({
@@ -876,19 +1351,29 @@ export default function ConverseScreen() {
         travelProfile: fullProfile,
         plan,
       });
+      const narration = sanitizeAceNarration(response.narration);
 
-      const meridianTurn = { role: 'meridian' as const, text: response.narration, ts: Date.now() };
+      const meridianTurn = { role: 'meridian' as const, text: narration, ts: Date.now() };
       addTurn(meridianTurn);
       await appendHistory(meridianTurn);
       if (shouldAutoSpeak({
-        narration: response.narration,
+        narration: narration,
         hasPlan: response.actions.length > 0,
         phase: 'execute',
       })) {
-        await speakIfEnabled(firstSentence(response.narration));
+        await speakIfEnabled(speakableNarration(narration) ?? firstSentence(narration), false);
       }
 
       if (response.actions.length > 0) {
+        logConverseEvent({
+          event: 'execute_succeeded',
+          metadata: {
+            trigger,
+            latencyMs: Date.now() - executeStartedAt,
+            actionsCount: response.actions.length,
+            firstToolName: response.actions[0]?.toolName ?? null,
+          },
+        });
         const firstAction = response.actions[0];
         setCurrentAgent({
           agentId:         firstAction.agentId,
@@ -906,49 +1391,149 @@ export default function ConverseScreen() {
         const fiat   = pending.fiatAmount;
         const sym    = pending.fiatSymbol;
         const code   = pending.fiatCode;
-        const qs = new URLSearchParams({
-          fiatAmount: String(fiat),
+        const routeTitle =
+          (firstAction.tripContext?.title
+          ?? [
+            (firstAction.input as Record<string, string> | undefined)?.origin ?? null,
+            (firstAction.input as Record<string, string> | undefined)?.destination ?? null,
+          ].filter(Boolean).join(' → '))
+          || firstAction.displayName;
+        const liveIntentId = firstAction.jobId;
+        rememberConfirmApproved(liveIntentId, executionApprovedAtRef.current ?? executeStartedAt);
+        planReceivedAtRef.current = null;
+        executionApprovedAtRef.current = null;
+        await saveJourneySession({
+          intentId: liveIntentId,
+          jobId: firstAction.jobId,
+          journeyId: firstAction.journeyId ?? null,
+          title: routeTitle,
+          state: 'securing',
+          bookingState: firstAction.tripContext?.watchState?.bookingState ?? 'securing',
+          fromStation: (firstAction.input as Record<string, string> | undefined)?.origin ?? firstAction.tripContext?.origin ?? null,
+          toStation: (firstAction.input as Record<string, string> | undefined)?.destination ?? firstAction.tripContext?.destination ?? null,
+          departureTime: firstAction.tripContext?.departureTime ?? null,
+          departureDatetime: firstAction.tripContext?.departureTime ?? null,
+          arrivalTime: firstAction.tripContext?.arrivalTime ?? null,
+          platform: null,
+          operator: firstAction.tripContext?.operator ?? null,
+          bookingRef: firstAction.tripContext?.bookingRef ?? null,
+          finalLegSummary: firstAction.tripContext?.finalLegSummary ?? null,
+          fiatAmount: fiat,
           currencySymbol: sym,
           currencyCode: code,
+          tripContext: firstAction.tripContext ?? null,
+          shareToken: (firstAction as any).shareToken ?? null,
+          updatedAt: new Date().toISOString(),
         });
-        if (firstAction.tripContext) {
-          qs.set('tripContext', JSON.stringify(firstAction.tripContext));
-        }
-        if ((firstAction as any).shareToken) {
-          qs.set('shareToken', (firstAction as any).shareToken);
-        }
-        if (firstAction.journeyId) {
-          qs.set('journeyId', firstAction.journeyId);
-          qs.set('totalLegs', String(response.actions.length));
-        }
-        router.push(`/status/${firstAction.jobId}?${qs.toString()}`);
+        router.push({ pathname: '/(main)/journey/[intentId]', params: { intentId: liveIntentId } });
       } else {
-        setError(response.narration);
+        planReceivedAtRef.current = null;
+        executionApprovedAtRef.current = null;
+        logConverseEvent({
+          event: 'execute_returned_no_actions',
+          severity: 'warning',
+          metadata: {
+            trigger,
+            latencyMs: Date.now() - executeStartedAt,
+          },
+        });
+        setError(narration);
         setPhase('error');
       }
     } catch (e: any) {
       const msg = e.message ?? 'Booking failed. Please try again.';
+      executionApprovedAtRef.current = null;
+      logConverseEvent({
+        event: 'execute_failed',
+        severity: 'warning',
+        message: msg,
+        metadata: {
+          trigger,
+          latencyMs: Date.now() - executeStartedAt,
+          planItems: plan.length,
+        },
+      });
       setError(msg);
       setConfirmRetryNote(null);
-      await speakIfEnabled(`Sorry. ${msg}`);
+      setPhase('error');
+      await speakIfEnabled(`Sorry. ${msg}`, false);
     }
-  }, [agentId, setCurrentAgent, speakIfEnabled]);
+  }, [agentId, logConverseEvent, setCurrentAgent, setPhase, speakIfEnabled]);
 
   // ── Phase 2: biometric → execute ─────────────────────────────────────────
 
   const handleBiometricConfirm = useCallback(async () => {
     const pending = pendingPlanRef.current;
     if (!pending) return;
+    const pressedAt = Date.now();
+    const planToConfirmLatencyMs =
+      planReceivedAtRef.current != null ? pressedAt - planReceivedAtRef.current : null;
+
+    logConverseEvent({
+      event: 'confirm_pressed',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+        planToConfirmLatencyMs,
+      },
+    });
+    if (planToConfirmLatencyMs != null) {
+      logConverseEvent({
+        event: 'plan_to_confirm_latency',
+        metadata: {
+          latencyMs: planToConfirmLatencyMs,
+          amountUsdc: pending.totalPriceUsdc,
+          fiatAmount: pending.fiatAmount,
+          currencyCode: pending.fiatCode,
+        },
+      });
+    }
 
     const authed = await authenticateWithBiometrics('Confirm booking and payment');
     if (!authed) {
       const retryMsg = 'Confirmation was not completed. You can try again when you are ready.';
+      logConverseEvent({
+        event: 'confirm_failure',
+        severity: 'warning',
+        message: retryMsg,
+        metadata: {
+          amountUsdc: pending.totalPriceUsdc,
+          fiatAmount: pending.fiatAmount,
+          currencyCode: pending.fiatCode,
+          planToConfirmLatencyMs,
+          reason: 'biometric_not_completed',
+        },
+      });
+      logConverseEvent({
+        event: 'confirm_not_completed',
+        severity: 'warning',
+        message: retryMsg,
+      });
       setConfirmRetryNote(retryMsg);
       addTurn({ role: 'meridian', text: retryMsg, ts: Date.now() });
       return;
     }
 
     setConfirmRetryNote(null);
+    executionApprovedAtRef.current = pressedAt;
+    logConverseEvent({
+      event: 'confirm_success',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+        planToConfirmLatencyMs,
+      },
+    });
+    logConverseEvent({
+      event: 'confirm_approved',
+      metadata: {
+        amountUsdc: pending.totalPriceUsdc,
+        fiatAmount: pending.fiatAmount,
+        currencyCode: pending.fiatCode,
+      },
+    });
 
     // Load full profile NOW — only after biometric success.
     // This is the first time legalName, email, phone, and documents enter memory.
@@ -959,48 +1544,84 @@ export default function ConverseScreen() {
       // Biometric already succeeded — proceed without full profile if load fails
     }
 
-    await executePhase2(pending);
-  }, [agentId, executePhase2, speakIfEnabled]);
+    await executePhase2(pending, 'biometric');
+  }, [executePhase2, logConverseEvent]);
 
   // ── Cancel confirmation ───────────────────────────────────────────────────
 
   const handleCancelConfirm = useCallback(async () => {
+    const pending = pendingPlanRef.current;
     pendingPlanRef.current = null;
     setConfirmRetryNote(null);
+    logConverseEvent({
+      event: 'confirm_cancelled',
+      metadata: {
+        amountUsdc: pending?.totalPriceUsdc ?? null,
+        fiatAmount: pending?.fiatAmount ?? null,
+        currencyCode: pending?.fiatCode ?? null,
+      },
+    });
+    planReceivedAtRef.current = null;
+    executionApprovedAtRef.current = null;
     addTurn({ role: 'meridian', text: 'OK, cancelled.', ts: Date.now() });
     setPhase('idle');
-  }, [speakIfEnabled]);
+  }, [logConverseEvent]);
 
   // ── UPI pay (India only) ─────────────────────────────────────────────────
 
-  const handleUpiPay = useCallback(async () => {
-    await speakIfEnabled('Payment happens after Ace creates the booking request.');
-  }, [speakIfEnabled]);
 
-  // ── Hold-to-talk (press = start recording, release = send) ──────────────
-  // Minimum hold: 600ms. Shorter = accidental tap, reset silently.
-  // recordingReadyRef guards the race where user releases before startRecording() completes.
-
+  // Ace opens the mic, waits for natural silence, then sends the transcript.
+  // These refs guard warm-up, live capture, and finish races so re-arming stays stable.
   const recordingActiveRef = useRef(false);
+  const startingRecordingRef = useRef(false);
   const finishingRecordingRef = useRef(false);
 
   const finishVoiceCapture = useCallback(async () => {
     if (finishingRecordingRef.current) return;
+    clearHandsFreeListenTimer();
+    if (startingRecordingRef.current && !recordingActiveRef.current) {
+      void stopRecording().catch(() => null);
+      startingRecordingRef.current = false;
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
+    if (!recordingActiveRef.current) {
+      micAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
     finishingRecordingRef.current = true;
+    micAmplitude.value = 0;
+    phaseRef.current = 'thinking';
     setPhase('thinking');
 
     try {
       const uri = await stopRecording();
       recordingActiveRef.current = false;
-      if (!uri) { setPhase('idle'); return; }
+      if (!uri) {
+        phaseRef.current = 'idle';
+        setPhase('idle');
+        return;
+      }
 
       let text = '';
+      const transcribeStartedAt = Date.now();
       try {
         text = await transcribeAudio(uri);
       } catch (e: any) {
         const msg = (e.message ?? '').toLowerCase();
         const rawMessage = e.message ?? 'Voice transcription failed.';
         console.error('[bro/stt]', rawMessage);
+        void trackClientEvent({
+          event: 'stt_failure',
+          screen: 'converse',
+          severity: 'warning',
+          message: rawMessage,
+          metadata: { phase: 'transcribe' },
+        });
         void trackClientEvent({
           event: 'stt_transcription_failed',
           screen: 'converse',
@@ -1009,7 +1630,12 @@ export default function ConverseScreen() {
           metadata: { phase: 'transcribe' },
         });
         let nextMessage = __DEV__ ? `STT: ${rawMessage}` : 'Voice error — try again.';
-        if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
+        if (!__DEV__) {
+          nextMessage = 'Ace missed that. Say it again, or type the trip below.';
+        }
+        if (isMissingBroKeyError(e)) {
+          nextMessage = missingBroKeyMessage();
+        } else if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('abort')) {
           nextMessage = 'Ace did not catch that in time. Say it again, or type it below.';
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('not authorised')) {
           nextMessage = 'Voice service is unavailable right now. You can type the trip below.';
@@ -1022,6 +1648,8 @@ export default function ConverseScreen() {
         } else if (msg.includes('502') || msg.includes('transcription error') || msg.includes('whisper')) {
           nextMessage = 'Voice service had trouble with that request. You can type the trip below.';
         }
+        phaseRef.current = 'error';
+        setPhase('error');
         if (shouldOfferTextFallback(nextMessage)) {
           openTextFallback(nextMessage);
         } else {
@@ -1032,6 +1660,8 @@ export default function ConverseScreen() {
 
       if (!text.trim()) {
         const message = 'Ace did not catch that clearly. Try again, spell it out, or type the trip below.';
+        phaseRef.current = 'error';
+        setPhase('error');
         openTextFallback(message);
         void trackClientEvent({
           event: 'stt_empty_transcript',
@@ -1042,11 +1672,37 @@ export default function ConverseScreen() {
         return;
       }
 
-      await handleIntent(text);
+      logConverseEvent({
+        event: 'voice_transcribed',
+        metadata: {
+          captureMs: voiceCaptureStartedAtRef.current ? Date.now() - voiceCaptureStartedAtRef.current : null,
+          sttMs: Date.now() - transcribeStartedAt,
+          textLength: text.trim().length,
+        },
+      });
+      logConverseEvent({
+        event: 'stt_success',
+        metadata: {
+          captureMs: voiceCaptureStartedAtRef.current ? Date.now() - voiceCaptureStartedAtRef.current : null,
+          sttMs: Date.now() - transcribeStartedAt,
+          transcriptLength: text.trim().length,
+        },
+      });
+
+      await runIntentWithUiFallback(text);
     } catch (e: any) {
       recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
+      micAmplitude.value = 0;
       const msg = (e.message ?? '').toLowerCase();
       const rawMessage = e.message ?? 'Voice capture failed.';
+      void trackClientEvent({
+        event: 'stt_failure',
+        screen: 'converse',
+        severity: 'warning',
+        message: rawMessage,
+        metadata: { phase: 'capture' },
+      });
       void trackClientEvent({
         event: 'voice_capture_failed',
         screen: 'converse',
@@ -1054,7 +1710,7 @@ export default function ConverseScreen() {
         message: rawMessage,
         metadata: { phase: 'capture' },
       });
-      let nextMessage = 'Something went wrong — tap to try again.';
+      let nextMessage = 'Ace missed that. Say it again, or type the trip below.';
       if (msg.includes('timed out') || msg.includes('timeout')) {
         nextMessage = 'Ace took too long on that request. Try again, or type it below.';
       } else if (msg.includes('no connection') || msg.includes('internet') || msg.includes('network')) {
@@ -1062,37 +1718,81 @@ export default function ConverseScreen() {
       } else if (msg.includes('offline')) {
         nextMessage = 'Service is offline right now. You can type the trip below.';
       }
+      phaseRef.current = 'error';
+      setPhase('error');
       if (shouldOfferTextFallback(nextMessage)) {
         openTextFallback(nextMessage);
       } else {
         setError(nextMessage);
       }
     } finally {
+      recordingActiveRef.current = false;
+      startingRecordingRef.current = false;
       finishingRecordingRef.current = false;
     }
-  }, [handleIntent, openTextFallback, setError]);
+  }, [clearHandsFreeListenTimer, logConverseEvent, openTextFallback, runIntentWithUiFallback, setError, setPhase]);
 
   const beginVoiceCapture = useCallback(async () => {
-    if (phase !== 'idle' && phase !== 'error') return;
+    if (!voiceEnabled) return;
+    if (!liveVoiceConfigured) {
+      const message = missingBroKeyMessage();
+      clearHandsFreeListenTimer();
+      phaseRef.current = 'error';
+      setPhase('error');
+      openTextFallback(message);
+      logConverseEvent({
+        event: 'voice_config_missing',
+        severity: 'warning',
+        message,
+      });
+      return;
+    }
+    if (recordingActiveRef.current || startingRecordingRef.current || finishingRecordingRef.current) return;
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== 'idle' && currentPhase !== 'error') return;
+    clearHandsFreeListenTimer();
     cancelSpeech();
-    if (phase === 'error') reset();
+    if (currentPhase === 'error') reset();
     setTextFallbackVisible(false);
     setError(null);
     setPhase('listening');
+    phaseRef.current = 'listening';
+    voiceCaptureStartedAtRef.current = Date.now();
+    logConverseEvent({
+      event: 'voice_capture_started',
+      metadata: { fromPhase: currentPhase },
+    });
+    logConverseEvent({
+      event: 'voice_session_start',
+      metadata: { fromPhase: currentPhase },
+    });
+    startingRecordingRef.current = true;
     try {
+      const silenceMs = nextSilenceMsRef.current;
+      nextSilenceMsRef.current = 2800;
       await startRecording({
         autoStopOnSilence: true,
-        silenceMs: 2200,
+        silenceMs,
         maxDurationMs: 12000,
+        onMeter: (v: number) => { micAmplitude.value = v; },
         onSilence: () => {
           void finishVoiceCapture();
         },
       });
+      if (phaseRef.current !== 'listening') {
+        startingRecordingRef.current = false;
+        return;
+      }
+      startingRecordingRef.current = false;
       recordingActiveRef.current = true;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {
+      startingRecordingRef.current = false;
       recordingActiveRef.current = false;
-      const message = 'Microphone access denied. You can enable it in Settings, or type the trip instead.';
+      micAmplitude.value = 0;
+      phaseRef.current = 'error';
+      setPhase('error');
+      const message = 'Ace needs microphone access to stay hands-free. You can enable it in Settings, or continue by typing the trip below.';
       setError(message);
       setTextFallbackVisible(true);
       void trackClientEvent({
@@ -1102,15 +1802,32 @@ export default function ConverseScreen() {
         message,
       });
     }
-  }, [finishVoiceCapture, phase, reset, setError]);
+  }, [clearHandsFreeListenTimer, finishVoiceCapture, liveVoiceConfigured, logConverseEvent, openTextFallback, reset, setPhase, voiceEnabled]);
+
+  // Wire beginVoiceCapture into ref so speakIfEnabled can auto-restart without circular dep
+  beginVoiceCaptureRef.current = beginVoiceCapture;
+
+  // Wire speakIfEnabled into ref so the always-on greeting can use the latest closure
+  const speakIfEnabledRef = useRef<((text: string, restartListening?: boolean) => Promise<void>) | null>(null);
+  speakIfEnabledRef.current = speakIfEnabled;
 
   const handleOrbTap = useCallback(async () => {
+    clearHandsFreeListenTimer();
     if (phase === 'listening') {
       await finishVoiceCapture();
       return;
     }
+    if (phase === 'thinking' || phase === 'executing' || phase === 'hiring') {
+      // Tap during processing = interrupt and return to idle
+      cancelSpeech();
+      ttsAmplitude.value = 0;
+      phaseRef.current = 'idle';
+      setPhase('idle');
+      return;
+    }
+    nextSilenceMsRef.current = 2800;
     await beginVoiceCapture();
-  }, [beginVoiceCapture, finishVoiceCapture, phase]);
+  }, [beginVoiceCapture, clearHandsFreeListenTimer, finishVoiceCapture, phase]);
 
   const handleShortcutIntent = useCallback(async (destination: string, kind: 'home' | 'work') => {
     if (!nearestStation) return;
@@ -1118,25 +1835,67 @@ export default function ConverseScreen() {
       kind === 'home'
         ? `Get me home from ${nearestStation.name} to ${destination}`
         : `Get to work from ${nearestStation.name} to ${destination}`;
-    await handleIntent(text);
-  }, [handleIntent, nearestStation]);
+    await runIntentWithUiFallback(text);
+  }, [nearestStation, runIntentWithUiFallback]);
 
-  const handleVoiceToggle = useCallback(async () => {
-    const next = !voiceEnabled;
-    setVoiceEnabled(next);
-    if (!next) cancelSpeech();
-    try {
-      await AsyncStorage.setItem(VOICE_ENABLED_KEY, String(next));
-    } catch {}
-  }, [voiceEnabled]);
+  useEffect(() => {
+    presencePulse.stopAnimation();
+
+    if (isSpeaking || phase === 'listening') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(presencePulse, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(presencePulse, {
+            toValue: 0.7,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+      return;
+    }
+
+    Animated.timing(presencePulse, {
+      toValue: 0.84,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [isSpeaking, phase, presencePulse]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const phaseLabel = PHASE_LABEL[phase] ?? '';
   const isIdle     = phase === 'idle';
   const isError    = phase === 'error';
-  const isBusy     = phase === 'thinking' || phase === 'done';
   const isConfirming = phase === 'confirming';
+  const presenceLabel =
+    !liveVoiceConfigured ? 'Ace is refreshing voice' :
+    isSpeaking ? 'Ace is speaking' :
+    phase === 'listening' ? 'Ace is listening' :
+    phase === 'thinking' ? 'Ace is thinking' :
+    phase === 'hiring' || phase === 'executing' ? 'Ace is securing your trip' :
+    phase === 'done' ? 'Trip secured' :
+    phase === 'error' ? 'Ace is waiting' :
+    voiceEnabled ? 'Ace is ready' :
+    'Voice paused';
+  const presenceHint =
+    !liveVoiceConfigured ? 'Type the trip below while live voice is refreshed.' :
+    isSpeaking ? 'Stay with me. Ace is guiding the next move.' :
+    phase === 'listening' ? 'Say the trip once, naturally.' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? 'Ace is working the route, timing, and booking.' :
+    phase === 'done' ? 'Trip secured. Ace will stay with it.' :
+    phase === 'error' ? 'Say it again or continue in text below.' :
+    voiceEnabled ? 'Say the trip when you are ready.' :
+    'Tap Ace to resume voice.';
+  const presenceTone =
+    phase === 'listening' ? '#c8e8ff' :
+    phase === 'thinking' || phase === 'hiring' || phase === 'executing' ? '#8ec4e8' :
+    phase === 'done' ? '#9ed9ae' :
+    phase === 'error' ? '#e9a7a7' :
+    '#9fb1c4';
   const isIndia = (pendingPlanRef.current?.plan ?? []).some(p => p.toolName === 'book_train_india');
   const idleSuggestions = personalizedIdleSuggestions({
     market: marketNationality,
@@ -1152,11 +1911,92 @@ export default function ConverseScreen() {
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
   })();
+  const personalGreeting = userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`;
 
-  // Last route suggestion — "Same route as last time?"
-  const lastRouteHint = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
+  const lastRouteHintPreview = activeTrip?.fromStation && activeTrip?.toStation && activeTrip.status === 'ticketed'
     ? `${activeTrip.fromStation} → ${activeTrip.toStation} again?`
     : null;
+
+  const heroExample = bookingMode === 'shared'
+    ? 'Ace, get us to Glasgow tomorrow.'
+    : lastRouteHintPreview
+    ? `Ace, ${lastRouteHintPreview.replace(/\?$/, '')}.`
+    : nearestStation
+    ? `Ace, book me a train from ${nearestStation.name} tomorrow morning.`
+    : 'Ace, book me a train to Glasgow tomorrow.';
+
+  const heroResponse = bookingMode === 'shared'
+    ? `I'll line this up for ${preferredTravelUnit?.name?.toLowerCase() ?? 'both of you'}.`
+    : routeMemory
+    ? `I can line up ${routeMemory.origin} to ${routeMemory.destination} again, or take you somewhere new.`
+    : nearestStation
+    ? `You are nearest to ${nearestStation.name}. Tell me where to line you up.`
+    : 'Tell me where you are going. I\'ll line up the best way through.';
+  const primarySuggestion = idleSuggestions[0] ?? null;
+
+  const memorySuggestion = routeMemory
+    ? `${routeMemory.origin} to ${routeMemory.destination}`
+    : null;
+  const memoryBody = routeMemory
+    ? routeMemory.count >= 3
+      ? `Ace has seen this route ${routeMemory.count} times and can line it up before you ask tomorrow.`
+      : `Ace remembers this route and can line it up quickly when you need it.`
+    : null;
+  const shouldShowTravelModeReminder = guidanceSessions >= 3 && guidanceSessions % 6 === 0;
+  const shouldNudgeTravelSetup =
+    !preferredTravelUnit
+    && !travelModePromptDismissed
+    && guidanceSessions >= 2
+    && guidanceSessions % 4 === 0;
+  const inferredTravelShape =
+    familyMemberCount >= 2 ? 'family'
+    : familyMemberCount === 1 ? 'couple'
+    : 'single';
+  const travelModeReminder = preferredTravelUnit
+    ? shouldShowTravelModeReminder
+    ? {
+        eyebrow: 'Travel mode',
+        title: `Ace is set to ${preferredTravelUnit.type}.`,
+        body: `${preferredTravelUnit.name} is your current shared travel unit, so Ace can think in terms of us when you need it to.`,
+        primaryLabel: 'Manage travel mode',
+        primaryAction: () => router.push('/(main)/travel-together'),
+        secondaryLabel: null as string | null,
+        secondaryAction: null as (() => void) | null,
+      }
+    : null
+    : shouldNudgeTravelSetup
+    ? inferredTravelShape === 'family'
+      ? {
+          eyebrow: 'Travel mode',
+          title: 'Ace still sees this as solo travel.',
+          body: 'You already have family details saved. Want Ace to set up family mode quietly in the background so "for the family" just works?',
+          primaryLabel: 'Set up family mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Later',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+      : inferredTravelShape === 'couple'
+      ? {
+          eyebrow: 'Travel mode',
+          title: 'Ace is still treating you as solo.',
+          body: 'If you usually travel as a couple, Ace can help set that up in the background so "for us" becomes natural.',
+          primaryLabel: 'Set up couple mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Later',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+      : {
+          eyebrow: 'Travel mode',
+          title: 'Ace is keeping this personal to you.',
+          body: 'If that changes, Ace can set up couple or family travel in the background without interrupting how you book today.',
+          primaryLabel: 'Set up travel mode',
+          primaryAction: () => router.push('/(main)/travel-together'),
+          secondaryLabel: 'Keep solo',
+          secondaryAction: () => setTravelModePromptDismissed(true),
+        }
+    : null;
+
+  // Last route suggestion — "Same route as last time?"
   const recentTurns = turns.filter((turn) => turn.role === 'meridian').slice(-4);
   return (
     <SafeAreaView style={styles.safe}>
@@ -1165,10 +2005,12 @@ export default function ConverseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerBrand}>
-          <View style={styles.headerDot} />
+          <View style={styles.headerMarkWrap}>
+            <Image source={ACE_MARK_ASSET} style={styles.headerMarkImage} resizeMode="contain" />
+          </View>
           <View>
             <Text style={styles.headerTitle}>ACE</Text>
-            <Text style={styles.headerSubtitle}>Travel, handled</Text>
+            <Text style={styles.headerSubtitle}>Travel, handled.</Text>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -1177,19 +2019,6 @@ export default function ConverseScreen() {
               <Text style={styles.nearBadgeText}>{locationLabel}</Text>
             </View>
           )}
-          <Pressable onPress={() => { void handleVoiceToggle(); }} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons
-              name={voiceEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
-              size={19}
-              color={voiceEnabled ? C.emBright : C.textMuted}
-            />
-          </Pressable>
-          <Pressable onPress={() => router.push('/(main)/map')} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons name="map-outline" size={19} color={C.textMuted} />
-          </Pressable>
-          <Pressable onPress={() => router.push('/(main)/trips')} hitSlop={12} style={styles.headerIconBtn}>
-            <Ionicons name="time-outline" size={19} color={C.textMuted} />
-          </Pressable>
           <Pressable onPress={() => router.push('/settings')} hitSlop={12} style={styles.headerIconBtn}>
             <Ionicons name="settings-outline" size={19} color={C.textMuted} />
           </Pressable>
@@ -1203,26 +2032,21 @@ export default function ConverseScreen() {
         contentContainerStyle={[styles.scrollContent, isConfirming && styles.scrollContentConfirming]}
         showsVerticalScrollIndicator={false}
       >
-        {turns.length === 0 && isIdle && (
+        {turns.length === 0 && (phase === 'idle' || phase === 'listening') && (
           <View style={styles.emptyState}>
             <View style={styles.heroCard}>
               <Text style={styles.emptyGreeting}>
-                {userName !== 'there' ? `${timeGreeting}, ${userName}.` : `${timeGreeting}.`}
+                {personalGreeting}
               </Text>
-              <Text style={styles.emptyHint}>
-                {lastRouteHint
-                  ? `${lastRouteHint} Touch Ace, say it naturally, and it will take it from there.`
-                  : nearestStation
-                  ? `You are in ${locationLabel ?? 'your area'}. Ace will choose the best departure point from nearby, line up the route, and secure it if you want.`
-                  : `Say where you are going and Ace will line up the route, secure it, and stay with the trip.`}
-              </Text>
+              <View style={styles.heroLogoWrap}>
+                <Image source={ACE_MARK_ASSET} style={styles.heroLogoImage} resizeMode="contain" />
+              </View>
+              <Text style={styles.heroExample}>{heroExample}</Text>
+              <Text style={styles.heroResponse}>{heroResponse}</Text>
               {preferredTravelUnit && (
                 <View style={styles.modeCard}>
                   <View style={styles.modeHeader}>
                     <Text style={styles.modeEyebrow}>Who is travelling?</Text>
-                    <Text style={styles.modeHint}>
-                      If both phones are open, choose whether this request is just for you or for {preferredTravelUnit.name}.
-                    </Text>
                   </View>
                   <View style={styles.modeRow}>
                     <Pressable
@@ -1252,65 +2076,20 @@ export default function ConverseScreen() {
                   </View>
                   <Text style={styles.modeFootnote}>
                     {bookingMode === 'shared'
-                      ? 'Ace will plan this as a shared trip and keep approvals stricter.'
-                      : 'Ace will treat this as a solo booking unless you ask for the household.'}
+                      ? 'Ace will hold this as one shared trip.'
+                      : 'Ace will keep this trip just for you.'}
                   </Text>
                 </View>
               )}
-              <View style={styles.heroStatRow}>
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Voice first</Text>
-                  <Text style={styles.heroStatLabel}>natural requests</Text>
-                </View>
-                <View style={styles.heroStatDivider} />
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Fast start</Text>
-                  <Text style={styles.heroStatLabel}>Ace takes it from here</Text>
-                </View>
-                <View style={styles.heroStatDivider} />
-                <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>Live recovery</Text>
-                  <Text style={styles.heroStatLabel}>delays and changes</Text>
-                </View>
-              </View>
             </View>
               {activeTrip && (
                 <Pressable
-                onPress={() => {
-                  if ((activeTrip.status === 'securing' || activeTrip.status === 'attention') && activeTrip.jobId) {
-                    const params: Record<string, string> = { jobId: activeTrip.jobId };
-                    if (activeTrip.fiatAmount != null) params.fiatAmount = String(activeTrip.fiatAmount);
-                    if (activeTrip.currencySymbol) params.currencySymbol = activeTrip.currencySymbol;
-                    if (activeTrip.currencyCode) params.currencyCode = activeTrip.currencyCode;
-                    if (activeTrip.fromStation) params.fromStation = activeTrip.fromStation;
-                    if (activeTrip.toStation) params.toStation = activeTrip.toStation;
-                    if (activeTrip.departureTime) params.departureTime = activeTrip.departureTime;
-                    if (activeTrip.platform) params.platform = activeTrip.platform;
-                    if (activeTrip.operator) params.operator = activeTrip.operator;
-                    if (activeTrip.finalLegSummary) params.finalLegSummary = activeTrip.finalLegSummary;
-                    if (activeTrip.shareToken) params.shareToken = activeTrip.shareToken;
-                    if (activeTrip.tripContext) params.tripContext = JSON.stringify(activeTrip.tripContext);
-                    router.push({ pathname: '/(main)/status/[jobId]', params });
-                    return;
-                  }
-
-                  router.push({
-                    pathname: '/(main)/receipt/[intentId]',
-                    params: {
-                      intentId: activeTrip.intentId,
-                      bookingRef: activeTrip.bookingRef ?? undefined,
-                      fromStation: activeTrip.fromStation ?? undefined,
-                      toStation: activeTrip.toStation ?? undefined,
-                      departureTime: activeTrip.departureTime ?? undefined,
-                      platform: activeTrip.platform ?? undefined,
-                      operator: activeTrip.operator ?? undefined,
-                      finalLegSummary: activeTrip.finalLegSummary ?? undefined,
-                      fiatAmount: activeTrip.fiatAmount != null ? String(activeTrip.fiatAmount) : undefined,
-                      currencySymbol: activeTrip.currencySymbol ?? undefined,
-                      currencyCode: activeTrip.currencyCode ?? undefined,
-                    },
-                  });
-                }}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/(main)/journey/[intentId]',
+                      params: { intentId: activeTrip.intentId },
+                    });
+                  }}
                   style={styles.activeTripCard}
                 >
                   {(() => {
@@ -1348,27 +2127,43 @@ export default function ConverseScreen() {
                 style={styles.usualRouteCard}
               >
                 <View style={styles.usualRouteRow}>
-                  <Ionicons name="repeat-outline" size={14} color="#4ade80" />
+                  <Ionicons name="repeat-outline" size={14} color="#cbe8ff" />
                   <Text style={styles.usualRouteLabel}>Your usual</Text>
                   <Text style={styles.usualRouteCount}>{usualRoute.count}×</Text>
                 </View>
                 <Text style={styles.usualRouteRoute}>{usualRoute.origin} → {usualRoute.destination}</Text>
                 {usualRoute.typicalFareGbp != null && (
-                  <Text style={styles.usualRouteFare}>~£{usualRoute.typicalFareGbp} · Tap to book</Text>
+                  <Text style={styles.usualRouteFare}>~£{usualRoute.typicalFareGbp} (estimate) · Tap to book</Text>
+                )}
+              </Pressable>
+            )}
+            {!usualRoute && routeMemory && memorySuggestion && (
+              <Pressable
+                onPress={() => { void runIntentWithUiFallback(memorySuggestion); }}
+                style={styles.usualRouteCard}
+              >
+                <View style={styles.usualRouteRow}>
+                  <Ionicons name="sparkles-outline" size={14} color="#cbe8ff" />
+                  <Text style={styles.usualRouteLabel}>Ace remembered</Text>
+                  <Text style={styles.usualRouteCount}>{routeMemory.count}×</Text>
+                </View>
+                <Text style={styles.usualRouteRoute}>{routeMemory.origin} → {routeMemory.destination}</Text>
+                {memoryBody && (
+                  <Text style={styles.usualRouteFare}>{memoryBody}</Text>
                 )}
               </Pressable>
             )}
             {preferredTravelUnit && (
               <View style={styles.sharedUnitCard}>
                 <View style={styles.sharedUnitHeader}>
-                  <Ionicons name="people-circle-outline" size={16} color="#f0abfc" />
+                  <Ionicons name="people-circle-outline" size={16} color="#cbe8ff" />
                   <Text style={styles.sharedUnitLabel}>{preferredTravelUnit.name}</Text>
                   <Text style={styles.sharedUnitMeta}>
                     {preferredTravelUnit.type === 'couple' ? 'Couple' : preferredTravelUnit.type === 'family' ? 'Family' : 'Household'}
                   </Text>
                 </View>
                 <Text style={styles.sharedUnitBody}>
-                  Ace can plan around this shared unit when you say `for us`, `for the family`, or ask it to get everyone moving together.
+                  Ace can plan around this shared unit when you say "for us" or "for the family", or ask it to get everyone moving together.
                 </Text>
                 <View style={styles.sharedUnitActions}>
                   <Pressable
@@ -1386,39 +2181,77 @@ export default function ConverseScreen() {
                 </View>
               </View>
             )}
+            {travelModeReminder && (
+              <View style={styles.travelModePromptCard}>
+                <View style={styles.travelModePromptHeader}>
+                  <Text style={styles.travelModePromptEyebrow}>{travelModeReminder.eyebrow}</Text>
+                </View>
+                <Text style={styles.travelModePromptTitle}>{travelModeReminder.title}</Text>
+                <Text style={styles.travelModePromptBody}>{travelModeReminder.body}</Text>
+                <View style={styles.travelModePromptActions}>
+                  <Pressable
+                    onPress={travelModeReminder.primaryAction}
+                    style={styles.travelModePromptPrimary}
+                  >
+                    <Text style={styles.travelModePromptPrimaryText}>{travelModeReminder.primaryLabel}</Text>
+                  </Pressable>
+                  {travelModeReminder.secondaryLabel && travelModeReminder.secondaryAction && (
+                    <Pressable
+                      onPress={travelModeReminder.secondaryAction}
+                      style={styles.travelModePromptSecondary}
+                    >
+                      <Text style={styles.travelModePromptSecondaryText}>{travelModeReminder.secondaryLabel}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            )}
             <Pressable onPress={() => router.push('/(main)/trips')} style={styles.myTripsBtn}>
               <Ionicons name="time-outline" size={14} color="#64748b" style={{ marginRight: 6 }} />
               <Text style={styles.myTripsBtnText}>Journeys</Text>
               <Ionicons name="chevron-forward-outline" size={13} color="#334155" style={{ marginLeft: 'auto' }} />
             </Pressable>
-            <View style={styles.suggestionsCard}>
-              <View style={styles.suggestionsHeader}>
-                <Text style={styles.suggestionsEyebrow}>Try one of these</Text>
-                <Text style={styles.suggestionsHint}>Speak naturally. Ace will infer the route, recommend the strongest option, and only ask when something truly matters.</Text>
-              </View>
-              <View style={styles.suggestions}>
-                {idleSuggestions.map((suggestion) => (
+            {primarySuggestion && (
+              <View style={styles.suggestionsCard}>
+                <View style={styles.suggestionsHeader}>
+                  <Text style={styles.suggestionsEyebrow}>Try this</Text>
+                </View>
+                <View style={styles.suggestions}>
                   <Suggestion
-                    key={suggestion}
                     icon={
-                      suggestion.toLowerCase().includes('bus') ? 'bus-outline'
-                      : suggestion.toLowerCase().includes('metro') ? 'subway-outline'
-                      : suggestion.toLowerCase().includes('flight') ? 'airplane-outline'
+                      primarySuggestion.toLowerCase().includes('bus') ? 'bus-outline'
+                      : primarySuggestion.toLowerCase().includes('metro') ? 'subway-outline'
+                      : primarySuggestion.toLowerCase().includes('flight') ? 'airplane-outline'
                       : 'train-outline'
                     }
-                    text={suggestion}
-                    onPress={() => { void runIntentWithUiFallback(suggestion); }}
+                    text={primarySuggestion}
+                    onPress={() => { void runIntentWithUiFallback(primarySuggestion); }}
                   />
-                ))}
+                </View>
               </View>
-            </View>
+            )}
+          </View>
+        )}
+
+        {turns.length > 0 && (isIdle || isError) && (
+          <View style={styles.greetingStrip}>
+            <Text style={styles.greetingStripTitle}>{personalGreeting}</Text>
+            <Text style={styles.greetingStripBody}>
+              {!liveVoiceConfigured
+                ? 'Ace is being refreshed for live voice. Type the trip below for now.'
+                : routeMemory
+                ? `Ace still remembers ${routeMemory.origin} to ${routeMemory.destination}.`
+                : nearestStation
+                  ? `You are nearest to ${nearestStation.name}. Say where to line up next.`
+                  : 'Ace is ready when you are.'}
+            </Text>
           </View>
         )}
 
         {recentTurns.length > 0 && (
           <View style={styles.recentTurnsCard}>
             <View style={styles.recentTurnsHeader}>
-              <Text style={styles.recentTurnsEyebrow}>Ace is thinking</Text>
+              <Text style={styles.recentTurnsEyebrow}>Recent with Ace</Text>
               {recentTurns.length > 1 && (
                 <Text style={styles.recentTurnsCount}>Last {recentTurns.length}</Text>
               )}
@@ -1433,7 +2266,7 @@ export default function ConverseScreen() {
               >
                 {turn.role === 'meridian' && (
                   <View style={styles.bubbleAvatar}>
-                    <View style={styles.avatarDot} />
+                    <Image source={ACE_MARK_ASSET} style={styles.avatarMark} resizeMode="contain" />
                   </View>
                 )}
                 <Text style={[
@@ -1472,9 +2305,6 @@ export default function ConverseScreen() {
           const travellerCount = passengers?.length ?? 1;
           const familyRailcardReady = adultCount >= 2 && childCount >= 1 && childCount <= 4
             && plan.some((item) => item.toolName === 'book_train' || item.toolName === 'book_train_india');
-          const flightFamilyGaps = tpFam.filter((member) =>
-            plan.some((item) => !!item.flightDetails) && member.relationship !== 'infant' && !member.name,
-          ).length;
           const planInput = (plan[0]?.input ?? {}) as Record<string, string>;
           const tripOrigin = planInput.origin ?? planInput.from ?? '';
           const tripDest   = planInput.destination ?? planInput.to ?? '';
@@ -1487,13 +2317,8 @@ export default function ConverseScreen() {
                 const to    = last.destination ?? last.to ?? tripDest;
                 return from && to ? `${from} → ${to} · ${plan.length} legs` : `${plan.length}-leg journey`;
               })()
-            : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} -> ${tripDest}` : plan[0]?.displayName ?? null); /*
-            ? `${tripOrigin} → ${tripDest}`
-          */ const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
-          const routeData    = tripContext?.routeData    ?? plan[0]?.routeData    ?? null;
-          const nearbyPlaces = tripContext?.nearbyPlaces ?? plan[0]?.nearbyPlaces ?? null;
-          const cards = tripCards(tripContext).filter((card) => card.kind !== 'destination_suggestion');
-
+            : tripContext?.title ?? (tripOrigin && tripDest ? `${tripOrigin} → ${tripDest}` : plan[0]?.displayName ?? null);
+          const finalLegSummary = tripContext?.finalLegSummary ?? plan[0]?.finalLegSummary ?? null;
           // Flight offer expiry: find the soonest expiry across all flight legs
           const flightExpiresAt = plan
             .map(p => p.flightDetails?.offerExpiresAt)
@@ -1530,297 +2355,96 @@ export default function ConverseScreen() {
             }
             return null;
           })();
-          const recommendation = buildRecommendationBrief({
-            plan,
-            sourceLabel,
-            familyRailcardReady,
-          });
-          // Hotel details — single hotel booking
-          const hotelDetails = plan.length === 1 ? plan[0]?.hotelDetails : undefined;
-          const hotel = hotelDetails?.bestOption;
-
-          // Multi-leg journey helper
+          const companionSummary = travellerCount > 1
+            ? `${travellerCount} travellers${childCount > 0 ? `, including ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}`
+            : null;
+          const hotel = plan.length === 1 ? plan[0]?.hotelDetails?.bestOption : undefined;
           const isMultiLeg = plan.length > 1;
-          const legIcon = (toolName: string) =>
-            toolName === 'search_flights' ? '✈️'
-            : toolName === 'book_bus'     ? '🚌'
-            : toolName === 'plan_metro'   ? '🚇'
-            : '🚆';
-          const legLabel = (item: typeof plan[0]) => {
-            const inp = item.input as Record<string, string>;
-            const from = inp.origin ?? inp.from ?? '';
-            const to   = inp.destination ?? inp.to ?? '';
-            if (item.flightDetails) {
-              const dep = item.flightDetails.departureAt?.slice(11, 16) ?? '';
-              return `${item.flightDetails.carrier} ${item.flightDetails.flightNumber} · ${dep}  ${from}→${to}`;
-            }
-            const td = (item as any).trainDetails as { departureTime?: string; operator?: string } | undefined;
-            const time = td?.departureTime ?? '';
-            const op   = td?.operator ?? item.displayName;
-            return `${op}${time ? ` · ${time}` : ''}  ${from}→${to}`;
-          };
-
+          const itinerarySummary = isMultiLeg
+            ? `${plan.length} legs, secured as one continuous journey.`
+            : hotel
+            ? `${hotel.name}${hotel.area ? `, ${hotel.area}` : ''}`
+            : finalLegSummary;
+          const routeQualityLabel = sourceLabel
+            ?? (isMultiLeg
+              ? `${Math.max(plan.length - 1, 1)} change${plan.length - 1 === 1 ? '' : 's'}`
+              : 'Direct route');
+          const confirmMeta = [itinerarySummary, sourceLabel, companionSummary].filter(Boolean).join(' | ');
+          const decisionLine = isIndia
+            ? 'Ace has the route. You just need to say yes before UPI opens.'
+            : 'Ace has the route. You just need to say yes.';
+          const brief = buildRecommendationBrief({ plan, sourceLabel, familyRailcardReady });
+          const assurance = buildAssuranceItems({ plan, fiatAmount: fiat, hasCards: false });
+          // Hotel details — single hotel booking
           return (
-            <BlurView intensity={25} tint="dark" style={styles.confirmCard}>
-              <View style={styles.confirmEyebrowRow}>
-                <Text style={styles.confirmEyebrow}>Ace briefing</Text>
-                {sourceLabel && !isMultiLeg && (
-                  <View style={styles.sourceBadge}>
-                    <Text style={styles.sourceBadgeText}>{sourceLabel}</Text>
-                  </View>
-                )}
-              </View>
+            <View style={styles.confirmCard}>
+              <Text style={styles.confirmEyebrow}>{routeQualityLabel}</Text>
               {tripDesc && (
                 <Text style={styles.confirmTrip} numberOfLines={2}>{tripDesc}</Text>
               )}
-              {pendingPlanRef.current?.assumptionNote && (
-                <View style={styles.assumptionCard}>
-                  <Ionicons name="locate-outline" size={14} color="#93c5fd" />
-                  <Text style={styles.assumptionText}>{pendingPlanRef.current.assumptionNote}</Text>
-                </View>
-              )}
-              {recommendation && (
-                <View style={styles.recommendationCard}>
-                  <View style={styles.recommendationHeader}>
-                    <Ionicons name="sparkles" size={14} color="#f4ead6" />
-                    <Text style={styles.recommendationEyebrow}>Recommended for you</Text>
-                  </View>
-                  <Text style={styles.recommendationTitle}>{recommendation.title}</Text>
-                  <Text style={styles.recommendationWhy}>{recommendation.why}</Text>
-                  <View style={styles.recommendationCueRow}>
-                    {recommendation.cues.map((cue) => (
-                      <View key={cue} style={styles.recommendationCue}>
-                        <Text style={styles.recommendationCueText}>{cue}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {travellerCount > 1 && (
-                <View style={styles.groupSummaryCard}>
-                  <View style={styles.groupSummaryRow}>
-                    <Ionicons name="people-outline" size={14} color="#38bdf8" />
-                    <Text style={styles.groupSummaryTitle}>
-                      {travellerCount} travellers · {adultCount} adult{adultCount === 1 ? '' : 's'}{childCount > 0 ? ` · ${childCount} child${childCount === 1 ? '' : 'ren'}` : ''}
-                    </Text>
-                  </View>
-                  <Text style={styles.groupSummaryBody}>
-                    {passengers?.map((p) => p.name).join(', ')}
-                  </Text>
-                  {familyRailcardReady && (
-                    <View style={styles.groupReadyBadge}>
-                      <Ionicons name="ticket-outline" size={13} color="#4ade80" />
-                      <Text style={styles.groupReadyText}>Ace will check Family & Friends Railcard eligibility before it secures any UK rail leg.</Text>
+              {confirmMeta ? (
+                <Text style={styles.confirmMeta}>{confirmMeta}</Text>
+              ) : null}
+              {brief && brief.cues.length > 0 && (
+                <View style={styles.confirmCueRow}>
+                  {brief.cues.map((cue, idx) => (
+                    <View key={idx} style={styles.confirmCuePill}>
+                      <Text style={styles.confirmCuePillText}>{cue}</Text>
                     </View>
-                  )}
-                  {flightFamilyGaps > 0 && (
-                    <View style={styles.groupWarnBadge}>
-                      <Ionicons name="airplane-outline" size={13} color="#f59e0b" />
-                      <Text style={styles.groupWarnText}>Some passenger details may still be needed before flight ticketing.</Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* Multi-leg journey timeline */}
-              {isMultiLeg && (
-                <View style={styles.legTimeline}>
-                  {plan.map((item, idx) => {
-                    const itemFiat = code === 'GBP' || !confirmFxRate
-                      ? item.estimatedPriceUsdc
-                      : item.estimatedPriceUsdc * confirmFxRate;
-                    const legFiatStr = itemFiat > 0 ? `${sym}${formatMoneyAmount(itemFiat, code)}` : '';
-                    return (
-                      <View key={idx} style={styles.legRow}>
-                        <View style={styles.legConnector}>
-                          <Text style={styles.legIconText}>{legIcon(item.toolName)}</Text>
-                          {idx < plan.length - 1 && <View style={styles.legLine} />}
-                        </View>
-                        <View style={styles.legBody}>
-                          <Text style={styles.legLabelText} numberOfLines={1}>{legLabel(item)}</Text>
-                          {legFiatStr ? <Text style={styles.legFareText}>{legFiatStr}</Text> : null}
-                        </View>
-                      </View>
-                    );
-                  })}
-                  <View style={styles.legTotalRow}>
-                    <Text style={styles.legTotalLabel}>Total</Text>
-                    <Text style={styles.legTotalAmount}>{priceLabel ?? ''}</Text>
-                  </View>
-                </View>
-              )}
-
-              {priceLabel && !isMultiLeg && !hotel && (
-                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel}` : priceLabel}</Text>
-              )}
-              {hotel && (
-                <View style={styles.hotelCard}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Text style={{ fontSize: 16 }}>🏨</Text>
-                    <Text style={styles.hotelName} numberOfLines={1}>{hotel.name}</Text>
-                    <Text style={styles.hotelStars}>{'★'.repeat(Math.min(hotel.stars, 5))}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <View>
-                      <Text style={styles.hotelDateLabel}>Check-in</Text>
-                      <Text style={styles.hotelDate}>{hotelDetails!.checkIn}</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.hotelDateLabel}>Check-out</Text>
-                      <Text style={styles.hotelDate}>{hotelDetails!.checkOut}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.hotelRate}>
-                    {hotel.currency} {hotel.ratePerNight}/night · Total {hotel.currency} {hotel.totalCost}
-                  </Text>
-                  {hotel.area && <Text style={styles.hotelArea}>{hotel.area}</Text>}
-                </View>
-              )}
-              {passengers && passengers.length > 1 && (
-                <View style={styles.passengerList}>
-                  {passengers.map((p, i) => {
-                    return (
-                      <View key={i} style={styles.passengerRow}>
-                        <View style={styles.passengerPill}>
-                          <Text style={styles.passengerPillText}>
-                            {p.relationship === 'infant' ? '👶' : p.relationship === 'child' ? '🧒' : '🧑'} {p.name}
-                          </Text>
-                        </View>
-                        <Text style={styles.passengerFare}>
-                          {p.relationship === 'infant' ? 'Infant' : p.relationship === 'child' ? 'Child' : 'Adult'}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                  <Text style={styles.passengerHint}>
-                    Final passenger-specific fares and discounts are checked during booking, not split here.
-                  </Text>
-                </View>
-              )}
-              {flightExpiryMins !== null && flightExpiryMins <= 15 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#431407', borderRadius: 8, padding: 8, marginBottom: 8 }}>
-                  <Ionicons name="time-outline" size={13} color="#fb923c" />
-                  <Text style={{ fontSize: 12, color: '#fb923c', flex: 1 }}>
-                    {flightExpiryMins <= 0
-                      ? 'Price expired. Search again.'
-                      : `Price holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'} — confirm now.`}
-                  </Text>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={{ fontSize: 11, color: '#6b7280' }}>Booking fee </Text>
-                <View style={{ backgroundColor: '#052e16', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <Text style={{ fontSize: 11, color: '#4ade80', fontWeight: '600' }}>Included for now</Text>
-                </View>
-              </View>
-              <Text style={styles.confirmReason}>
-                {isIndia
-                  ? 'Best balance of speed, certainty, and payment flow for this trip.'
-                  : 'Best balance of timing, fare, and journey simplicity.'}
-              </Text>
-              <View style={styles.readinessCard}>
-                <View style={styles.readinessHeader}>
-                  <Ionicons name="shield-checkmark-outline" size={14} color="#38bdf8" />
-                  <Text style={styles.readinessTitle}>Before Ace secures it</Text>
-                </View>
-                {(pendingPlanRef.current?.readiness ?? []).map((item) => (
-                  <View key={`${item.label}-${item.detail}`} style={styles.readinessRow}>
-                    <Ionicons
-                      name={item.tone === 'ready' ? 'checkmark-circle' : 'alert-circle-outline'}
-                      size={15}
-                      color={item.tone === 'ready' ? '#4ade80' : '#f59e0b'}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.readinessLabel}>{item.label}</Text>
-                      <Text style={styles.readinessDetail}>{item.detail}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.assuranceCard}>
-                <View style={styles.assuranceHeader}>
-                  <Ionicons name="sparkles-outline" size={14} color="#d4c2a3" />
-                  <Text style={styles.assuranceTitle}>What Ace has covered</Text>
-                </View>
-                {buildAssuranceItems({
-                  plan,
-                  fiatAmount: fiat,
-                  hasCards: cards.length > 0,
-                }).map((item) => (
-                  <View key={item} style={styles.assuranceRow}>
-                    <View style={styles.assuranceDot} />
-                    <Text style={styles.assuranceText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
-              {confirmRetryNote && (
-                <View style={styles.confirmRetryCard}>
-                  <Ionicons name="refresh-outline" size={14} color="#fcd34d" />
-                  <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
-                </View>
-              )}
-              {cards.length > 0 && (
-                <View style={styles.proactiveCardList}>
-                  {cards.slice(0, 2).map((card) => (
-                    <ProactiveCardRow key={card.id} card={card} />
                   ))}
                 </View>
               )}
-              {finalLegSummary && (
-                <View style={styles.finalLegRow}>
-                  <Ionicons name="subway-outline" size={13} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.finalLegText}>{finalLegSummary}</Text>
+              {priceLabel && (
+                <Text style={styles.confirmPrice}>{sourceLabel === 'Estimated fare' ? `From ${priceLabel} (estimated)` : priceLabel}</Text>
+              )}
+              <View style={styles.noFeeStrip}>
+                <Ionicons name="gift-outline" size={12} color="#4ade80" />
+                <Text style={styles.noFeeStripText}>No service fee · April</Text>
+              </View>
+              <Text style={styles.confirmDecision}>{decisionLine}</Text>
+              {pendingPlanRef.current?.assumptionNote && (
+                <Text style={styles.confirmFootnote}>{pendingPlanRef.current.assumptionNote}</Text>
+              )}
+              {flightExpiryMins !== null && flightExpiryMins <= 15 && (
+                <View style={styles.confirmRetryCard}>
+                  <Ionicons name="time-outline" size={14} color="#e5c995" />
+                  <Text style={styles.confirmRetryText}>
+                    {flightExpiryMins <= 0
+                      ? 'This fare has just expired. Search again before you approve.'
+                      : `This fare holds for ${flightExpiryMins} more minute${flightExpiryMins === 1 ? '' : 's'}.`}
+                  </Text>
                 </View>
               )}
-              {routeData && (
-                <Pressable
-                  style={styles.viewMapBtn}
-                  onPress={() => router.push({
-                    pathname: '/(main)/map',
-                    params: { routeData: JSON.stringify(routeData) },
-                  })}
-                >
-                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.viewMapText}>View on Map</Text>
-                </Pressable>
+              {confirmRetryNote && (
+                <View style={styles.confirmRetryCard}>
+                  <Ionicons name="refresh-outline" size={14} color="#e5c995" />
+                  <Text style={styles.confirmRetryText}>{confirmRetryNote}</Text>
+                </View>
               )}
-              {!routeData && nearbyPlaces && nearbyPlaces.length > 0 && (
-                <Pressable
-                  style={styles.viewMapBtn}
-                  onPress={() => router.push({
-                    pathname: '/(main)/map',
-                    params: { places: JSON.stringify(nearbyPlaces) },
-                  })}
-                >
-                  <Ionicons name="map-outline" size={14} color={C.sky} style={{ marginRight: 6 }} />
-                  <Text style={styles.viewMapText}>Explore on Map</Text>
-                </Pressable>
+              {assurance.length > 0 && (
+                <View style={styles.confirmAssuranceRow}>
+                  {assurance.map((item, idx) => (
+                    <View key={idx} style={styles.confirmAssuranceItem}>
+                      <Ionicons name="checkmark-circle" size={11} color="#4ade80" />
+                      <Text style={styles.confirmAssuranceText}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
               )}
               <Pressable style={styles.confirmBtn} onPress={handleBiometricConfirm}>
                 <LinearGradient
-                  colors={[C.emDim, C.emMid]}
+                  colors={['#1e4d8c', '#2563eb']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={styles.confirmBtnGrad}
                 >
-                  <Ionicons name="finger-print-outline" size={20} color={C.emBright} />
-                  <Text style={styles.confirmText}>Let Ace secure this</Text>
+                  <Ionicons name="finger-print-outline" size={20} color="#edf6ff" />
+                  <Text style={styles.confirmText}>Approve with Face ID</Text>
                 </LinearGradient>
               </Pressable>
-              {isIndia && (
-                <View style={styles.upiSection}>
-                  <Text style={styles.upiLabel}>India payments happen on the next screen</Text>
-                  <Pressable style={styles.upiBtn} onPress={handleUpiPay}>
-                    <Ionicons name="qr-code-outline" size={16} color="#f97316" />
-                    <Text style={styles.upiBtnText}>How this works</Text>
-                  </Pressable>
-                  <Text style={styles.upiHint}>Ace creates the job first, then collects UPI against that job.</Text>
-                </View>
-              )}
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
-                <Text style={styles.confirmCancelText}>Cancel</Text>
+                <Text style={styles.confirmCancelText}>Not now</Text>
               </Pressable>
-            </BlurView>
+            </View>
           );
         })()}
 
@@ -1837,6 +2461,22 @@ export default function ConverseScreen() {
       {/* Orb + label */}
       {!isConfirming && (
       <View style={styles.orbArea}>
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(3,7,15,0)', 'rgba(3,7,15,0.18)', 'rgba(3,7,15,0.42)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.orbAreaShade}
+        />
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(232, 240, 250, 0.1)', 'rgba(154, 190, 245, 0.03)', 'rgba(3,7,15,0)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.orbAreaGlow}
+        />
+        <View pointerEvents="none" style={styles.orbAreaHalo} />
+
         {nearestStation && (homeStation || workStation) && (isIdle || isError) && (
           <View style={styles.shortcutRow}>
             {homeStation && (
@@ -1845,7 +2485,7 @@ export default function ConverseScreen() {
                 onPress={() => { void handleShortcutIntent(homeStation, 'home'); }}
               >
                 <Ionicons name="home-outline" size={13} color="#94a3b8" />
-                <Text style={styles.shortcutBtnText}>Get me home</Text>
+                <Text style={styles.shortcutBtnText}>Take me home</Text>
               </Pressable>
             )}
             {workStation && (
@@ -1854,26 +2494,17 @@ export default function ConverseScreen() {
                 onPress={() => { void handleShortcutIntent(workStation, 'work'); }}
               >
                 <Ionicons name="business-outline" size={13} color="#94a3b8" />
-                <Text style={styles.shortcutBtnText}>Get to work</Text>
+                <Text style={styles.shortcutBtnText}>Take me to work</Text>
               </Pressable>
             )}
-          </View>
-        )}
-
-        {(isIdle || isError || phase === 'listening') && (
-          <View style={styles.holdPlaque}>
-            <View style={styles.holdPlaqueDot} />
-            <Text style={styles.holdPlaqueText}>
-              {phase === 'listening' ? 'Listening — pause when you are done' : 'Touch Ace and speak naturally'}
-            </Text>
           </View>
         )}
 
         {textFallbackVisible && (
           <View style={styles.textFallbackCard}>
             <View style={styles.textFallbackHeader}>
-              <Ionicons name="create-outline" size={14} color="#d4c2a3" />
-              <Text style={styles.textFallbackTitle}>Type the trip instead</Text>
+              <Ionicons name="create-outline" size={14} color="#cbe8ff" />
+              <Text style={styles.textFallbackTitle}>Continue in text</Text>
             </View>
             <Text style={styles.textFallbackBody}>
               Keep it short. Ace will still handle the rest.
@@ -1905,19 +2536,35 @@ export default function ConverseScreen() {
           </View>
         )}
 
-        <Text style={[styles.phaseLabel, { color: PHASE_LABEL_COLOR[phase] ?? C.textMuted }]}>
-          {phaseLabel}
-        </Text>
-
-        <OrbAnimation
+        <AceBrain
           phase={phase}
+          isSpeaking={isSpeaking}
+          micAmplitude={micAmplitude}
+          ttsAmplitude={ttsAmplitude}
           onPress={handleOrbTap}
-          disabled={isBusy || isConfirming}
+          disabled={isConfirming}
         />
+
+        {!textFallbackVisible && (
+          <View style={styles.presenceLine}>
+            <Animated.View
+              style={[
+                styles.presenceDot,
+                {
+                  backgroundColor: presenceTone,
+                  opacity: presencePulse,
+                  transform: [{ scale: presencePulse }],
+                },
+              ]}
+            />
+            <Text style={styles.presenceLabel}>{presenceLabel}</Text>
+            <Text style={styles.presenceHint}>{presenceHint}</Text>
+          </View>
+        )}
 
         {(isIdle || isError) && turns.length > 0 && (
           <Pressable onPress={() => reset()} style={styles.clearBtn} hitSlop={12}>
-            <Text style={styles.clearBtnText}>Clear</Text>
+            <Text style={styles.clearBtnText}>Start fresh</Text>
           </Pressable>
         )}
       </View>
@@ -1929,22 +2576,14 @@ export default function ConverseScreen() {
 
 // ── Suggestion chip ───────────────────────────────────────────────────────────
 
-function suggestionSupportLine(text: string): string {
-  if (text.toLowerCase().includes('cheapest')) return 'Ace will compare a stronger option against the cheapest.';
-  if (text.toLowerCase().includes('next train')) return 'Ace will line up the next live departures and recommend one.';
-  if (text.toLowerCase().includes('route')) return 'Ace will choose the best route and explain why.';
-  return 'Ace will line up the route, price, and strongest next step.';
-}
-
 function Suggestion({ icon, text, onPress }: { icon: string; text: string; onPress: () => void }) {
   return (
     <Pressable style={suggStyles.chip} onPress={onPress}>
       <View style={suggStyles.iconWrap}>
-        <Ionicons name={icon as any} size={13} color={C.em} />
+        <Ionicons name={icon as any} size={13} color="#dcecff" />
       </View>
       <View style={suggStyles.copy}>
         <Text style={suggStyles.text}>{text}</Text>
-        <Text style={suggStyles.subtext}>{suggestionSupportLine(text)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={14} color={C.textMuted} />
     </Pressable>
@@ -1955,7 +2594,7 @@ function Atmosphere() {
   return (
     <View pointerEvents="none" style={styles.atmosphere}>
       <LinearGradient
-        colors={['rgba(16, 185, 129, 0.18)', 'rgba(16, 185, 129, 0)']}
+        colors={['rgba(164, 212, 255, 0.16)', 'rgba(164, 212, 255, 0)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.atmosphereGlowLeft}
@@ -1994,7 +2633,7 @@ const suggStyles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 6,
-    backgroundColor: C.emDim,
+    backgroundColor: 'rgba(24, 38, 55, 0.92)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2002,23 +2641,9 @@ const suggStyles = StyleSheet.create({
     flex: 1,
   },
   text: { fontSize: 13, color: C.textPrimary, letterSpacing: 0.1, fontWeight: '600' },
-  subtext: { fontSize: 11, color: C.textMuted, lineHeight: 16, marginTop: 3 },
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-
-function ProactiveCardRow({ card }: { card: ProactiveCard }) {
-  const accent = card.severity === 'warning' ? '#f59e0b' : card.severity === 'success' ? '#4ade80' : C.sky;
-  return (
-    <View style={[styles.proactiveCard, { borderColor: `${accent}33` }]}>
-      <View style={[styles.proactiveDot, { backgroundColor: accent }]} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.proactiveTitle}>{card.title}</Text>
-        <Text style={styles.proactiveBody}>{card.body}</Text>
-      </View>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
@@ -2063,52 +2688,52 @@ const styles = StyleSheet.create({
   headerBrand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 10,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  headerDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: C.em,
-    shadowColor: C.em,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
+  headerMarkWrap: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerMarkImage: {
+    width: 34,
+    height: 34,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    color: C.textPrimary,
-    letterSpacing: 1.8,
+    color: '#f4f7fb',
+    letterSpacing: 2.2,
   },
   headerSubtitle: {
     fontSize: 10,
-    color: C.textMuted,
-    letterSpacing: 1.6,
+    color: '#6f7d8d',
+    letterSpacing: 1.4,
     textTransform: 'uppercase',
     marginTop: 2,
   },
   nearBadge: {
-    backgroundColor: '#111111',
+    backgroundColor: 'rgba(10, 16, 26, 0.82)',
     borderWidth: 1,
-    borderColor: '#1e293b',
-    borderRadius: 12,
-    paddingHorizontal: 10,
+    borderColor: 'rgba(113, 140, 170, 0.18)',
+    borderRadius: 14,
+    paddingHorizontal: 11,
     paddingVertical: 5,
   },
-  nearBadgeText: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  nearBadgeText: { fontSize: 11, color: '#9fb0c2', fontWeight: '600' },
   headerIconBtn: {
     width: 34,
     height: 34,
-    borderRadius: 12,
+    borderRadius: 13,
     borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.surface,
+    borderColor: 'rgba(113, 140, 170, 0.16)',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2124,31 +2749,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(53, 83, 122, 0.4)',
     borderRadius: 28,
     paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 18,
-    marginBottom: 18,
+    paddingTop: 22,
+    paddingBottom: 22,
+    marginBottom: 22,
     shadowColor: '#020617',
     shadowOpacity: 0.4,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
-  },
-  heroTopline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  heroToplineRule: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.16)',
-  },
-  emptyEyebrow: {
-    fontSize: 11,
-    color: '#cbd5e1',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
   },
   emptyGreeting: {
     fontSize: 38,
@@ -2158,19 +2765,61 @@ const styles = StyleSheet.create({
     letterSpacing: -1.0,
     lineHeight: 44,
   },
-  emptyHint: {
-    fontSize: 15,
-    color: C.textSecondary,
-    marginBottom: 18,
+  heroLogoWrap: {
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  heroLogoImage: {
+    width: 92,
+    height: 92,
+  },
+  heroExample: {
+    marginTop: 22,
+    fontSize: 26,
+    lineHeight: 34,
+    letterSpacing: -0.7,
+    textAlign: 'center',
+    color: '#e5edf7',
+    fontWeight: '500',
+  },
+  heroResponse: {
+    marginTop: 14,
+    fontSize: 17,
     lineHeight: 24,
-    letterSpacing: 0.1,
+    textAlign: 'center',
+    color: '#7f95aa',
+    fontWeight: '500',
+  },
+  greetingStrip: {
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(96, 126, 163, 0.2)',
+    backgroundColor: 'rgba(7, 14, 24, 0.74)',
+  },
+  greetingStripTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: '#edf4fb',
+    letterSpacing: -0.3,
+  },
+  greetingStripBody: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#91a4b8',
   },
   modeCard: {
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(125, 211, 252, 0.16)',
-    backgroundColor: 'rgba(7, 14, 24, 0.84)',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    backgroundColor: 'rgba(8, 14, 22, 0.72)',
     padding: 16,
+    marginTop: 18,
     marginBottom: 18,
   },
   modeHeader: {
@@ -2184,11 +2833,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 6,
   },
-  modeHint: {
-    color: C.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-  },
   modeRow: {
     flexDirection: 'row',
     gap: 10,
@@ -2199,8 +2843,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    borderColor: 'rgba(113, 140, 170, 0.14)',
+    backgroundColor: 'rgba(11, 17, 27, 0.72)',
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2208,12 +2852,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modeBtnActive: {
-    backgroundColor: 'rgba(8, 47, 73, 0.92)',
-    borderColor: 'rgba(125, 211, 252, 0.34)',
+    backgroundColor: 'rgba(16, 24, 35, 0.9)',
+    borderColor: 'rgba(171, 207, 239, 0.28)',
   },
   modeBtnSharedActive: {
-    backgroundColor: 'rgba(48, 16, 82, 0.9)',
-    borderColor: 'rgba(216, 180, 254, 0.38)',
+    backgroundColor: 'rgba(17, 24, 36, 0.9)',
+    borderColor: 'rgba(194, 208, 226, 0.26)',
   },
   modeBtnText: {
     color: '#cbd5e1',
@@ -2231,33 +2875,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  heroStatRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 12,
-  },
-  heroStat: {
-    flex: 1,
-  },
-  heroStatValue: {
-    fontSize: 13,
-    color: '#f8fafc',
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  heroStatLabel: {
-    fontSize: 11,
-    color: C.textMuted,
-    lineHeight: 15,
-  },
-  heroStatDivider: {
-    width: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.14)',
-  },
   activeTripCard: {
-    backgroundColor: 'rgba(8, 18, 32, 0.9)',
+    backgroundColor: 'rgba(8, 14, 22, 0.86)',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 24,
     padding: 18,
     marginBottom: 22,
@@ -2269,7 +2890,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   activeTripPill: {
-    backgroundColor: C.indigoDim,
+    backgroundColor: 'rgba(18, 26, 39, 0.92)',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -2283,7 +2904,7 @@ const styles = StyleSheet.create({
   activeTripPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#b8c4ff',
+    color: '#bed0e3',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
@@ -2307,9 +2928,9 @@ const styles = StyleSheet.create({
   },
   suggestionsCard: {
     marginTop: 2,
-    backgroundColor: 'rgba(6, 13, 24, 0.82)',
+    backgroundColor: 'rgba(8, 12, 18, 0.62)',
     borderWidth: 1,
-    borderColor: 'rgba(53, 83, 122, 0.34)',
+    borderColor: 'rgba(113, 140, 170, 0.14)',
     borderRadius: 24,
     padding: 18,
   },
@@ -2318,16 +2939,11 @@ const styles = StyleSheet.create({
   },
   suggestionsEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#8ea1b5',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 6,
-  },
-  suggestionsHint: {
-    fontSize: 13,
-    color: C.textSecondary,
-    lineHeight: 19,
   },
   suggestions: {},
   shortcutRow: {
@@ -2353,9 +2969,9 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: C.emBright,
-    shadowColor: C.emBright,
-    shadowOpacity: 0.8,
+    backgroundColor: '#dcecff',
+    shadowColor: '#dcecff',
+    shadowOpacity: 0.5,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
   },
@@ -2392,18 +3008,16 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: C.emDim,
+    backgroundColor: 'rgba(18, 31, 46, 0.96)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
     borderWidth: 1,
-    borderColor: C.emGlow,
+    borderColor: 'rgba(169, 220, 255, 0.28)',
   },
-  avatarDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.emBright,
+  avatarMark: {
+    width: 15,
+    height: 15,
   },
   bubbleText: {
     fontSize: 15,
@@ -2423,7 +3037,7 @@ const styles = StyleSheet.create({
     color: C.textSecondary,
     borderBottomLeftRadius: 3,
     borderLeftWidth: 2,
-    borderLeftColor: C.em,
+    borderLeftColor: '#8dbfe7',
   },
   recentTurnsCard: {
     marginBottom: 14,
@@ -2452,55 +3066,46 @@ const styles = StyleSheet.create({
   },
 
   confirmCard: {
-    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.3)',
-    borderRadius: 26,
-    padding: 24,
-    marginBottom: 12,
+    borderColor: 'rgba(156, 204, 240, 0.28)',
+    borderRadius: 34,
+    paddingHorizontal: 26,
+    paddingTop: 28,
+    paddingBottom: 20,
+    marginBottom: 10,
     alignSelf: 'stretch',
-    gap: 14,
-    shadowColor: C.em,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 40,
-    elevation: 12,
-  },
-  confirmEyebrowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    backgroundColor: 'rgba(4, 10, 18, 0.96)',
+    shadowColor: '#9cccf0',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
+    elevation: 18,
   },
   confirmEyebrow: {
     fontSize: 11,
-    color: '#cbd5e1',
+    color: '#d7e6f5',
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
+    textAlign: 'center',
+    marginBottom: 14,
   },
   confirmTrip: {
-    fontSize: 14,
-    color: '#dbeafe',
-    textAlign: 'left',
-    lineHeight: 21,
-    letterSpacing: 0.1,
+    fontSize: 22,
+    color: '#eef6ff',
+    textAlign: 'center',
+    lineHeight: 30,
+    letterSpacing: -0.5,
+    fontWeight: '700',
+    marginBottom: 8,
   },
-  sourceBadge: {
-    alignSelf: 'center',
-    backgroundColor: 'rgba(8, 18, 32, 0.8)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.22)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  sourceBadgeText: {
-    fontSize: 11,
-    color: '#93c5fd',
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+  confirmMeta: {
+    fontSize: 12,
+    color: '#89a5bf',
+    textAlign: 'center',
+    lineHeight: 18,
+    letterSpacing: 0.2,
+    marginBottom: 12,
   },
   assumptionCard: {
     flexDirection: 'row',
@@ -2520,144 +3125,47 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   confirmPrice: {
-    fontSize: 38,
+    fontSize: 54,
     fontWeight: '800',
     color: C.textPrimary,
     textAlign: 'center',
-    letterSpacing: -1.5,
+    letterSpacing: -2,
+    marginTop: 6,
+    marginBottom: 12,
   },
-  confirmReason: {
-    fontSize: 13,
-    color: C.textMuted,
-    textAlign: 'left',
-    lineHeight: 20,
-    marginTop: -6,
-  },
-  recommendationCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 234, 214, 0.16)',
-    backgroundColor: 'rgba(24, 20, 15, 0.72)',
-    padding: 14,
-    gap: 10,
-  },
-  recommendationHeader: {
+  noFeeStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 5,
+    marginBottom: 10,
   },
-  recommendationEyebrow: {
-    fontSize: 11,
-    color: '#f4ead6',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  recommendationTitle: {
-    fontSize: 18,
-    color: '#f8fafc',
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  recommendationWhy: {
+  noFeeStripText: {
     fontSize: 12,
-    color: '#d6d3d1',
-    lineHeight: 18,
-  },
-  recommendationCueRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recommendationCue: {
-    borderRadius: 999,
-    backgroundColor: 'rgba(8, 18, 32, 0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  recommendationCueText: {
-    fontSize: 11,
-    color: '#bae6fd',
+    color: '#4ade80',
     fontWeight: '600',
-  },
-  readinessCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.18)',
-    backgroundColor: 'rgba(8, 47, 73, 0.28)',
-    padding: 12,
-    gap: 10,
-  },
-  readinessHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  readinessTitle: {
-    fontSize: 12,
-    color: '#bae6fd',
-    fontWeight: '700',
     letterSpacing: 0.2,
   },
-  readinessRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+  confirmDecision: {
+    fontSize: 15,
+    color: '#d9e7f5',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 10,
   },
-  readinessLabel: {
+  confirmFootnote: {
     fontSize: 12,
-    color: '#e2e8f0',
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  readinessDetail: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: '#94a3b8',
-  },
-  assuranceCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 194, 163, 0.18)',
-    backgroundColor: 'rgba(19, 15, 10, 0.55)',
-    padding: 12,
-    gap: 8,
-  },
-  assuranceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  assuranceTitle: {
-    fontSize: 12,
-    color: '#f4ead6',
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  assuranceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  assuranceDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#d4c2a3',
-  },
-  assuranceText: {
-    fontSize: 11,
-    color: '#d6d3d1',
-    lineHeight: 16,
+    color: '#7f91a4',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 14,
   },
   confirmRetryCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 2,
+    marginBottom: 12,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(252, 211, 77, 0.28)',
@@ -2671,74 +3179,62 @@ const styles = StyleSheet.create({
     color: '#fef3c7',
     lineHeight: 18,
   },
-  proactiveCardList: {
-    gap: 8,
-  },
-  proactiveCard: {
+  confirmAssuranceRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
-    alignItems: 'flex-start',
-    backgroundColor: '#0b1220',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 4,
   },
-  proactiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 5,
-  },
-  proactiveTitle: {
-    fontSize: 12,
-    color: C.textPrimary,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  proactiveBody: {
-    fontSize: 12,
-    color: C.textMuted,
-    lineHeight: 17,
-  },
-  finalLegRow: {
+  confirmAssuranceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
-    backgroundColor: C.skyDim,
-    borderWidth: 1,
-    borderColor: '#1a3a50',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    gap: 4,
   },
-  finalLegText: {
-    flex: 1,
-    fontSize: 12,
-    color: C.sky,
-    lineHeight: 18,
-    letterSpacing: 0.1,
+  confirmAssuranceText: {
+    fontSize: 11,
+    color: '#6b8a78',
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  confirmCueRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  confirmCuePill: {
+    backgroundColor: 'rgba(15, 25, 40, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 140, 180, 0.22)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  confirmCuePillText: {
+    fontSize: 11,
+    color: '#a8c4d8',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   confirmBtn: {
-    borderRadius: 14,
+    borderRadius: 18,
     overflow: 'hidden',
+    marginTop: 8,
   },
   confirmBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    paddingVertical: 16,
+    paddingVertical: 19,
   },
-  confirmText: { fontSize: 15, color: C.emBright, fontWeight: '700', letterSpacing: 0.2 },
-  confirmCancel: { alignItems: 'center', paddingVertical: 8 },
+  confirmText: { fontSize: 16, color: '#edf6ff', fontWeight: '700', letterSpacing: 0.2 },
+  confirmCancel: { alignItems: 'center', paddingVertical: 10, marginTop: 2 },
   confirmCancelText: { fontSize: 13, color: C.textDim },
-
-  upiSection:  { marginTop: 4, alignItems: 'center', gap: 8 },
-  upiLabel:    { fontSize: 12, color: C.textMuted, letterSpacing: 0.5 },
-  upiBtn:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1c1008', borderWidth: 1, borderColor: C.amberMid, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  upiBtnText:  { fontSize: 14, fontWeight: '600', color: '#f97316' },
-  upiHint:     { fontSize: 11, color: C.textDim },
 
   errorCard: {
     flexDirection: 'row',
@@ -2761,11 +3257,60 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingBottom: 50,
-    paddingTop: 18,
-    backgroundColor: 'rgba(3,7,15,0.92)',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(148, 163, 184, 0.16)',
+    paddingHorizontal: 20,
+    paddingBottom: 34,
+    paddingTop: 0,
+    backgroundColor: 'transparent',
+    overflow: 'visible',
+  },
+  orbAreaShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: -90,
+  },
+  orbAreaGlow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 210,
+    bottom: 8,
+  },
+  orbAreaHalo: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 360,
+    height: 190,
+    bottom: -146,
+    borderRadius: 999,
+    backgroundColor: 'rgba(196, 220, 248, 0.028)',
+  },
+  presenceLine: {
+    marginTop: 10,
+    alignItems: 'center',
+    gap: 4,
+  },
+  presenceDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    shadowColor: '#cbe8ff',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  presenceLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#dfe8f1',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  presenceHint: {
+    fontSize: 12,
+    color: '#8ea1b5',
+    letterSpacing: 0.2,
   },
   textFallbackCard: {
     width: '100%',
@@ -2834,48 +3379,13 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontWeight: '600',
   },
-  phaseLabel: {
-    fontSize: 11,
-    marginBottom: 14,
-    letterSpacing: 2,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    // color injected inline per-phase
-  },
   clearBtn: { marginTop: 18 },
   clearBtnText: { fontSize: 13, color: C.textDim, letterSpacing: 0.3 },
-  viewMapBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-    alignSelf: 'flex-start',
-  },
-  viewMapText: { fontSize: 13, color: C.sky, fontWeight: '500' },
-  passengerList: { marginBottom: 10, borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 10 },
-  passengerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  passengerPill: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#1e293b' },
-  passengerPillText: { fontSize: 12, color: '#f8fafc' },
-  passengerFare: { fontSize: 12, color: '#94a3b8' },
-  passengerHint: { marginTop: 6, fontSize: 11, lineHeight: 16, color: C.textMuted },
-
-  // Multi-leg journey timeline
-  legTimeline:    { marginBottom: 12, borderWidth: 1, borderColor: '#1e293b', borderRadius: 10, padding: 12 },
-  legRow:         { flexDirection: 'row', marginBottom: 4 },
-  legConnector:   { width: 28, alignItems: 'center' },
-  legIconText:    { fontSize: 16, lineHeight: 22 },
-  legLine:        { width: 1, flex: 1, backgroundColor: '#1e293b', marginTop: 2, marginBottom: -4, minHeight: 10 },
-  legBody:        { flex: 1, paddingLeft: 8, paddingBottom: 10 },
-  legLabelText:   { fontSize: 12, color: '#f8fafc', lineHeight: 18 },
-  legFareText:    { fontSize: 12, color: '#94a3b8', marginTop: 1 },
-  legTotalRow:    { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#1e293b', paddingTop: 8, marginTop: 4 },
-  legTotalLabel:  { fontSize: 12, color: '#6b7280', fontWeight: '600' },
-  legTotalAmount: { fontSize: 13, color: '#f8fafc', fontWeight: '700' },
 
   usualRouteCard: {
-    backgroundColor: '#061a0e',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     borderWidth: 1,
-    borderColor: '#14532d',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -2883,14 +3393,14 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   usualRouteRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  usualRouteLabel: { fontSize: 11, color: '#4ade80', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  usualRouteCount: { fontSize: 11, color: '#4ade80', opacity: 0.7, marginLeft: 'auto' as any },
+  usualRouteLabel: { fontSize: 11, color: '#c9d9e8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  usualRouteCount: { fontSize: 11, color: '#8ea1b5', opacity: 0.8, marginLeft: 'auto' as any },
   usualRouteRoute: { fontSize: 16, color: '#f8fafc', fontWeight: '700', marginBottom: 2 },
-  usualRouteFare:  { fontSize: 12, color: '#6b7280' },
+  usualRouteFare:  { fontSize: 12, color: '#7e8d9d' },
   sharedUnitCard: {
-    backgroundColor: '#16091b',
+    backgroundColor: 'rgba(8, 14, 22, 0.84)',
     borderWidth: 1,
-    borderColor: '#581c87',
+    borderColor: 'rgba(122, 167, 214, 0.16)',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -2903,22 +3413,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
-  sharedUnitLabel: {
-    fontSize: 14,
-    color: '#f5d0fe',
-    fontWeight: '700',
-    flex: 1,
-  },
+  sharedUnitLabel: { fontSize: 14, color: '#eef5fb', fontWeight: '700', flex: 1 },
   sharedUnitMeta: {
     fontSize: 11,
-    color: '#d8b4fe',
+    color: '#9db1c5',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '700',
   },
   sharedUnitBody: {
     fontSize: 12,
-    color: '#e9d5ff',
+    color: '#aebfd0',
     lineHeight: 18,
     marginBottom: 12,
   },
@@ -2929,39 +3434,84 @@ const styles = StyleSheet.create({
   sharedUnitBtn: {
     flex: 1,
     borderRadius: 12,
-    backgroundColor: '#a855f7',
+    backgroundColor: '#dcecff',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 11,
   },
   sharedUnitBtnSecondary: {
-    backgroundColor: '#22132f',
+    backgroundColor: 'rgba(12, 19, 29, 0.9)',
     borderWidth: 1,
-    borderColor: '#6b21a8',
+    borderColor: 'rgba(122, 167, 214, 0.18)',
   },
   sharedUnitBtnText: {
     fontSize: 12,
-    color: '#faf5ff',
+    color: '#0e1722',
     fontWeight: '700',
   },
   sharedUnitBtnTextSecondary: {
-    color: '#e9d5ff',
+    color: '#d9e7f4',
   },
-  hotelCard:       { backgroundColor: '#0a0d14', borderWidth: 1, borderColor: '#1e3a5f', borderRadius: 10, padding: 12, marginBottom: 10, gap: 6 },
-  hotelName:       { fontSize: 14, fontWeight: '600', color: '#f8fafc', flex: 1 },
-  hotelStars:      { fontSize: 11, color: '#f59e0b', letterSpacing: 1 },
-  hotelDateLabel:  { fontSize: 10, color: '#64748b', marginBottom: 2 },
-  hotelDate:       { fontSize: 13, color: '#94a3b8', fontWeight: '500' },
-  hotelRate:       { fontSize: 12, color: '#4ade80', marginTop: 4 },
-  hotelArea:       { fontSize: 11, color: '#64748b' },
-  groupSummaryCard:{ backgroundColor: '#081826', borderWidth: 1, borderColor: '#0c4a6e', borderRadius: 12, padding: 12, gap: 8 },
-  groupSummaryRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  groupSummaryTitle:{ fontSize: 12, color: '#38bdf8', fontWeight: '700' },
-  groupSummaryBody:{ fontSize: 12, color: '#cbd5e1', lineHeight: 18 },
-  groupReadyBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#052e16', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#166534' },
-  groupReadyText:  { flex: 1, fontSize: 12, color: '#4ade80', lineHeight: 17 },
-  groupWarnBadge:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#451a03', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#b45309' },
-  groupWarnText:   { flex: 1, fontSize: 12, color: '#fdba74', lineHeight: 17 },
+  travelModePromptCard: {
+    backgroundColor: 'rgba(8, 14, 22, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.16)',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 10,
+    width: '100%',
+  },
+  travelModePromptHeader: {
+    marginBottom: 6,
+  },
+  travelModePromptEyebrow: {
+    fontSize: 11,
+    color: '#c9d9e8',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  travelModePromptTitle: {
+    fontSize: 16,
+    color: '#f4f8fc',
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: -0.2,
+  },
+  travelModePromptBody: {
+    fontSize: 12,
+    color: '#aebfd0',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  travelModePromptActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  travelModePromptPrimary: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#dcecff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  travelModePromptPrimaryText: {
+    fontSize: 12,
+    color: '#0e1722',
+    fontWeight: '700',
+  },
+  travelModePromptSecondary: {
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  travelModePromptSecondaryText: {
+    fontSize: 12,
+    color: '#9db1c5',
+    fontWeight: '600',
+  },
   myTripsBtn:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#1e293b', marginBottom: 10 },
   myTripsBtnText:  { fontSize: 13, color: '#64748b' },
 });

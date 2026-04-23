@@ -154,6 +154,17 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** Admin email for manual fulfillment alerts — receives a copy of every booking request. */
   ADMIN_EMAIL?: string;
+  /** AgentMail organization API key — enables portable inbox provisioning for agents. */
+  AGENTMAIL_API_KEY?: string;
+  /** Optional override for the AgentMail API base URL. */
+  AGENTMAIL_BASE_URL?: string;
+  /** Optional default email domain for newly provisioned agent inboxes. */
+  AGENTMAIL_INBOX_DOMAIN?: string;
+
+  /** Availity clearinghouse OAuth2 client ID — enables real-time eligibility checks */
+  AVAILITY_CLIENT_ID?: string;
+  /** Availity clearinghouse OAuth2 client secret */
+  AVAILITY_CLIENT_SECRET?: string;
 
   // ── Google Maps (server key — IP-restricted, never ship in app) ──────────
   /**
@@ -208,24 +219,78 @@ export interface Env {
   // ── AI ────────────────────────────────────────────────────────────────────
   /** Cloudflare Workers AI binding — used for in-process Whisper STT (no external fetch). */
   AI?: Ai;
-  /** Anthropic API key — powers the Bro concierge brain. */
+  /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
+  ELEVENLABS_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */
   GEMINI_API_KEY?: string;
   /** Firecrawl API key — enables markdown scraping for operators without first-party APIs. */
   FIRECRAWL_API_KEY?: string;
 
-  // ── OpenClaw (automated fulfillment) ──────────────────────────────────────
-  /** OpenClaw API base URL — e.g. https://api.openclaw.io */
+  /** Base URL for the institutional 276/277 claim-status connector. */
+  RCM_X12_CLAIM_STATUS_API_URL?: string;
+  /** Bearer key for the institutional 276/277 claim-status connector. */
+  RCM_X12_CLAIM_STATUS_API_KEY?: string;
+  /** Optional timeout in ms for the remote 276/277 connector. */
+  RCM_X12_CLAIM_STATUS_TIMEOUT_MS?: string;
+
+  /** Base URL for the HETS 270/271 eligibility connector. */
+  RCM_HETS_API_URL?: string;
+  /** Bearer key for the HETS 270/271 eligibility connector. */
+  RCM_HETS_API_KEY?: string;
+  /** Optional timeout in ms for the remote HETS eligibility connector. */
+  RCM_HETS_TIMEOUT_MS?: string;
+
+  /** Base URL for the X12 appeal inquiry (denial follow-up) connector. */
+  RCM_X12_APPEAL_INQUIRY_API_URL?: string;
+  /** Bearer key for the X12 appeal inquiry (denial follow-up) connector. */
+  RCM_X12_APPEAL_INQUIRY_API_KEY?: string;
+
+  /** AES-GCM encryption key for the RCM credential vault (32-byte hex). */
+  RCM_VAULT_ENCRYPTION_KEY?: string;
+  /** AES-GCM encryption key for the generic capability vault (32-byte hex). Falls back to RCM_VAULT_ENCRYPTION_KEY when absent. */
+  CAPABILITY_VAULT_ENCRYPTION_KEY?: string;
+  /** Optional comma-separated previous AES-GCM keys retained for capability vault decryption during key rotation. */
+  CAPABILITY_VAULT_DECRYPTION_KEYS?: string;
+
+  /**
+   * Minutes before a retry_pending work item is picked up by the autonomy
+   * loop fallback pass. Defaults to 30 minutes.
+   */
+  RCM_RETRY_TIMEOUT_MINS?: string;
+
+  // ── Fulfillment provider (automated booking execution) ────────────────────
+  /** Canonical fulfillment provider base URL. npx wrangler secret put FULFILLMENT_PROVIDER_URL */
+  FULFILLMENT_PROVIDER_URL?: string;
+  /** Legacy fulfillment provider base URL alias — e.g. https://api.openclaw.io */
   OPENCLAW_API_URL?: string;
-  /** OpenClaw API key — authenticates fulfillment dispatch requests. npx wrangler secret put OPENCLAW_API_KEY */
+  /** Canonical fulfillment provider API key. npx wrangler secret put FULFILLMENT_PROVIDER_API_KEY */
+  FULFILLMENT_PROVIDER_API_KEY?: string;
+  /** Legacy fulfillment provider API key alias. npx wrangler secret put OPENCLAW_API_KEY */
   OPENCLAW_API_KEY?: string;
 
-  // ── Bro app client auth ───────────────────────────────────────────────────
+  // ── Approval infrastructure ───────────────────────────────────────────────
   /**
-   * Static key sent by the Bro app in `x-bro-key` header.
+   * HMAC salt for device ID hashing in approval sessions.
+   * SHA-256(rawDeviceId + APPROVAL_SALT) is stored — raw device ID never persisted.
+   * GDPR Article 9 compliant. npx wrangler secret put APPROVAL_SALT
+   */
+  APPROVAL_SALT?: string;
+
+  // ── AgentPay client app auth ──────────────────────────────────────────────
+  /**
+   * Static key sent by first-party clients in `x-agentpay-client-key`.
+   * Legacy clients may continue sending `x-bro-key`.
+   * Set via: npx wrangler secret put AGENTPAY_CLIENT_KEY
+   * Add to EAS build env as: EXPO_PUBLIC_AGENTPAY_CLIENT_KEY
+   */
+  AGENTPAY_CLIENT_KEY?: string;
+
+  /**
+   * Legacy static key sent by the Bro app in `x-bro-key` header.
    * If set, /api/concierge/intent rejects requests without this header.
    * Set via: npx wrangler secret put BRO_CLIENT_KEY
    * Add to EAS build env as: EXPO_PUBLIC_BRO_KEY
@@ -314,10 +379,27 @@ export interface Env {
    */
   TWELVEGO_API_KEY?: string;
 
-  // ── Operations (Make.com fulfillment sheet) ───────────────────────────────
+  // ── Apple Wallet pass generation ─────────────────────────────────────────
+  /** 10-char Apple Developer team ID — e.g. "ABCDE12345". npx wrangler secret put APPLE_PASS_TEAM_ID */
+  APPLE_PASS_TEAM_ID?: string;
+  /** Pass Type Identifier — e.g. "pass.so.agentpay.ace". Register at developer.apple.com/account/resources/identifiers. npx wrangler secret put APPLE_PASS_TYPE_ID */
+  APPLE_PASS_TYPE_ID?: string;
+  /** Pass Type Certificate PEM (no bag attributes). Export from Keychain after creating in Apple Developer portal. npx wrangler secret put APPLE_PASS_CERT_PEM */
+  APPLE_PASS_CERT_PEM?: string;
+  /** Private key PEM (PKCS8) matching the pass certificate. npx wrangler secret put APPLE_PASS_KEY_PEM */
+  APPLE_PASS_KEY_PEM?: string;
+  /** Apple WWDR G4 intermediate certificate PEM. Download from https://www.apple.com/certificateauthority/. npx wrangler secret put APPLE_PASS_WWDR_PEM */
+  APPLE_PASS_WWDR_PEM?: string;
+
+  // ── Operations webhook ────────────────────────────────────────────────────
   /**
-   * Make.com webhook URL — every confirmed booking POSTs here.
-   * Make.com creates a Google Sheet row (PENDING) for manual fulfilment.
+   * Canonical operations webhook URL — every confirmed booking POSTs here.
+   * npx wrangler secret put OPERATIONS_WEBHOOK_URL
+   */
+  OPERATIONS_WEBHOOK_URL?: string;
+
+  /**
+   * Legacy operations webhook URL — previously pointed at Make.com.
    * npx wrangler secret put MAKECOM_WEBHOOK_URL
    */
   MAKECOM_WEBHOOK_URL?: string;
@@ -327,8 +409,10 @@ export interface Env {
   TWILIO_ACCOUNT_SID?: string;
   /** Twilio Auth Token — paired with TWILIO_ACCOUNT_SID. */
   TWILIO_AUTH_TOKEN?: string;
+  /** Twilio Verify Service SID — enables phone verification challenges. */
+  TWILIO_VERIFY_SERVICE_SID?: string;
   /**
-   * Twilio WhatsApp sender number — must start with "whatsapp:+".
+   * Twilio WhatsApp sender number — must start with "whatsapp:+".  
    * Sandbox: "whatsapp:+14155238886"
    * Production: your verified business number.
    */
@@ -356,11 +440,13 @@ export interface MerchantContext {
   id: string;
   name: string;
   email: string;
-  walletAddress: string;
+  walletAddress: string | null;
   webhookUrl: string | null;
+  parentMerchantId?: string | null;
 }
 
 /** Hono Variables type — passed as the second generic to Hono<{...}>. */
 export interface Variables {
   merchant: MerchantContext;
+  mcpAudience?: 'openai' | 'anthropic' | 'generic';
 }

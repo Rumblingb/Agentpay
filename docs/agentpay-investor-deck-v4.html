@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentPay + Ace - Ecosystem Deck</title>
+<style>
+  @media print {
+    @page { size: 1280px 720px landscape; margin: 0; }
+    html, body { width: 1280px; height: auto; overflow: visible !important; background: #09111f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #deck { width: 1280px; height: auto; position: static !important; overflow: visible !important; }
+    #progress, .nav, #hint, .slide-num { display: none !important; }
+    .slide { position: relative !important; inset: auto !important; width: 1280px !important; height: 720px !important; opacity: 1 !important; transform: none !important; pointer-events: all !important; display: flex !important; page-break-after: always; break-after: page; overflow: hidden; }
+  }
+
+  :root {
+    --bg: #09111f;
+    --panel: rgba(12, 20, 38, 0.9);
+    --line: rgba(163, 191, 245, 0.18);
+    --line-strong: rgba(205, 220, 255, 0.3);
+    --text: #edf3ff;
+    --muted: #9eaac4;
+    --dim: #64718d;
+    --ice: #dfe9fc;
+    --accent: #9ebff7;
+    --gold: #d7c29c;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #030712; color: var(--text); font-family: "Aptos", "Segoe UI", Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 15% 18%, rgba(101,130,207,0.2), transparent 24%), radial-gradient(circle at 82% 18%, rgba(215,194,156,0.08), transparent 20%), radial-gradient(circle at 72% 78%, rgba(101,130,207,0.14), transparent 28%); }
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px); background-size: 72px 72px; mask-image: linear-gradient(180deg, rgba(255,255,255,0.28), transparent 78%); }
+
+  #deck { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+  .slide { position: absolute; inset: 0; padding: 7vh 7.5vw; display: flex; flex-direction: column; justify-content: center; opacity: 0; transform: translateX(40px); transition: opacity .42s cubic-bezier(.22,1,.36,1), transform .42s cubic-bezier(.22,1,.36,1); pointer-events: none; background: linear-gradient(135deg, rgba(10,18,36,0.98), rgba(5,11,21,0.96)); }
+  .slide.active { opacity: 1; transform: translateX(0); pointer-events: auto; }
+  .slide.exit { opacity: 0; transform: translateX(-40px); transition: opacity .28s ease, transform .28s ease; }
+
+  .eyebrow, .mono, .slide-num, #hint { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; }
+  .eyebrow { color: var(--dim); font-size: 11px; letter-spacing: .22em; text-transform: uppercase; margin-bottom: 2.2vh; }
+  .headline, .display, .ask-amount, .quote { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
+  .headline { max-width: 920px; font-size: clamp(34px, 4.7vw, 66px); line-height: 1.02; letter-spacing: -.045em; font-weight: 700; }
+  .headline em { font-style: normal; color: var(--ice); }
+  .subhead { max-width: 730px; margin-top: 2.4vh; color: var(--muted); font-size: clamp(16px, 1.45vw, 22px); line-height: 1.56; }
+  .body { max-width: 780px; margin-top: 2.4vh; color: var(--muted); font-size: clamp(14px, 1.12vw, 18px); line-height: 1.66; }
+  .lede { color: var(--ice); }
+  .display { font-size: clamp(60px, 8.4vw, 120px); line-height: .92; letter-spacing: -.06em; margin: 1vh 0 1.8vh; }
+  .slide-num { position: absolute; right: 4.6vw; bottom: 3.8vh; color: rgba(118,134,166,.68); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; }
+
+  .chips, .grid2, .grid4, .grid5, .stack, .roadmap, .revenue-stack, .fund-list { display: grid; gap: 14px; }
+  .chips { grid-template-columns: repeat(5, max-content); gap: 12px; margin-top: 3vh; }
+  .chip { padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: rgba(13, 24, 44, 0.78); color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+  .grid2 { grid-template-columns: 1.25fr .95fr; width: 100%; margin-top: 4vh; align-items: stretch; }
+  .grid4 { grid-template-columns: repeat(4, 1fr); width: 100%; max-width: 1120px; margin-top: 4vh; }
+  .grid5 { grid-template-columns: repeat(5, 1fr); width: 100%; max-width: 1120px; margin-top: 4vh; }
+
+  .card, .panel, .module, .road, .revenue, .proof, .ask-box, .fund-box { padding: 18px 16px; border-radius: 20px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(14,24,46,0.92), rgba(8,15,28,0.88)); box-shadow: 0 24px 54px rgba(2,7,17,.42); }
+  .panel, .ask-box, .fund-box { padding: 2.4vh 1.6vw; }
+  .flagship, .platform-base, .road.primary { border-color: var(--line-strong); }
+  .flagship, .road.primary, .platform-base { background: linear-gradient(180deg, rgba(158,191,247,0.1), rgba(8,15,28,0.9)); }
+  .label, .tag, .ask-label, .fund-label, .table th { color: var(--dim); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; }
+  .title { color: var(--text); font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+  .copy, .stack-item span, .table td, .platform-base-copy, .fund-item span { color: var(--muted); font-size: 13px; line-height: 1.58; }
+  .stack { margin-top: 2.4vh; }
+  .stack-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.05); background: rgba(255,255,255,.03); }
+  .stack-item strong { color: var(--text); font-size: 13px; letter-spacing: .04em; }
+  .module-index, .proof-number { color: var(--ice); font-weight: 700; letter-spacing: -.04em; }
+  .module-index { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid rgba(255,255,255,.08); color: var(--accent); font-size: 11px; margin-bottom: 14px; }
+  .proof-number { font-size: 30px; margin-bottom: 12px; }
+  .platform-base { width: 100%; max-width: 1120px; margin-top: 18px; padding: 20px 22px; border-radius: 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .platform-base-name { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 34px; letter-spacing: -.04em; }
+  .table { width: 100%; max-width: 1120px; margin-top: 4vh; border-collapse: collapse; }
+  .table th { text-align: left; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+  .table td { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: top; }
+  .table td:first-child { color: var(--text); font-weight: 600; width: 24%; padding-right: 28px; }
+  .roadmap { grid-template-columns: repeat(3, 1fr); width: 100%; max-width: 1120px; margin-top: 4vh; }
+  .road { min-height: 256px; }
+  .road-list div, .revenue-list div { margin-top: 8px; }
+  .road-list div::before, .revenue-list div::before { content: "- "; color: var(--dim); }
+  .revenue-stack { width: 100%; max-width: 920px; margin-top: 4vh; }
+  .revenue { display: grid; grid-template-columns: 220px 1fr; gap: 20px; }
+  .ask-amount { font-size: 46px; margin: 10px 0 12px; letter-spacing: -.05em; }
+  .fund-list { margin-top: 14px; }
+  .fund-item { display: flex; gap: 10px; align-items: flex-start; }
+  .fund-dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px rgba(158,191,247,.35); flex-shrink: 0; }
+  .closing-box { max-width: 920px; margin-top: 8vh; padding: 28px 28px; border-radius: 24px; border: 1px solid var(--line-strong); background: linear-gradient(135deg, rgba(158,191,247,.12), rgba(10,18,34,.92)); box-shadow: 0 24px 54px rgba(2,7,17,.42); }
+  .quote { font-size: clamp(30px, 4vw, 56px); line-height: 1.02; letter-spacing: -.05em; }
+  .quote-note { margin-top: 18px; color: var(--muted); font-size: 15px; line-height: 1.58; }
+  #progress { position: fixed; left: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, rgba(215,194,156,.7), rgba(158,191,247,.85)); transition: width .35s cubic-bezier(.22,1,.36,1); z-index: 100; }
+  #hint { position: fixed; right: 9vw; bottom: 3.8vh; color: var(--dim); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; z-index: 100; }
+  .nav { position: fixed; left: 7.5vw; bottom: 3.4vh; display: flex; gap: 12px; z-index: 100; }
+  .nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: rgba(12,23,42,.88); color: var(--muted); cursor: pointer; font-size: 14px; }
+  .nav button:hover { color: var(--text); border-color: var(--line-strong); background: rgba(18,31,58,.96); }
+</style>
+</head>
+<body>
+<div id="deck">
+  <section class="slide active" id="s1">
+    <div class="eyebrow">AgentPay + Ace</div>
+    <div class="headline">AgentPay makes <em>trusted agent execution</em> possible.</div>
+    <div class="subhead">Ace is the flagship product proving it live in travel, while the same rails can power enterprise workflows and the wider agent ecosystem.</div>
+    <div class="chips">
+      <div class="chip">Identity</div><div class="chip">Policy</div><div class="chip">Execution</div><div class="chip">Verification</div><div class="chip">Trust</div>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <div class="label mono">Platform company</div>
+        <div class="display">AgentPay</div>
+        <div class="body" style="margin-top:0; max-width:560px;">Not a protocol deck with no product. Not a travel app with a pretty face. A platform with real modules and a living reference implementation.</div>
+        <div class="stack">
+          <div class="stack-item"><strong>Ace Travel</strong><span>Flagship trust surface. Live consumer proof.</span></div>
+          <div class="stack-item"><strong>Operator Workflows</strong><span>Recurring admin teams with proof and payout control.</span></div>
+          <div class="stack-item"><strong>Partner Agents</strong><span>Third-party agents running on the same rails.</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="label mono">What this deck should make obvious</div>
+        <div class="grid4" style="grid-template-columns:1fr 1fr; margin-top:2vh;">
+          <div class="card"><div class="title">The modules are real.</div><div class="copy">Identity, policy, settlement, receipts, and trust already exist as a coherent system.</div></div>
+          <div class="card"><div class="title">Ace is the proof.</div><div class="copy">Travel is the flagship wedge for showing trusted execution to humans.</div></div>
+          <div class="card"><div class="title">The ecosystem is credible.</div><div class="copy">The same rails fit operator teams, enterprise agents, and future developers.</div></div>
+          <div class="card"><div class="title">Focus still matters.</div><div class="copy">Ace stays travel-first. Expansion comes through disciplined proof points.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-num">01 / 13</div>
+  </section>
+
+  <section class="slide" id="s2">
+    <div class="eyebrow">The Gap</div>
+    <div class="headline">AI can understand intent. <em>It still cannot safely act.</em></div>
+    <div class="body">Most products stop at recommendation. They do not know who the agent is, what it is allowed to do, how approval works, how payment is governed, or how completion is verified after money moves.</div>
+    <div class="grid5" style="max-width:1080px;">
+      <div class="card"><div class="title">Understanding</div><div class="copy">Models can interpret nuanced requests in natural language.</div></div>
+      <div class="card"><div class="title">Permission</div><div class="copy">No reliable identity, delegated limits, or approval chain.</div></div>
+      <div class="card"><div class="title">Execution</div><div class="copy">No clean way to reserve budget, pay, and own the workflow.</div></div>
+      <div class="card"><div class="title">Verification</div><div class="copy">No evidence trail, receipt spine, or auditable completion state.</div></div>
+      <div class="card"><div class="title">Trust</div><div class="copy">When something goes wrong, nobody knows who is accountable.</div></div>
+    </div>
+    <div class="body"><span class="lede">AgentPay exists in that gap.</span> It turns agents from suggestion engines into controlled, attributable, and verifiable actors.</div>
+    <div class="slide-num">02 / 13</div>
+  </section>
+
+  <section class="slide" id="s3">
+    <div class="eyebrow">The Modules</div>
+    <div class="headline">Five modules turn agents from chat into <em>infrastructure.</em></div>
+    <div class="grid5">
+      <div class="module"><div class="module-index mono">01</div><div class="title">Identity</div><div class="copy">Every agent has a verifiable identity and a clear boundary around who is acting.</div><div class="label mono" style="margin-top:12px;">agt_* ids<br />signed keys<br />merchant and agent registration</div></div>
+      <div class="module"><div class="module-index mono">02</div><div class="title">Policy</div><div class="copy">Permissions, approval rules, spend limits, and escalation paths are programmable instead of improvised.</div><div class="label mono" style="margin-top:12px;">policy checks<br />limits and approvals<br />biometric gates</div></div>
+      <div class="module"><div class="module-index mono">03</div><div class="title">Execution</div><div class="copy">Agents can initiate, hold, release, and settle work without losing control of the commercial flow.</div><div class="label mono" style="margin-top:12px;">intents<br />escrow and fee ledger<br />settlement flow</div></div>
+      <div class="module"><div class="module-index mono">04</div><div class="title">Verification</div><div class="copy">Every action can produce proof, receipts, and a recoverable state after execution.</div><div class="label mono" style="margin-top:12px;">receipts<br />verify endpoints<br />resolution state</div></div>
+      <div class="module"><div class="module-index mono">05</div><div class="title">Trust</div><div class="copy">Reputation and outcomes compound over time so the best agents and operators become more defensible.</div><div class="label mono" style="margin-top:12px;">trust events<br />AgentRank<br />marketplace surfaces</div></div>
+    </div>
+    <div class="body">The point of the company is not one flashy interface. It is making these modules reusable across every workflow where an agent needs to book, pay, verify, or be trusted.</div>
+    <div class="slide-num">03 / 13</div>
+  </section>
+
+  <section class="slide" id="s4">
+    <div class="eyebrow">The Ecosystem</div>
+    <div class="headline">One platform. <em>Multiple trust surfaces.</em></div>
+    <div class="grid4">
+      <div class="card flagship"><div class="tag mono">Flagship</div><div class="title">Ace</div><div class="copy">Luxury voice-first travel concierge. The live consumer proof that people will delegate real outcomes to an agent.</div></div>
+      <div class="card"><div class="tag mono">Enterprise</div><div class="title">Team Agent</div><div class="copy">Travel desks and internal assistants that need approval, payment control, and auditable execution.</div></div>
+      <div class="card"><div class="tag mono">Vertical</div><div class="title">Revenue Ops Agent</div><div class="copy">Recurring admin teams such as billing or claims operations where proof, SLA control, and payout release matter.</div></div>
+      <div class="card"><div class="tag mono">Developer</div><div class="title">Partner Agents</div><div class="copy">Third-party agents that book, pay, verify, or settle on the same rails without rebuilding trust from scratch.</div></div>
+    </div>
+    <div class="platform-base"><div class="platform-base-name">AgentPay</div><div class="platform-base-copy">A programmable layer for identity, policy, payment, verification, and trust. Ace proves it to humans. The ecosystem compounds it across industries.</div></div>
+    <div class="slide-num">04 / 13</div>
+  </section>
+
+  <section class="slide" id="s5">
+    <div class="eyebrow">The Flagship</div>
+    <div class="headline">Ace is the living reference implementation. <em>Not a concept. Not a skin.</em></div>
+    <div class="body">Ace exists so the world can see what AgentPay feels like when it is wrapped in a product relationship a human will actually trust.</div>
+    <div class="grid5" style="max-width:1080px;">
+      <div class="card"><div class="tag mono">Step 01</div><div class="title">Ask once</div><div class="copy">Voice-first request capture with route memory, preferences, and travel context.</div></div>
+      <div class="card"><div class="tag mono">Step 02</div><div class="title">Recommend clearly</div><div class="copy">Ace resolves the strongest journey instead of throwing the user into a search maze.</div></div>
+      <div class="card"><div class="tag mono">Step 03</div><div class="title">Approve safely</div><div class="copy">Biometric confirmation and policy checks before money moves.</div></div>
+      <div class="card"><div class="tag mono">Step 04</div><div class="title">Book and pay</div><div class="copy">Voice to payment to receipt, with live references and journey continuity.</div></div>
+      <div class="card"><div class="tag mono">Step 05</div><div class="title">Recover when plans break</div><div class="copy">Disruption polling, push alerts, countdowns, and recovery logic after checkout.</div></div>
+    </div>
+    <div class="chips"><div class="chip">UK rail live</div><div class="chip">India rail live</div><div class="chip">Darwin disruption polling</div><div class="chip">Biometric payment gate</div><div class="chip">Receipts and QR journey mode</div></div>
+    <div class="slide-num">05 / 13</div>
+  </section>
+
+  <section class="slide" id="s6">
+    <div class="eyebrow">Why Ace Matters</div>
+    <div class="headline">Ace is how AgentPay stops being a protocol thesis and becomes a <em>trust product.</em></div>
+    <table class="table">
+      <thead><tr><th>What Ace proves</th><th>Why it matters to the platform</th></tr></thead>
+      <tbody>
+        <tr><td>Human trust</td><td>Consumers will delegate real money and real outcomes when the experience is calm, explicit, and continuous.</td></tr>
+        <tr><td>Reference implementation</td><td>Developers and partners can see the full trust loop in production instead of reading a conceptual protocol deck.</td></tr>
+        <tr><td>Design language</td><td>The behavior, receipts, approvals, and recovery patterns become the standard for every future agent built on the rails.</td></tr>
+        <tr><td>Distribution</td><td>Ace is the consumer edge that makes the infrastructure legible while creating its own revenue and data advantage.</td></tr>
+      </tbody>
+    </table>
+    <div class="body"><span class="lede">Ace is not beside AgentPay in a vague brand sense.</span> Ace is the flagship execution surface that proves the modules, sharpens them, and makes the protocol real.</div>
+    <div class="slide-num">06 / 13</div>
+  </section>
+
+  <section class="slide" id="s7">
+    <div class="eyebrow">Parallel Wedge</div>
+    <div class="headline">A team of 30 doing recurring admin work is also a natural <em>AgentPay buyer.</em></div>
+    <div class="body">The same stack that powers Ace can power high-friction operator workflows where managers need visibility, policy control, proof of completion, and payout release only when work is actually done.</div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;">
+      <div class="panel">
+        <div class="label mono">The workflow pattern</div>
+        <div class="stack">
+          <div class="stack-item"><strong>Assign work</strong><span>Create a work intent with SLA and amount at risk.</span></div>
+          <div class="stack-item"><strong>Set policy</strong><span>Who can act, when it escalates, what requires sign-off.</span></div>
+          <div class="stack-item"><strong>Submit proof</strong><span>Evidence that the task was actually completed.</span></div>
+          <div class="stack-item"><strong>Release payout</strong><span>Funds move only when the outcome is verified.</span></div>
+          <div class="stack-item"><strong>Compound trust</strong><span>Turn performance into scorecards and routing advantage.</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="label mono">Where it fits immediately</div>
+        <div class="grid4" style="grid-template-columns:1fr 1fr; margin-top:2vh;">
+          <div class="card"><div class="title">Billing administration</div><div class="copy">Eligibility, denial follow-up, payment posting, and vendor payout control.</div></div>
+          <div class="card"><div class="title">Travel operations</div><div class="copy">Approvals, booking authority, receipts, and disruption handling for teams.</div></div>
+          <div class="card"><div class="title">Procurement ops</div><div class="copy">Milestone release, proof, and accountable commercial handoffs.</div></div>
+          <div class="card"><div class="title">Why now</div><div class="copy">Managers can see throughput, errors, and payouts without trusting a black box.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="slide-num">07 / 13</div>
+  </section>
+
+  <section class="slide" id="s8">
+    <div class="eyebrow">The Company Shape</div>
+    <div class="headline">Three proofs, <em>one architecture.</em></div>
+    <table class="table">
+      <thead><tr><th>Proof point</th><th>What it proves</th></tr></thead>
+      <tbody>
+        <tr><td>Ace Travel</td><td>Consumers will trust a visible agent to plan, pay, confirm, and recover real-world journeys.</td></tr>
+        <tr><td>Operator Teams</td><td>Businesses will use the same rails to control work, verify outcomes, and settle recurring operational workflows.</td></tr>
+        <tr><td>Partner Agents</td><td>Developers and enterprise teams can build on the modules instead of rebuilding trust, payment, and verification from scratch.</td></tr>
+      </tbody>
+    </table>
+    <div class="body"><span class="lede">The sequencing is the strategy.</span> Travel remains the emotional wedge. Parallel operator workflows validate the modules commercially. External agents come after those proofs are undeniable.</div>
+    <div class="slide-num">08 / 13</div>
+  </section>
+
+  <section class="slide" id="s9">
+    <div class="eyebrow">Go To Market</div>
+    <div class="headline">Build the platform in public, <em>without losing focus.</em></div>
+    <div class="roadmap">
+      <div class="road primary"><div class="tag mono">Now</div><div class="title">Ace travel wedge</div><div class="road-list"><div>Founder-led pilots for frequent travellers and premium teams</div><div>Make the travel loop feel inevitable: flights, hotels, receipts, team workflows</div><div>Use Ace as the live trust surface for the entire company</div></div></div>
+      <div class="road"><div class="tag mono">Parallel</div><div class="title">Operator design partners</div><div class="road-list"><div>Start with 10 to 50 seat recurring admin teams</div><div>Focus on workflows that need proof, policy, and payout release</div><div>Productize the modules without turning Ace into a generic SaaS shell</div></div></div>
+      <div class="road"><div class="tag mono">After proof</div><div class="title">Developer ecosystem</div><div class="road-list"><div>Expose the clean AgentPay rails to external agents</div><div>Turn the flagship behavior into the protocol standard</div><div>Earn on execution regardless of which agent runs the workflow</div></div></div>
+    </div>
+    <div class="slide-num">09 / 13</div>
+  </section>
+
+  <section class="slide" id="s10">
+    <div class="eyebrow">Business Model</div>
+    <div class="headline">Three revenue engines. <em>One trust architecture.</em></div>
+    <div class="revenue-stack">
+      <div class="revenue"><div class="title">Ace direct</div><div class="revenue-list"><div>Booking margin, premium subscriptions, and team plans anchored in travel.</div><div>This creates the relationship layer and the flagship proof.</div></div></div>
+      <div class="revenue"><div class="title">Workflow software</div><div class="revenue-list"><div>Seat-based or platform pricing for businesses using AgentPay to route work.</div><div>Proof, policy, and payout release become measurable software value.</div></div></div>
+      <div class="revenue"><div class="title">Protocol revenue</div><div class="revenue-list"><div>Execution fees, developer access, and partner licensing once external agents run on the same rails.</div><div>Revenue compounds underneath every successful agent relationship.</div></div></div>
+    </div>
+    <div class="body">Ace monetizes the user relationship first. AgentPay compounds underneath every agent relationship after that.</div>
+    <div class="slide-num">10 / 13</div>
+  </section>
+
+  <section class="slide" id="s11">
+    <div class="eyebrow">Why This Can Win</div>
+    <div class="headline">The strongest thing here is not the demo. <em>It is the seam.</em></div>
+    <div class="grid4">
+      <div class="proof"><div class="proof-number">Real</div><div class="title">Not a blank protocol</div><div class="copy">Ace already exercises the trust loop with voice, payments, receipts, disruption handling, and continuity.</div></div>
+      <div class="proof"><div class="proof-number">Shared</div><div class="title">Modules compound</div><div class="copy">The same identity, policy, verification, and payout rails fit both consumer travel and enterprise operator workflows.</div></div>
+      <div class="proof"><div class="proof-number">Owned</div><div class="title">Trust is the product</div><div class="copy">The company is not competing on chat UX alone. It is competing on delegated execution with accountability.</div></div>
+      <div class="proof"><div class="proof-number">Expandable</div><div class="title">Platform after proof</div><div class="copy">The ecosystem story gets stronger as each wedge proves the same modules in a new trust context.</div></div>
+    </div>
+    <div class="slide-num">11 / 13</div>
+  </section>
+
+  <section class="slide" id="s12">
+    <div class="eyebrow">Proof, Momentum, And Ask</div>
+    <div class="headline">This raise funds <em>three proof points</em> that make the ecosystem story obvious.</div>
+    <div class="grid4">
+      <div class="proof"><div class="proof-number">[X]</div><div class="title">Active TestFlight users</div><div class="copy">People already using Ace in real travel situations rather than staged demos.</div></div>
+      <div class="proof"><div class="proof-number">[X]</div><div class="title">Completed journeys</div><div class="copy">Voice to receipt loops that prove the flagship works end to end.</div></div>
+      <div class="proof"><div class="proof-number">[X]</div><div class="title">Pilot companies</div><div class="copy">Teams validating Ace as a premium travel workflow, not just a consumer curiosity.</div></div>
+      <div class="proof"><div class="proof-number">[X]</div><div class="title">Design partners</div><div class="copy">Operator teams ready to validate the platform modules in recurring admin workflows.</div></div>
+    </div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;">
+      <div class="ask-box"><div class="ask-label mono">The raise</div><div class="ask-amount">GBP [X]</div><div class="copy">Fund 18 months to make Ace world-class in travel, productize AgentPay's core modules for operator workflows, and prepare the rails for the first external agents.</div></div>
+      <div class="fund-box"><div class="fund-label mono">What this round must prove</div><div class="fund-list"><div class="fund-item"><div class="fund-dot"></div><span>Ace becomes the default trust interface for premium travel teams and frequent travellers.</span></div><div class="fund-item"><div class="fund-dot"></div><span>AgentPay lands its first recurring workflow design partners outside the flagship product.</span></div><div class="fund-item"><div class="fund-dot"></div><span>The core modules are clean enough to open to partner agents without rebuilding the architecture.</span></div></div></div>
+    </div>
+    <div class="body">The round is not about making the story wider. It is about making the first two proofs so strong that the ecosystem stops sounding theoretical.</div>
+    <div class="slide-num">12 / 13</div>
+  </section>
+
+  <section class="slide" id="s13">
+    <div class="eyebrow">Close</div>
+    <div class="closing-box"><div class="quote">AgentPay is the trust rail.<br />Ace is the living proof.</div><div class="quote-note">Travel comes first because that is where the relationship becomes real. The ecosystem compounds because the underlying modules already know how to identify, approve, execute, verify, and settle work.</div></div>
+    <div class="body">Product first. Platform second. Same company. Right order.</div>
+    <div class="chips" style="grid-template-columns: repeat(3, max-content);"><div class="chip">Travel first</div><div class="chip">Operator proof next</div><div class="chip">Developer ecosystem after proof</div></div>
+    <div class="slide-num">13 / 13</div>
+  </section>
+</div>
+
+<div id="progress"></div>
+<div id="hint">Left / Right to navigate</div>
+<div class="nav">
+  <button onclick="go(-1)" title="Previous">&larr;</button>
+  <button onclick="go(1)" title="Next">&rarr;</button>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const progress = document.getElementById('progress');
+  let current = 0;
+
+  function update() {
+    slides.forEach((slide, index) => {
+      slide.classList.remove('active', 'exit');
+      if (index === current) slide.classList.add('active');
+    });
+    progress.style.width = `${((current + 1) / slides.length) * 100}%`;
+  }
+
+  function go(direction) {
+    const next = current + direction;
+    if (next < 0 || next >= slides.length) return;
+    slides[current].classList.add('exit');
+    current = next;
+    setTimeout(update, 10);
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === ' ') go(1);
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') go(-1);
+  });
+
+  let touchX = 0;
+  document.addEventListener('touchstart', (event) => { touchX = event.touches[0].clientX; });
+  document.addEventListener('touchend', (event) => {
+    const delta = event.changedTouches[0].clientX - touchX;
+    if (Math.abs(delta) > 40) go(delta < 0 ? 1 : -1);
+  });
+
+  update();
+</script>
+</body>
+</html>

@@ -16,11 +16,13 @@ import {
   Zap,
   ChevronRight,
   Train,
+  Building2,
 } from 'lucide-react';
 
 const coreNav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/bro-jobs', label: 'Bro Bookings', icon: Train },
+  { href: '/rcm', label: 'RCM Ops', icon: Building2 },
   { href: '/intents', label: 'Intents', icon: ArrowLeftRight },
   { href: '/escrow', label: 'Escrow', icon: Shield },
 ];

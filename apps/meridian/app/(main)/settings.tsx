@@ -1,5 +1,5 @@
 /**
- * Settings screen — name, auto-confirm limit, reset
+ * Settings screen — identity, learned places, reset
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -23,9 +23,6 @@ import { clearTravelUnits, loadTravelUnitSummary, type TravelUnitSummary } from 
 export default function SettingsScreen() {
   const { userName, autoConfirmLimitUsdc, homeStation, workStation, setPrefs, reset, clearTurns } = useStore();
   const [name, setName]           = useState(userName);
-  const [budget, setBudget]       = useState(String(autoConfirmLimitUsdc));
-  const [home, setHome]           = useState(homeStation ?? '');
-  const [work, setWork]           = useState(workStation ?? '');
   const [saved, setSaved]         = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
@@ -69,25 +66,10 @@ export default function SettingsScreen() {
     refreshProfileState();
   }, [refreshProfileState]));
 
-  const handleHomeChange = async (value: string) => {
-    setHome(value);
-    setPrefs({ homeStation: value || null });
-    await savePrefs({ homeStation: value.trim() || undefined });
-  };
-
-  const handleWorkChange = async (value: string) => {
-    setWork(value);
-    setPrefs({ workStation: value || null });
-    await savePrefs({ workStation: value.trim() || undefined });
-  };
-
   const handleSave = async () => {
-    const budgetN   = parseFloat(budget) || 5;
     const newName   = name.trim() || 'there';
-    const newHome   = home.trim() || undefined;
-    const newWork   = work.trim() || undefined;
-    setPrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome ?? null, workStation: newWork ?? null });
-    await savePrefs({ userName: newName, autoConfirmLimitUsdc: budgetN, homeStation: newHome, workStation: newWork });
+    setPrefs({ userName: newName, autoConfirmLimitUsdc });
+    await savePrefs({ userName: newName, autoConfirmLimitUsdc });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -166,41 +148,22 @@ export default function SettingsScreen() {
             placeholderTextColor="#374151"
             autoCapitalize="words"
           />
-          <Text style={styles.fieldLabel}>Home station</Text>
-          <TextInput
-            style={[styles.input, { marginTop: 10 }]}
-            value={home}
-            onChangeText={(value) => { void handleHomeChange(value); }}
-            placeholder="e.g. Derby"
-            placeholderTextColor="#374151"
-            autoCapitalize="words"
-          />
-          <Text style={styles.fieldLabel}>Work station</Text>
-          <TextInput
-            style={[styles.input, { marginTop: 10 }]}
-            value={work}
-            onChangeText={(value) => { void handleWorkChange(value); }}
-            placeholder="e.g. London St Pancras"
-            placeholderTextColor="#374151"
-            autoCapitalize="words"
-          />
         </Section>
 
-        {/* Auto-confirm spending limit */}
         <Section
-          label="BOOKING LIMIT"
-          hint="Ace will secure bookings automatically below this amount. Above it, you'll confirm with fingerprint."
+          label="LEARNED PLACES"
+          hint="Ace updates your regular stations in the background as you travel, so this stays effortless."
         >
-          <View style={styles.budgetRow}>
-            {['2', '5', '10', '25'].map((v) => (
-              <Pressable
-                key={v}
-                onPress={() => setBudget(v)}
-                style={[styles.chip, budget === v && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, budget === v && styles.chipTextActive]}>${v}</Text>
-              </Pressable>
-            ))}
+          <View style={styles.learnedPlacesCard}>
+            <View style={styles.learnedPlaceRow}>
+              <Text style={styles.learnedPlaceLabel}>Home</Text>
+              <Text style={styles.learnedPlaceValue}>{homeStation ?? 'Ace is still learning'}</Text>
+            </View>
+            <View style={styles.learnedPlaceDivider} />
+            <View style={styles.learnedPlaceRow}>
+              <Text style={styles.learnedPlaceLabel}>Work</Text>
+              <Text style={styles.learnedPlaceValue}>{workStation ?? 'Ace is still learning'}</Text>
+            </View>
           </View>
         </Section>
 
@@ -412,14 +375,6 @@ const styles = StyleSheet.create({
   title:       { fontSize: 18, fontWeight: '700', color: '#f9fafb' },
   saveBtn:     { fontSize: 15, fontWeight: '600', color: '#818cf8' },
   saveBtnDone: { color: '#4ade80' },
-  fieldLabel: {
-    fontSize: 11,
-    color: '#4b5563',
-    marginTop: 12,
-    marginBottom: -2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
 
   input: {
     backgroundColor: '#111',
@@ -429,6 +384,38 @@ const styles = StyleSheet.create({
     padding: 14,
     fontSize: 16,
     color: '#f9fafb',
+  },
+  learnedPlacesCard: {
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    borderRadius: 14,
+    padding: 14,
+  },
+  learnedPlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  learnedPlaceLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: '#7f95aa',
+  },
+  learnedPlaceValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 14,
+    color: '#dcecff',
+    fontWeight: '600',
+  },
+  learnedPlaceDivider: {
+    height: 1,
+    backgroundColor: 'rgba(122, 167, 214, 0.14)',
+    marginVertical: 12,
   },
 
   budgetRow: { flexDirection: 'row', gap: 10 },
