@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = new URL(request.url);
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
 

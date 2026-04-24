@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-const dashboardRoot = __dirname;
+import path from "path";
 
 // AGENTPAY_API_BASE_URL is evaluated at build time by next.config.ts (server-only).
 // Do NOT fall back to a NEXT_PUBLIC_ variable here — that would expose the backend
@@ -9,9 +9,8 @@ const BACKEND_URL =
   "http://localhost:8787";
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: dashboardRoot,
   turbopack: {
-    root: dashboardRoot,
+    root: path.join(__dirname),
   },
   async rewrites() {
     return {
