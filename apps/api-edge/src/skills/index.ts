@@ -863,3 +863,15 @@ export function skillsToAnthropicTools() {
     input_schema: skill.inputSchema,
   }));
 }
+
+/** Convert skill definitions to OpenAI-compatible tool format */
+export function skillsToOpenAITools() {
+  return SKILLS.map(skill => ({
+    type: 'function' as const,
+    function: {
+      name: skill.toolName,
+      description: `${skill.description}\n\nSkill doc:\n${skill.skillDoc}`,
+      parameters: skill.inputSchema,
+    },
+  }));
+}

@@ -24,7 +24,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { createDb } from '../lib/db';
-import { SKILLS, SKILL_MAP, skillsToAnthropicTools } from '../skills';
+import { SKILLS, SKILL_MAP, skillsToAnthropicTools, skillsToOpenAITools } from '../skills';
 import { queryRTT, formatTrainsForClaude, LONDON_TERMINI } from '../lib/rtt';
 import { queryIndianRail, formatTrainsForClaudeIndia } from '../lib/indianRail';
 import { isEuRoute, queryEuRail, formatEuTrainsForClaude } from '../lib/euRail';
@@ -492,9 +492,8 @@ conciergeRouter.post('/intent', async (c) => {
     }
   }
 
-  const anthropicKey = c.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return c.json({ error: 'Concierge not configured (missing ANTHROPIC_API_KEY)' }, 503);
+  if (!hasConfiguredBrain(c.env)) {
+    return c.json({ error: 'Concierge not configured (missing brain provider key)' }, 503);
   }
 
   let body: {
@@ -1157,7 +1156,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
     let narration = 'Request in — securing your ticket now. Details within 15 minutes.';
     try {
-      const narrationResponse = await callClaude(anthropicKey, {
+      const narrationResponse = await callBrain(c.env, {
         system: systemPrompt,
         messages: [
           { role: 'user', content: transcript },
@@ -1209,11 +1208,13 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   // ── Phase 1: Plan — find agents, fetch real data, return without hiring ───
 
-  const tools = skillsToAnthropicTools();
+  const tools = resolveBrainProvider(c.env) === 'nvidia'
+    ? skillsToOpenAITools()
+    : skillsToAnthropicTools();
 
   let firstResponse: Response;
   try {
-    firstResponse = await callClaude(anthropicKey, {
+    firstResponse = await callBrain(c.env, {
       system: systemPrompt,
       messages: [{ role: 'user', content: transcript }],
       tools,
@@ -1959,7 +1960,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   let narration = buildFallbackNarration(planItems, toolResultsForClaude);
   try {
-    const narrationCall = await callClaude(anthropicKey, {
+    const narrationCall = await callBrain(c.env, {
       system: systemPrompt,
       messages: [
         { role: 'user',      content: transcript },
@@ -2407,10 +2408,147 @@ conciergeRouter.post('/fulfill/:jobId', async (c) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function callClaude(apiKey: string, body: Record<string, unknown>) {
-  // Wrap system string in cache_control block — 90% savings on cache hits.
-  // The system prompt is large (~2k tokens) and identical across all Bro calls
-  // for the same user session. Caching pays back after the first request.
+type BrainProvider = 'anthropic' | 'nvidia';
+
+function resolveBrainProvider(env: Env): BrainProvider {
+  const requested = (env.ACE_BRAIN_PROVIDER ?? '').trim().toLowerCase();
+  if (requested === 'nvidia' && env.NVIDIA_API_KEY) return 'nvidia';
+  return 'anthropic';
+}
+
+function hasConfiguredBrain(env: Env): boolean {
+  return resolveBrainProvider(env) === 'nvidia' ? !!env.NVIDIA_API_KEY : !!env.ANTHROPIC_API_KEY;
+}
+
+function extractSystemText(system: unknown): string | undefined {
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) return undefined;
+  const text = system
+    .map((block) => (block && typeof block === 'object' && 'text' in block ? String((block as any).text ?? '') : ''))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+  return text || undefined;
+}
+
+function normalizeMessageContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block) => {
+      if (!block || typeof block !== 'object') return '';
+      return (block as any).type === 'text' ? String((block as any).text ?? '') : '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function toOpenAIChatRequest(body: Record<string, unknown>) {
+  const messages: Array<Record<string, unknown>> = [];
+  const system = extractSystemText(body.system);
+  if (system) {
+    messages.push({ role: 'system', content: system });
+  }
+
+  const inputMessages = Array.isArray(body.messages) ? body.messages as Array<{ role: string; content: unknown }> : [];
+  for (const message of inputMessages) {
+    if (!Array.isArray(message.content)) {
+      messages.push({
+        role: message.role,
+        content: typeof message.content === 'string' ? message.content : '',
+      });
+      continue;
+    }
+
+    const blocks = message.content as Array<Record<string, unknown>>;
+    const toolUseBlocks = blocks.filter((block) => block.type === 'tool_use');
+    const toolResultBlocks = blocks.filter((block) => block.type === 'tool_result');
+    const textContent = normalizeMessageContent(blocks);
+
+    if (message.role === 'assistant' && toolUseBlocks.length > 0) {
+      messages.push({
+        role: 'assistant',
+        content: textContent || null,
+        tool_calls: toolUseBlocks.map((block) => ({
+          id: String(block.id),
+          type: 'function',
+          function: {
+            name: String(block.name),
+            arguments: JSON.stringify(block.input ?? {}),
+          },
+        })),
+      });
+      continue;
+    }
+
+    if (message.role === 'user' && toolResultBlocks.length > 0) {
+      for (const block of toolResultBlocks) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: String(block.tool_use_id),
+          content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? ''),
+        });
+      }
+      continue;
+    }
+
+    messages.push({ role: message.role, content: textContent });
+  }
+
+  const request: Record<string, unknown> = {
+    model: typeof body.model === 'string' ? body.model : 'openai/gpt-oss-20b',
+    messages,
+    max_tokens: typeof body.max_tokens === 'number' ? body.max_tokens : 1024,
+    temperature: 0.2,
+  };
+
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    request.tools = body.tools;
+    request.tool_choice = 'auto';
+  }
+
+  return request;
+}
+
+function normalizeNvidiaResponse(payload: OpenAIChatCompletionResponse): AnthropicResponse {
+  const choice = payload.choices?.[0];
+  const message = choice?.message;
+  const content: ContentBlock[] = [];
+
+  if (message?.content) {
+    content.push({ type: 'text', text: message.content });
+  }
+
+  for (const toolCall of message?.tool_calls ?? []) {
+    let input: Record<string, unknown> = {};
+    try {
+      input = toolCall.function.arguments ? JSON.parse(toolCall.function.arguments) : {};
+    } catch {
+      input = {};
+    }
+    content.push({
+      type: 'tool_use',
+      id: toolCall.id,
+      name: toolCall.function.name,
+      input,
+    });
+  }
+
+  return {
+    id: payload.id ?? 'nvidia',
+    type: 'message',
+    role: 'assistant',
+    content,
+    stop_reason: (message?.tool_calls?.length ?? 0) > 0 ? 'tool_use' : 'end_turn',
+    usage: {
+      input_tokens: payload.usage?.prompt_tokens ?? 0,
+      output_tokens: payload.usage?.completion_tokens ?? 0,
+    },
+  };
+}
+
+function callAnthropic(apiKey: string, body: Record<string, unknown>) {
   const bodyWithCache = { ...body };
   if (typeof bodyWithCache.system === 'string') {
     bodyWithCache.system = [
@@ -2426,9 +2564,42 @@ function callClaude(apiKey: string, body: Record<string, unknown>) {
       'content-type':      'application/json',
     },
     body: JSON.stringify({ model: 'claude-sonnet-4-6', ...bodyWithCache }),
-    // 25s — Workers have a 30s CPU wall; leave headroom for DB + RTT
     signal: AbortSignal.timeout(25_000),
   });
+}
+
+async function callNvidia(apiKey: string, model: string, body: Record<string, unknown>) {
+  const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(toOpenAIChatRequest({ ...body, model })),
+    signal: AbortSignal.timeout(25_000),
+  });
+
+  if (!response.ok) {
+    return response;
+  }
+
+  const payload = await response.json() as OpenAIChatCompletionResponse;
+  return new Response(JSON.stringify(normalizeNvidiaResponse(payload)), {
+    status: response.status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function callBrain(env: Env, body: Record<string, unknown>) {
+  if (resolveBrainProvider(env) === 'nvidia') {
+    return callNvidia(
+      env.NVIDIA_API_KEY!,
+      env.ACE_BRAIN_MODEL?.trim() || 'openai/gpt-oss-20b',
+      body,
+    );
+  }
+
+  return callAnthropic(env.ANTHROPIC_API_KEY!, body);
 }
 
 async function findBestAgent(
@@ -3123,6 +3294,26 @@ interface AnthropicResponse {
   content: ContentBlock[];
   stop_reason: string;
   usage: { input_tokens: number; output_tokens: number };
+}
+
+interface OpenAIChatCompletionResponse {
+  id?: string;
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+      tool_calls?: Array<{
+        id: string;
+        function: {
+          name: string;
+          arguments: string;
+        };
+      }>;
+    };
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
 }
 
 type ContentBlock = TextBlock | ToolUseBlock;

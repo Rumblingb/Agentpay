@@ -13,6 +13,9 @@ import type { Env, Variables } from '../types';
 
 export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type SttProvider = 'cloudflare' | 'openai' | 'nvidia';
+type TtsProvider = 'elevenlabs' | 'nvidia';
+
 // George (JBFqnCBsd6RMkjVDRZzb) — warm, natural British male, lowest latency in ElevenLabs library.
 // Daniel (onwK4e9ZLuTAKqWW03F9) — deeper/more formal, but noticeably slower to first byte.
 const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
@@ -87,6 +90,96 @@ function isCfWhisperHallucination(text: string): boolean {
   return false;
 }
 
+function normalizeProvider(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function resolveSttProvider(env: Env): SttProvider {
+  const preferred = normalizeProvider(env.ACE_STT_PROVIDER);
+  if (preferred === 'nvidia' && env.NVIDIA_SPEECH_BRIDGE_URL) return 'nvidia';
+  if (preferred === 'openai') return 'openai';
+  if (preferred === 'cloudflare' && env.AI) return 'cloudflare';
+  if (env.AI) return 'cloudflare';
+  return 'openai';
+}
+
+function resolveTtsProvider(env: Env): TtsProvider {
+  const preferred = normalizeProvider(env.ACE_TTS_PROVIDER);
+  if (preferred === 'nvidia' && env.NVIDIA_SPEECH_BRIDGE_URL) return 'nvidia';
+  return 'elevenlabs';
+}
+
+function resolveSpeechBridgeUrl(env: Env): string | null {
+  const baseUrl = (env.NVIDIA_SPEECH_BRIDGE_URL ?? '').trim().replace(/\/+$/, '');
+  return baseUrl || null;
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function transcribeWithNvidiaBridge(
+  env: Env,
+  payload: { audioBytes: Uint8Array; mimeType?: string },
+): Promise<string> {
+  const baseUrl = resolveSpeechBridgeUrl(env);
+  if (!baseUrl) {
+    throw new Error('nvidia_speech_bridge_not_configured');
+  }
+
+  const response = await fetch(`${baseUrl}/transcribe`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(env.NVIDIA_SPEECH_BRIDGE_TOKEN
+        ? { Authorization: `Bearer ${env.NVIDIA_SPEECH_BRIDGE_TOKEN}` }
+        : {}),
+    },
+    body: JSON.stringify({
+      audio: encodeBase64(payload.audioBytes),
+      mimeType: payload.mimeType ?? 'audio/m4a',
+      languageCode: (env.ACE_STT_LANGUAGE_CODE ?? 'en-US').trim(),
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+
+  const data = (await response.json().catch(() => null)) as { transcript?: string; error?: string } | null;
+  if (!response.ok) {
+    throw new Error(data?.error ?? `nvidia_bridge_error_${response.status}`);
+  }
+  return (data?.transcript ?? '').trim();
+}
+
+async function synthesizeWithNvidiaBridge(
+  env: Env,
+  payload: { text: string },
+): Promise<Response> {
+  const baseUrl = resolveSpeechBridgeUrl(env);
+  if (!baseUrl) {
+    throw new Error('nvidia_speech_bridge_not_configured');
+  }
+
+  return fetch(`${baseUrl}/tts`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(env.NVIDIA_SPEECH_BRIDGE_TOKEN
+        ? { Authorization: `Bearer ${env.NVIDIA_SPEECH_BRIDGE_TOKEN}` }
+        : {}),
+    },
+    body: JSON.stringify({
+      text: payload.text,
+      languageCode: (env.ACE_TTS_LANGUAGE_CODE ?? 'en-US').trim(),
+      voiceName: (env.ACE_NVIDIA_TTS_VOICE_NAME ?? '').trim() || undefined,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
 voiceRouter.post('/transcribe', async (c) => {
   const unauthorized = requireBroClientKey(c);
   if (unauthorized) return unauthorized;
@@ -118,6 +211,21 @@ voiceRouter.post('/transcribe', async (c) => {
 
   if (!audioBytes || !audioBlob) {
     return c.json({ error: 'Missing audio field' }, 400);
+  }
+
+  if (resolveSttProvider(c.env) === 'nvidia') {
+    try {
+      const transcript = await transcribeWithNvidiaBridge(c.env, {
+        audioBytes,
+        mimeType: audioBlob.type || 'audio/m4a',
+      });
+      if (transcript) {
+        return c.json({ transcript });
+      }
+      return c.json({ error: 'Transcription failed' }, 502);
+    } catch (error: any) {
+      return c.json({ error: error?.message ?? 'Transcription failed' }, 502);
+    }
   }
 
   if (c.env.AI) {
@@ -245,6 +353,29 @@ voiceRouter.post('/tts', async (c) => {
 
   if (!text) return c.json({ error: 'Missing text' }, 400);
   if (text.length > 500) text = text.slice(0, 500);
+
+  if (resolveTtsProvider(c.env) === 'nvidia') {
+    try {
+      const res = await synthesizeWithNvidiaBridge(c.env, { text });
+      if (!res.ok || !res.body) {
+        return c.json({ error: 'tts_unavailable' }, 503);
+      }
+      return new Response(res.body, {
+        status: 200,
+        headers: {
+          'Content-Type': res.headers.get('content-type') ?? 'audio/wav',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (error) {
+      broLog('tts_failed', {
+        provider: 'nvidia',
+        textLength: text.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return c.json({ error: 'tts_unavailable' }, 503);
+    }
+  }
 
   const elevenLabsKey = c.env.ELEVENLABS_API_KEY;
   if (!elevenLabsKey) {

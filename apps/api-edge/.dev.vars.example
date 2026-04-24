@@ -11,6 +11,26 @@ ADMIN_SECRET_KEY="<32+ char random string>"
 # Anthropic: https://console.anthropic.com → API Keys
 ANTHROPIC_API_KEY="sk-ant-..."
 
+# NVIDIA hosted NIM brain (optional alternative to Anthropic for Ace/Bro)
+# Docs: https://docs.api.nvidia.com/nim/reference/llm-apis
+# Set ACE_BRAIN_PROVIDER="nvidia" to route the concierge brain through
+# NVIDIA's OpenAI-compatible chat endpoint instead of Anthropic.
+NVIDIA_API_KEY="nvapi-..."
+ACE_BRAIN_PROVIDER="anthropic"
+ACE_BRAIN_MODEL="openai/gpt-oss-20b"
+
+# NVIDIA speech bridge (optional: keeps Ace voice on the same provider family)
+# The Worker still serves /api/voice/*; it just forwards STT/TTS through this
+# internal bridge when ACE_STT_PROVIDER / ACE_TTS_PROVIDER are set to "nvidia".
+# The bridge handles AAC/M4A -> WAV transcoding before calling NVIDIA Speech NIM.
+ACE_STT_PROVIDER="openai"
+ACE_TTS_PROVIDER="elevenlabs"
+NVIDIA_SPEECH_BRIDGE_URL="http://127.0.0.1:8788"
+NVIDIA_SPEECH_BRIDGE_TOKEN="<32+ char random string>"
+ACE_STT_LANGUAGE_CODE="en-US"
+ACE_TTS_LANGUAGE_CODE="en-US"
+ACE_NVIDIA_TTS_VOICE_NAME="Magpie-Multilingual.EN-US.Aria"
+
 # OpenAI: https://platform.openai.com → API Keys
 # Powers Whisper STT and TTS-1 in the voice proxy
 OPENAI_API_KEY="sk-..."

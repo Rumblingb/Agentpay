@@ -221,6 +221,26 @@ export interface Env {
   AI?: Ai;
   /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
+  /** NVIDIA API key — enables hosted NIM chat completions for Ace brain experiments. */
+  NVIDIA_API_KEY?: string;
+  /** Concierge brain provider override. Supported values: "anthropic", "nvidia". */
+  ACE_BRAIN_PROVIDER?: string;
+  /** NVIDIA hosted NIM chat model override. Defaults to openai/gpt-oss-20b. */
+  ACE_BRAIN_MODEL?: string;
+  /** Voice STT provider override. Supported values: "cloudflare", "openai", "nvidia". */
+  ACE_STT_PROVIDER?: string;
+  /** Voice TTS provider override. Supported values: "elevenlabs", "nvidia". */
+  ACE_TTS_PROVIDER?: string;
+  /** Internal bridge URL for NVIDIA speech proxying from the Worker runtime. */
+  NVIDIA_SPEECH_BRIDGE_URL?: string;
+  /** Bearer token shared with the internal NVIDIA speech bridge. */
+  NVIDIA_SPEECH_BRIDGE_TOKEN?: string;
+  /** Default language code for Ace STT requests. */
+  ACE_STT_LANGUAGE_CODE?: string;
+  /** Default language code for Ace TTS requests. */
+  ACE_TTS_LANGUAGE_CODE?: string;
+  /** Default NVIDIA TTS voice name used by the internal speech bridge. */
+  ACE_NVIDIA_TTS_VOICE_NAME?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
