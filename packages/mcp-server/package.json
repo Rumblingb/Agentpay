@@ -15,7 +15,12 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "bin", "README.md", "server.json"],
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "server.json"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "node --watch dist/index.js",
@@ -62,7 +67,7 @@
   },
   "homepage": "https://github.com/Rumblingb/Agentpay/tree/main/packages/mcp-server#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.27.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
