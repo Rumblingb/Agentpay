@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   ensureDir,
+  fetchText,
   isoNow,
   researchDir,
   todayStamp,
@@ -59,19 +60,6 @@ function stripHtml(html) {
     .replace(/&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-async function fetchText(url) {
-  const response = await fetch(url, {
-    headers: {
-      "user-agent": process.env.GROWTH_USER_AGENT ?? "AgentPayGrowthBot/0.1",
-      accept: "text/html,application/xhtml+xml",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
-  return stripHtml(await response.text());
 }
 
 function scoreTopics(text) {
@@ -169,7 +157,7 @@ async function main() {
 
   for (const source of SOURCES) {
     try {
-      const text = await fetchText(source.url);
+      const text = stripHtml(await fetchText(source.url));
       sourceRecords.push({
         ...source,
         themes: scoreTopics(text),

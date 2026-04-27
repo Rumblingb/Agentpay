@@ -11,10 +11,26 @@ import {
 } from "./lib/common.mjs";
 
 async function main() {
-  const latest = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [], totals: {} });
+  const latest = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [], totals: {}, sourceHealth: {}, degraded: null });
   const commits = repoGitLog(7);
   const themes = summarizeCommitThemes(commits);
   const topSignals = pickTop(latest.topSignals ?? [], 5);
+  const liveTopCount = Number(latest.totals?.liveTop ?? 0);
+  const fallbackTopCount = Number(latest.totals?.fallbackTop ?? 0);
+  const degradedNote = liveTopCount > 0
+    ? `- Signal queue is live from ${latest.generatedAt ?? "the latest fetch pass"} with ${liveTopCount} ranked live signals.`
+    : fallbackTopCount > 0
+      ? `- Signal queue is running on cached fallback from ${latest.degraded?.fallbackGeneratedAt ?? "an earlier run"} because live fetches failed on the latest pass.`
+      : "- Signal queue is empty on this pass and needs investigation.";
+  const fallbackSourceHealth = {
+    github: Number(latest.totals?.errors ?? 0) > 0 && (latest.errors ?? []).some((entry) => entry.source === "github") ? "degraded" : "healthy",
+    hackernews: Number(latest.totals?.errors ?? 0) > 0 && (latest.errors ?? []).some((entry) => entry.source === "hackernews") ? "degraded" : "healthy",
+    reddit: Number(latest.totals?.errors ?? 0) > 0 && (latest.errors ?? []).some((entry) => entry.source === "reddit") ? "degraded" : "healthy",
+  };
+  const sourceHealth = {
+    ...fallbackSourceHealth,
+    ...(latest.sourceHealth ?? {}),
+  };
   const report = [
     `# Growth report - ${todayStamp()}`,
     "",
@@ -24,10 +40,17 @@ async function main() {
     "- Docs build: green",
     "- Core wedge tests: green for MCP, Capability Vault, hosted actions, and merchant mandate flows",
     "- Social preview assets: present for app and docs",
+    degradedNote,
     "",
     "## What changed this week",
     "",
     ...themes.map((theme) => `- ${theme.theme}: ${theme.count} commits`),
+    "",
+    "## Source health",
+    "",
+    `- GitHub signal source: ${sourceHealth.github ?? "unknown"}`,
+    `- Hacker News signal source: ${sourceHealth.hackernews ?? "unknown"}`,
+    `- Reddit signal source: ${sourceHealth.reddit ?? "unknown"}`,
     "",
     "## Highest-signal market threads",
     "",

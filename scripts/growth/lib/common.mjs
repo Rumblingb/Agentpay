@@ -99,22 +99,104 @@ export function dedupeBy(items, getKey) {
   });
 }
 
-export async function fetchJson(url, init = {}) {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "user-agent": process.env.GROWTH_USER_AGENT ?? "AgentPayGrowthBot/0.1 (+https://github.com/Rumblingb/Agentpay)",
-      accept: "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+function defaultGrowthUserAgent() {
+  return process.env.GROWTH_USER_AGENT ?? "AgentPayGrowthBot/0.1 (+https://github.com/Rumblingb/Agentpay)";
+}
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${text.slice(0, 220)}`);
+function browserHtmlHeaders(extraHeaders = {}) {
+  return {
+    "user-agent": defaultGrowthUserAgent(),
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    ...extraHeaders,
+  };
+}
+
+function jsonHeaders(extraHeaders = {}) {
+  return {
+    "user-agent": defaultGrowthUserAgent(),
+    accept: "application/json,text/plain;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    ...extraHeaders,
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeFetchError(error) {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const causeCode = error.cause && typeof error.cause === "object" && "code" in error.cause
+    ? error.cause.code
+    : null;
+  const parts = [error.name, error.message];
+  if (causeCode) parts.push(String(causeCode));
+  return parts.filter(Boolean).join(": ");
+}
+
+async function fetchWithRetry(url, init = {}, options = {}) {
+  const {
+    retries = 2,
+    timeoutMs = 15000,
+    parse = async (response) => response,
+  } = options;
+
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error(`request_timeout_${timeoutMs}ms`)), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...init,
+        redirect: "follow",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`${response.status} ${response.statusText}: ${text.slice(0, 220)}`.trim());
+      }
+
+      return await parse(response);
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await sleep(350 * (attempt + 1));
+        continue;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  return response.json();
+  throw new Error(describeFetchError(lastError));
+}
+
+export async function fetchJson(url, init = {}) {
+  return fetchWithRetry(url, {
+    ...init,
+    headers: jsonHeaders(init.headers ?? {}),
+  }, {
+    parse: (response) => response.json(),
+  });
+}
+
+export async function fetchText(url, init = {}) {
+  return fetchWithRetry(url, {
+    ...init,
+    headers: browserHtmlHeaders(init.headers ?? {}),
+  }, {
+    parse: (response) => response.text(),
+  });
 }
 
 export function repoGitLog(days = 14) {
