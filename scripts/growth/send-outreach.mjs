@@ -38,7 +38,33 @@ function dedupeWindowCutoff() {
   return Date.now() - DEDUPE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 }
 
-async function enrichGithubLead(signal) {
+function buildContactCache(entries) {
+  const bySignalUrl = new Map();
+  const bySignalTitle = new Map();
+
+  for (const entry of entries) {
+    if (!entry?.to) continue;
+    const cached = {
+      contactEmail: entry.to,
+      owner: entry.owner ?? null,
+      repo: entry.repo ?? null,
+    };
+    if (entry.signalUrl && !bySignalUrl.has(entry.signalUrl)) {
+      bySignalUrl.set(entry.signalUrl, cached);
+    }
+    if (entry.signalTitle && !bySignalTitle.has(entry.signalTitle)) {
+      bySignalTitle.set(entry.signalTitle, cached);
+    }
+  }
+
+  return { bySignalUrl, bySignalTitle };
+}
+
+function getCachedLeadContact(signal, cache) {
+  return cache.bySignalUrl.get(signal.url) ?? cache.bySignalTitle.get(signal.title) ?? null;
+}
+
+async function enrichGithubLead(signal, contactCache) {
   if (signal.source !== "github" || !signal.title?.includes("/")) {
     return null;
   }
@@ -49,12 +75,14 @@ async function enrichGithubLead(signal) {
     __fetchError: error instanceof Error ? error.message : String(error),
   }));
   if (!repo || repo.__fetchError) {
+    const cached = getCachedLeadContact(signal, contactCache);
     return {
       signal,
-      repo: null,
-      owner: null,
-      contactEmail: null,
+      repo: cached?.repo ?? null,
+      owner: cached?.owner ?? null,
+      contactEmail: cached?.contactEmail ?? null,
       error: repo?.__fetchError ?? "repo_lookup_failed",
+      contactSource: cached?.contactEmail ? "cache" : "live",
     };
   }
 
@@ -72,12 +100,14 @@ async function enrichGithubLead(signal) {
     || extractEmail(repo.homepage)
     || null;
 
+  const cached = !contactEmail ? getCachedLeadContact(signal, contactCache) : null;
   return {
     signal,
     repo,
     owner: normalizedOwner,
-    contactEmail,
+    contactEmail: contactEmail ?? cached?.contactEmail ?? null,
     error: ownerFetchError,
+    contactSource: contactEmail ? "live" : cached?.contactEmail ? "cache" : "live",
   };
 }
 
@@ -148,6 +178,7 @@ async function main() {
   const latestSignals = await readJson(path.join(signalsDir, "latest.json"), { topSignals: [], topGithubSignals: [] });
   const existingLog = await readJson(path.join(outboundDir, "sent-log.json"), []);
   const latestDrafts = await readText(path.join(draftsDir, "outbound-latest.md"), "");
+  const contactCache = buildContactCache(existingLog);
   const sentRecently = new Set(
     existingLog
       .filter((entry) =>
@@ -163,7 +194,7 @@ async function main() {
 
   const enriched = [];
   for (const signal of candidateSignals) {
-    const lead = await enrichGithubLead(signal);
+    const lead = await enrichGithubLead(signal, contactCache);
     if (lead) enriched.push(lead);
   }
 
@@ -221,6 +252,7 @@ async function main() {
       fitScore: scoreSignal(lead.signal),
       subject: draft.subject,
       draftSource: "outbound-latest.md",
+      contactSource: lead.contactSource ?? "live",
       sendStatus: sendResult.status,
       provider: sendResult.provider,
       providerMessageId: sendResult.id ?? null,
