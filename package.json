@@ -50,6 +50,7 @@
   "license": "BSL-1.1; AGPL-3.0 after 2029-01-01",
   "workspaces": [
     "apps/*",
+    "cli/*",
     "packages/*",
     "infra/*"
   ],

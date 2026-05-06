@@ -260,6 +260,9 @@ function renderControlPlaneTui(snapshot, opts = {}) {
   const pending = Array.isArray(snapshot.pendingActions) ? snapshot.pendingActions : [];
   const authority = snapshot.authorityProfile || {};
   const bootstrap = snapshot.authorityBootstrap || {};
+  const approval = snapshot.approvalRail || {};
+  const resume = snapshot.exactCallResume || {};
+  const leakGuard = snapshot.leakGuard || {};
   const now = new Date().toLocaleTimeString();
 
   const lines = [
@@ -268,6 +271,8 @@ function renderControlPlaneTui(snapshot, opts = {}) {
     ''.padEnd(78, '='),
     `Authority: ${authority.walletStatus || 'unknown'} | Bootstrap: ${bootstrap.status || 'unknown'} | Runtime: terminal/MCP`,
     `Spend policy: ${JSON.stringify(authority.limits || bootstrap.limits || {}).slice(0, 110)}`,
+    `Approval: ${approval.status || 'idle'} | Limit: ${approval.limitUsd ? `$${approval.limitUsd}` : 'n/a'} | Rail: ${approval.rail || 'terminal'}`,
+    `Auth devices: ${approval.devices || 'terminal'} | Card/QuickPay: ${approval.card || 'not linked'}`,
     ''.padEnd(78, '-'),
     'Active capabilities',
     ...(capabilities.length ? capabilities.slice(0, 8).map((cap) => (
@@ -284,7 +289,9 @@ function renderControlPlaneTui(snapshot, opts = {}) {
       `  ${truncate(action.actionType || action.type || action.title, 26).padEnd(28)} ${truncate(action.summary || action.entityType || action.id, 46)}`
     )) : ['  none']),
     ''.padEnd(78, '-'),
-    'Leak Guard: use `agentpay scan-secrets --text "<agent output>" --auto-heal` to scrub, vault, and resume safely.',
+    `Leak Guard: ${leakGuard.status || 'clean'} | Action: ${leakGuard.action || 'none'} | Raw secrets returned: false`,
+    `Resume: ${resume.status || 'waiting'} | Token: ${resume.token || 'none'} | Mode: ${resume.mode || 'server_side_exact_call_resume'}`,
+    'Phone hook: approval is mirrored to trusted phones and auth devices; terminal remains canonical.',
     'Press Ctrl+C to exit.',
   ];
 
@@ -296,23 +303,39 @@ function buildDemoSnapshot(frame = 0) {
   const stages = [
     {
       status: 'approval_required',
-      pending: 'Agent Alpha requests Databento market data. Limit approval: $5.00.',
+      approval: 'push_sent',
+      pending: 'Agent Alpha requests Databento market data. Approve $5 max on phone.',
+      resume: 'stored_pending_approval',
+      token: 'capresume_demo_1',
       leak: 'clean',
+      leakAction: 'none',
     },
     {
       status: 'funding_required',
-      pending: 'Paid API boundary hit. AgentPay paused exact call and stored capresume_demo_1.',
+      approval: 'card_ready',
+      pending: 'Paid API boundary hit. Card/QuickPay rail ready; exact call paused.',
+      resume: 'paused_exact_call',
+      token: 'capresume_demo_1',
       leak: 'clean',
+      leakAction: 'none',
     },
     {
       status: 'leak_detected',
-      pending: 'Secret leak intercepted before stdout. Stripe restricted key scrubbed and queued.',
+      approval: 'approved_on_phone',
+      pending: 'Secret leak intercepted before stdout. Restricted key scrubbed.',
+      resume: 'waiting_for_vault_rotation',
+      token: 'apsetup_lgr_demo_1',
       leak: 'rk_live...9f2a -> [AGENTPAY_VAULTED_SECRET]',
+      leakAction: 'rotate_and_vault',
     },
     {
       status: 'resumed',
-      pending: 'Human step complete. Exact API call resumed server-side. Agent never saw the key.',
+      approval: 'approved',
+      pending: 'Human step complete. Exact API call resumed server-side.',
+      resume: 'resumed_server_side',
+      token: 'capresume_demo_1',
       leak: 'vaulted and rotated',
+      leakAction: 'vaulted_rotation_queued',
     },
   ];
   const stage = stages[frame % stages.length];
@@ -329,6 +352,22 @@ function buildDemoSnapshot(frame = 0) {
     workbenchLeases: [
       { id: 'lease_demo_databento', status: 'active', workbenchId: 'codex-mac-mini' },
     ],
+    approvalRail: {
+      status: stage.approval,
+      limitUsd: 5,
+      rail: 'phone + terminal',
+      devices: 'iPhone, passkey device',
+      card: 'QuickPay Visa ending 4242',
+    },
+    exactCallResume: {
+      status: stage.resume,
+      token: stage.token,
+      mode: 'server_side_exact_call_resume',
+    },
+    leakGuard: {
+      status: stage.leak,
+      action: stage.leakAction,
+    },
     pendingActions: [
       {
         actionType: stage.status,
