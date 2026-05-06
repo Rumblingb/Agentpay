@@ -30,6 +30,19 @@
     },
     "scheme": "one-question-daily",
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "agpVersion": "8.7.3",
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "35.0.0",
+            "kotlinVersion": "2.0.21",
+            "minSdkVersion": 24
+          }
+        }
+      ],
       "expo-router"
     ],
     "experiments": {
