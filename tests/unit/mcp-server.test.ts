@@ -54,6 +54,15 @@ describe('MCP mandate contract', () => {
     const toolNames = TOOLS.map((tool) => tool.name);
 
     expect(toolNames).toEqual(expect.arrayContaining([
+      'agentpay_buy_api',
+      'agentpay_read_authority_bootstrap',
+      'agentpay_update_authority_bootstrap',
+      'agentpay_get_terminal_control_plane',
+      'agentpay_execute_with_workbench_lease',
+      'agentpay_list_workbench_leases',
+      'agentpay_revoke_workbench_lease',
+      'agentpay_execute_with_resume_token',
+      'agentpay_scan_for_leaked_secrets',
       'agentpay_create_funding_setup_intent',
       'agentpay_confirm_funding_setup',
       'agentpay_list_funding_methods',
@@ -66,6 +75,9 @@ describe('MCP mandate contract', () => {
       'agentpay_execute_capability',
       'agentpay_get_action_session',
     ]));
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_buy_api')?.description).toContain('/api/capabilities/access-resolve');
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_execute_with_resume_token')?.description).toContain('/api/capabilities/execution-attempts/:attemptId');
+    expect(TOOLS.find((tool) => tool.name === 'agentpay_scan_for_leaked_secrets')?.description).toContain('Never echoes raw secrets');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_create_funding_setup_intent')?.description).toContain('/api/payments/setup-intent');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_confirm_funding_setup')?.description).toContain('/api/payments/confirm-setup');
     expect(TOOLS.find((tool) => tool.name === 'agentpay_list_funding_methods')?.description).toContain('/api/payments/methods/:principalId');
@@ -543,6 +555,181 @@ describe('MCP mandate contract', () => {
       body: { url: 'https://example.com' },
       allowPaidUsage: true,
     });
+  });
+
+  it('buys API access from a capability need and executes the initial call through an opaque lease', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch' as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({
+          status: 'ready',
+          capability: { id: 'cap_browserbase', provider: 'browserbase' },
+          workbenchLease: {
+            leaseId: 'lease_1',
+            token: 'apcl_lease_token',
+            workbenchId: 'ws_1',
+            executeEndpoint: '/api/capabilities/lease-execute',
+          },
+        }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({
+          status: 'funding_required',
+          executionAttempt: {
+            attemptId: 'attempt_1',
+            statusUrl: 'https://api.agentpay.so/api/capabilities/execution-attempts/attempt_1',
+          },
+          nextAction: { type: 'funding_required' },
+        }),
+      } as any);
+
+    const result = await handleTool('agentpay_buy_api', {
+      capability: 'web_scraping_high_stealth',
+      priority: 'latency',
+      subjectRef: 'repo_ws_1',
+      principalId: 'principal_1',
+      operatorId: 'dev_agent',
+      workbenchId: 'ws_1',
+      customerPhone: '+447700900123',
+      maxBudgetUsd: 0.5,
+      initialCall: {
+        method: 'POST',
+        path: '/v1/sessions',
+        body: { projectId: 'proj_1' },
+        requestId: 'req_1',
+      },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/capabilities/access-resolve');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toMatchObject({
+      capability: 'web_scraping_high_stealth',
+      provider: 'browserbase',
+      subjectType: 'workspace',
+      subjectRef: 'repo_ws_1',
+      issueWorkbenchLease: true,
+      notificationChannel: 'phone',
+    });
+    expect(String(fetchSpy.mock.calls[1][0])).toContain('/api/capabilities/lease-execute');
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toMatchObject({
+      leaseToken: 'apcl_lease_token',
+      workbenchId: 'ws_1',
+      path: '/v1/sessions',
+      principalId: 'principal_1',
+      customerPhone: '+447700900123',
+    });
+    expect(result.content[0].text).toContain('capresume_attempt_1');
+    expect(result.content[0].text).not.toContain('sk_live');
+  });
+
+  it('returns setup resume tokens when buy-api needs human provider auth', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        status: 'auth_required',
+        actionSession: {
+          sessionId: 'action_setup_1',
+          status: 'pending',
+        },
+        nextAction: {
+          type: 'auth_required',
+          displayPayload: {
+            onboardingUrl: 'https://api.agentpay.so/api/capabilities/onboarding-sessions/action_setup_1/hosted',
+          },
+        },
+      }),
+    } as any);
+
+    const result = await handleTool('agentpay_buy_api', {
+      capability: 'market_data',
+      subjectRef: 'quant_ws_1',
+      principalId: 'principal_1',
+      workbenchId: 'quant_ws_1',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/capabilities/access-resolve');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toMatchObject({
+      provider: 'databento',
+      subjectRef: 'quant_ws_1',
+    });
+    expect(result.content[0].text).toContain('apsetup_action_setup_1');
+    expect(result.content[0].text).toContain('agentpay_execute_with_resume_token');
+  });
+
+  it('checks resumable exact-call execution attempts with capresume tokens', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        attempt: { id: 'attempt_1', status: 'completed' },
+        resultOrNextAction: { status: 'completed', proof: { resumedServerSide: true } },
+      }),
+    } as any);
+
+    const result = await handleTool('agentpay_execute_with_resume_token', {
+      resumeToken: 'capresume_attempt_1',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/capabilities/execution-attempts/attempt_1');
+    expect(result.content[0].text).toContain('resumedServerSide');
+  });
+
+  it('detects leaked secrets without returning raw key material to the agent', async () => {
+    const openAiKey = `sk-proj-${'a'.repeat(30)}`;
+    const anthropicKey = `sk-ant-api03-${'b'.repeat(30)}`;
+    const stripeMasterKey = `sk_live_${'c'.repeat(24)}`;
+
+    const result = await handleTool('agentpay_scan_for_leaked_secrets', {
+      text: `The user pasted ${openAiKey}, ${anthropicKey}, and ${stripeMasterKey} into chat.`,
+      source: 'unit_test_chat',
+    });
+
+    const output = result.content[0].text;
+    expect(output).toContain('leak_detected');
+    expect(output).toContain('openai');
+    expect(output).toContain('anthropic');
+    expect(output).toContain('kill_agent_session');
+    expect(output).toContain('stripe_live_master_key');
+    expect(output).toContain('rawSecretsReturned');
+    expect(output).not.toContain(openAiKey);
+    expect(output).not.toContain(anthropicKey);
+    expect(output).not.toContain(stripeMasterKey);
+  });
+
+  it('can start Leak Guard vaulting for detected leaked keys without echoing them in the result', async () => {
+    const openAiKey = `sk-proj-${'c'.repeat(30)}`;
+    const fetchSpy = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({
+        status: 'leak_detected',
+        action: 'scrubbed_and_queued_for_rotation',
+        vaultSession: {
+          session_id: 'lgr_1',
+          providers: ['openai'],
+          resumeToken: 'apsetup_lgr_1',
+        },
+        rawSecretsReturned: false,
+      }),
+    } as any);
+
+    const result = await handleTool('agentpay_scan_for_leaked_secrets', {
+      text: `bad paste: ${openAiKey}`,
+      autoVault: true,
+      subjectRef: 'workspace_1',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/api/capabilities/leak-guard/events');
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body).toMatchObject({
+      mode: 'vault',
+      subjectRef: 'workspace_1',
+    });
+    expect(body.text).toBe(openAiKey.startsWith('sk-proj-') ? `bad paste: ${openAiKey}` : body.text);
+    expect(result.content[0].text).toContain('lgr_1');
+    expect(result.content[0].text).not.toContain(openAiKey);
   });
 
   it('fetches a capability connect session through /api/capabilities/connect-sessions/:sessionId', async () => {

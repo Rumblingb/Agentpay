@@ -906,7 +906,7 @@ describe('capabilitiesRouter', () => {
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: form.toString(),
       }),
-      authEnv(),
+      authEnv({ RESEND_API_KEY: 're_test_123' }),
       {} as never,
     );
 
@@ -1374,9 +1374,10 @@ describe('capabilitiesRouter', () => {
     expect(body.authorityProfile.walletStatus).toBe('ready');
     expect(body.workbenchLeases).toHaveLength(1);
     expect(body.authorityBootstrap.status).toBe('ready');
-    expect(body.suggestedToolCalls).toHaveLength(9);
+    expect(body.suggestedToolCalls).toHaveLength(10);
     expect(body.suggestedToolCalls[0].tool).toBe('agentpay_read_authority_bootstrap');
     expect(body.suggestedToolCalls[2].tool).toBe('agentpay_resolve_provider_access');
+    expect(body.suggestedToolCalls[8].tool).toBe('agentpay_scan_for_leaked_secrets');
   });
 
   it('returns an authority bootstrap snapshot with missing funding and provider access called out', async () => {
@@ -1419,7 +1420,7 @@ describe('capabilitiesRouter', () => {
       new Request('http://agentpay.test/authority-bootstrap?principalId=principal_1&subjectType=workspace&subjectRef=workbench_1&workbenchId=local_ws_1', {
         headers: authHeaders(),
       }),
-      authEnv(),
+      authEnv({ RESEND_API_KEY: 're_test_123' }),
       {} as never,
     );
 
@@ -1429,6 +1430,76 @@ describe('capabilitiesRouter', () => {
     expect(body.missing).toContain('payment_method');
     expect(body.missing).toContain('provider_access');
     expect(body.nextAction.tool).toBe('agentpay_create_onboarding_session');
+  });
+
+  it('scrubs leaked live master keys and fails closed through Leak Guard', async () => {
+    const leakedKey = `sk_live_${'a'.repeat(24)}`;
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/leak-guard/events', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          text: `agent printed ${leakedKey}`,
+          mode: 'auto_heal',
+          source: 'unit_test_agent_output',
+        }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('leak_detected');
+    expect(body.action).toBe('kill_agent_session');
+    expect(body.findings[0]).toMatchObject({
+      provider: 'stripe',
+      keyClass: 'stripe_live_master_key',
+      autoVaultAllowed: false,
+      autoRotateAllowed: false,
+    });
+    expect(body.scrubbedText).toContain('[AGENTPAY_VAULTED_SECRET]');
+    expect(body.exactCallResume.safeToResume).toBe(false);
+    expect(JSON.stringify(body)).not.toContain(leakedKey);
+  });
+
+  it('queues vault confirmation for auto-healable restricted keys without returning raw secrets', async () => {
+    const leakedKey = `rk_live_${'b'.repeat(24)}`;
+    (createDb as jest.Mock).mockReturnValue(makeSql([[], []]));
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 202,
+      text: async () => JSON.stringify({ id: 'email_1' }),
+    } as any);
+
+    const res = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/leak-guard/events', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          text: `agent printed ${leakedKey}`,
+          mode: 'auto_heal',
+          source: 'unit_test_agent_output',
+          subjectRef: 'workspace_1',
+        }),
+      }),
+      authEnv({ RESEND_API_KEY: 're_test_123' }),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, any>;
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('leak_detected');
+    expect(body.action).toBe('scrubbed_and_queued_for_rotation');
+    expect(body.findings[0]).toMatchObject({
+      provider: 'stripe',
+      keyClass: 'stripe_live_restricted_key',
+      autoVaultAllowed: true,
+      autoRotateAllowed: true,
+    });
+    expect(body.vaultSession.session_id).toMatch(/^lgr_/);
+    expect(body.exactCallResume.resumeToken).toMatch(/^apsetup_lgr_/);
+    expect(JSON.stringify(body)).not.toContain(leakedKey);
   });
 
   it('updates authority bootstrap defaults from the terminal control plane', async () => {

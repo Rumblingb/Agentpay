@@ -1,6 +1,6 @@
 # @agentpayxyz/mcp-server
 
-Model Context Protocol server for AgentPay. Gives any MCP-compatible AI assistant the ability to create payment intents, verify settlements, look up AgentPassports, manage the portable identity bundle, discover agents, and drive governed mandates on the canonical `/api/mandates` surface.
+Model Context Protocol server for AgentPay. Gives any MCP-compatible host the ability to bootstrap authority, vault external credentials, collect in-host human steps for funding or approval, resume the exact blocked call, and return proof back to the host.
 
 ## Install
 
@@ -8,16 +8,25 @@ Model Context Protocol server for AgentPay. Gives any MCP-compatible AI assistan
 npx -y @agentpayxyz/mcp-server
 ```
 
+One command gives any MCP-compatible host the ability to:
+
+- buy or reuse an API from a capability need like `web_scraping_high_stealth` or `market_data`
+- request governed access to an external API
+- keep raw provider keys out of agent context
+- collect approval or funding only when policy requires it
+- resume the exact blocked call automatically
+- return receipts and proof to the same host session
+
 ## Hosted Remote MCP
 
 If you are connecting AgentPay through a host that supports remote MCP, use the deployed endpoint instead of stdio:
 
-- MCP endpoint: `https://api.agentpay.so/api/mcp`
-- Discovery info: `https://api.agentpay.so/api/mcp/info`
-- Pricing metadata: `https://api.agentpay.so/api/mcp/pricing`
-- Host setup guide: `https://api.agentpay.so/api/mcp/setup`
-- Demo flow: `https://api.agentpay.so/api/mcp/demo`
-- Token mint endpoint: `https://api.agentpay.so/api/mcp/tokens`
+- [MCP endpoint](https://api.agentpay.so/api/mcp)
+- [Discovery info](https://api.agentpay.so/api/mcp/info)
+- [Pricing metadata](https://api.agentpay.so/api/mcp/pricing)
+- [Host setup guide](https://api.agentpay.so/api/mcp/setup)
+- [Demo flow](https://api.agentpay.so/api/mcp/demo)
+- [Token mint endpoint](https://api.agentpay.so/api/mcp/tokens)
 
 You can authenticate with either:
 
@@ -64,7 +73,13 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-Get your API key: register at `https://api.agentpay.so/api/merchants/register`
+Register with one curl call:
+
+```bash
+curl -s -X POST https://api.agentpay.so/api/merchants/register \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "My Agent", "email": "you@example.com" }'
+```
 
 ## Tools Exposed
 
@@ -88,6 +103,15 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 | `agentpay_confirm_funding_setup` | Confirm a completed Stripe funding setup through `/api/payments/confirm-setup` |
 | `agentpay_list_funding_methods` | List saved principal funding methods through `/api/payments/methods/:principalId` |
 | `agentpay_create_human_funding_request` | Create a host-native human funding request through `/api/payments/funding-request` with card-first funding and UPI fallback |
+| `agentpay_buy_api` | Resolve a capability need into governed API access through `/api/capabilities/access-resolve`, issue a workbench lease, and optionally execute the first call |
+| `agentpay_read_authority_bootstrap` | Read guardrails, funding readiness, provider access, and workbench continuity through `/api/capabilities/authority-bootstrap` |
+| `agentpay_update_authority_bootstrap` | Set terminal-native contact, phone notification hints, funding rail, OTP policy, and spend limits through `/api/capabilities/authority-bootstrap` |
+| `agentpay_get_terminal_control_plane` | Read the terminal control-plane snapshot through `/api/capabilities/terminal/control-plane` |
+| `agentpay_execute_with_workbench_lease` | Execute an API call with an opaque lease through `/api/capabilities/lease-execute` |
+| `agentpay_list_workbench_leases` | List active, revoked, or expired opaque leases through `/api/capabilities/leases` |
+| `agentpay_revoke_workbench_lease` | Revoke a workbench lease through `/api/capabilities/leases/:leaseId/revoke` |
+| `agentpay_execute_with_resume_token` | Check an agent-resumable setup or exact-call execution token after the human step completes |
+| `agentpay_scan_for_leaked_secrets` | Scan pasted text or agent output for leaked API keys, return only redacted findings, and optionally call Leak Guard vault/auto-heal |
 | `agentpay_list_capability_providers` | List the governed external capability catalog through `/api/capabilities/providers/catalog` |
 | `agentpay_request_capability_connect` | Start a secure external capability connect session through `/api/capabilities/connect-sessions` |
 | `agentpay_list_capabilities` | List connected external capabilities through `/api/capabilities` |
@@ -176,6 +200,22 @@ Claude will call `agentpay_request_capability_connect` and return an `auth_requi
 > "Run this scrape through the connected Firecrawl capability and ask before spending past the free tier."
 
 Claude will call `agentpay_execute_capability`. AgentPay injects the vaulted credential, enforces the allow-listed host, and returns `approval_required` once the free-call allowance is exhausted.
+
+> "Buy me an API for high-stealth web scraping in this workbench. Keep the budget under $0.50, prefer latency, use my phone if a human step is needed, and run the first browser session call."
+
+Claude will call `agentpay_buy_api` with `capability: "web_scraping_high_stealth"`. AgentPay picks the provider, reuses existing governed access when possible, otherwise returns an auth step. If a paid step blocks execution, the response includes `agentResume.resumeToken`; after the human approves or funds, the host calls `agentpay_execute_with_resume_token` and receives the proof/result. The agent never sees the raw provider key.
+
+## Stripe, Link, and Phone Hooks
+
+Stripe is the settlement layer; AgentPay is the authority layer. Funding can use saved card flows today, and the same authority contract is designed to support Link agent wallet or other rails as they become available. The MCP tools accept `customerPhone` and `notificationChannel` so terminal-only flows can escalate human steps to phone OTP, mobile approval, or push hooks while keeping terminal as the fallback.
+
+## Leak Guard
+
+If a human or agent accidentally pastes a provider API key into chat, call `agentpay_scan_for_leaked_secrets` immediately. It detects common OpenAI, Anthropic, Stripe, AWS, and Google key patterns, returns only redacted fingerprints, and gives a provider-specific rotation plan.
+
+Use `mode: "auto_heal"` or `autoVault: true` to call `/api/capabilities/leak-guard/events`. The server then returns scrubbed text, a fail-closed action, optional OTP vault session, and an exact-call resume hint. Stripe live master keys are never auto-rotated; AgentPay tells the host to kill the agent session and rotate manually. Restricted/test keys and provider keys can be queued for vaulting or adapter-driven rotation when the operator has configured provider admin scopes.
+
+Provider-side rotation still needs provider authorization; AgentPay should never claim a key is safe just because it was detected.
 
 ## Environment Variables
 

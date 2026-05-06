@@ -49,6 +49,61 @@ const KNOWN_ENV_PROVIDERS = [
   { envVar: 'TICKETMASTER_API_KEY',  provider: 'ticketmaster',  label: 'Ticketmaster',  baseUrl: 'https://app.ticketmaster.com',         authScheme: 'x_api_key' as const, credentialKind: 'api_key' as const },
 ] as const;
 
+const SECRET_LEAK_PATTERNS = [
+  {
+    provider: 'openai',
+    label: 'OpenAI',
+    baseUrl: 'https://api.openai.com',
+    authScheme: 'bearer' as const,
+    credentialKind: 'api_key' as const,
+    severity: 'critical' as const,
+    pattern: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{24,}\b/g,
+    rotation: 'Create a replacement OpenAI project key, lower budget if high-limit, update AgentPay vaulting, then revoke the exposed key in OpenAI project settings.',
+  },
+  {
+    provider: 'anthropic',
+    label: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    headerName: 'x-api-key',
+    severity: 'critical' as const,
+    pattern: /\bsk-ant-(?:api\d{2}|sid\d{2})-[A-Za-z0-9_-]{24,}\b/g,
+    rotation: 'Revoke the exposed Anthropic workspace token, vault a replacement, and scrub the context with [AGENTPAY_VAULTED_SECRET].',
+  },
+  {
+    provider: 'stripe',
+    label: 'Stripe',
+    baseUrl: 'https://api.stripe.com',
+    authScheme: 'bearer' as const,
+    credentialKind: 'api_key' as const,
+    severity: 'critical' as const,
+    pattern: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+    rotation: 'Restricted or test keys can be replaced through a configured Stripe rotation adapter. Live master keys must be revoked manually and the agent session should be killed.',
+  },
+  {
+    provider: 'aws',
+    label: 'AWS',
+    baseUrl: 'https://sts.amazonaws.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    headerName: 'x-api-key',
+    severity: 'critical' as const,
+    pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+    rotation: 'Deactivate and delete exposed long-term AWS access keys before replacement because IAM users can only hold two active access keys.',
+  },
+  {
+    provider: 'google',
+    label: 'Google API',
+    baseUrl: 'https://www.googleapis.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    severity: 'high' as const,
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    rotation: 'Restrict or rotate the exposed Google API key in Google Cloud Console, then vault the replacement in AgentPay.',
+  },
+] as const;
+
 export interface AgentPayMcpRuntime {
   apiUrl?: string;
   apiKey?: string;
@@ -158,6 +213,24 @@ const fundingToolDescriptions = {
 } as const;
 
 const capabilityToolDescriptions = {
+  leakGuard:
+    'Scan pasted text or agent output for leaked API keys. Returns only redacted/fingerprinted findings, provider-specific rotation policy, scrubbed context, and can optionally start AgentPay Leak Guard vaulting through /api/capabilities/leak-guard/events. Never echoes raw secrets back to the agent.',
+  buyApi:
+    'Buy or reuse governed API access for an agent need through /api/capabilities/access-resolve. Use this when an agent knows the capability it needs, not necessarily the provider. AgentPay picks a provider, starts secure setup if needed, can issue an opaque workbench lease, and can optionally run the initial call without exposing secrets.',
+  authorityRead:
+    'Read terminal-native authority bootstrap state through /api/capabilities/authority-bootstrap: guardrails, funding readiness, provider access, and workbench continuity.',
+  authorityUpdate:
+    'Set terminal-native authority defaults through /api/capabilities/authority-bootstrap: contact, phone notification hint, funding rail, auto-approve threshold, OTP policy, and spend limits.',
+  controlPlane:
+    'Read the AgentPay terminal control-plane snapshot through /api/capabilities/terminal/control-plane for the current principal and workbench.',
+  leaseExecute:
+    'Execute an API call through /api/capabilities/lease-execute using an opaque workbench lease token. The agent never receives the raw provider secret.',
+  leaseList:
+    'List active, expired, or revoked workbench leases through /api/capabilities/leases so terminal hosts can show reusable access without a dashboard.',
+  leaseRevoke:
+    'Revoke a workbench lease through /api/capabilities/leases/:leaseId/revoke without touching the vaulted provider credential.',
+  resume:
+    'Inspect an agent-resumable human step through /api/capabilities/execution-attempts/:attemptId or /api/actions/:sessionId. Use this after a human finishes auth, funding, OTP, or approval.',
   catalog:
     'List the external capability provider catalog from /api/capabilities/providers/catalog. Use this to inspect which providers AgentPay can connect, their free-call allowance, and their paid usage rate.',
   connect:
@@ -201,6 +274,11 @@ export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_list_identity_inbox_messages',
   'agentpay_verify_identity_credential',
   'agentpay_list_funding_methods',
+  'agentpay_read_authority_bootstrap',
+  'agentpay_get_terminal_control_plane',
+  'agentpay_list_workbench_leases',
+  'agentpay_execute_with_resume_token',
+  'agentpay_scan_for_leaked_secrets',
   'agentpay_list_capability_providers',
   'agentpay_list_capabilities',
   'agentpay_get_capability',
@@ -643,6 +721,256 @@ const RAW_TOOLS: Tool[] = [
     },
   },
   {
+    name: 'agentpay_scan_for_leaked_secrets',
+    description: capabilityToolDescriptions.leakGuard,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        text: {
+          type: 'string',
+          description: 'Text, chat transcript, terminal output, or tool output to scan for leaked secrets.',
+        },
+        source: {
+          type: 'string',
+          description: 'Optional source label such as claude_chat, codex_terminal, logs, pull_request, or user_paste.',
+        },
+        autoVault: {
+          type: 'boolean',
+          description: 'If true, start the AgentPay Leak Guard vault flow for detected keys that policy allows. Raw keys are sent only to AgentPay and never returned in the tool result.',
+          default: false,
+        },
+        mode: {
+          type: 'string',
+          enum: ['scan', 'vault', 'auto_heal'],
+          description: 'scan returns local policy only. vault or auto_heal calls AgentPay /api/capabilities/leak-guard/events for server-side scrub/vault/resume handling.',
+          default: 'scan',
+        },
+        subjectType: {
+          type: 'string',
+          enum: ['merchant', 'principal', 'agent', 'workspace'],
+          description: 'Optional owner type for follow-up vaulting.',
+          default: 'workspace',
+        },
+        subjectRef: {
+          type: 'string',
+          description: 'Optional owner reference for follow-up vaulting.',
+        },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'agentpay_buy_api',
+    description: capabilityToolDescriptions.buyApi,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        capability: {
+          type: 'string',
+          description: 'Capability need such as web_scraping_high_stealth, web_scraping, market_data, search, maps, events, or generic_api.',
+        },
+        provider: {
+          type: 'string',
+          description: 'Optional explicit provider such as firecrawl, browserbase, exa, databento, or generic_rest_api. If omitted, AgentPay chooses from capability and priority.',
+        },
+        requestedProviderName: {
+          type: 'string',
+          description: 'Human-readable provider/API name when no preset provider exists yet.',
+        },
+        priority: {
+          type: 'string',
+          enum: ['latency', 'cost', 'quality', 'reliability'],
+          description: 'Optimization hint AgentPay can use to pick a provider.',
+        },
+        maxBudgetUsd: {
+          type: 'number',
+          description: 'Maximum budget the agent is allowed to request for this API need.',
+        },
+        subjectType: {
+          type: 'string',
+          enum: ['merchant', 'principal', 'agent', 'workspace'],
+          description: 'Entity that should own the governed capability.',
+          default: 'workspace',
+        },
+        subjectRef: {
+          type: 'string',
+          description: 'Stable ID of the workspace, agent, principal, or merchant that owns this access.',
+        },
+        principalId: {
+          type: 'string',
+          description: 'Human principal who owns funding and authority policy.',
+        },
+        operatorId: {
+          type: 'string',
+          description: 'Agent or operator requesting access.',
+        },
+        workbenchId: {
+          type: 'string',
+          description: 'Local host/workbench ID for opaque lease reuse.',
+        },
+        workbenchLabel: {
+          type: 'string',
+          description: 'Human-readable workbench label shown in terminal control surfaces.',
+        },
+        issueWorkbenchLease: {
+          type: 'boolean',
+          description: 'Issue an opaque lease for same-workbench reuse when governed access already exists.',
+          default: true,
+        },
+        notificationChannel: {
+          type: 'string',
+          enum: ['terminal', 'phone', 'both'],
+          description: 'Preferred human-in-the-loop surface. Phone is a hint for mobile/push hooks; terminal remains the fallback.',
+          default: 'terminal',
+        },
+        customerPhone: {
+          type: 'string',
+          description: 'Phone hint for OTP, approval, funding, or future mobile push notification.',
+        },
+        customerEmail: {
+          type: 'string',
+          description: 'Email hint for hosted setup, OTP, or receipts.',
+        },
+        requestedBaseUrl: {
+          type: 'string',
+          description: 'Required for unknown/generic providers: API base URL AgentPay may proxy.',
+        },
+        allowedHosts: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Required for unknown/generic providers: upstream hosts AgentPay may call.',
+        },
+        authScheme: {
+          type: 'string',
+          enum: ['bearer', 'x_api_key', 'basic'],
+          description: 'Auth injection scheme for unknown/generic providers.',
+        },
+        credentialKind: {
+          type: 'string',
+          enum: ['api_key', 'bearer_token', 'basic_auth'],
+          description: 'Credential kind for unknown/generic providers.',
+        },
+        initialCall: {
+          type: 'object' as const,
+          additionalProperties: true,
+          description: 'Optional first API call to run after access is ready. Includes method, path, query, headers, body, idempotencyKey, and allowPaidUsage.',
+        },
+      },
+      required: ['capability', 'subjectRef'],
+    },
+  },
+  {
+    name: 'agentpay_read_authority_bootstrap',
+    description: capabilityToolDescriptions.authorityRead,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        principalId: { type: 'string', description: 'Human principal whose authority state should be read.' },
+        subjectType: { type: 'string', enum: ['merchant', 'principal', 'agent', 'workspace'], description: 'Optional scoped subject type.' },
+        subjectRef: { type: 'string', description: 'Optional scoped subject reference.' },
+        workbenchId: { type: 'string', description: 'Optional workbench ID for continuity state.' },
+      },
+      required: ['principalId'],
+    },
+  },
+  {
+    name: 'agentpay_update_authority_bootstrap',
+    description: capabilityToolDescriptions.authorityUpdate,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        principalId: { type: 'string', description: 'Human principal who owns funding and spend authority.' },
+        operatorId: { type: 'string', description: 'Agent or operator setting the authority defaults.' },
+        workbenchId: { type: 'string', description: 'Workbench ID these defaults are being set from.' },
+        contactEmail: { type: 'string', description: 'Email for OTP, receipts, recovery, or auth links.' },
+        contactName: { type: 'string', description: 'Human-readable principal name.' },
+        customerPhone: { type: 'string', description: 'Phone hint for OTP or future push notification hooks.' },
+        preferredFundingRail: { type: 'string', description: 'Preferred funding rail, such as card, link, upi, or wallet.' },
+        notificationChannel: { type: 'string', enum: ['terminal', 'phone', 'both'], description: 'Preferred HITL channel; terminal remains fallback.' },
+        autoApproveUsd: { type: 'number', description: 'Auto-approve paid actions below this USD amount.' },
+        perActionUsd: { type: 'number', description: 'Per-action spend limit in USD.' },
+        dailyUsd: { type: 'number', description: 'Daily spend limit in USD.' },
+        monthlyUsd: { type: 'number', description: 'Monthly spend limit in USD.' },
+        otpEveryPaidAction: { type: 'boolean', description: 'Require OTP for every paid action.' },
+      },
+      required: ['principalId'],
+    },
+  },
+  {
+    name: 'agentpay_get_terminal_control_plane',
+    description: capabilityToolDescriptions.controlPlane,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        principalId: { type: 'string', description: 'Optional principal ID to include authority and lease state.' },
+        workbenchId: { type: 'string', description: 'Optional workbench ID for local continuity state.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'agentpay_execute_with_workbench_lease',
+    description: capabilityToolDescriptions.leaseExecute,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        leaseToken: { type: 'string', description: 'Opaque lease token returned by agentpay_buy_api or access-resolve.' },
+        workbenchId: { type: 'string', description: 'Workbench ID bound to the lease.' },
+        method: { type: 'string', description: 'HTTP method for the proxied external API call.', default: 'GET' },
+        path: { type: 'string', description: 'Path relative to the connected capability base URL.', default: '/' },
+        query: { ...arbitraryObjectSchema('Optional query-string object forwarded upstream.') },
+        headers: { ...arbitraryObjectSchema('Optional non-auth headers forwarded upstream.') },
+        body: { ...arbitraryObjectSchema('Optional JSON body forwarded upstream.') },
+        allowPaidUsage: { type: 'boolean', description: 'Set true only after human approval or policy allows paid usage.', default: false },
+        principalId: { type: 'string', description: 'Principal used for authority and funding checks.' },
+        operatorId: { type: 'string', description: 'Agent/operator initiating execution.' },
+        customerPhone: { type: 'string', description: 'Phone hint for OTP or mobile hooks.' },
+        customerEmail: { type: 'string', description: 'Email hint for OTP or receipts.' },
+        idempotencyKey: { type: 'string', description: 'Stable key so repeated calls reuse the same blocked execution attempt.' },
+      },
+      required: ['leaseToken', 'workbenchId'],
+    },
+  },
+  {
+    name: 'agentpay_list_workbench_leases',
+    description: capabilityToolDescriptions.leaseList,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        principalId: { type: 'string', description: 'Optional principal owner filter.' },
+        workbenchId: { type: 'string', description: 'Optional workbench filter.' },
+        status: { type: 'string', enum: ['active', 'revoked', 'expired'], description: 'Optional lease status filter.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'agentpay_revoke_workbench_lease',
+    description: capabilityToolDescriptions.leaseRevoke,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        leaseId: { type: 'string', description: 'Lease ID to revoke.' },
+        reason: { type: 'string', description: 'Audit reason such as lost_device, rotated_access, or operator_removed.' },
+      },
+      required: ['leaseId'],
+    },
+  },
+  {
+    name: 'agentpay_execute_with_resume_token',
+    description: capabilityToolDescriptions.resume,
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        resumeToken: {
+          type: 'string',
+          description: 'Token returned in nextAction.agentResume.resumeToken. capresume_* checks exact-call execution; apsetup_* checks hosted setup/action state.',
+        },
+      },
+      required: ['resumeToken'],
+    },
+  },
+  {
     name: 'agentpay_request_capability_connect',
     description: capabilityToolDescriptions.connect,
     inputSchema: {
@@ -732,6 +1060,12 @@ const RAW_TOOLS: Tool[] = [
           description: 'Set true only after the human has approved spending beyond the free-call allowance',
           default: false,
         },
+        principalId: { type: 'string', description: 'Principal used for authority and funding checks when paid usage requires a human step.' },
+        operatorId: { type: 'string', description: 'Agent/operator initiating execution.' },
+        customerPhone: { type: 'string', description: 'Phone hint for OTP or mobile hooks.' },
+        customerEmail: { type: 'string', description: 'Email hint for OTP or receipts.' },
+        requestId: { type: 'string', description: 'Host request ID for tracing.' },
+        idempotencyKey: { type: 'string', description: 'Stable key so repeated calls reuse the same blocked execution attempt.' },
       },
       required: ['capabilityId'],
     },
@@ -1068,6 +1402,238 @@ async function finalizeToolResult(
   return json(data);
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+async function shortFingerprint(secret: string): Promise<string> {
+  const encoded = new TextEncoder().encode(secret);
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
+    .slice(0, 8)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function redactSecret(secret: string): string {
+  if (secret.length <= 12) return '[redacted]';
+  return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
+}
+
+async function scanForLeakedSecrets(text: string) {
+  const findings: Array<{
+    provider: string;
+    label: string;
+    severity: 'critical' | 'high';
+    keyClass: string;
+    redacted: string;
+    fingerprint: string;
+    index: number;
+    recommendedAction: 'kill_agent_session' | 'rotate_and_vault' | 'vault_and_manual_rotate';
+    autoVaultAllowed: boolean;
+    autoRotateAllowed: boolean;
+    reason: string;
+    rotation: string;
+  }> = [];
+  const vaultable: Array<{
+    provider: string;
+    label: string;
+    baseUrl: string;
+    authScheme: string;
+    credentialKind: string;
+    headerName?: string;
+    keyValue: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const detector of SECRET_LEAK_PATTERNS) {
+    detector.pattern.lastIndex = 0;
+    for (const match of text.matchAll(detector.pattern)) {
+      const keyValue = match[0];
+      const fingerprint = await shortFingerprint(keyValue);
+      const dedupeKey = `${detector.provider}:${fingerprint}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      const policy = classifySecretLeak(detector.provider, keyValue);
+      findings.push({
+        provider: detector.provider,
+        label: detector.label,
+        severity: policy.severity,
+        keyClass: policy.keyClass,
+        redacted: redactSecret(keyValue),
+        fingerprint,
+        index: match.index ?? -1,
+        recommendedAction: policy.recommendedAction,
+        autoVaultAllowed: policy.autoVaultAllowed,
+        autoRotateAllowed: policy.autoRotateAllowed,
+        reason: policy.reason,
+        rotation: detector.rotation,
+      });
+      if (policy.autoVaultAllowed) {
+        vaultable.push({
+          provider: detector.provider,
+          label: detector.label,
+          baseUrl: detector.baseUrl,
+          authScheme: detector.authScheme,
+          credentialKind: detector.credentialKind,
+          ...('headerName' in detector && detector.headerName ? { headerName: detector.headerName } : {}),
+          keyValue,
+        });
+      }
+    }
+  }
+
+  return { findings, vaultable };
+}
+
+function classifySecretLeak(provider: string, keyValue: string): {
+  severity: 'critical' | 'high';
+  keyClass: string;
+  recommendedAction: 'kill_agent_session' | 'rotate_and_vault' | 'vault_and_manual_rotate';
+  autoVaultAllowed: boolean;
+  autoRotateAllowed: boolean;
+  reason: string;
+} {
+  if (provider === 'stripe') {
+    if (keyValue.startsWith('sk_live_')) {
+      return {
+        severity: 'critical',
+        keyClass: 'stripe_live_master_key',
+        recommendedAction: 'kill_agent_session',
+        autoVaultAllowed: false,
+        autoRotateAllowed: false,
+        reason: 'Stripe live master keys are too privileged for automatic handling. Kill the agent session and rotate manually in Stripe.',
+      };
+    }
+    if (keyValue.startsWith('rk_live_')) {
+      return {
+        severity: 'critical',
+        keyClass: 'stripe_live_restricted_key',
+        recommendedAction: 'rotate_and_vault',
+        autoVaultAllowed: true,
+        autoRotateAllowed: true,
+        reason: 'Restricted live keys are eligible for adapter-driven replacement when Stripe rotation credentials are configured.',
+      };
+    }
+    return {
+      severity: 'high',
+      keyClass: 'stripe_test_key',
+      recommendedAction: 'rotate_and_vault',
+      autoVaultAllowed: true,
+      autoRotateAllowed: true,
+      reason: 'Stripe test keys can be replaced safely in configured non-production contexts.',
+    };
+  }
+
+  if (provider === 'aws' && keyValue.startsWith('ASIA')) {
+    return {
+      severity: 'high',
+      keyClass: 'aws_temporary_access_key',
+      recommendedAction: 'vault_and_manual_rotate',
+      autoVaultAllowed: false,
+      autoRotateAllowed: false,
+      reason: 'Temporary AWS credentials should expire or be revoked by the issuing session instead of being vaulted as long-term authority.',
+    };
+  }
+
+  return {
+    severity: provider === 'google' ? 'high' : 'critical',
+    keyClass: `${provider}_api_key`,
+    recommendedAction: 'rotate_and_vault',
+    autoVaultAllowed: true,
+    autoRotateAllowed: false,
+    reason: 'AgentPay can vault replacement access and guide rotation now; provider-side automatic rotation requires a configured admin adapter.',
+  };
+}
+
+function inferProviderForCapability(capability: unknown, priority: unknown): string | null {
+  const value = typeof capability === 'string' ? capability.toLowerCase().trim() : '';
+  const preference = typeof priority === 'string' ? priority.toLowerCase().trim() : '';
+  if (!value) return null;
+
+  if (['web_scraping_high_stealth', 'browser_automation', 'stealth_browser'].includes(value)) {
+    return 'browserbase';
+  }
+  if (['web_scraping', 'crawl', 'crawler', 'page_extract', 'website_to_markdown'].includes(value)) {
+    return preference === 'latency' ? 'firecrawl' : 'firecrawl';
+  }
+  if (['market_data', 'financial_data', 'quant_data', 'ticks', 'historical_market_data'].includes(value)) {
+    return 'databento';
+  }
+  if (['search', 'web_search', 'research_search', 'content_retrieval'].includes(value)) {
+    return preference === 'cost' ? 'tavily' : 'exa';
+  }
+  if (['ai_search', 'answer_engine', 'citation_search'].includes(value)) {
+    return 'perplexity';
+  }
+  if (['maps', 'geocoding', 'places', 'routing'].includes(value)) {
+    return 'google_maps';
+  }
+  if (['events', 'ticketing', 'event_discovery'].includes(value)) {
+    return 'ticketmaster';
+  }
+  if (['generic_api', 'rest_api', 'paid_api'].includes(value)) {
+    return 'generic_rest_api';
+  }
+
+  return null;
+}
+
+function withAgentResume(data: unknown): unknown {
+  const record = asRecord(data);
+  if (!Object.keys(record).length) return data;
+
+  const executionAttempt = asRecord(record.executionAttempt);
+  const attemptId = typeof executionAttempt.attemptId === 'string'
+    ? executionAttempt.attemptId
+    : typeof executionAttempt.id === 'string'
+      ? executionAttempt.id
+      : null;
+  if (attemptId) {
+    const resume = {
+      resumeToken: `capresume_${attemptId}`,
+      resumeTool: 'agentpay_execute_with_resume_token',
+      mode: 'server_side_exact_call_resume',
+      instruction: 'After the human step completes, call the resume tool with this token. AgentPay resumes the stored call server-side; the agent never receives the provider secret.',
+    };
+    return {
+      ...record,
+      agentResume: resume,
+      nextAction: {
+        ...asRecord(record.nextAction),
+        agentResume: resume,
+      },
+    };
+  }
+
+  const actionSession = asRecord(record.actionSession);
+  const sessionId = typeof actionSession.sessionId === 'string'
+    ? actionSession.sessionId
+    : typeof record.sessionId === 'string'
+      ? record.sessionId
+      : null;
+  if (sessionId) {
+    const resume = {
+      resumeToken: `apsetup_${sessionId}`,
+      resumeTool: 'agentpay_execute_with_resume_token',
+      mode: 'hosted_human_step_status',
+      instruction: 'Poll this token after the human finishes setup, funding, OTP, or approval. If this was provider setup, rerun agentpay_buy_api with the same arguments to reuse governed access.',
+    };
+    return {
+      ...record,
+      agentResume: resume,
+      nextAction: {
+        ...asRecord(record.nextAction),
+        agentResume: resume,
+      },
+    };
+  }
+
+  return data;
+}
+
 async function handleMandateTool(
   name:
     | 'agentpay_create_mandate'
@@ -1350,6 +1916,254 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'agentpay_scan_for_leaked_secrets': {
+      const text = typeof args.text === 'string' ? args.text : '';
+      const { findings } = await scanForLeakedSecrets(text);
+      let vaultSession: unknown = null;
+      let serverLeakGuard: unknown = null;
+      const requestedMode = typeof args.mode === 'string'
+        ? args.mode
+        : args.autoVault === true
+          ? 'vault'
+          : 'scan';
+      if ((requestedMode === 'vault' || requestedMode === 'auto_heal' || args.autoVault === true) && findings.length > 0) {
+        serverLeakGuard = await apiFetch(`${CAPABILITIES_BASE_PATH}/leak-guard/events`, {
+          method: 'POST',
+          body: JSON.stringify({
+            text,
+            mode: requestedMode === 'scan' ? 'vault' : requestedMode,
+            source: args.source ?? 'leak_guard',
+            subjectType: args.subjectType ?? 'workspace',
+            subjectRef: args.subjectRef,
+          }),
+        }, resolved);
+        vaultSession = asRecord(serverLeakGuard).vaultSession ?? null;
+      }
+
+      const result = {
+        status: findings.length > 0 ? 'leak_detected' : 'clean',
+        source: args.source ?? null,
+        findingCount: findings.length,
+        findings,
+        scrubbedText: findings.length > 0
+          ? findings.reduce((scrubbed, finding) => {
+              const redacted = typeof finding.redacted === 'string' ? finding.redacted : '[redacted]';
+              return scrubbed.replace(redacted, '[AGENTPAY_VAULTED_SECRET]');
+            }, '[scrubbed_by_agentpay]')
+          : text,
+        autoVaultRequested: args.autoVault === true,
+        vaultSession,
+        serverLeakGuard,
+        immediateAction: findings.length > 0
+          ? findings.some((finding) => finding.recommendedAction === 'kill_agent_session')
+            ? 'Kill the agent session. A live master key or non-vaultable authority was exposed and must be rotated manually.'
+            : 'Treat the exposed key as compromised. Complete Leak Guard vaulting/rotation, then use AgentPay leases or scoped proxy execution instead of raw secrets.'
+          : 'No supported API key pattern was detected.',
+        supportedProviders: SECRET_LEAK_PATTERNS.map((pattern) => pattern.provider),
+        secretHandling: {
+          rawSecretsReturned: false,
+          agentReceives: 'redacted fingerprints, rotation plan, optional OTP vault session',
+          agentMustNotDo: 'Do not ask the human to paste the raw secret again.',
+        },
+      };
+
+      return finalizeToolResult(name, result, resolved);
+    }
+
+    case 'agentpay_buy_api': {
+      const inferredProvider = args.provider ?? inferProviderForCapability(args.capability, args.priority);
+      const body: Record<string, unknown> = {
+        capability: args.capability,
+        provider: inferredProvider,
+        requestedProviderName: args.requestedProviderName ?? args.capability,
+        priority: args.priority,
+        maxBudgetUsd: args.maxBudgetUsd,
+        subjectType: args.subjectType ?? 'workspace',
+        subjectRef: args.subjectRef,
+        principalId: args.principalId,
+        operatorId: args.operatorId,
+        workbenchId: args.workbenchId,
+        workbenchLabel: args.workbenchLabel,
+        issueWorkbenchLease: args.issueWorkbenchLease ?? true,
+        customerPhone: args.customerPhone,
+        customerEmail: args.customerEmail,
+        notificationChannel: args.notificationChannel ?? (args.customerPhone ? 'phone' : 'terminal'),
+        requestedBaseUrl: args.requestedBaseUrl,
+        allowedHosts: args.allowedHosts,
+        authScheme: args.authScheme,
+        credentialKind: args.credentialKind,
+        metadata: {
+          source: 'agentpay_buy_api',
+          capability: args.capability,
+          priority: args.priority,
+          maxBudgetUsd: args.maxBudgetUsd,
+          notificationChannel: args.notificationChannel ?? (args.customerPhone ? 'phone' : 'terminal'),
+        },
+      };
+
+      const resolvedAccess = await apiFetch(`${CAPABILITIES_BASE_PATH}/access-resolve`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, resolved) as Record<string, unknown>;
+
+      const initialCall = asRecord(args.initialCall);
+      const capability = asRecord(resolvedAccess.capability);
+      const workbenchLease = asRecord(resolvedAccess.workbenchLease);
+      const leaseToken = typeof workbenchLease.token === 'string' ? workbenchLease.token : null;
+      const workbenchId = typeof args.workbenchId === 'string' ? args.workbenchId : null;
+      const capabilityId = typeof capability.id === 'string' ? capability.id : null;
+
+      if (resolvedAccess.status === 'ready' && Object.keys(initialCall).length > 0) {
+        const executeBody: Record<string, unknown> = {
+          method: initialCall.method ?? 'GET',
+          path: initialCall.path ?? '/',
+          query: initialCall.query,
+          headers: initialCall.headers,
+          body: initialCall.body,
+          allowPaidUsage: initialCall.allowPaidUsage ?? false,
+          requestId: initialCall.requestId,
+          idempotencyKey: initialCall.idempotencyKey ?? initialCall.requestId,
+          principalId: args.principalId,
+          operatorId: args.operatorId,
+          customerPhone: args.customerPhone,
+          customerEmail: args.customerEmail,
+          rail: args.preferredFundingRail,
+          hostContext: {
+            source: 'agentpay_buy_api',
+            capability: args.capability,
+            priority: args.priority,
+            workbenchId: args.workbenchId,
+          },
+          guardrailContext: {
+            maxBudgetUsd: args.maxBudgetUsd,
+            notificationChannel: args.notificationChannel ?? (args.customerPhone ? 'phone' : 'terminal'),
+          },
+        };
+
+        const execution = leaseToken && workbenchId
+          ? await apiFetch(`${CAPABILITIES_BASE_PATH}/lease-execute`, {
+              method: 'POST',
+              body: JSON.stringify({
+                ...executeBody,
+                leaseToken,
+                workbenchId,
+              }),
+            }, resolved)
+          : capabilityId
+            ? await apiFetch(`${CAPABILITIES_BASE_PATH}/${encodeURIComponent(capabilityId)}/execute`, {
+                method: 'POST',
+                body: JSON.stringify(executeBody),
+              }, resolved)
+            : null;
+
+        return finalizeToolResult(name, withAgentResume({
+          status: execution ? 'executed' : resolvedAccess.status,
+          access: withAgentResume(resolvedAccess),
+          execution: withAgentResume(execution),
+        }), resolved);
+      }
+
+      return finalizeToolResult(name, withAgentResume(resolvedAccess), resolved);
+    }
+
+    case 'agentpay_read_authority_bootstrap': {
+      const qs = new URLSearchParams();
+      qs.set('principalId', String(args.principalId));
+      if (args.subjectType) qs.set('subjectType', String(args.subjectType));
+      if (args.subjectRef) qs.set('subjectRef', String(args.subjectRef));
+      if (args.workbenchId) qs.set('workbenchId', String(args.workbenchId));
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/authority-bootstrap?${qs}`, {}, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_update_authority_bootstrap': {
+      const body: Record<string, unknown> = {
+        principalId: args.principalId,
+        operatorId: args.operatorId,
+        workbenchId: args.workbenchId,
+        contactEmail: args.contactEmail,
+        contactName: args.contactName,
+        customerPhone: args.customerPhone,
+        preferredFundingRail: args.preferredFundingRail,
+        notificationChannel: args.notificationChannel ?? (args.customerPhone ? 'phone' : 'terminal'),
+        autoApproveUsd: args.autoApproveUsd,
+        perActionUsd: args.perActionUsd,
+        dailyUsd: args.dailyUsd,
+        monthlyUsd: args.monthlyUsd,
+        otpEveryPaidAction: args.otpEveryPaidAction,
+      };
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/authority-bootstrap`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_get_terminal_control_plane': {
+      const qs = new URLSearchParams();
+      if (args.principalId) qs.set('principalId', String(args.principalId));
+      if (args.workbenchId) qs.set('workbenchId', String(args.workbenchId));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/terminal/control-plane${suffix}`, {}, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_execute_with_workbench_lease': {
+      const body: Record<string, unknown> = {
+        leaseToken: args.leaseToken,
+        workbenchId: args.workbenchId,
+        method: args.method ?? 'GET',
+        path: args.path ?? '/',
+        query: args.query,
+        headers: args.headers,
+        body: args.body,
+        allowPaidUsage: args.allowPaidUsage ?? false,
+        principalId: args.principalId,
+        operatorId: args.operatorId,
+        customerPhone: args.customerPhone,
+        customerEmail: args.customerEmail,
+        idempotencyKey: args.idempotencyKey,
+      };
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/lease-execute`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, resolved);
+      return finalizeToolResult(name, withAgentResume(data), resolved);
+    }
+
+    case 'agentpay_list_workbench_leases': {
+      const qs = new URLSearchParams();
+      if (args.principalId) qs.set('principalId', String(args.principalId));
+      if (args.workbenchId) qs.set('workbenchId', String(args.workbenchId));
+      if (args.status) qs.set('status', String(args.status));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/leases${suffix}`, {}, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_revoke_workbench_lease': {
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/leases/${encodeURIComponent(args.leaseId as string)}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: args.reason }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_execute_with_resume_token': {
+      const resumeToken = String(args.resumeToken ?? '');
+      if (resumeToken.startsWith('capresume_')) {
+        const attemptId = resumeToken.slice('capresume_'.length);
+        const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/execution-attempts/${encodeURIComponent(attemptId)}`, {}, resolved);
+        return finalizeToolResult(name, withAgentResume(data), resolved);
+      }
+      if (resumeToken.startsWith('apsetup_')) {
+        const sessionId = resumeToken.slice('apsetup_'.length);
+        const data = await apiFetch(`${ACTIONS_BASE_PATH}/${encodeURIComponent(sessionId)}`, {}, resolved);
+        return finalizeToolResult(name, withAgentResume(data), resolved);
+      }
+      throw new Error('resumeToken must start with capresume_ or apsetup_');
+    }
+
     case 'agentpay_request_capability_connect': {
       const body: Record<string, unknown> = {
         provider: args.provider,
@@ -1396,12 +2210,18 @@ export async function handleTool(
         headers: args.headers,
         body: args.body,
         allowPaidUsage: args.allowPaidUsage ?? false,
+        principalId: args.principalId,
+        operatorId: args.operatorId,
+        customerPhone: args.customerPhone,
+        customerEmail: args.customerEmail,
+        requestId: args.requestId,
+        idempotencyKey: args.idempotencyKey,
       };
       const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/${encodeURIComponent(args.capabilityId as string)}/execute`, {
         method: 'POST',
         body: JSON.stringify(body),
       }, resolved);
-      return finalizeToolResult(name, data, resolved);
+      return finalizeToolResult(name, withAgentResume(data), resolved);
     }
 
     case 'agentpay_get_action_session': {

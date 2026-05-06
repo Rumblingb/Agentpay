@@ -11,6 +11,19 @@ npm install -g agentpay-cli
 ## Quick Start
 
 ```bash
+# Read the terminal-native control plane
+agentpay control-plane --principal-id principal_1 --workbench-id my-workbench
+
+# Open the terminal-native control plane TUI
+agentpay tui --principal-id principal_1 --workbench-id my-workbench
+agentpay tui --demo
+
+# Buy or reuse governed API access for an agent capability need
+agentpay buy-api --capability market_data --subject-ref my-workbench --principal-id principal_1 --workbench-id my-workbench --phone +447700900123
+
+# Scan copied chat, terminal output, or files before secrets spread
+agentpay scan-secrets --file ./agent-output.txt --auto-heal
+
 # Deploy your agent
 agentpay deploy --name MyAgent --service web-scraping --endpoint https://myagent.example.com/execute
 
@@ -63,6 +76,70 @@ Options:
   -k, --api-key <key>    AgentPay merchant API key
   -i, --agent-id <id>    Agent ID
   -l, --limit <n>        Number of jobs to show (default: 20)
+```
+
+### `agentpay control-plane`
+
+Read the terminal-native AgentPay control-plane snapshot: authority, guardrails, funding readiness, pending human steps, capabilities, billing, and leases.
+
+```bash
+agentpay control-plane --principal-id principal_1 --workbench-id my-workbench
+```
+
+### `agentpay tui`
+
+Open a terminal-native control-plane view that refreshes in place. This is the dashboard surface for AgentPay: authority state, active capabilities, workbench leases, pending human/phone steps, and the Leak Guard operator hint without leaving the terminal.
+
+```bash
+agentpay tui --principal-id principal_1 --workbench-id my-workbench
+agentpay tui --principal-id principal_1 --workbench-id my-workbench --once
+agentpay tui --demo
+```
+
+Use `--demo` for the public 60-second screen recording. It runs without live credentials and cycles through the magic trick: expensive API request, $5 limit approval, secret leak interception, vault/rotation state, and exact-call resume.
+
+### `agentpay resume`
+
+Poll a resume token returned by MCP or the API. `capresume_*` checks the exact-call execution attempt and `apsetup_*` checks the hosted human/setup step.
+
+```bash
+agentpay resume capresume_attempt_123
+agentpay resume apsetup_lgr_123
+```
+
+### `agentpay buy-api`
+
+Resolve a capability need into governed API access. AgentPay chooses or uses a provider, starts hosted setup if needed, and can issue an opaque workbench lease for reuse. This is the CLI companion to the MCP `agentpay_buy_api` tool.
+
+```bash
+agentpay buy-api \
+  --capability web_scraping_high_stealth \
+  --subject-ref my-workbench \
+  --principal-id principal_1 \
+  --workbench-id my-workbench \
+  --priority latency \
+  --max-budget 0.50 \
+  --phone +447700900123
+```
+
+### `agentpay leases`
+
+Inspect or revoke opaque local workbench leases without exposing provider secrets.
+
+```bash
+agentpay leases list --principal-id principal_1 --workbench-id my-workbench
+agentpay leases revoke lease_id_here --reason lost_device
+```
+
+### `agentpay scan-secrets`
+
+Scan text or a file for leaked OpenAI, Anthropic, Stripe, AWS, and Google API keys. Results are redacted and fingerprinted; raw secrets are never printed back to the terminal. `--auto-heal` calls `/api/capabilities/leak-guard/events` so AgentPay can scrub output, kill unsafe sessions, or queue vault/rotation. Live Stripe master keys intentionally fail closed and require manual rotation.
+
+```bash
+agentpay scan-secrets --text "paste copied agent output here"
+agentpay scan-secrets --file ./agent-output.txt
+agentpay scan-secrets --file ./agent-output.txt --auto-vault
+agentpay scan-secrets --file ./agent-output.txt --auto-heal
 ```
 
 ### `agentpay config`

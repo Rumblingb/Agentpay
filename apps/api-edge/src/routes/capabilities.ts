@@ -98,6 +98,188 @@ function buildExecutionAttemptStatusUrl(env: Env, attemptId: string): string {
   return new URL(`/api/capabilities/execution-attempts/${attemptId}`, env.API_BASE_URL).toString();
 }
 
+const LEAK_PREFILTER = /\b(?:sk[-_]|rk_|AIza|AKIA|ASIA|aws[_-]?secret|secret[_-]?access[_-]?key|anthropic|stripe|openai)/i;
+
+const SECRET_LEAK_SENTINELS = [
+  {
+    provider: 'stripe',
+    label: 'Stripe',
+    baseUrl: 'https://api.stripe.com',
+    authScheme: 'bearer' as const,
+    credentialKind: 'api_key' as const,
+    pattern: /\b(?<key>(?<kind>sk|rk)_(?<env>live|test)_[A-Za-z0-9]{16,})\b/g,
+    rotation: 'Restricted or test keys can be replaced through a configured Stripe rotation adapter. Live master keys must be revoked manually and the agent session should be killed.',
+  },
+  {
+    provider: 'openai',
+    label: 'OpenAI',
+    baseUrl: 'https://api.openai.com',
+    authScheme: 'bearer' as const,
+    credentialKind: 'api_key' as const,
+    pattern: /\b(?<key>sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{24,})\b/g,
+    rotation: 'Create a replacement OpenAI project key, lower replacement budget if the project is high-limit, vault it, then revoke the exposed key.',
+  },
+  {
+    provider: 'anthropic',
+    label: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    headerName: 'x-api-key',
+    pattern: /\b(?<key>sk-ant-(?:api\d{2}|sid\d{2})-[A-Za-z0-9_-]{24,})\b/g,
+    rotation: 'Revoke the exposed Anthropic workspace token, vault a replacement, and scrub the context with [AGENTPAY_VAULTED_SECRET].',
+  },
+  {
+    provider: 'google',
+    label: 'Google API',
+    baseUrl: 'https://www.googleapis.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    pattern: /\b(?<key>AIza[0-9A-Za-z_-]{35})\b/g,
+    rotation: 'Restrict or rotate the Google API key and carry over API, referrer, IP, or service restrictions before vaulting the replacement.',
+  },
+  {
+    provider: 'aws',
+    label: 'AWS',
+    baseUrl: 'https://sts.amazonaws.com',
+    authScheme: 'x_api_key' as const,
+    credentialKind: 'api_key' as const,
+    headerName: 'x-api-key',
+    pattern: /\b(?<key>(?:AKIA|ASIA)[A-Z0-9]{16})\b/g,
+    rotation: 'Deactivate and delete the exposed AWS access key before creating a replacement because IAM users can only hold two active access keys.',
+  },
+] as const;
+
+function redactSecretValue(secret: string): string {
+  if (secret.length <= 12) return '[redacted]';
+  return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
+}
+
+function classifyLeak(provider: string, value: string): {
+  severity: 'critical' | 'high';
+  keyClass: string;
+  recommendedAction: 'kill_agent_session' | 'rotate_and_vault' | 'vault_and_manual_rotate';
+  autoVaultAllowed: boolean;
+  autoRotateAllowed: boolean;
+  reason: string;
+} {
+  if (provider === 'stripe') {
+    if (value.startsWith('sk_live_')) {
+      return {
+        severity: 'critical',
+        keyClass: 'stripe_live_master_key',
+        recommendedAction: 'kill_agent_session',
+        autoVaultAllowed: false,
+        autoRotateAllowed: false,
+        reason: 'Stripe live master keys are too privileged for automatic replacement. Kill the session, alert the operator, and rotate manually in Stripe.',
+      };
+    }
+    if (value.startsWith('rk_live_')) {
+      return {
+        severity: 'critical',
+        keyClass: 'stripe_live_restricted_key',
+        recommendedAction: 'rotate_and_vault',
+        autoVaultAllowed: true,
+        autoRotateAllowed: true,
+        reason: 'Restricted live keys are eligible for adapter-driven replacement when Stripe rotation credentials are configured.',
+      };
+    }
+    return {
+      severity: 'high',
+      keyClass: 'stripe_test_key',
+      recommendedAction: 'rotate_and_vault',
+      autoVaultAllowed: true,
+      autoRotateAllowed: true,
+      reason: 'Stripe test keys can be replaced safely in configured non-production contexts.',
+    };
+  }
+
+  if (provider === 'aws' && value.startsWith('ASIA')) {
+    return {
+      severity: 'high',
+      keyClass: 'aws_temporary_access_key',
+      recommendedAction: 'vault_and_manual_rotate',
+      autoVaultAllowed: false,
+      autoRotateAllowed: false,
+      reason: 'Temporary AWS credentials should be expired or revoked by the issuing role/session rather than vaulted as long-term authority.',
+    };
+  }
+
+  return {
+    severity: provider === 'google' ? 'high' : 'critical',
+    keyClass: `${provider}_api_key`,
+    recommendedAction: 'rotate_and_vault',
+    autoVaultAllowed: true,
+    autoRotateAllowed: false,
+    reason: 'AgentPay can vault a replacement and guide rotation now; provider-side automatic rotation requires a configured provider adapter and admin authorization.',
+  };
+}
+
+async function scanSecretLeaks(text: string) {
+  const scrubbedText = text.replace(LEAK_PREFILTER, '[AGENTPAY_PREFILTER_HIT]');
+  if (!LEAK_PREFILTER.test(text)) {
+    return {
+      findings: [] as Array<Record<string, unknown>>,
+      vaultable: [] as Array<Record<string, unknown>>,
+      scrubbedText: text,
+      prefilterMatched: false,
+    };
+  }
+
+  const findings: Array<Record<string, unknown>> = [];
+  const vaultable: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  let fullyScrubbedText = text;
+
+  for (const sentinel of SECRET_LEAK_SENTINELS) {
+    sentinel.pattern.lastIndex = 0;
+    for (const match of text.matchAll(sentinel.pattern)) {
+      const raw = match.groups?.key ?? match[0];
+      const fingerprint = await sha256Hex(raw);
+      const short = fingerprint.slice(0, 16);
+      const dedupe = `${sentinel.provider}:${short}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+
+      const policy = classifyLeak(sentinel.provider, raw);
+      findings.push({
+        provider: sentinel.provider,
+        label: sentinel.label,
+        severity: policy.severity,
+        keyClass: policy.keyClass,
+        redacted: redactSecretValue(raw),
+        fingerprint: short,
+        index: match.index ?? -1,
+        recommendedAction: policy.recommendedAction,
+        autoVaultAllowed: policy.autoVaultAllowed,
+        autoRotateAllowed: policy.autoRotateAllowed,
+        reason: policy.reason,
+        rotation: sentinel.rotation,
+      });
+      fullyScrubbedText = fullyScrubbedText.split(raw).join('[AGENTPAY_VAULTED_SECRET]');
+
+      if (policy.autoVaultAllowed) {
+        vaultable.push({
+          provider: sentinel.provider,
+          label: sentinel.label,
+          baseUrl: sentinel.baseUrl,
+          authScheme: sentinel.authScheme,
+          credentialKind: sentinel.credentialKind,
+          ...('headerName' in sentinel && sentinel.headerName ? { headerName: sentinel.headerName } : {}),
+          keyValue: raw,
+        });
+      }
+    }
+  }
+
+  return {
+    findings,
+    vaultable,
+    scrubbedText: findings.length > 0 ? fullyScrubbedText : scrubbedText,
+    prefilterMatched: true,
+  };
+}
+
 async function readJsonResponse(response: Response): Promise<Record<string, any> | null> {
   try {
     return await response.json() as Record<string, any>;
@@ -1615,6 +1797,11 @@ router.get('/terminal/control-plane', async (c) => {
       purpose: 'Turn "my agent needs this API" into either a preset onboarding flow or a generic AgentPay provider intake.',
     },
     {
+      tool: 'agentpay_scan_for_leaked_secrets',
+      endpoint: '/api/capabilities/leak-guard/events',
+      purpose: 'Intercept agent output or pasted text that contains API keys, scrub the secret, kill unsafe sessions, or queue vault/rotation without returning raw key material.',
+    },
+    {
       tool: 'agentpay_execute_capability',
       endpoint: '/api/capabilities/:capabilityId/execute',
       purpose: 'Run the governed capability call and let AgentPay pause, fund, and resume automatically when needed.',
@@ -3023,6 +3210,144 @@ router.post('/:capabilityId/revoke', async (c) => {
 // encrypted at rest behind a 6-digit OTP gate — only committed after the
 // developer confirms via agentpay_confirm_vault.
 // ---------------------------------------------------------------------------
+
+router.post('/leak-guard/events', async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const text = asString(body.text) ?? '';
+  if (!text) return c.json({ error: 'text is required' }, 400);
+
+  const requestedMode = asString(body.mode) ?? 'scan';
+  const source = asString(body.source) ?? 'terminal';
+  const subjectTypeRaw = asString(body.subjectType) ?? 'workspace';
+  const subjectType = isCapabilitySubjectType(subjectTypeRaw) ? subjectTypeRaw : 'workspace';
+  const subjectRef = asString(body.subjectRef) ?? merchant.id;
+  const { findings, vaultable, scrubbedText, prefilterMatched } = await scanSecretLeaks(text);
+  const criticalMaster = findings.some((finding) => finding.recommendedAction === 'kill_agent_session');
+  const hasLeak = findings.length > 0;
+  let vaultSession: Record<string, unknown> | null = null;
+
+  if ((requestedMode === 'vault' || requestedMode === 'auto_heal') && vaultable.length > 0 && !criticalMaster) {
+    const vaultKey = c.env.CAPABILITY_VAULT_ENCRYPTION_KEY ?? c.env.RCM_VAULT_ENCRYPTION_KEY;
+    if (!vaultKey) {
+      return c.json({
+        status: 'leak_detected',
+        action: 'vault_blocked',
+        reason: 'Capability vault encryption is not configured',
+        findings,
+        scrubbedText,
+        rawSecretsReturned: false,
+      }, 503);
+    }
+
+    const otpCode = String(Math.floor(100000 + crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    const otpHash = await sha256Hex(otpCode);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const encryptedBundle = await encryptPayload(vaultKey, JSON.stringify(vaultable));
+    const sessionId = `lgr_${crypto.randomUUID().replace(/-/g, '')}`;
+    const sql = createDb(c.env);
+    try {
+      await sql`
+        INSERT INTO hosted_action_sessions
+          (id, merchant_id, action_type, entity_type, entity_id, title, summary,
+           status, display_payload_json, result_payload_json, metadata_json, expires_at)
+        VALUES (
+          ${sessionId},
+          ${merchant.id},
+          ${'verification_required'},
+          ${'vault_setup'},
+          ${subjectRef},
+          ${'Secret leak guard confirmation'},
+          ${'Vault replacement access for ' + vaultable.map((cr) => String(cr.label)).join(', ')},
+          ${'pending'},
+          ${JSON.stringify({ kind: 'leak_guard_otp', providerCount: vaultable.length, providers: vaultable.map((cr) => cr.provider) })}::jsonb,
+          ${JSON.stringify({ otp_hash: otpHash, encrypted_bundle: encryptedBundle, attempt_count: 0 })}::jsonb,
+          ${JSON.stringify({ source, subjectType, subjectRef, merchantId: merchant.id, leakGuard: true })}::jsonb,
+          ${expiresAt.toISOString()}::timestamptz
+        )
+      `;
+
+      if (merchant.email) {
+        try {
+          await sendVaultOtpEmail(c.env, merchant.email, otpCode, vaultable as Array<{
+            provider: string;
+            label: string;
+            baseUrl: string;
+            authScheme: string;
+            credentialKind?: string;
+            headerName?: string;
+            keyValue: string;
+          }>);
+        } catch (err) {
+          await sql`
+            UPDATE hosted_action_sessions
+            SET status = 'failed', updated_at = NOW()
+            WHERE id = ${sessionId}
+          `;
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[capabilities] leak guard OTP email failed:', msg);
+          return c.json({ error: 'Failed to deliver leak guard confirmation code' }, 502);
+        }
+      }
+
+      vaultSession = {
+        session_id: sessionId,
+        providers: vaultable.map((cr) => cr.provider),
+        otp_sent_to: merchant.email ? `${merchant.email.slice(0, 3)}***@${merchant.email.split('@')[1] ?? '***'}` : null,
+        expires_at: expiresAt.toISOString(),
+        resumeToken: `apsetup_${sessionId}`,
+      };
+    } finally {
+      await sql.end().catch(() => {});
+    }
+  }
+
+  const rotationConfigured = {
+    stripe: Boolean(c.env.STRIPE_SECRET_KEY),
+    openai: false,
+    anthropic: false,
+    google: false,
+    aws: false,
+  };
+
+  return c.json({
+    status: hasLeak ? 'leak_detected' : 'clean',
+    source,
+    prefilterMatched,
+    action: criticalMaster
+      ? 'kill_agent_session'
+      : hasLeak && requestedMode === 'auto_heal'
+        ? 'scrubbed_and_queued_for_rotation'
+        : hasLeak
+          ? 'scrubbed'
+          : 'none',
+    terminalMessage: hasLeak
+      ? '[AgentPay] CRITICAL: Secret leak detected. Output intercepted, scrubbed, and routed through Leak Guard.'
+      : '[AgentPay] Leak Guard clean.',
+    findings,
+    scrubbedText,
+    vaultSession,
+    rotation: {
+      requested: requestedMode === 'auto_heal',
+      configured: rotationConfigured,
+      executed: false,
+      reason: criticalMaster
+        ? 'Master/live authority requires manual operator rotation and session termination.'
+        : 'Provider-side automatic rotation adapters are policy-gated and not enabled by default. Vault replacement access first, then enable provider adapters with admin scopes.',
+    },
+    exactCallResume: {
+      safeToResume: hasLeak && !criticalMaster,
+      blockedUntilHumanStep: Boolean(vaultSession),
+      resumeToken: vaultSession?.resumeToken ?? null,
+      instruction: vaultSession
+        ? 'Complete the OTP vault step, then resume the blocked action through AgentPay. Do not reinsert the raw secret into chat.'
+        : 'Use the scrubbed context and scoped AgentPay lease/proxy execution for future calls.',
+    },
+    rawSecretsReturned: false,
+  });
+});
 
 router.post('/vault-from-env', async (c) => {
   const merchant = c.get('merchant');

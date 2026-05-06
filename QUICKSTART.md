@@ -65,6 +65,10 @@ Or:
 
 Or:
 
+> "Buy me an API for high-stealth web scraping. Keep the budget under $0.50, prefer latency, use my phone if a human step is needed, and run the first call only through AgentPay."
+
+Or:
+
 > "Create authority defaults for this workbench, then let the agent continue automatically unless a paid step exceeds my policy."
 
 The host can use AgentPay's terminal-native control plane to:
@@ -75,6 +79,8 @@ The host can use AgentPay's terminal-native control plane to:
 - request approval only when needed
 - resume exact blocked calls
 - reuse governed access later
+
+The cashflow wedge is `agentpay_buy_api`: the agent asks for the capability it needs, AgentPay resolves or buys governed access, and the human only appears for auth, funding, OTP, or policy exceptions.
 
 ### Remote MCP
 
@@ -93,6 +99,29 @@ curl -X POST https://api.agentpay.so/api/mcp/tokens \
   -H "Content-Type: application/json" \
   -d '{ "audience": "openai", "ttlSeconds": 3600 }'
 ```
+
+Public proof before wiring anything up:
+
+- [Hosted setup JSON](https://api.agentpay.so/api/mcp/setup)
+- [Demo flow JSON](https://api.agentpay.so/api/mcp/demo)
+- [Live pricing JSON](https://api.agentpay.so/api/mcp/pricing)
+
+### Terminal companion commands
+
+The CLI is intentionally a thin terminal harness over the same control-plane APIs:
+
+```bash
+agentpay control-plane --principal-id principal_1 --workbench-id my-workbench
+agentpay tui --principal-id principal_1 --workbench-id my-workbench
+agentpay tui --demo
+agentpay buy-api --capability market_data --subject-ref my-workbench --principal-id principal_1 --workbench-id my-workbench --phone +447700900123
+agentpay scan-secrets --file ./agent-output.txt --auto-heal
+agentpay resume capresume_attempt_id_here
+agentpay leases list --principal-id principal_1 --workbench-id my-workbench
+agentpay leases revoke lease_id_here --reason lost_device
+```
+
+The `tui` command is the first terminal dashboard surface. It polls the same control-plane API used by MCP hosts and shows authority, capabilities, leases, pending human/phone steps, and Leak Guard guidance without making a browser dashboard canonical.
 
 ---
 
