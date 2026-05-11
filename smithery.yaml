@@ -1,0 +1,46 @@
+# Smithery registry manifest for AgentPay MCP server
+# Auto-discovered by Smithery.ai for server listing
+# See: https://smithery.ai/docs/concepts/registry_submit_server
+
+name: io.github.Rumblingb/agentpay
+title: AgentPay
+description: >
+  Payment, identity, and API key management infrastructure for AI agents.
+  Create governed mandates with user-approved spending limits, vault API keys
+  via one OTP so agents never handle raw credentials, proxy calls through a
+  secure capability layer, and settle payments via Stripe or UPI.
+  Works natively with Claude, GPT-4o, and any MCP-compatible host.
+
+repository:
+  url: https://github.com/Rumblingb/Agentpay
+  source: github
+
+version: "0.2.0"
+
+package:
+  registry: npm
+  name: "@agentpayxyz/mcp-server"
+
+remotes:
+  - type: streamable-http
+    url: https://api.agentpay.so/api/mcp
+
+categories:
+  - payments
+  - identity
+  - security
+  - developer-tools
+
+pricing:
+  free_tier: true
+  plans:
+    - name: Launch
+      price: 0
+      period: monthly
+    - name: Builder
+      price: 39
+      period: monthly
+    - name: Growth
+      price: 149
+      period: monthly
+
