@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * AgentPay MCP Server
  *
@@ -18,6 +18,7 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACE_TOOLS, handleAceTool } from './ace-tools.js';
+import { REGISTRY_TOOLS, handleRegistryTool } from './registry-tools.js';
 
 const DEFAULT_API_URL = process.env.AGENTPAY_API_URL ?? 'https://api.agentpay.so';
 const DEFAULT_API_KEY = process.env.AGENTPAY_API_KEY ?? '';
@@ -32,9 +33,9 @@ if (!DEFAULT_API_KEY) {
   process.stderr.write('Warning: AGENTPAY_API_KEY is not set. Authenticated operations will fail.\n');
 }
 
-// ── Setup micro-agent: known env var → provider mapping ───────────────────
+// â”€â”€ Setup micro-agent: known env var â†’ provider mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The agent scans process.env for these patterns. The developer never has to
-// copy keys into dashboards — one OTP confirms the entire vault setup.
+// copy keys into dashboards â€” one OTP confirms the entire vault setup.
 
 const KNOWN_ENV_PROVIDERS = [
   { envVar: 'FIRECRAWL_API_KEY',     provider: 'firecrawl',     label: 'Firecrawl',     baseUrl: 'https://api.firecrawl.dev',          authScheme: 'bearer'    as const, credentialKind: 'api_key' as const },
@@ -748,16 +749,16 @@ const RAW_TOOLS: Tool[] = [
     },
   },
 
-  // ── Setup micro-agent ──────────────────────────────────────────────────────
+  // â”€â”€ Setup micro-agent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     name: 'agentpay_setup_scan',
     description:
       'Scan the MCP server\'s local environment for known API keys that can be vaulted with AgentPay. ' +
       'Returns detected providers (found in process.env) and undetected ones (missing). ' +
-      'No keys are transmitted — this is read-only. ' +
+      'No keys are transmitted â€” this is read-only. ' +
       'Call this first, then agentpay_vault_env_keys with the providers the developer wants to vault. ' +
       'After a single 6-digit OTP confirmation, those keys are stored encrypted and usable by agents ' +
-      'via agentpay_execute_capability — the developer never manages them again.',
+      'via agentpay_execute_capability â€” the developer never manages them again.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
@@ -768,7 +769,7 @@ const RAW_TOOLS: Tool[] = [
       'and never see raw values. ' +
       'Sends a 6-digit OTP to the developer\'s registered email. ' +
       'Complete with agentpay_confirm_vault. ' +
-      'After confirmation, agents can call agentpay_execute_capability with the returned capabilityIds — ' +
+      'After confirmation, agents can call agentpay_execute_capability with the returned capabilityIds â€” ' +
       'no more API key management, no more dashboard logins.',
     inputSchema: {
       type: 'object' as const,
@@ -787,7 +788,7 @@ const RAW_TOOLS: Tool[] = [
     description:
       'Confirm vault setup with the 6-digit OTP sent to the registered email. ' +
       'On success, each key is committed to the encrypted vault and a capabilityId is returned. ' +
-      'Agents can immediately call agentpay_execute_capability with those IDs — zero further setup required.',
+      'Agents can immediately call agentpay_execute_capability with those IDs â€” zero further setup required.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -1044,7 +1045,7 @@ const BASE_TOOLS: Tool[] = RAW_TOOLS.map((tool) => (
     : tool
 ));
 
-export const TOOLS: Tool[] = [...BASE_TOOLS, ...ACE_TOOLS];
+export const TOOLS: Tool[] = [...BASE_TOOLS, ...ACE_TOOLS, ...REGISTRY_TOOLS];
 
 export const SAFE_TOOLS: Tool[] = TOOLS.filter((tool) => READ_ONLY_TOOL_NAMES.has(tool.name));
 
@@ -1572,6 +1573,16 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'registry_search':
+    case 'registry_server_info':
+    case 'registry_subscribe':
+    case 'registry_installed':
+    case 'registry_publish':
+    case 'registry_usage':
+    case 'registry_enroll':
+    case 'registry_confirm_totp':
+      return handleRegistryTool(name, args, runtime);
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -1614,4 +1625,6 @@ export function createAgentPayMcpServer(
 
   return server;
 }
+
+
 

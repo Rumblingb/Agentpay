@@ -1,0 +1,11 @@
+﻿{
+  "mcpServers": {
+    "agentpay": {
+      "type": "http",
+      "url": "https://api.agentpay.so/api/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_AGENTPAY_API_KEY"
+      }
+    }
+  }
+}

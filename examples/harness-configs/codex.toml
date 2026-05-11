@@ -1,0 +1,4 @@
+﻿# Add to ~/.codex/config.toml or project .codex/config.toml
+[mcp_servers.agentpay]
+url = "https://api.agentpay.so/api/mcp"
+bearer_token_env_var = "AGENTPAY_API_KEY"

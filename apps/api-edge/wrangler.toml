@@ -56,6 +56,7 @@ crons = [
 #
 # Required secrets for staging (set via wrangler secret put --env staging):
 #   DATABASE_URL, WEBHOOK_SECRET, AGENTPAY_SIGNING_SECRET, VERIFICATION_SECRET
+#   TOTP_ENCRYPTION_KEY   (32-byte AES key, base64url): wrangler secret put TOTP_ENCRYPTION_KEY
 #   ADMIN_SECRET_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 [env.staging]
 name = "agentpay-api-staging"

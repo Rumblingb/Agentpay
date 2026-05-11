@@ -33,6 +33,7 @@ import { x402Router } from './routes/x402';
 import { ap2Router } from './routes/ap2';
 import { acpRouter } from './routes/acp';
 import { marketplaceRouter } from './routes/marketplace';
+import { mcpRegistryRouter } from './routes/mcpRegistry';
 import { agentMatchRouter } from './routes/agentMatch';
 import { mockAgentsRouter } from './routes/mockAgents';
 import { agentWalletRouter } from './routes/agentWallet';
@@ -148,6 +149,7 @@ app.route('/api/acp', acpRouter);
 
 // Marketplace discovery — /api/marketplace/*
 app.route('/api/marketplace', marketplaceRouter);
+app.route('/api/registry', mcpRegistryRouter);
 
 // Agent runtime matching — /api/agents/match
 app.route('/api/agents/match', agentMatchRouter);
