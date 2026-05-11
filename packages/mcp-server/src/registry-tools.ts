@@ -1,13 +1,6 @@
 ﻿/**
- * Registry MCP tools — agent-first marketplace tool definitions.
- *
- * 6 tools exposed via the AgentPay MCP server:
- *   registry_search       — find MCP servers by query/category
- *   registry_server_info  — detail + connection config for one server
- *   registry_subscribe    — subscribe to a server (TOTP required)
- *   registry_installed    — list active subscriptions
- *   registry_publish      — publish a new server (TOTP required)
- *   registry_usage        — publisher usage/earnings stats
+ * Registry MCP tools — 10 tools for the agent-first MCP marketplace.
+ * Supports both http and stdio transports.
  */
 
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -41,18 +34,19 @@ export const REGISTRY_TOOLS: Tool[] = [
   {
     name: 'registry_search',
     description:
-      'Search the AgentPay MCP server marketplace. Returns available servers with pricing, categories, and install counts.\n\n' +
-      'Use this to discover MCP servers you can add to your harness (Claude Code, Codex, Cursor, etc.).\n\n' +
-      'Free servers activate immediately after subscribing. Paid servers require a payment intent.\n\n' +
-      'After finding a server: call registry_subscribe, then registry_server_info to get connection config.',
+      'Search the AgentPay MCP server marketplace. Returns available servers with pricing, transport type (http/stdio), and install counts.\n\n' +
+      'Free servers: subscribe and use immediately, no TOTP needed.\n' +
+      'Paid servers: require TOTP (call registry_enroll first).\n\n' +
+      'After finding a server: call registry_subscribe, then registry_server_info for harness config.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        q: { type: 'string', description: 'Free-text search across name, description, category' },
-        category: { type: 'string', description: 'Filter by category (e.g. search, utilities, finance, data)' },
+        q: { type: 'string', description: 'Search across name, description, category' },
+        category: { type: 'string', description: 'Filter by category (search, utilities, finance, data, payments, agents, etc.)' },
+        transport: { type: 'string', enum: ['http', 'stdio'], description: 'Filter by transport type' },
         limit: { type: 'number', description: 'Results per page (default 20, max 100)' },
         offset: { type: 'number', description: 'Pagination offset' },
-        featured: { type: 'boolean', description: 'Show only featured/curated servers' },
+        featured: { type: 'boolean', description: 'Featured/curated servers only' },
       },
       required: [],
     },
@@ -62,13 +56,14 @@ export const REGISTRY_TOOLS: Tool[] = [
   {
     name: 'registry_server_info',
     description:
-      'Get full details and harness connection config for a specific MCP server.\n\n' +
-      'Returns ready-to-paste config for Claude Code (settings.json), Codex (config.toml), Cursor (mcp.json), and generic HTTP.\n\n' +
-      'You must be subscribed to the server to get connection config.',
+      'Get full details and ready-to-paste harness config for a specific MCP server.\n\n' +
+      'For HTTP servers: returns URL-based config for Claude Code, Codex, Cursor.\n' +
+      'For stdio servers: returns command-based config + install instructions.\n\n' +
+      'You must be subscribed to see connection config.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        slug: { type: 'string', description: 'Server slug from registry_search results' },
+        slug: { type: 'string', description: 'Server slug from registry_search' },
       },
       required: ['slug'],
     },
@@ -78,92 +73,106 @@ export const REGISTRY_TOOLS: Tool[] = [
   {
     name: 'registry_subscribe',
     description:
-      'Subscribe to an MCP server from the marketplace.\n\n' +
-      'Free servers activate immediately. Paid servers return a payment intent — use agentpay_create_payment_intent to pay.\n\n' +
-      'After subscribing: call registry_server_info to get the harness connection config.\n\n' +
-      'Requires TOTP authentication (totp_code). If not enrolled: call registry_enroll first.',
+      'Subscribe to an MCP server. Free servers activate immediately — no TOTP needed.\n\n' +
+      'Paid servers require TOTP (call registry_enroll first if not enrolled).\n\n' +
+      'After subscribing: call registry_server_info for harness connection config.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         server_slug: { type: 'string', description: 'Server slug from registry_search' },
-        totp_code: { type: 'string', description: '6-digit code from your authenticator app' },
+        totp_code: { type: 'string', description: '6-digit code — only needed for paid servers' },
       },
-      required: ['server_slug', 'totp_code'],
+      required: ['server_slug'],
     },
   },
 
   {
     name: 'registry_installed',
-    description: 'List all MCP servers you are currently subscribed to, with usage counts and plan details.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [],
-    },
+    description: 'List all MCP servers you are subscribed to, with usage counts and plan details.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
     annotations: { readOnlyHint: true },
   },
 
   {
     name: 'registry_publish',
     description:
-      'Publish an MCP server to the AgentPay marketplace. No web UI or GitHub import required.\n\n' +
-      'After calling this, you receive a domain verification challenge. Place the verification token at:\n' +
-      '  - /.well-known/agentpay-publisher.json, OR\n' +
-      '  - DNS TXT record _agentpay-verify.yourdomain.com\n\n' +
-      'Then call the verify endpoint to go live. Free servers go active after domain verification.\n' +
-      'Paid servers ($price > 0) require a $9 one-time listing fee.\n\n' +
-      'Requires TOTP authentication.',
+      'Publish an MCP server to the AgentPay marketplace. No web UI required.\n\n' +
+      'Supported transports:\n' +
+      '  - http: provide endpoint_url (must be https://). Requires domain verification after publishing.\n' +
+      '    Cloudflare Workers (*.workers.dev): use /.well-known/agentpay-publisher.json method.\n' +
+      '  - stdio: provide github_url + command + args. Goes active immediately, no verification needed.\n\n' +
+      'Always requires TOTP authentication.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        name: { type: 'string', description: 'Display name for the server (e.g. "Web Search")' },
-        description: { type: 'string', description: 'What this server does. Be specific — this is what agents search.' },
-        category: { type: 'string', description: 'Category slug (search, utilities, finance, data, payments, travel, etc.)' },
-        endpoint_url: { type: 'string', description: 'HTTPS URL of the MCP server endpoint' },
-        pricing_model: { type: 'string', enum: ['free', 'per_call', 'monthly'], description: 'How agents are billed' },
-        price_per_call_usd: { type: 'number', description: 'Price per tool call in USD (for per_call pricing)' },
-        price_monthly_usd: { type: 'number', description: 'Monthly subscription price in USD (for monthly pricing)' },
-        free_tier_calls: { type: 'number', description: 'Free calls per month before billing (default 100)' },
-        totp_code: { type: 'string', description: '6-digit code from your authenticator app' },
+        name: { type: 'string', description: 'Display name (e.g. "Web Search")' },
+        description: { type: 'string', description: 'What this server does — be specific' },
+        category: { type: 'string', description: 'Category (search, utilities, finance, data, payments, agents, security, etc.)' },
+        transport: { type: 'string', enum: ['http', 'stdio'], description: 'http for HTTP endpoints, stdio for local Python/Node servers' },
+        endpoint_url: { type: 'string', description: 'HTTPS URL — required for http transport' },
+        github_url: { type: 'string', description: 'GitHub repo URL — required for stdio transport' },
+        command: { type: 'string', description: 'Executable for stdio transport (e.g. python3, node)' },
+        command_args: { type: 'array', items: { type: 'string' }, description: 'Args for stdio command (e.g. ["server.py"])' },
+        pricing_model: { type: 'string', enum: ['free', 'per_call', 'monthly'] },
+        price_per_call_usd: { type: 'number' },
+        price_monthly_usd: { type: 'number' },
+        free_tier_calls: { type: 'number', description: 'Free calls/month before billing (default 100)' },
+        totp_code: { type: 'string', description: '6-digit code from authenticator app' },
       },
-      required: ['name', 'endpoint_url', 'totp_code'],
+      required: ['name', 'transport', 'totp_code'],
+    },
+  },
+
+  {
+    name: 'registry_verify_domain',
+    description:
+      'Verify domain ownership for an HTTP server after publishing.\n\n' +
+      'First place your verification token at:\n' +
+      '  Option A (preferred, works on *.workers.dev): /.well-known/agentpay-publisher.json → {"token":"<your_token>"}\n' +
+      '  Option B: DNS TXT record _agentpay-verify.yourdomain.com = <your_token>\n\n' +
+      'The verification_token is returned by registry_publish.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        slug: { type: 'string', description: 'Server slug returned by registry_publish' },
+      },
+      required: ['slug'],
     },
   },
 
   {
     name: 'registry_usage',
-    description: 'View usage stats and earnings for MCP servers you have published. Shows installs, call counts, and revenue share.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [],
-    },
+    description: 'Usage stats and earnings for MCP servers you have published. Shows installs, calls, and revenue.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    annotations: { readOnlyHint: true },
+  },
+
+  {
+    name: 'registry_payouts',
+    description: 'View your publisher payout history and current month pending earnings. Payouts are 70% of billed revenue, processed monthly.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
     annotations: { readOnlyHint: true },
   },
 
   {
     name: 'registry_enroll',
     description:
-      'Enroll TOTP authentication for registry actions (subscribe, publish).\n\n' +
+      'Enroll TOTP for registry actions that require it (paid subscriptions, publishing).\n\n' +
       'Returns:\n' +
-      '  - otpauth_uri: Scan with Google Authenticator / Authy\n' +
-      '  - setup_url: Open in browser to see a QR code\n' +
-      '  - setup_key: Manual entry key for authenticator apps\n\n' +
-      'After scanning, confirm with registry_confirm_totp.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [],
-    },
+      '  - setup_url: open in browser to see a QR code to scan\n' +
+      '  - setup_key: manually enter in Google Authenticator / Authy\n' +
+      '  - otpauth_uri: the full otpauth:// URI\n\n' +
+      'Free server subscriptions do NOT require TOTP. Only call this when you need to publish or subscribe to a paid server.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
   },
 
   {
     name: 'registry_confirm_totp',
-    description: 'Confirm TOTP enrollment after scanning the QR code. Provide the 6-digit code from your authenticator app.',
+    description: 'Confirm TOTP enrollment after scanning the QR. Provide the 6-digit code from your authenticator app.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        totp_code: { type: 'string', description: '6-digit code from your authenticator app' },
+        totp_code: { type: 'string', description: '6-digit code from authenticator app' },
       },
       required: ['totp_code'],
     },
@@ -186,11 +195,11 @@ export async function handleRegistryTool(
       const params = new URLSearchParams();
       if (args.q) params.set('q', String(args.q));
       if (args.category) params.set('category', String(args.category));
+      if (args.transport) params.set('transport', String(args.transport));
       if (args.limit) params.set('limit', String(args.limit));
       if (args.offset) params.set('offset', String(args.offset));
       if (args.featured) params.set('featured', 'true');
-      const data = await registryFetch(`${REGISTRY_BASE}/servers?${params.toString()}`, { method: 'GET' }, resolved);
-      return json(data);
+      return json(await registryFetch(`${REGISTRY_BASE}/servers?${params.toString()}`, { method: 'GET' }, resolved));
     }
 
     case 'registry_server_info': {
@@ -202,49 +211,46 @@ export async function handleRegistryTool(
       return json({ ...(detail as object), connection_config: config });
     }
 
-    case 'registry_subscribe': {
-      const data = await registryFetch(`${REGISTRY_BASE}/subscriptions`, {
+    case 'registry_subscribe':
+      return json(await registryFetch(`${REGISTRY_BASE}/subscriptions`, {
         method: 'POST',
         body: JSON.stringify({ server_slug: args.server_slug, totp_code: args.totp_code }),
-      }, resolved);
-      return json(data);
-    }
+      }, resolved));
 
-    case 'registry_installed': {
-      const data = await registryFetch(`${REGISTRY_BASE}/subscriptions`, { method: 'GET' }, resolved);
-      return json(data);
-    }
+    case 'registry_installed':
+      return json(await registryFetch(`${REGISTRY_BASE}/subscriptions`, { method: 'GET' }, resolved));
 
-    case 'registry_publish': {
-      const data = await registryFetch(`${REGISTRY_BASE}/servers`, {
+    case 'registry_publish':
+      return json(await registryFetch(`${REGISTRY_BASE}/servers`, {
         method: 'POST',
         body: JSON.stringify({
           name: args.name, description: args.description, category: args.category,
-          endpoint_url: args.endpoint_url, pricing_model: args.pricing_model ?? 'free',
+          transport: args.transport ?? 'http',
+          endpoint_url: args.endpoint_url, github_url: args.github_url,
+          command: args.command, command_args: args.command_args,
+          pricing_model: args.pricing_model ?? 'free',
           price_per_call_usd: args.price_per_call_usd, price_monthly_usd: args.price_monthly_usd,
           free_tier_calls: args.free_tier_calls, totp_code: args.totp_code,
         }),
-      }, resolved);
-      return json(data);
-    }
+      }, resolved));
 
-    case 'registry_usage': {
-      const data = await registryFetch(`${REGISTRY_BASE}/usage`, { method: 'GET' }, resolved);
-      return json(data);
-    }
+    case 'registry_verify_domain':
+      return json(await registryFetch(`${REGISTRY_BASE}/servers/${args.slug}/verify`, { method: 'POST', body: '{}' }, resolved));
 
-    case 'registry_enroll': {
-      const data = await registryFetch(`${REGISTRY_BASE}/totp/enroll`, { method: 'POST', body: '{}' }, resolved);
-      return json(data);
-    }
+    case 'registry_usage':
+      return json(await registryFetch(`${REGISTRY_BASE}/usage`, { method: 'GET' }, resolved));
 
-    case 'registry_confirm_totp': {
-      const data = await registryFetch(`${REGISTRY_BASE}/totp/confirm`, {
+    case 'registry_payouts':
+      return json(await registryFetch(`${REGISTRY_BASE}/payouts`, { method: 'GET' }, resolved));
+
+    case 'registry_enroll':
+      return json(await registryFetch(`${REGISTRY_BASE}/totp/enroll`, { method: 'POST', body: '{}' }, resolved));
+
+    case 'registry_confirm_totp':
+      return json(await registryFetch(`${REGISTRY_BASE}/totp/confirm`, {
         method: 'POST',
         body: JSON.stringify({ totp_code: args.totp_code }),
-      }, resolved);
-      return json(data);
-    }
+      }, resolved));
 
     default:
       throw new Error(`Unknown registry tool: ${name}`);

@@ -1,85 +1,106 @@
 ﻿/**
  * Seed the MCP server registry with all 36 Rumblingb servers.
- * Run once: npx ts-node scripts/seed-registry.ts
- * Requires SUPABASE_DIRECT_URL env var (postgres://... direct connection).
+ *
+ * All 36 are stdio Python servers (cloned + run locally or via Smithery).
+ * They go active immediately — no domain verification needed for stdio.
+ *
+ * Usage:
+ *   RUMBLINGB_AGENT_ID=<your-agent-id> SUPABASE_DIRECT_URL=<postgres://...> \
+ *   npx ts-node scripts/seed-registry.ts
+ *
+ * Get your agent ID from: POST /api/v1/agents/register (agentpay_register_agent tool)
  */
 
 import postgres from 'postgres';
 
 const PUBLISHER_ID = process.env.RUMBLINGB_AGENT_ID ?? '';
-if (!PUBLISHER_ID) throw new Error('Set RUMBLINGB_AGENT_ID env var to your AgentPay agent ID');
+if (!PUBLISHER_ID) throw new Error('Set RUMBLINGB_AGENT_ID env var (your AgentPay agent ID)');
 
 const sql = postgres(process.env.SUPABASE_DIRECT_URL ?? '');
 
-const SERVERS = [
-  { slug: 'search-proxy',       name: 'Web Search',            category: 'search',     endpoint_url: 'https://search-proxy-mcp.vishar-rumbling.workers.dev',    pricing_model: 'free',    free_tier_calls: 1000, description: 'Web search for AI agents via MCP. DuckDuckGo powered. Zero API keys.' },
-  { slug: 'weather',            name: 'Weather',               category: 'data',       endpoint_url: 'https://weather-mcp.vishar-rumbling.workers.dev',          pricing_model: 'free',    free_tier_calls: 500,  description: 'Weather forecasts and conditions via MCP. 7-day forecasts.' },
-  { slug: 'currency-exchange',  name: 'Currency Exchange',     category: 'finance',    endpoint_url: 'https://currency-exchange-mcp.vishar-rumbling.workers.dev', pricing_model: 'free',    free_tier_calls: 500,  description: 'Real-time exchange rates. 166 currencies. Zero API keys.' },
-  { slug: 'crypto-market',      name: 'Crypto Market Data',    category: 'finance',    endpoint_url: 'https://crypto-market-mcp.vishar-rumbling.workers.dev',    pricing_model: 'free',    free_tier_calls: 500,  description: 'CoinGecko prices, trends, historical data. Free.' },
-  { slug: 'sec-financial',      name: 'SEC EDGAR Financials',  category: 'finance',    endpoint_url: 'https://sec-financial-mcp.vishar-rumbling.workers.dev',    pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 50,   description: 'SEC EDGAR XBRL facts, GAAP metrics, filings.' },
-  { slug: 'ip-geolocation',     name: 'IP Geolocation',        category: 'data',       endpoint_url: 'https://ip-geolocation-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 500,  description: 'IP geolocation: city, region, country, org, timezone.' },
-  { slug: 'hackernews',         name: 'HackerNews',            category: 'data',       endpoint_url: 'https://hackernews-mcp.vishar-rumbling.workers.dev',       pricing_model: 'free',    free_tier_calls: 1000, description: 'HackerNews stories, comments, users.' },
-  { slug: 'pdf-generator',      name: 'PDF Generator',         category: 'utilities',  endpoint_url: 'https://pdf-generator-mcp.vishar-rumbling.workers.dev',    pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: 'HTML, text, URLs to PDF via MCP.' },
-  { slug: 'qr-code',            name: 'QR Code Generator',     category: 'utilities',  endpoint_url: 'https://qr-code-mcp.vishar-rumbling.workers.dev',          pricing_model: 'free',    free_tier_calls: 200,  description: 'QR code generation and decoding. Logos supported.' },
-  { slug: 'text-to-speech',     name: 'Text to Speech',        category: 'utilities',  endpoint_url: 'https://text-to-speech-mcp.vishar-rumbling.workers.dev',   pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: '50+ voices, edge-tts. MP3/WAV output.' },
-  { slug: 'screenshot',         name: 'Website Screenshots',   category: 'utilities',  endpoint_url: 'https://screenshot-mcp.vishar-rumbling.workers.dev',       pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 10,   description: 'Desktop, mobile, element capture screenshots.' },
-  { slug: 'web-scraper',        name: 'Web Scraper',           category: 'utilities',  endpoint_url: 'https://web-scraper-mcp.vishar-rumbling.workers.dev',      pricing_model: 'free',    free_tier_calls: 200,  description: 'Extract text, links, images, emails from web pages.' },
-  { slug: 'image-analyzer',     name: 'Image Analyzer',        category: 'utilities',  endpoint_url: 'https://image-analyzer-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 200,  description: 'Dimensions, EXIF, colors, format conversion.' },
-  { slug: 'file-converter',     name: 'File Converter',        category: 'utilities',  endpoint_url: 'https://file-converter-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 200,  description: 'CSV, JSON, YAML, Markdown conversion.' },
-  { slug: 'notification',       name: 'Notifications',         category: 'utilities',  endpoint_url: 'https://notification-mcp.vishar-rumbling.workers.dev',     pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 50,   description: 'Slack, Discord, Email, webhooks notifications.' },
-  { slug: 'email-agent',        name: 'Email Agent',           category: 'utilities',  endpoint_url: 'https://email-agent-mcp.vishar-rumbling.workers.dev',      pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: 'Search, read, send, draft emails. Gmail/Outlook/Yahoo.' },
-  { slug: 'email-verify',       name: 'Email Verification',    category: 'utilities',  endpoint_url: 'https://email-verify-mcp.vishar-rumbling.workers.dev',     pricing_model: 'free',    free_tier_calls: 500,  description: 'Format check, MX records, disposable detection.' },
-  { slug: 'dns-lookup',         name: 'DNS Lookup',            category: 'network',    endpoint_url: 'https://dns-lookup-mcp.vishar-rumbling.workers.dev',       pricing_model: 'free',    free_tier_calls: 500,  description: 'A/AAAA/MX/NS/CNAME/TXT DNS records.' },
-  { slug: 'ssl-check',          name: 'SSL Certificate Check', category: 'network',    endpoint_url: 'https://ssl-check-mcp.vishar-rumbling.workers.dev',        pricing_model: 'free',    free_tier_calls: 200,  description: 'Issuer, expiry, SANs check.' },
-  { slug: 'domain-intel',       name: 'Domain Intelligence',   category: 'network',    endpoint_url: 'https://domain-intel-mcp.vishar-rumbling.workers.dev',     pricing_model: 'free',    free_tier_calls: 200,  description: 'IP geo, SSL, DNS, health checks.' },
-  { slug: 'seo-audit',          name: 'SEO Audit',             category: 'marketing',  endpoint_url: 'https://seo-audit-mcp.vishar-rumbling.workers.dev',        pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: 'Title, meta, headings, OG tags, keyword scoring.' },
-  { slug: 'secret-scanner',     name: 'Secret Scanner',        category: 'security',   endpoint_url: 'https://secret-scanner-mcp.vishar-rumbling.workers.dev',   pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: 'Detect leaked API keys, tokens, passwords.' },
-  { slug: 'contract-analyzer',  name: 'Contract Analyzer',     category: 'legal',      endpoint_url: 'https://contract-analyzer-mcp.vishar-rumbling.workers.dev', pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 10,  description: 'GDPR/CCPA compliance. Legal document analysis.' },
-  { slug: 'court-records',      name: 'US Court Records',      category: 'legal',      endpoint_url: 'https://court-records-mcp.vishar-rumbling.workers.dev',    pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 25,   description: '5M+ US court opinions via MCP.' },
-  { slug: 'patent-search',      name: 'Patent Search',         category: 'legal',      endpoint_url: 'https://patent-search-mcp.vishar-rumbling.workers.dev',    pricing_model: 'free',    free_tier_calls: 100,  description: 'Google Patents + USPTO search.' },
-  { slug: 'database-mcp',       name: 'Database Query',        category: 'data',       endpoint_url: 'https://database-mcp.vishar-rumbling.workers.dev',         pricing_model: 'monthly', price_monthly_usd: 19, free_tier_calls: 100,  description: 'SQLite, PostgreSQL, MySQL via MCP.' },
-  { slug: 'rental-agent',       name: 'Rental Intelligence',   category: 'real-estate', endpoint_url: 'https://rental-agent-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 200,  description: '8 tools for rental market intelligence. Zero API keys.' },
-  { slug: 'agent-wallet',       name: 'Agent Wallet',          category: 'payments',   endpoint_url: 'https://agent-wallet-mcp.vishar-rumbling.workers.dev',     pricing_model: 'free',    free_tier_calls: 500,  description: 'Agent wallet and budget management. Transfers, invoices.' },
-  { slug: 'agent-passport',     name: 'Agent Passport',        category: 'identity',   endpoint_url: 'https://agent-passport-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 500,  description: 'Agent identity and reputation. Passport, skills, ratings.' },
-  { slug: 'agent-audit',        name: 'Agent Audit Trail',     category: 'compliance', endpoint_url: 'https://agent-audit-mcp.vishar-rumbling.workers.dev',      pricing_model: 'free',    free_tier_calls: 500,  description: 'Immutable SHA-256 hash chain audit trail for A2A.' },
-  { slug: 'agent-messaging',    name: 'Agent Messaging',       category: 'agents',     endpoint_url: 'https://agent-messaging-mcp.vishar-rumbling.workers.dev',  pricing_model: 'free',    free_tier_calls: 500,  description: 'Agent messaging protocol. Send, reply, proposals.' },
-  { slug: 'agent-team',         name: 'Agent Team Formation',  category: 'agents',     endpoint_url: 'https://agent-team-mcp.vishar-rumbling.workers.dev',       pricing_model: 'free',    free_tier_calls: 200,  description: 'Multi-agent team formation. Roles, tasks, dependencies.' },
-  { slug: 'agent-hire',         name: 'Agent Hire Marketplace',category: 'agents',     endpoint_url: 'https://agent-hire-mcp.vishar-rumbling.workers.dev',       pricing_model: 'free',    free_tier_calls: 200,  description: 'Post tasks, bids, escrow, disputes.' },
-  { slug: 'agent-contract',     name: 'Agent Contracts',       category: 'agents',     endpoint_url: 'https://agent-contract-mcp.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 200,  description: 'Smart contracts between agents. Deliverables, penalties.' },
-  { slug: 'agent-proof',        name: 'Agent Proof of Work',   category: 'agents',     endpoint_url: 'https://agent-proof-mcp.vishar-rumbling.workers.dev',      pricing_model: 'free',    free_tier_calls: 500,  description: 'Cryptographic proof of agent work. Receipts, verification.' },
-  { slug: 'mcp-health-monitor', name: 'MCP Health Monitor',    category: 'monitoring', endpoint_url: 'https://mcp-health-monitor.vishar-rumbling.workers.dev',   pricing_model: 'free',    free_tier_calls: 500,  description: 'Check MCP server uptime, response time, TLS timing.' },
-  { slug: 'hallucination-guard',name: 'Hallucination Guard',   category: 'safety',     endpoint_url: 'https://hallucination-guard.vishar-rumbling.workers.dev',  pricing_model: 'monthly', price_monthly_usd: 99, free_tier_calls: 10,   description: 'Verify agent responses against source context.' },
+type ServerSeed = {
+  slug: string; name: string; description: string; category: string;
+  transport: 'stdio'; github_url: string; command: string; command_args: string[];
+  pricing_model: 'free' | 'monthly'; price_monthly_usd?: number; free_tier_calls: number;
+  featured?: boolean;
+};
+
+const SERVERS: ServerSeed[] = [
+  { slug: 'search-proxy',       name: 'Web Search',            category: 'search',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/search-proxy-mcp',       pricing_model: 'free',    free_tier_calls: 1000, featured: true,  description: 'Web search for AI agents via DuckDuckGo. Zero API keys required.' },
+  { slug: 'weather',            name: 'Weather',               category: 'data',       transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/weather-mcp',             pricing_model: 'free',    free_tier_calls: 500,  featured: true,  description: 'Weather forecasts and conditions. 7-day forecasts, hourly data.' },
+  { slug: 'currency-exchange',  name: 'Currency Exchange',     category: 'finance',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/currency-exchange-mcp',   pricing_model: 'free',    free_tier_calls: 500,  featured: true,  description: 'Real-time exchange rates. 166 currencies. Zero API keys.' },
+  { slug: 'crypto-market',      name: 'Crypto Market Data',    category: 'finance',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/crypto-market-mcp',       pricing_model: 'free',    free_tier_calls: 500,  description: 'CoinGecko prices, trends, historical data.' },
+  { slug: 'sec-financial',      name: 'SEC EDGAR Financials',  category: 'finance',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/sec-financial-mcp',       pricing_model: 'monthly', free_tier_calls: 50,   price_monthly_usd: 19, description: 'SEC EDGAR XBRL facts, GAAP metrics, company filings.' },
+  { slug: 'ip-geolocation',     name: 'IP Geolocation',        category: 'data',       transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/ip-geolocation-mcp',      pricing_model: 'free',    free_tier_calls: 500,  description: 'IP to city, region, country, org, timezone. Zero API keys.' },
+  { slug: 'hackernews',         name: 'HackerNews',            category: 'data',       transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/hackernews-mcp',          pricing_model: 'free',    free_tier_calls: 1000, description: 'HackerNews top stories, comments, user profiles.' },
+  { slug: 'pdf-generator',      name: 'PDF Generator',         category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/pdf-generator-mcp',       pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: 'Generate PDFs from HTML, text, or URLs.' },
+  { slug: 'qr-code',            name: 'QR Code Generator',     category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/qr-code-mcp',             pricing_model: 'free',    free_tier_calls: 200,  description: 'Generate and decode QR codes. Logo support.' },
+  { slug: 'text-to-speech',     name: 'Text to Speech',        category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/text-to-speech-mcp',      pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: '50+ voices via edge-tts. MP3/WAV output.' },
+  { slug: 'screenshot',         name: 'Website Screenshots',   category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/screenshot-mcp',          pricing_model: 'monthly', free_tier_calls: 10,   price_monthly_usd: 19, description: 'Desktop, mobile, element-level screenshots.' },
+  { slug: 'web-scraper',        name: 'Web Scraper',           category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/web-scraper-mcp',         pricing_model: 'free',    free_tier_calls: 200,  featured: true,  description: 'Extract text, links, images, emails from any web page.' },
+  { slug: 'image-analyzer',     name: 'Image Analyzer',        category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/image-analyzer-mcp',      pricing_model: 'free',    free_tier_calls: 200,  description: 'Dimensions, EXIF data, color extraction, format conversion.' },
+  { slug: 'file-converter',     name: 'File Converter',        category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/file-converter-mcp',      pricing_model: 'free',    free_tier_calls: 200,  description: 'CSV, JSON, YAML, Markdown format conversion.' },
+  { slug: 'notification',       name: 'Notifications',         category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/notification-mcp',        pricing_model: 'monthly', free_tier_calls: 50,   price_monthly_usd: 19, description: 'Send to Slack, Discord, Email, webhooks.' },
+  { slug: 'email-agent',        name: 'Email Agent',           category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/email-agent-mcp',         pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: 'Search, read, send, draft emails. Gmail/Outlook/Yahoo.' },
+  { slug: 'email-verify',       name: 'Email Verification',    category: 'utilities',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/email-verify-mcp',        pricing_model: 'free',    free_tier_calls: 500,  description: 'Format check, MX record validation, disposable detection.' },
+  { slug: 'dns-lookup',         name: 'DNS Lookup',            category: 'network',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/dns-lookup-mcp',          pricing_model: 'free',    free_tier_calls: 500,  description: 'A/AAAA/MX/NS/CNAME/TXT DNS records.' },
+  { slug: 'ssl-check',          name: 'SSL Certificate Check', category: 'network',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/ssl-check-mcp',           pricing_model: 'free',    free_tier_calls: 200,  description: 'Certificate issuer, expiry, SANs, chain check.' },
+  { slug: 'domain-intel',       name: 'Domain Intelligence',   category: 'network',    transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/domain-intel-mcp',        pricing_model: 'free',    free_tier_calls: 200,  description: 'IP geo, SSL, DNS, health checks for any domain.' },
+  { slug: 'seo-audit',          name: 'SEO Audit',             category: 'marketing',  transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/seo-audit-mcp',           pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: 'Title, meta, headings, OG tags, keyword scoring.' },
+  { slug: 'secret-scanner',     name: 'Secret Scanner',        category: 'security',   transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/secret-scanner-mcp',      pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: 'Detect leaked API keys, tokens, passwords in code/text.' },
+  { slug: 'contract-analyzer',  name: 'Contract Analyzer',     category: 'legal',      transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/contract-analyzer-mcp',   pricing_model: 'monthly', free_tier_calls: 10,   price_monthly_usd: 19, description: 'GDPR/CCPA compliance. Legal document analysis and risk scoring.' },
+  { slug: 'court-records',      name: 'US Court Records',      category: 'legal',      transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/court-records-mcp',       pricing_model: 'monthly', free_tier_calls: 25,   price_monthly_usd: 19, description: '5M+ US court opinions search.' },
+  { slug: 'patent-search',      name: 'Patent Search',         category: 'legal',      transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/patent-search-mcp',       pricing_model: 'free',    free_tier_calls: 100,  description: 'Google Patents + USPTO search.' },
+  { slug: 'database-mcp',       name: 'Database Query',        category: 'data',       transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/database-mcp',            pricing_model: 'monthly', free_tier_calls: 100,  price_monthly_usd: 19, description: 'SQLite, PostgreSQL, MySQL via MCP. Zero-config.' },
+  { slug: 'rental-agent',       name: 'Rental Intelligence',   category: 'real-estate',transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/rental-agent-mcp',        pricing_model: 'free',    free_tier_calls: 200,  description: '8 tools for rental market intelligence. Zero API keys.' },
+  { slug: 'agent-wallet',       name: 'Agent Wallet',          category: 'payments',   transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-wallet-mcp',        pricing_model: 'free',    free_tier_calls: 500,  featured: true,  description: 'Agent wallet management, budget tracking, invoices.' },
+  { slug: 'agent-passport',     name: 'Agent Passport',        category: 'identity',   transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-passport-mcp',      pricing_model: 'free',    free_tier_calls: 500,  featured: true,  description: 'Agent identity and reputation system. Passport, skills, ratings.' },
+  { slug: 'agent-audit',        name: 'Agent Audit Trail',     category: 'compliance', transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-audit-mcp',         pricing_model: 'free',    free_tier_calls: 500,  description: 'Immutable SHA-256 hash chain audit trail for agent actions.' },
+  { slug: 'agent-messaging',    name: 'Agent Messaging',       category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-messaging-mcp',     pricing_model: 'free',    free_tier_calls: 500,  featured: true,  description: 'Agent-to-agent messaging protocol. Send, reply, proposals.' },
+  { slug: 'agent-team',         name: 'Agent Team Formation',  category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-team-mcp',          pricing_model: 'free',    free_tier_calls: 200,  description: 'Multi-agent team formation. Roles, tasks, dependencies.' },
+  { slug: 'agent-hire',         name: 'Agent Hire Marketplace',category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-hire-mcp',          pricing_model: 'free',    free_tier_calls: 200,  description: 'Post tasks, receive bids, escrow, dispute resolution.' },
+  { slug: 'agent-contract',     name: 'Agent Contracts',       category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-contract-mcp',      pricing_model: 'free',    free_tier_calls: 200,  description: 'Smart contracts between agents. Deliverables, penalties, dispute.' },
+  { slug: 'agent-proof',        name: 'Agent Proof of Work',   category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-proof-mcp',         pricing_model: 'free',    free_tier_calls: 500,  description: 'Cryptographic proof of agent work. SHA-256 receipts, verification.' },
+  { slug: 'mcp-health-monitor', name: 'MCP Health Monitor',    category: 'monitoring', transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/mcp-health-monitor',      pricing_model: 'free',    free_tier_calls: 500,  description: 'Check MCP server uptime, response time, TLS expiry.' },
+  { slug: 'hallucination-guard',name: 'Hallucination Guard',   category: 'safety',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/hallucination-guard',     pricing_model: 'monthly', free_tier_calls: 10,   price_monthly_usd: 99, description: 'Verify agent responses against source context. Confidence scoring.' },
 ];
 
 async function main() {
   console.log(`Seeding ${SERVERS.length} MCP servers for publisher ${PUBLISHER_ID}...`);
+  let ok = 0, skip = 0;
   for (const s of SERVERS) {
-    await sql`
-      INSERT INTO mcp_servers
-        (slug, name, description, category, endpoint_url, publisher_id,
-         pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls,
-         status, verified, featured, domain_verified)
-      VALUES (
-        ${s.slug}, ${s.name}, ${s.description ?? null}, ${s.category},
-        ${s.endpoint_url}, ${PUBLISHER_ID},
-        ${s.pricing_model},
-        ${(s as Record<string, unknown>).price_per_call_usd ?? null},
-        ${(s as Record<string, unknown>).price_monthly_usd ?? null},
-        ${s.free_tier_calls},
-        'active', true, false, true
-      )
-      ON CONFLICT (slug) DO UPDATE SET
-        name = EXCLUDED.name,
-        description = EXCLUDED.description,
-        endpoint_url = EXCLUDED.endpoint_url,
-        status = 'active',
-        verified = true,
-        domain_verified = true,
-        updated_at = now()
-    `;
-    process.stdout.write('.');
+    try {
+      await sql`
+        INSERT INTO mcp_servers
+          (slug, name, description, category, endpoint_url, publisher_id, transport,
+           command, command_args, github_url,
+           pricing_model, price_monthly_usd, free_tier_calls,
+           status, verified, featured, domain_verified)
+        VALUES (
+          ${s.slug}, ${s.name}, ${s.description}, ${s.category},
+          ${s.github_url}, ${PUBLISHER_ID}, ${s.transport},
+          ${s.command}, ${JSON.stringify(s.command_args)}::jsonb, ${s.github_url},
+          ${s.pricing_model}, ${s.price_monthly_usd ?? null}, ${s.free_tier_calls},
+          'active', true, ${s.featured ?? false}, true
+        )
+        ON CONFLICT (slug) DO UPDATE SET
+          name = EXCLUDED.name,
+          description = EXCLUDED.description,
+          github_url = EXCLUDED.github_url,
+          command = EXCLUDED.command,
+          command_args = EXCLUDED.command_args,
+          transport = EXCLUDED.transport,
+          status = 'active', verified = true, domain_verified = true,
+          updated_at = now()
+      `;
+      process.stdout.write('.');
+      ok++;
+    } catch (e) {
+      console.error(`\nFailed: ${s.slug}`, (e as Error).message);
+      skip++;
+    }
   }
-  console.log(`\nDone. ${SERVERS.length} servers seeded.`);
+  console.log(`\nDone. ${ok} seeded, ${skip} failed.`);
   await sql.end();
 }
 

@@ -1,9 +1,8 @@
 ﻿/**
  * MCP Registry — /api/registry/*
  *
- * Agent-first MCP server marketplace. Agents discover, subscribe, and publish
- * MCP servers entirely via tool calls. No web UI required.
- *
+ * Agent-first MCP server marketplace. Supports both HTTP and stdio transports.
+ * TOTP required only for: paid subscriptions + publishing (not free-tier subscribe).
  * Revenue: 70% publisher / 30% AgentPay on per-call billing.
  */
 
@@ -17,6 +16,7 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const AGENTPAY_ISSUER = 'AgentPay';
 const PUBLISHER_REVENUE_SHARE = 0.70;
+const PLATFORM_FEE_SHARE = 1 - PUBLISHER_REVENUE_SHARE;
 
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
@@ -41,27 +41,74 @@ async function requireTotp(
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
   const enrollment = await getTotpEnrollment(sql, agentId);
   if (!enrollment) {
-    return { ok: false, response: c.json({ error: 'TOTP_SETUP_REQUIRED', message: 'Enroll TOTP first: POST /api/registry/totp/enroll with your API key.' }, 403) as Response };
+    return { ok: false, response: c.json({ error: 'TOTP_SETUP_REQUIRED', message: 'Enroll TOTP first: call registry_enroll or POST /api/registry/totp/enroll' }, 403) as Response };
   }
   if (!enrollment.confirmed_at) {
-    return { ok: false, response: c.json({ error: 'TOTP_NOT_CONFIRMED', message: 'Confirm TOTP enrollment: POST /api/registry/totp/confirm with { "totp_code": "123456" }' }, 403) as Response };
+    return { ok: false, response: c.json({ error: 'TOTP_NOT_CONFIRMED', message: 'Confirm TOTP: call registry_confirm_totp or POST /api/registry/totp/confirm with { "totp_code": "123456" }' }, 403) as Response };
   }
   if (!totpCode) {
-    return { ok: false, response: c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Include totp_code (6 digits from your authenticator app).' }, 401) as Response };
+    return { ok: false, response: c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Include totp_code (6-digit code from authenticator app) in the request.' }, 401) as Response };
   }
   const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
   if (!encKey) throw new Error('TOTP_ENCRYPTION_KEY not configured');
   const secret = await decryptTotpSecret(enrollment.secret_enc, encKey);
   if (!await verifyTotpCode(secret, totpCode)) {
-    return { ok: false, response: c.json({ error: 'TOTP_INVALID', message: 'Invalid or expired TOTP code.' }, 401) as Response };
+    return { ok: false, response: c.json({ error: 'TOTP_INVALID', message: 'Invalid or expired TOTP code. Codes are valid for 30 seconds.' }, 401) as Response };
   }
   return { ok: true };
+}
+
+function buildHarnessConfigs(server: {
+  slug: string; name: string; endpoint_url: string; transport: string;
+  command?: string | null; command_args?: unknown; github_url?: string | null;
+}) {
+  if (server.transport === 'stdio') {
+    const cmd = server.command ?? 'python3';
+    const args = Array.isArray(server.command_args) ? server.command_args : ['server.py'];
+    return {
+      transport: 'stdio',
+      claude_code: {
+        file: '~/.claude/settings.json or .mcp.json',
+        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+      },
+      codex: {
+        file: '~/.codex/config.toml',
+        config: `[mcp_servers.${server.slug}]\ncommand = "${cmd}"\nargs = ${JSON.stringify(args)}`,
+      },
+      cursor: {
+        file: '.cursor/mcp.json',
+        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+      },
+      install_note: server.github_url
+        ? `Install locally first: git clone ${server.github_url} && cd ${server.slug} && pip install -r requirements.txt`
+        : `Install from repo and run locally.`,
+      smithery: server.github_url
+        ? `npx @smithery/cli run ${server.github_url.replace('https://github.com/', '')}`
+        : null,
+    };
+  }
+  return {
+    transport: 'http',
+    claude_code: {
+      file: '~/.claude/settings.json or .mcp.json',
+      config: { mcpServers: { [server.slug]: { type: 'http', url: server.endpoint_url } } },
+    },
+    codex: {
+      file: '~/.codex/config.toml',
+      config: `[mcp_servers.${server.slug}]\nurl = "${server.endpoint_url}"`,
+    },
+    cursor: {
+      file: '.cursor/mcp.json',
+      config: { mcpServers: { [server.slug]: { url: server.endpoint_url, transport: 'http' } } },
+    },
+    generic_http: { url: server.endpoint_url, transport: 'streamable-http' },
+  };
 }
 
 // ── GET /api/registry/servers ─────────────────────────────────────────────────
 
 router.get('/servers', async (c) => {
-  const { q, category, limit = '20', offset = '0', featured } = c.req.query();
+  const { q, category, limit = '20', offset = '0', featured, transport } = c.req.query();
   const limitN = Math.min(parseInt(limit, 10) || 20, 100);
   const offsetN = Math.max(parseInt(offset, 10) || 0, 0);
   const sql = createDb(c.env);
@@ -73,15 +120,18 @@ router.get('/servers', async (c) => {
       conditions.push(`(LOWER(name) LIKE $${params.length} OR LOWER(description) LIKE $${params.length} OR LOWER(category) LIKE $${params.length})`);
     }
     if (category) { params.push(category.toLowerCase()); conditions.push(`LOWER(category) = $${params.length}`); }
+    if (transport) { params.push(transport); conditions.push(`transport = $${params.length}`); }
     if (featured === 'true') conditions.push('featured = true');
     params.push(limitN, offsetN);
     const rows = await sql.unsafe<Array<{
       id: string; slug: string; name: string; description: string | null; category: string | null;
-      pricing_model: string; price_per_call_usd: string | null; price_monthly_usd: string | null;
-      free_tier_calls: number; verified: boolean; featured: boolean; install_count: number;
+      transport: string; pricing_model: string; price_per_call_usd: string | null;
+      price_monthly_usd: string | null; free_tier_calls: number; verified: boolean;
+      featured: boolean; install_count: number; github_url: string | null;
     }>>(
-      `SELECT id, slug, name, description, category, pricing_model, price_per_call_usd, price_monthly_usd,
-              free_tier_calls, verified, featured, install_count
+      `SELECT id, slug, name, description, category, transport, pricing_model,
+              price_per_call_usd, price_monthly_usd, free_tier_calls,
+              verified, featured, install_count, github_url
        FROM mcp_servers WHERE ${conditions.join(' AND ')}
        ORDER BY featured DESC, install_count DESC, created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -98,14 +148,16 @@ router.get('/servers/:slug', async (c) => {
   try {
     const rows = await sql.unsafe<Array<{
       id: string; slug: string; name: string; description: string | null; category: string | null;
-      endpoint_url: string; publisher_id: string; pricing_model: string;
-      price_per_call_usd: string | null; price_monthly_usd: string | null;
-      free_tier_calls: number; status: string; verified: boolean; featured: boolean;
-      install_count: number; domain_verified: boolean; metadata: unknown; created_at: Date;
+      endpoint_url: string; publisher_id: string; transport: string; pricing_model: string;
+      price_per_call_usd: string | null; price_monthly_usd: string | null; free_tier_calls: number;
+      status: string; verified: boolean; featured: boolean; install_count: number;
+      domain_verified: boolean; github_url: string | null; command: string | null;
+      command_args: unknown; metadata: unknown; created_at: Date;
     }>>(
-      `SELECT id, slug, name, description, category, endpoint_url, publisher_id,
+      `SELECT id, slug, name, description, category, endpoint_url, publisher_id, transport,
               pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls,
-              status, verified, featured, install_count, domain_verified, metadata, created_at
+              status, verified, featured, install_count, domain_verified,
+              github_url, command, command_args, metadata, created_at
        FROM mcp_servers WHERE slug = $1 AND status = 'active' LIMIT 1`,
       [c.req.param('slug')],
     );
@@ -121,80 +173,114 @@ router.post('/servers', authenticateApiKey, async (c) => {
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   if (!body) return c.json({ error: 'INVALID_BODY' }, 400);
 
-  const { name, description, category, endpoint_url, pricing_model = 'free',
-          price_per_call_usd, price_monthly_usd, free_tier_calls = 100, metadata = {}, totp_code } = body;
+  const {
+    name, description, category,
+    endpoint_url, transport = 'http',
+    command, command_args = [], command_env = {}, github_url,
+    pricing_model = 'free', price_per_call_usd, price_monthly_usd,
+    free_tier_calls = 100, metadata = {}, totp_code,
+  } = body;
 
   if (typeof name !== 'string' || name.trim().length < 2)
     return c.json({ error: 'VALIDATION', message: 'name required (min 2 chars)' }, 400);
-  if (typeof endpoint_url !== 'string' || !endpoint_url.startsWith('https://'))
-    return c.json({ error: 'VALIDATION', message: 'endpoint_url must start with https://' }, 400);
+
+  const isHttp = transport === 'http';
+  const isStdio = transport === 'stdio';
+
+  if (isHttp && (typeof endpoint_url !== 'string' || !endpoint_url.startsWith('https://')))
+    return c.json({ error: 'VALIDATION', message: 'For http transport, endpoint_url must start with https://' }, 400);
+  if (isStdio && typeof github_url !== 'string')
+    return c.json({ error: 'VALIDATION', message: 'For stdio transport, github_url (GitHub repo URL) is required' }, 400);
 
   const sql = createDb(c.env);
   try {
     const totpCheck = await requireTotp(c, sql, merchant.id, totp_code as string | null);
     if (!totpCheck.ok) return totpCheck.response;
 
-    const serverSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    const serverSlug = (name as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
     const verificationToken = await sha256Hex(`${serverSlug}-${merchant.id}-${Date.now()}`);
+    // stdio servers with a github_url go active immediately; http servers need domain verification
+    const initialStatus = isStdio ? 'active' : 'pending';
 
-    const result = await sql.unsafe<Array<{ id: string; slug: string; verification_token: string }>>(
+    const result = await sql.unsafe<Array<{ id: string; slug: string; verification_token: string; status: string }>>(
       `INSERT INTO mcp_servers
-         (slug, name, description, category, endpoint_url, publisher_id, pricing_model,
-          price_per_call_usd, price_monthly_usd, free_tier_calls, status, metadata, verification_token)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,$12)
+         (slug, name, description, category, endpoint_url, publisher_id, transport,
+          command, command_args, command_env, github_url,
+          pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls,
+          status, domain_verified, metadata, verification_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        ON CONFLICT (slug) DO UPDATE SET updated_at = now()
-       RETURNING id, slug, verification_token`,
-      [serverSlug, name.trim(), description ?? null, category ?? null, endpoint_url, merchant.id,
-       pricing_model, price_per_call_usd ?? null, price_monthly_usd ?? null,
-       free_tier_calls, JSON.stringify(metadata), verificationToken],
+       RETURNING id, slug, verification_token, status`,
+      [
+        serverSlug, (name as string).trim(), description ?? null, category ?? null,
+        isHttp ? endpoint_url : (github_url ?? ''), merchant.id, transport,
+        command ?? null, JSON.stringify(command_args), JSON.stringify(command_env), github_url ?? null,
+        pricing_model, price_per_call_usd ?? null, price_monthly_usd ?? null,
+        free_tier_calls, initialStatus, isStdio, JSON.stringify(metadata), verificationToken,
+      ],
     );
     const row = result[0];
     if (!row) return c.json({ error: 'INSERT_FAILED' }, 500);
 
-    return c.json({
-      success: true, server_id: row.id, slug: row.slug, status: 'pending',
-      next_steps: {
+    const response: Record<string, unknown> = {
+      success: true, server_id: row.id, slug: row.slug, status: row.status,
+      transport,
+    };
+
+    if (isHttp) {
+      response.next_steps = {
         domain_verification: {
-          method_1_dns_txt: {
-            record: '_agentpay-verify',
-            value: row.verification_token,
-            instructions: `Add DNS TXT record: _agentpay-verify.yourdomain.com = "${row.verification_token}"`,
-          },
-          method_2_well_known: {
+          method_1_well_known: {
             path: '/.well-known/agentpay-publisher.json',
             content: JSON.stringify({ token: row.verification_token }),
+            note: 'Preferred method — place this file at your endpoint URL root.',
+          },
+          method_2_dns_txt: {
+            record: '_agentpay-verify.yourdomain.com',
+            value: row.verification_token,
+            note: 'Alternative — DNS TXT record. Not available on *.workers.dev domains.',
           },
           verify_endpoint: `POST /api/registry/servers/${row.slug}/verify`,
+          mcp_tool: 'Call registry_verify_domain with your slug after placing the token.',
         },
         listing_fee: pricing_model !== 'free'
-          ? { required: true, amount_usd: 9, note: 'Paid servers require a one-time $9 listing fee.' }
+          ? { required: true, amount_usd: 9, note: 'One-time fee before going active.' }
           : { required: false },
-      },
-    }, 201);
+      };
+    } else {
+      response.message = 'stdio server published and active immediately.';
+    }
+
+    return c.json(response, 201);
   } finally { await sql.end().catch(() => {}); }
 });
 
-// ── POST /api/registry/servers/:slug/verify — domain ownership ───────────────
+// ── POST /api/registry/servers/:slug/verify ───────────────────────────────────
 
 router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
   const sql = createDb(c.env);
   try {
     const rows = await sql.unsafe<Array<{
-      id: string; endpoint_url: string; publisher_id: string; verification_token: string;
+      id: string; endpoint_url: string; publisher_id: string;
+      verification_token: string; transport: string;
     }>>(
-      `SELECT id, endpoint_url, publisher_id, verification_token
+      `SELECT id, endpoint_url, publisher_id, verification_token, transport
        FROM mcp_servers WHERE slug = $1 AND status = 'pending' LIMIT 1`,
       [c.req.param('slug')],
     );
     const server = rows[0];
     if (!server) return c.json({ error: 'NOT_FOUND', message: 'Server not found or already active.' }, 404);
     if (server.publisher_id !== merchant.id) return c.json({ error: 'FORBIDDEN' }, 403);
+    if (server.transport === 'stdio') {
+      // stdio servers don't need domain verification — activate immediately
+      await sql.unsafe(`UPDATE mcp_servers SET status = 'active', updated_at = now() WHERE id = $1`, [server.id]);
+      return c.json({ success: true, message: 'Server activated.', status: 'active' });
+    }
 
-    let verified = false;
-    let method = '';
+    let verified = false, method = '';
 
-    // Try /.well-known/agentpay-publisher.json
+    // Method 1: /.well-known/agentpay-publisher.json (preferred, works on *.workers.dev)
     try {
       const url = new URL('/.well-known/agentpay-publisher.json', server.endpoint_url);
       const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) });
@@ -204,7 +290,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
       }
     } catch { /* try DNS */ }
 
-    // Try DNS TXT via Cloudflare DoH
+    // Method 2: DNS TXT via Cloudflare DoH (not available on *.workers.dev)
     if (!verified) {
       try {
         const domain = new URL(server.endpoint_url).hostname;
@@ -221,7 +307,10 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
       } catch { /* failed */ }
     }
 
-    if (!verified) return c.json({ error: 'VERIFICATION_FAILED', message: 'Token not found. Check placement and try again.' }, 422);
+    if (!verified) return c.json({
+      error: 'VERIFICATION_FAILED',
+      message: 'Token not found. If deploying on *.workers.dev, use the /.well-known/ method only (DNS TXT not available on Cloudflare default domains).',
+    }, 422);
 
     await sql.unsafe(
       `UPDATE mcp_servers SET domain_verified = true, status = 'active', updated_at = now() WHERE id = $1`,
@@ -243,10 +332,14 @@ router.get('/servers/:slug/config', authenticateApiKey, async (c) => {
        WHERE ms.slug = $1 AND s.agent_id = $2 AND s.status = 'active' LIMIT 1`,
       [serverSlug, merchant.id],
     );
-    if (!sub[0]) return c.json({ error: 'NOT_SUBSCRIBED', message: 'Subscribe to this server first.' }, 403);
+    if (!sub[0]) return c.json({ error: 'NOT_SUBSCRIBED', message: 'Subscribe first.' }, 403);
 
-    const rows = await sql.unsafe<Array<{ name: string; endpoint_url: string; pricing_model: string }>>(
-      `SELECT name, endpoint_url, pricing_model FROM mcp_servers WHERE slug = $1 LIMIT 1`,
+    const rows = await sql.unsafe<Array<{
+      name: string; endpoint_url: string; transport: string;
+      command: string | null; command_args: unknown; github_url: string | null;
+    }>>(
+      `SELECT name, endpoint_url, transport, command, command_args, github_url
+       FROM mcp_servers WHERE slug = $1 LIMIT 1`,
       [serverSlug],
     );
     const server = rows[0];
@@ -254,21 +347,7 @@ router.get('/servers/:slug/config', authenticateApiKey, async (c) => {
 
     return c.json({
       success: true, name: server.name,
-      harness_configs: {
-        claude_code: {
-          file: '~/.claude/settings.json or .mcp.json',
-          config: { mcpServers: { [serverSlug]: { type: 'http', url: server.endpoint_url } } },
-        },
-        codex: {
-          file: '~/.codex/config.toml',
-          config: `[mcp_servers.${serverSlug}]\nurl = "${server.endpoint_url}"`,
-        },
-        cursor: {
-          file: '.cursor/mcp.json',
-          config: { mcpServers: { [serverSlug]: { url: server.endpoint_url, transport: 'http' } } },
-        },
-        generic_http: { url: server.endpoint_url, transport: 'streamable-http' },
-      },
+      harness_configs: buildHarnessConfigs({ slug: serverSlug, ...server }),
     });
   } finally { await sql.end().catch(() => {}); }
 });
@@ -281,9 +360,10 @@ router.get('/subscriptions', authenticateApiKey, async (c) => {
   try {
     const rows = await sql.unsafe<Array<{
       id: string; slug: string; name: string; category: string | null;
-      pricing_model: string; plan: string; calls_used: number; started_at: Date;
+      transport: string; pricing_model: string; plan: string; calls_used: number; started_at: Date;
     }>>(
-      `SELECT s.id, ms.slug, ms.name, ms.category, ms.pricing_model, s.plan, s.calls_used, s.started_at
+      `SELECT s.id, ms.slug, ms.name, ms.category, ms.transport, ms.pricing_model,
+              s.plan, s.calls_used, s.started_at
        FROM mcp_subscriptions s JOIN mcp_servers ms ON ms.id = s.server_id
        WHERE s.agent_id = $1 AND s.status = 'active' ORDER BY s.started_at DESC`,
       [merchant.id],
@@ -292,7 +372,7 @@ router.get('/subscriptions', authenticateApiKey, async (c) => {
   } finally { await sql.end().catch(() => {}); }
 });
 
-// ── POST /api/registry/subscriptions — subscribe ─────────────────────────────
+// ── POST /api/registry/subscriptions ─────────────────────────────────────────
 
 router.post('/subscriptions', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
@@ -303,19 +383,24 @@ router.post('/subscriptions', authenticateApiKey, async (c) => {
 
   const sql = createDb(c.env);
   try {
-    const totpCheck = await requireTotp(c, sql, merchant.id, totp_code as string | null);
-    if (!totpCheck.ok) return totpCheck.response;
-
     const rows = await sql.unsafe<Array<{
       id: string; name: string; pricing_model: string;
-      price_monthly_usd: string | null; free_tier_calls: number;
+      price_monthly_usd: string | null; free_tier_calls: number; transport: string;
     }>>(
-      `SELECT id, name, pricing_model, price_monthly_usd, free_tier_calls
+      `SELECT id, name, pricing_model, price_monthly_usd, free_tier_calls, transport
        FROM mcp_servers WHERE slug = $1 AND status = 'active' LIMIT 1`,
       [server_slug],
     );
     const server = rows[0];
     if (!server) return c.json({ error: 'NOT_FOUND', message: `Server "${server_slug}" not found` }, 404);
+
+    const isPaid = server.pricing_model !== 'free' && Boolean(server.price_monthly_usd);
+
+    // TOTP only required for paid subscriptions
+    if (isPaid) {
+      const totpCheck = await requireTotp(c, sql, merchant.id, totp_code as string | null);
+      if (!totpCheck.ok) return totpCheck.response;
+    }
 
     await sql.unsafe(
       `INSERT INTO mcp_subscriptions (agent_id, server_id, plan)
@@ -329,7 +414,7 @@ router.post('/subscriptions', authenticateApiKey, async (c) => {
       [server.id],
     ).catch(() => null);
 
-    if (server.pricing_model !== 'free' && server.price_monthly_usd) {
+    if (isPaid) {
       return c.json({
         success: true, payment_required: true, price_monthly_usd: server.price_monthly_usd,
         message: `Subscribed to ${server.name}. Use agentpay_create_payment_intent to pay and activate.`,
@@ -386,11 +471,11 @@ router.post('/totp/enroll', authenticateApiKey, async (c) => {
 
     return c.json({
       success: true, enrolled: false,
-      message: 'Scan the QR in Google Authenticator or Authy. Then confirm with your first 6-digit code.',
+      message: 'Open setup_url in a browser to scan the QR, or enter setup_key manually in Google Authenticator / Authy.',
       otpauth_uri: otpauthUri,
       setup_key: setupKey,
       setup_url: setupUrl,
-      next_step: 'POST /api/registry/totp/confirm with { "totp_code": "123456" }',
+      next_step: 'Call registry_confirm_totp with your first 6-digit code.',
     });
   } finally { await sql.end().catch(() => {}); }
 });
@@ -409,19 +494,19 @@ router.post('/totp/confirm', authenticateApiKey, async (c) => {
   const sql = createDb(c.env);
   try {
     const enrollment = await getTotpEnrollment(sql, merchant.id);
-    if (!enrollment) return c.json({ error: 'NOT_ENROLLED', message: 'Start with POST /api/registry/totp/enroll' }, 404);
+    if (!enrollment) return c.json({ error: 'NOT_ENROLLED', message: 'Start with registry_enroll.' }, 404);
     if (enrollment.confirmed_at) return c.json({ error: 'ALREADY_CONFIRMED' }, 409);
 
     const secret = await decryptTotpSecret(enrollment.secret_enc, encKey);
     if (!await verifyTotpCode(secret, code)) {
-      return c.json({ error: 'TOTP_INVALID', message: 'Code incorrect or expired. Check clock and retry.' }, 401);
+      return c.json({ error: 'TOTP_INVALID', message: 'Code incorrect or expired. Check device clock and retry.' }, 401);
     }
     await sql.unsafe(`UPDATE totp_enrollments SET confirmed_at = now() WHERE agent_id = $1`, [merchant.id]);
-    return c.json({ success: true, message: 'TOTP confirmed. Pass totp_code in all registry actions.' });
+    return c.json({ success: true, message: 'TOTP confirmed. Pass totp_code when publishing or subscribing to paid servers.' });
   } finally { await sql.end().catch(() => {}); }
 });
 
-// ── GET /api/registry/totp/setup — browser QR setup page ─────────────────────
+// ── GET /api/registry/totp/setup — browser QR page ───────────────────────────
 
 router.get('/totp/setup', async (c) => {
   const uri = c.req.query('uri');
@@ -429,7 +514,6 @@ router.get('/totp/setup', async (c) => {
   const decoded = decodeURIComponent(uri);
   if (!decoded.startsWith('otpauth://')) return c.text('Invalid URI', 400);
 
-  const escaped = decoded.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -441,24 +525,27 @@ router.get('/totp/setup', async (c) => {
     .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;text-align:center;max-width:380px;box-shadow:0 8px 24px rgba(15,23,42,.06);}
     h1{font-size:20px;margin:0 0 8px;}p{color:#475569;font-size:14px;line-height:1.5;margin:0 0 16px;}
     #qr{margin:0 auto;}
-    .key{font-family:monospace;font-size:13px;background:#f1f5f9;border-radius:8px;padding:10px 14px;word-break:break-all;margin-top:12px;}
+    .key{font-family:monospace;font-size:13px;background:#f1f5f9;border-radius:8px;padding:10px 14px;word-break:break-all;margin-top:4px;}
     .note{font-size:12px;color:#64748b;margin-top:16px;}
+    code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:11px;}
   </style>
 </head>
 <body><div class="card">
   <h1>Scan with Authenticator</h1>
-  <p>Open Google Authenticator, Authy, or any TOTP app and scan this QR.</p>
+  <p>Open Google Authenticator, Authy, or any TOTP app.</p>
   <div id="qr"></div>
   <p class="note">Or enter the key manually:</p>
-  <div class="key" id="key"></div>
-  <p class="note">After scanning, confirm in your agent: POST /api/registry/totp/confirm</p>
+  <div class="key" id="key">Loading...</div>
+  <p class="note">After scanning, confirm in your agent:<br/><code>registry_confirm_totp</code></p>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSE1FNjHe5liRFgNNbNbwl1LcZ/QCZxiALtg==" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
 <script>
   var uri = decodeURIComponent("${encodeURIComponent(decoded)}");
-  new QRCode(document.getElementById("qr"),{text:uri,width:220,height:220,colorDark:"#0f172a",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});
-  var m=uri.match(/secret=([A-Z2-7]+)/);
-  if(m)document.getElementById("key").textContent=m[1].match(/.{1,4}/g).join(" ");
+  try {
+    new QRCode(document.getElementById("qr"),{text:uri,width:220,height:220,colorDark:"#0f172a",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});
+  } catch(e) { document.getElementById("qr").textContent = "QR library failed to load. Use the key below."; }
+  var m = uri.match(/secret=([A-Z2-7]+)/);
+  document.getElementById("key").textContent = m ? m[1].match(/.{1,4}/g).join(" ") : "Key not found";
 </script>
 </body></html>`;
 
@@ -474,12 +561,12 @@ router.get('/usage', authenticateApiKey, async (c) => {
   const sql = createDb(c.env);
   try {
     const rows = await sql.unsafe<Array<{
-      slug: string; name: string; install_count: number;
+      slug: string; name: string; transport: string; install_count: number;
       total_calls: string; total_billed: string; publisher_earnings: string;
     }>>(
-      `SELECT ms.slug, ms.name, ms.install_count,
-              COUNT(ue.id)::text              AS total_calls,
-              COALESCE(SUM(ue.billed_amount_usd),0)::text   AS total_billed,
+      `SELECT ms.slug, ms.name, ms.transport, ms.install_count,
+              COUNT(ue.id)::text                            AS total_calls,
+              COALESCE(SUM(ue.billed_amount_usd),0)::text  AS total_billed,
               COALESCE(SUM(ue.publisher_share_usd),0)::text AS publisher_earnings
        FROM mcp_servers ms
        LEFT JOIN mcp_usage_events ue ON ue.server_id = ms.id
@@ -488,6 +575,95 @@ router.get('/usage', authenticateApiKey, async (c) => {
       [merchant.id],
     );
     return c.json({ success: true, revenue_share_pct: PUBLISHER_REVENUE_SHARE * 100, servers: rows });
+  } finally { await sql.end().catch(() => {}); }
+});
+
+// ── GET /api/registry/payouts — publisher payout summary ──────────────────────
+
+router.get('/payouts', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const sql = createDb(c.env);
+  try {
+    // Current month unpaid earnings
+    const pending = await sql.unsafe<Array<{ earned: string }>>(
+      `SELECT COALESCE(SUM(publisher_share_usd),0)::text AS earned
+       FROM mcp_usage_events ue
+       JOIN mcp_servers ms ON ms.id = ue.server_id
+       WHERE ms.publisher_id = $1
+         AND ue.created_at >= date_trunc('month', now())`,
+      [merchant.id],
+    );
+
+    const history = await sql.unsafe<Array<{
+      id: string; period_start: Date; period_end: Date;
+      net_payout_usd: string; status: string; paid_at: Date | null;
+    }>>(
+      `SELECT id, period_start, period_end, net_payout_usd, status, paid_at
+       FROM publisher_payouts WHERE publisher_id = $1 ORDER BY period_start DESC LIMIT 12`,
+      [merchant.id],
+    );
+
+    return c.json({
+      success: true,
+      revenue_share_pct: PUBLISHER_REVENUE_SHARE * 100,
+      pending_this_month_usd: pending[0]?.earned ?? '0',
+      payout_schedule: 'Monthly, 1st of each month for previous month earnings.',
+      history,
+    });
+  } finally { await sql.end().catch(() => {}); }
+});
+
+// ── POST /api/registry/payouts/calculate (internal admin) ────────────────────
+
+router.post('/payouts/calculate', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  const { period_start, period_end } = body ?? {};
+
+  // Only admins (ADMIN_SECRET_KEY header match) can run batch calculation for all publishers
+  const adminKey = (c.env as Record<string, string>).ADMIN_SECRET_KEY;
+  const isAdmin = adminKey && c.req.header('x-admin-key') === adminKey;
+
+  const sql = createDb(c.env);
+  try {
+    const pStart = typeof period_start === 'string' ? period_start : new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 10);
+    const pEnd = typeof period_end === 'string' ? period_end : new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().slice(0, 10);
+
+    // Calculate for requesting publisher (or all if admin)
+    const publisherFilter = isAdmin ? '' : `AND ms.publisher_id = '${merchant.id}'`;
+
+    const earnings = await sql.unsafe<Array<{
+      publisher_id: string; gross: string; publisher_share: string;
+    }>>(
+      `SELECT ms.publisher_id,
+              COALESCE(SUM(ue.billed_amount_usd),0)::text  AS gross,
+              COALESCE(SUM(ue.publisher_share_usd),0)::text AS publisher_share
+       FROM mcp_usage_events ue
+       JOIN mcp_servers ms ON ms.id = ue.server_id
+       WHERE ue.created_at BETWEEN $1 AND $2 ${publisherFilter}
+       GROUP BY ms.publisher_id`,
+      [pStart, pEnd],
+    );
+
+    const upserted: string[] = [];
+    for (const row of earnings) {
+      const gross = parseFloat(row.gross);
+      const net = parseFloat(row.publisher_share);
+      const fee = gross - net;
+      if (net <= 0) continue;
+      await sql.unsafe(
+        `INSERT INTO publisher_payouts (publisher_id, period_start, period_end, gross_earned_usd, platform_fee_usd, net_payout_usd)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (publisher_id, period_start) DO UPDATE
+           SET gross_earned_usd = EXCLUDED.gross_earned_usd,
+               platform_fee_usd = EXCLUDED.platform_fee_usd,
+               net_payout_usd   = EXCLUDED.net_payout_usd`,
+        [row.publisher_id, pStart, pEnd, gross.toFixed(4), fee.toFixed(4), net.toFixed(4)],
+      );
+      upserted.push(row.publisher_id);
+    }
+
+    return c.json({ success: true, period_start: pStart, period_end: pEnd, publishers_processed: upserted.length });
   } finally { await sql.end().catch(() => {}); }
 });
 

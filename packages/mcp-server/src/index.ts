@@ -1580,6 +1580,8 @@ export async function handleTool(
     case 'registry_publish':
     case 'registry_usage':
     case 'registry_enroll':
+    case 'registry_verify_domain':
+    case 'registry_payouts':
     case 'registry_confirm_totp':
       return handleRegistryTool(name, args, runtime);
 
