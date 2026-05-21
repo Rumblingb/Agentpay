@@ -61,24 +61,31 @@ async function requireTotp(
 
 function buildHarnessConfigs(server: {
   slug: string; name: string; endpoint_url: string; transport: string;
-  command?: string | null; command_args?: unknown; github_url?: string | null;
+  command?: string | null; command_args?: unknown; command_env?: unknown; github_url?: string | null;
 }) {
+  const tomlValue = (value: unknown) => JSON.stringify(String(value));
+  const tomlInlineTable = (value: Record<string, unknown>) =>
+    `{ ${Object.entries(value).map(([k, v]) => `${k} = ${tomlValue(v)}`).join(', ')} }`;
+
   if (server.transport === 'stdio') {
     const cmd = server.command ?? 'python3';
     const args = Array.isArray(server.command_args) ? server.command_args : ['server.py'];
+    const env = server.command_env && typeof server.command_env === 'object' && !Array.isArray(server.command_env)
+      ? server.command_env as Record<string, unknown>
+      : {};
     return {
       transport: 'stdio',
       claude_code: {
         file: '~/.claude/settings.json or .mcp.json',
-        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+        config: { mcpServers: { [server.slug]: { command: cmd, args, ...(Object.keys(env).length ? { env } : {}) } } },
       },
       codex: {
         file: '~/.codex/config.toml',
-        config: `[mcp_servers.${server.slug}]\ncommand = "${cmd}"\nargs = ${JSON.stringify(args)}`,
+        config: `[mcp_servers.${server.slug}]\ncommand = ${tomlValue(cmd)}\nargs = ${JSON.stringify(args)}${Object.keys(env).length ? `\nenv = ${tomlInlineTable(env)}` : ''}`,
       },
       cursor: {
         file: '.cursor/mcp.json',
-        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+        config: { mcpServers: { [server.slug]: { command: cmd, args, ...(Object.keys(env).length ? { env } : {}) } } },
       },
       install_note: server.github_url
         ? `Install locally first: git clone ${server.github_url} && cd ${server.slug} && pip install -r requirements.txt`
@@ -161,12 +168,12 @@ router.get('/servers/:slug', async (c) => {
       price_per_call_usd: string | null; price_monthly_usd: string | null; free_tier_calls: number;
       status: string; verified: boolean; featured: boolean; install_count: number;
       domain_verified: boolean; github_url: string | null; command: string | null;
-      command_args: unknown; metadata: unknown; created_at: Date;
+      command_args: unknown; command_env: unknown; metadata: unknown; created_at: Date;
     }>>(
       `SELECT id, slug, name, description, category, endpoint_url, publisher_id, transport,
               pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls,
               status, verified, featured, install_count, domain_verified,
-              github_url, command, command_args, metadata, created_at
+              github_url, command, command_args, command_env, metadata, created_at
        FROM mcp_servers WHERE slug = $1 AND status = 'active' LIMIT 1`,
       [c.req.param('slug')],
     );

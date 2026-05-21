@@ -21,6 +21,7 @@ const sql = postgres(process.env.SUPABASE_DIRECT_URL ?? '');
 type ServerSeed = {
   slug: string; name: string; description: string; category: string;
   transport: 'stdio'; github_url: string; command: string; command_args: string[];
+  command_env?: Record<string, string>; metadata?: Record<string, unknown>;
   pricing_model: 'free' | 'monthly'; price_monthly_usd?: number; free_tier_calls: number;
   featured?: boolean;
 };
@@ -61,6 +62,7 @@ const SERVERS: ServerSeed[] = [
   { slug: 'agent-hire',         name: 'Agent Hire Marketplace',category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-hire-mcp',          pricing_model: 'free',    free_tier_calls: 200,  description: 'Post tasks, receive bids, escrow, dispute resolution.' },
   { slug: 'agent-contract',     name: 'Agent Contracts',       category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-contract-mcp',      pricing_model: 'free',    free_tier_calls: 200,  description: 'Smart contracts between agents. Deliverables, penalties, dispute.' },
   { slug: 'agent-proof',        name: 'Agent Proof of Work',   category: 'agents',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/agent-proof-mcp',         pricing_model: 'free',    free_tier_calls: 500,  description: 'Cryptographic proof of agent work. SHA-256 receipts, verification.' },
+  { slug: 'pickaxe-agent-admin', name: 'Pickaxe Agent Admin',   category: 'agents',     transport: 'stdio', command: 'npx',     command_args: ['-y', 'mcp-pickaxe'], github_url: 'https://github.com/aplaceforallmystuff/mcp-pickaxe', pricing_model: 'free', free_tier_calls: 200, description: 'Manage Pickaxe agents, knowledge bases, users, analytics, products, and studio configuration via MCP.', command_env: { PICKAXE_STUDIO_MAIN: 'vault:pickaxe_studio_api_key' }, metadata: { provider: 'pickaxe', requires_human_credential_connect: true, required_credentials: ['Pickaxe Studio API key'], source: 'mcpservers.org/aplaceforallmystuff/mcp-pickaxe' } },
   { slug: 'mcp-health-monitor', name: 'MCP Health Monitor',    category: 'monitoring', transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/mcp-health-monitor',      pricing_model: 'free',    free_tier_calls: 500,  description: 'Check MCP server uptime, response time, TLS expiry.' },
   { slug: 'hallucination-guard',name: 'Hallucination Guard',   category: 'safety',     transport: 'stdio', command: 'python3', command_args: ['server.py'], github_url: 'https://github.com/Rumblingb/hallucination-guard',     pricing_model: 'monthly', free_tier_calls: 10,   price_monthly_usd: 99, description: 'Verify agent responses against source context. Confidence scoring.' },
 ];
@@ -73,13 +75,14 @@ async function main() {
       await sql`
         INSERT INTO mcp_servers
           (slug, name, description, category, endpoint_url, publisher_id, transport,
-           command, command_args, github_url,
+           command, command_args, command_env, github_url, metadata,
            pricing_model, price_monthly_usd, free_tier_calls,
            status, verified, featured, domain_verified)
         VALUES (
           ${s.slug}, ${s.name}, ${s.description}, ${s.category},
           ${s.github_url}, ${PUBLISHER_ID}, ${s.transport},
-          ${s.command}, ${JSON.stringify(s.command_args)}::jsonb, ${s.github_url},
+          ${s.command}, ${JSON.stringify(s.command_args)}::jsonb, ${JSON.stringify(s.command_env ?? {})}::jsonb,
+          ${s.github_url}, ${JSON.stringify(s.metadata ?? {})}::jsonb,
           ${s.pricing_model}, ${s.price_monthly_usd ?? null}, ${s.free_tier_calls},
           'active', true, ${s.featured ?? false}, true
         )
@@ -89,6 +92,8 @@ async function main() {
           github_url = EXCLUDED.github_url,
           command = EXCLUDED.command,
           command_args = EXCLUDED.command_args,
+          command_env = EXCLUDED.command_env,
+          metadata = EXCLUDED.metadata,
           transport = EXCLUDED.transport,
           status = 'active', verified = true, domain_verified = true,
           updated_at = now()
