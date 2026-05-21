@@ -3,7 +3,7 @@
  *
  * Agent-first MCP server marketplace. Supports both HTTP and stdio transports.
  * TOTP required only for: paid subscriptions + publishing (not free-tier subscribe).
- * Revenue: 70% publisher / 30% AgentPay on per-call billing.
+ * Revenue: 80% publisher / 20% AgentPay on per-call billing.
  */
 
 import { Hono, type Context } from 'hono';
@@ -16,7 +16,7 @@ import { createHostedCardCheckout } from '../lib/fiatPayments';
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const AGENTPAY_ISSUER = 'AgentPay';
-const PUBLISHER_REVENUE_SHARE = 0.70;
+const PUBLISHER_REVENUE_SHARE = 0.80;
 const PLATFORM_FEE_SHARE = 1 - PUBLISHER_REVENUE_SHARE;
 
 async function sha256Hex(input: string): Promise<string> {

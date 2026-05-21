@@ -221,8 +221,22 @@ export interface Env {
   AI?: Ai;
   /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
+  /** Anthropic model for high-stakes reasoning routes. */
+  ANTHROPIC_REASON_MODEL?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** OpenAI model for code-generation routes. */
+  OPENAI_CODE_MODEL?: string;
+  /** "cheap-first" uses local OpenAI-compatible inference before hosted providers where configured. */
+  MODEL_ROUTER_POLICY?: string;
+  /** Local OpenAI-compatible base URL, e.g. Ollama /v1. */
+  OLLAMA_BASE_URL?: string;
+  /** Local model used for extraction. */
+  OLLAMA_EXTRACT_MODEL?: string;
+  /** Local model used for reasoning before hosted fallback. */
+  OLLAMA_REASON_MODEL?: string;
+  /** In-memory LLM cache TTL in seconds for deterministic low-risk local calls. */
+  LLM_CACHE_TTL_SECONDS?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. */
   ELEVENLABS_API_KEY?: string;
   /** Google Gemini API key — opt-in paid tier for high-volume extraction. Get at aistudio.google.com. Enable billing to remove RPD limits. */

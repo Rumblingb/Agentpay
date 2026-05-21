@@ -246,7 +246,7 @@ export const REGISTRY_TOOLS: Tool[] = [
 
   {
     name: 'registry_payouts',
-    description: 'View your publisher payout history and current month pending earnings. Payouts are 70% of billed revenue, processed monthly.',
+    description: 'View your publisher payout history and current month pending earnings. Payouts are 80% of billed revenue, processed monthly.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] },
     annotations: { readOnlyHint: true },
   },
