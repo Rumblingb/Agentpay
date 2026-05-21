@@ -18,7 +18,7 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACE_TOOLS, handleAceTool } from './ace-tools.js';
-import { REGISTRY_TOOLS, handleRegistryTool } from './registry-tools.js';
+import { REGISTRY_READ_ONLY_TOOL_NAMES, REGISTRY_TOOLS, handleRegistryTool } from './registry-tools.js';
 
 const DEFAULT_API_URL = process.env.AGENTPAY_API_URL ?? 'https://api.agentpay.so';
 const DEFAULT_API_KEY = process.env.AGENTPAY_API_KEY ?? '';
@@ -215,6 +215,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_agent',
   'ace_whoami',
   'ace_get_trip_status',
+  ...REGISTRY_READ_ONLY_TOOL_NAMES,
 ]);
 
 const RAW_TOOLS: Tool[] = [
@@ -1573,9 +1574,14 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'agentpay_choose_requirement':
+    case 'agentpay_request_repo_access':
+    case 'agentpay_list_repo_leases':
+    case 'agentpay_revoke_repo_lease':
     case 'registry_search':
     case 'registry_server_info':
     case 'registry_subscribe':
+    case 'registry_create_subscription_checkout':
     case 'registry_installed':
     case 'registry_publish':
     case 'registry_usage':
@@ -1583,7 +1589,7 @@ export async function handleTool(
     case 'registry_verify_domain':
     case 'registry_payouts':
     case 'registry_confirm_totp':
-      return handleRegistryTool(name, args, runtime);
+      return handleRegistryTool(name, args, resolved);
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -1627,6 +1633,3 @@ export function createAgentPayMcpServer(
 
   return server;
 }
-
-
-

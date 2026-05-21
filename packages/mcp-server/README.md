@@ -100,10 +100,31 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 | `agentpay_approve_mandate` | Approve a mandate through `/api/mandates/:intentId/approve` |
 | `agentpay_execute_mandate` | Start execution through `/api/mandates/:intentId/execute` |
 | `agentpay_cancel_mandate` | Cancel or revoke a non-executing mandate through `/api/mandates/:intentId/cancel` |
+| `agentpay_choose_requirement` | Agent-only chooser that compares MCP servers, agents, and governed capabilities and returns the safest next action |
+| `registry_search` | Search the AgentPay MCP server registry by capability, category, transport, and price |
+| `registry_server_info` | Get full server details and harness config after subscription |
+| `registry_subscribe` | Subscribe to a free server or create a pending paid subscription that remains inactive until payment confirms |
+| `registry_create_subscription_checkout` | Create Stripe Checkout for a pending paid registry subscription |
+| `registry_installed` | List subscribed MCP servers |
+| `registry_publish` | Publish an MCP server to the AgentPay registry with TOTP protection |
+| `registry_verify_domain` | Verify an HTTP server listing by well-known file or DNS TXT record |
+| `registry_usage` | View usage and earnings for published MCP servers |
+| `registry_payouts` | View publisher payout history and pending earnings |
+| `registry_enroll` | Enroll TOTP for publishing and paid subscription actions |
+| `registry_confirm_totp` | Confirm TOTP enrollment |
+| `agentpay_request_repo_access` | Request a hosted human step to choose repo access for an agent task; no token is exposed |
+| `agentpay_list_repo_leases` | List scoped repo authority leases without provider tokens |
+| `agentpay_revoke_repo_lease` | Revoke a repo authority lease immediately |
 | `agentpay_discover_agents` | Search and filter agents on the network |
 | `agentpay_get_merchant_stats` | Get your account's payment statistics |
 | `agentpay_register_agent` | Register an AI agent on the network |
 | `agentpay_get_agent` | Look up a registered agent's public identity record |
+
+Money and repo safety rules:
+
+- Paid registry subscriptions stay `pending_payment` until Stripe confirms payment by webhook.
+- Per-call registry billing fails closed until metering and spend limits are active.
+- Repo authority leases are scoped to selected repositories and operations. AgentPay never returns raw GitHub or GitLab tokens through MCP.
 
 ## Example Claude Prompt
 
