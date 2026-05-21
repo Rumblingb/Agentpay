@@ -46,6 +46,34 @@
     {
       "name": "agentpay_get_mandate_history",
       "description": "Fetch the full audit timeline for a mandate — every approval, execution step, and settlement event."
+    },
+    {
+      "name": "agentpay_choose_requirement",
+      "description": "Agent-only marketplace chooser. Given a user requirement, compares MCP servers, agent providers, and governed capability paths, then returns the safest next action and whether human payment, repo selection, or credential authority is needed."
+    },
+    {
+      "name": "registry_search",
+      "description": "Search the AgentPay MCP server registry by capability, category, transport, and price. Safe for read-only discovery."
+    },
+    {
+      "name": "registry_subscribe",
+      "description": "Subscribe to a free MCP server immediately or create a pending paid subscription that remains inactive until confirmed payment."
+    },
+    {
+      "name": "registry_create_subscription_checkout",
+      "description": "Create a Stripe Checkout session for a pending paid MCP registry subscription. Access remains blocked until Stripe confirms payment by webhook."
+    },
+    {
+      "name": "agentpay_request_repo_access",
+      "description": "Request a hosted human step to choose repository access for an agent task. No provider token or repo lease is granted by the request itself."
+    },
+    {
+      "name": "agentpay_list_repo_leases",
+      "description": "List scoped, revocable repository authority leases. Lease output contains repo names and approved operations, never raw provider tokens."
+    },
+    {
+      "name": "agentpay_revoke_repo_lease",
+      "description": "Revoke a repository authority lease immediately."
     }
   ],
   "packages": [

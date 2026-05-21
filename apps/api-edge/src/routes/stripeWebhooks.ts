@@ -120,6 +120,7 @@ router.post('/', async (c) => {
           const actionSessionId = typeof session.metadata?.actionSessionId === 'string'
             ? session.metadata.actionSessionId
             : null;
+          let handledRegistryPayment = false;
 
           try {
             const settledInvoice = await markMerchantInvoicePaidByCheckoutSession(c.env, sessionId);
@@ -183,6 +184,53 @@ router.post('/', async (c) => {
             }
           }
 
+          if (session.metadata?.source === 'mcp_registry_subscription') {
+            const registrySubscriptionId = typeof session.metadata.registrySubscriptionId === 'string'
+              ? session.metadata.registrySubscriptionId
+              : null;
+            if (registrySubscriptionId) {
+              try {
+                const existing = await sql<Array<{ status: string; serverId: string }>>`
+                  SELECT s.status, s.server_id AS "serverId"
+                  FROM mcp_subscriptions s
+                  WHERE s.id = ${registrySubscriptionId}::uuid
+                  LIMIT 1
+                `;
+                const subscription = existing[0] ?? null;
+                if (subscription && subscription.status !== 'active') {
+                  await sql`
+                    UPDATE mcp_subscriptions
+                    SET status = 'active',
+                        agentpay_payment_id = ${sessionId},
+                        updated_at = NOW()
+                    WHERE id = ${registrySubscriptionId}::uuid
+                      AND status = 'pending_payment'
+                  `;
+                  await sql`
+                    UPDATE mcp_servers
+                    SET install_count = install_count + 1,
+                        updated_at = NOW()
+                    WHERE id = ${subscription.serverId}::uuid
+                  `.catch((installErr: unknown) => {
+                    console.error('[stripe-webhook] registry install_count update failed:', installErr instanceof Error ? installErr.message : String(installErr));
+                  });
+                  console.info('[stripe-webhook] registry subscription activated', {
+                    sessionId,
+                    registrySubscriptionId,
+                    serverId: subscription.serverId,
+                  });
+                  handledRegistryPayment = true;
+                }
+              } catch (registryErr: unknown) {
+                console.error('[stripe-webhook] registry subscription activation failed', {
+                  sessionId,
+                  registrySubscriptionId,
+                  error: registryErr instanceof Error ? registryErr.message : String(registryErr),
+                });
+              }
+            }
+          }
+
           // Save card for future frictionless bookings (first payment = card enrollment)
           const principalId = typeof session.metadata?.principalId === 'string' ? session.metadata.principalId : null;
           const customerId = typeof session.customer === 'string' ? session.customer : null;
@@ -237,6 +285,10 @@ router.post('/', async (c) => {
           `;
 
           if (!rows.length) {
+            if (handledRegistryPayment) {
+              console.info('[stripe-webhook] registry checkout handled without legacy transaction', { sessionId });
+              break;
+            }
             console.warn('[stripe-webhook] no transaction for session', { sessionId });
             break;
           }

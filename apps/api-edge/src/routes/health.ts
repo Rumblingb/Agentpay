@@ -24,14 +24,13 @@
  *   }
  *
  * Database check:
- *   Phase 4 — deferred (no Postgres client wired yet).
- *   The database service is reported as 'operational' so /health returns 200
- *   and the Workers deployment can be verified without a live DB connection.
- *   Phase 5 will replace this with a real SELECT 1 via the `postgres` package
- *   once the Hyperdrive / direct-URL connection is configured.
+ *   Runs a lightweight SELECT 1 using the same database factory as the API.
+ *   Missing or failing database configuration degrades the service and returns
+ *   503 so deploy monitors do not report a healthy API when persistence is down.
  */
 
 import { Hono, type Context } from 'hono';
+import { createDb, type Sql } from '../lib/db';
 import type { Env } from '../types';
 
 // Must stay in sync with src/server.ts API_VERSION
@@ -44,10 +43,27 @@ const router = new Hono<{ Bindings: Env }>();
 // ---------------------------------------------------------------------------
 
 async function healthHandler(c: Context<{ Bindings: Env }>) {
-  // Phase 4: database check deferred — Postgres client added in Phase 5.
-  // The Express backend returns 503 when the DB is unreachable; once Phase 5
-  // wires the client, this will run `SELECT 1` and report 'degraded' on error.
-  const dbStatus: 'operational' | 'degraded' = 'operational';
+  let dbStatus: 'operational' | 'degraded' = 'degraded';
+
+  if (c.env.DATABASE_URL || c.env.HYPERDRIVE?.connectionString) {
+    let sql: Sql | undefined;
+    try {
+      sql = createDb(c.env);
+      await sql`SELECT 1`;
+      dbStatus = 'operational';
+    } catch (err) {
+      console.error('Health check database probe failed', err);
+      dbStatus = 'degraded';
+    } finally {
+      if (sql) {
+        try {
+          await sql.end();
+        } catch (err) {
+          console.error('Health check database close failed', err);
+        }
+      }
+    }
+  }
 
   const overallStatus = dbStatus === 'operational' ? 'active' : 'degraded';
   const httpStatus = overallStatus === 'active' ? 200 : 503;

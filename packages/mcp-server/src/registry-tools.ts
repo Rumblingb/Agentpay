@@ -8,6 +8,16 @@ import type { AgentPayMcpRuntime } from './index.js';
 
 const REGISTRY_BASE = '/api/registry';
 
+export const REGISTRY_READ_ONLY_TOOL_NAMES = [
+  'registry_search',
+  'registry_server_info',
+  'registry_installed',
+  'registry_usage',
+  'registry_payouts',
+  'agentpay_choose_requirement',
+  'agentpay_list_repo_leases',
+] as const;
+
 function json(data: unknown): CallToolResult {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -32,6 +42,29 @@ async function registryFetch(
 
 export const REGISTRY_TOOLS: Tool[] = [
   {
+    name: 'agentpay_choose_requirement',
+    description:
+      'Decide how an agent should satisfy a user requirement using the AgentPay agent-only marketplace. ' +
+      'Searches MCP servers, agent providers, and governed capability paths, then returns the safest next step. ' +
+      'Humans should be interrupted only for payment, repo selection, credential connection, or policy exceptions.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        userGoal: { type: 'string', description: 'Natural-language requirement from the user or agent plan.' },
+        capability: { type: 'string', description: 'Optional capability hint such as search, code, data, finance, browser, or travel.' },
+        maxMonthlyUsd: { type: 'number', description: 'Maximum recurring monthly budget in USD.' },
+        maxPerActionUsd: { type: 'number', description: 'Maximum single-action budget in USD.' },
+        preferredTransport: { type: 'string', enum: ['http', 'stdio'], description: 'Preferred MCP transport when a server is needed.' },
+        requiresRepoAccess: { type: 'boolean', description: 'Set true when the task needs access to a code repository.' },
+        principalId: { type: 'string', description: 'Optional human principal who owns payment/repo authority.' },
+        operatorId: { type: 'string', description: 'Optional agent or operator requesting the choice.' },
+      },
+      required: ['userGoal'],
+    },
+    annotations: { readOnlyHint: true },
+  },
+
+  {
     name: 'registry_search',
     description:
       'Search the AgentPay MCP server marketplace. Returns available servers with pricing, transport type (http/stdio), and install counts.\n\n' +
@@ -51,6 +84,56 @@ export const REGISTRY_TOOLS: Tool[] = [
       required: [],
     },
     annotations: { readOnlyHint: true },
+  },
+
+  {
+    name: 'agentpay_request_repo_access',
+    description:
+      'Request human repository selection for an agent task. Returns a nextAction with a hosted approval step. ' +
+      'No repo lease, provider token, or write access is granted by this call.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        principalId: { type: 'string', description: 'Human principal who owns repository authority.' },
+        operatorId: { type: 'string', description: 'Agent or operator requesting access.' },
+        provider: { type: 'string', enum: ['github', 'gitlab'], description: 'Repository provider. Defaults to github.' },
+        purpose: { type: 'string', description: 'Task-specific reason shown to the human.' },
+        requestedRepos: { type: 'array', items: { type: 'string' }, description: 'Optional owner/repo candidates.' },
+        requestedOperations: {
+          type: 'array',
+          items: { type: 'string', enum: ['read', 'contents_write', 'pull_request', 'issues', 'actions'] },
+          description: 'Least-privilege operations requested for the task.',
+        },
+        resumeUrl: { type: 'string', description: 'Optional HTTPS/localhost return URL after human approval.' },
+      },
+      required: ['principalId', 'purpose'],
+    },
+  },
+
+  {
+    name: 'agentpay_list_repo_leases',
+    description:
+      'List scoped repository authority leases for this merchant. Read-only; leases contain repo names and approved operations, never provider tokens.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', enum: ['active', 'revoked', 'all'], description: 'Lease status filter. Defaults to active.' },
+      },
+      required: [],
+    },
+    annotations: { readOnlyHint: true },
+  },
+
+  {
+    name: 'agentpay_revoke_repo_lease',
+    description: 'Revoke a repository authority lease immediately. Does not affect provider tokens outside AgentPay.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        leaseId: { type: 'string', description: 'Repo lease ID returned by agentpay_list_repo_leases.' },
+      },
+      required: ['leaseId'],
+    },
   },
 
   {
@@ -83,6 +166,20 @@ export const REGISTRY_TOOLS: Tool[] = [
         totp_code: { type: 'string', description: '6-digit code — only needed for paid servers' },
       },
       required: ['server_slug'],
+    },
+  },
+
+  {
+    name: 'registry_create_subscription_checkout',
+    description:
+      'Create a Stripe Checkout session for a paid MCP registry subscription that is in pending_payment. ' +
+      'The subscription remains inactive until Stripe confirms payment by webhook.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        subscription_id: { type: 'string', description: 'Pending subscription ID returned by registry_subscribe.' },
+      },
+      required: ['subscription_id'],
     },
   },
 
@@ -149,7 +246,7 @@ export const REGISTRY_TOOLS: Tool[] = [
 
   {
     name: 'registry_payouts',
-    description: 'View your publisher payout history and current month pending earnings. Payouts are 70% of billed revenue, processed monthly.',
+    description: 'View your publisher payout history and current month pending earnings. Payouts are 80% of billed revenue, processed monthly.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] },
     annotations: { readOnlyHint: true },
   },
@@ -191,6 +288,170 @@ export async function handleRegistryTool(
   };
 
   switch (name) {
+    case 'agentpay_choose_requirement': {
+      const userGoal = String(args.userGoal ?? '').trim();
+      if (!userGoal) {
+        return json({
+          error: 'userGoal_required',
+          message: 'Provide the user requirement so AgentPay can choose a safe marketplace path.',
+        });
+      }
+
+      const capability = typeof args.capability === 'string' && args.capability.trim()
+        ? args.capability.trim()
+        : undefined;
+      const maxMonthlyUsd = typeof args.maxMonthlyUsd === 'number' && Number.isFinite(args.maxMonthlyUsd)
+        ? args.maxMonthlyUsd
+        : undefined;
+      const maxPerActionUsd = typeof args.maxPerActionUsd === 'number' && Number.isFinite(args.maxPerActionUsd)
+        ? args.maxPerActionUsd
+        : undefined;
+      const preferredTransport = args.preferredTransport === 'http' || args.preferredTransport === 'stdio'
+        ? args.preferredTransport
+        : undefined;
+      const goalText = userGoal.toLowerCase();
+      const requiresRepoAccess = args.requiresRepoAccess === true ||
+        /\b(github|gitlab|repo|repository|pull request|pr\b|commit|branch|codebase)\b/.test(goalText);
+      const likelyPaymentTask = /\b(pay|payment|charge|fund|invoice|subscription|purchase|buy|hire|escrow|payout)\b/.test(goalText);
+
+      const searchParams = new URLSearchParams();
+      searchParams.set('q', capability ?? userGoal);
+      searchParams.set('limit', '5');
+      if (preferredTransport) searchParams.set('transport', preferredTransport);
+
+      const [registryResult, agentResult, providerResult] = await Promise.all([
+        registryFetch(`${REGISTRY_BASE}/servers?${searchParams.toString()}`, { method: 'GET' }, resolved).catch((error) => ({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        })),
+        registryFetch('/api/agents/match', {
+          method: 'POST',
+          body: JSON.stringify({
+            intent: userGoal,
+            capability,
+            maxPriceUsd: maxPerActionUsd,
+            limit: 5,
+          }),
+        }, resolved).catch((error) => ({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        })),
+        registryFetch('/api/capabilities/providers/catalog', { method: 'GET' }, resolved).catch((error) => ({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        })),
+      ]);
+
+      const registryServers = Array.isArray((registryResult as { servers?: unknown }).servers)
+        ? (registryResult as { servers: Array<Record<string, unknown>> }).servers
+        : [];
+      const agentMatches = Array.isArray((agentResult as { agents?: unknown }).agents)
+        ? (agentResult as { agents: Array<Record<string, unknown>> }).agents
+        : [];
+      const providerCatalog = Array.isArray((providerResult as { providers?: unknown }).providers)
+        ? (providerResult as { providers: Array<Record<string, unknown>> }).providers
+        : [];
+
+      const affordableServers = registryServers.filter((server) => {
+        const pricingModel = String(server.pricing_model ?? 'free');
+        const monthly = Number(server.price_monthly_usd ?? 0);
+        if (pricingModel === 'free') return true;
+        if (maxMonthlyUsd === undefined) return true;
+        return monthly > 0 && monthly <= maxMonthlyUsd;
+      });
+      const topServer = affordableServers[0] ?? registryServers[0] ?? null;
+      const topAgent = agentMatches[0] ?? null;
+      const topProvider = providerCatalog.find((provider) => {
+        const haystack = [
+          provider.provider,
+          provider.name,
+          provider.label,
+          provider.description,
+          provider.category,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return capability
+          ? haystack.includes(capability.toLowerCase())
+          : goalText.split(/\s+/).some((word) => word.length > 3 && haystack.includes(word));
+      }) ?? providerCatalog[0] ?? null;
+
+      let recommendedPath = 'none_available';
+      let nextTool: string | null = null;
+      let needsCustomer = false;
+      const customerReasons: string[] = [];
+
+      if (requiresRepoAccess) {
+        recommendedPath = 'repo_authority';
+        nextTool = 'agentpay_request_repo_access';
+        needsCustomer = true;
+        customerReasons.push('repo_selection_required');
+      } else if (topServer) {
+        recommendedPath = 'mcp_server';
+        nextTool = 'registry_subscribe';
+        const pricingModel = String(topServer.pricing_model ?? 'free');
+        if (pricingModel !== 'free') {
+          needsCustomer = true;
+          customerReasons.push('payment_required');
+        }
+      } else if (topAgent) {
+        recommendedPath = 'agent_marketplace';
+        nextTool = 'agentpay_hire_agent';
+        const price = Number(topAgent.pricePerTaskUsd ?? 0);
+        if (price > 0) {
+          needsCustomer = true;
+          customerReasons.push('payment_required');
+        }
+      } else if (topProvider) {
+        recommendedPath = 'governed_capability';
+        nextTool = 'agentpay_request_capability_connect';
+        needsCustomer = true;
+        customerReasons.push('credential_connection_required');
+      } else if (likelyPaymentTask) {
+        recommendedPath = 'payment_or_mandate';
+        nextTool = 'agentpay_create_mandate';
+        needsCustomer = true;
+        customerReasons.push('payment_required');
+      }
+
+      return json({
+        success: true,
+        marketplaceAccess: 'agent_only',
+        userGoal,
+        recommendedPath,
+        nextTool,
+        needsCustomer,
+        customerReasons,
+        humanInteractionPolicy: {
+          interruptOnlyFor: [
+            'payment_required',
+            'repo_selection_required',
+            'credential_connection_required',
+            'policy_exception',
+            'ambiguous_money_outcome',
+          ],
+          neverAskHumanFor: [
+            'browsing marketplace results',
+            'comparing free MCP servers',
+            'reading public agent profiles',
+            'using already-approved authority',
+          ],
+        },
+        recommendation: {
+          mcpServer: topServer,
+          agent: topAgent,
+          capabilityProvider: topProvider,
+        },
+        candidates: {
+          mcpServers: registryServers,
+          agents: agentMatches,
+          capabilityProviders: providerCatalog.slice(0, 5),
+        },
+        failSafe: {
+          money: 'No paid subscription, hire, or funded action should become active until AgentPay has confirmed payment or an existing authority policy explicitly allows it.',
+          repo: 'Repo access should use an opaque, revocable lease scoped to selected repos and actions; raw GitHub tokens must never be shown to the agent.',
+        },
+      });
+    }
+
     case 'registry_search': {
       const params = new URLSearchParams();
       if (args.q) params.set('q', String(args.q));
@@ -201,6 +462,32 @@ export async function handleRegistryTool(
       if (args.featured) params.set('featured', 'true');
       return json(await registryFetch(`${REGISTRY_BASE}/servers?${params.toString()}`, { method: 'GET' }, resolved));
     }
+
+    case 'agentpay_request_repo_access':
+      return json(await registryFetch('/api/repos/access-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          principalId: args.principalId,
+          operatorId: args.operatorId,
+          provider: args.provider ?? 'github',
+          purpose: args.purpose,
+          requestedRepos: args.requestedRepos,
+          requestedOperations: args.requestedOperations,
+          resumeUrl: args.resumeUrl,
+        }),
+      }, resolved));
+
+    case 'agentpay_list_repo_leases': {
+      const params = new URLSearchParams();
+      if (args.status) params.set('status', String(args.status));
+      return json(await registryFetch(`/api/repos/leases?${params.toString()}`, { method: 'GET' }, resolved));
+    }
+
+    case 'agentpay_revoke_repo_lease':
+      return json(await registryFetch(`/api/repos/leases/${args.leaseId}/revoke`, {
+        method: 'POST',
+        body: '{}',
+      }, resolved));
 
     case 'registry_server_info': {
       const slug = String(args.slug);
@@ -215,6 +502,12 @@ export async function handleRegistryTool(
       return json(await registryFetch(`${REGISTRY_BASE}/subscriptions`, {
         method: 'POST',
         body: JSON.stringify({ server_slug: args.server_slug, totp_code: args.totp_code }),
+      }, resolved));
+
+    case 'registry_create_subscription_checkout':
+      return json(await registryFetch(`${REGISTRY_BASE}/subscriptions/${args.subscription_id}/checkout`, {
+        method: 'POST',
+        body: '{}',
       }, resolved));
 
     case 'registry_installed':

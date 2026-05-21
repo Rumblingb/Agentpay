@@ -73,6 +73,19 @@
 - [ ] Platform billing visibility (revenue dashboard)
 - [ ] Audit log filtering per organization
 
+## Milestone 4A: Agent-Led Business Opening
+
+**Goal:** Let agents safely prepare and route SMB business opening workflows through marketplace partners.
+
+- [ ] Add `business_opening` marketplace capability category
+- [ ] Add business opening intake schema and state machine
+- [ ] Add document vault metadata, retention, and approval receipts
+- [ ] Add hosted approvals for entity choice, document use, partner selection, and filing payment
+- [ ] Add partner-routed flows for formation, EIN handoff, KYB, payment acceptance, treasury, and insurance discovery
+- [ ] Add regulated-service metadata and jurisdiction flags to marketplace listings
+
+See `docs/AGENTPAY_BUSINESS_OPENING_PHASE1.md` for the product boundary and fail-safe rules.
+
 ---
 
 ## Milestone 5: Solana Mainnet (90–120 Days)

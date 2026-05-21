@@ -37,7 +37,7 @@ async function callClaude(
   system: string,
   user: string,
   maxTokens = 1024,
-  model: 'claude-opus-4-6' | 'claude-haiku-4-5-20251001' = 'claude-opus-4-6',
+  model = 'claude-opus-4-6',
 ): Promise<string> {
   const resp = await fetch(ANTHROPIC_URL, {
     method: 'POST',
@@ -102,7 +102,7 @@ async function callOpenAI(
   apiKey: string,
   system: string,
   user: string,
-  model: 'gpt-4o' | 'gpt-4o-mini' = 'gpt-4o',
+  model = 'gpt-4o',
   maxTokens = 1024,
 ): Promise<string> {
   const resp = await fetch(OPENAI_URL, {
@@ -122,6 +122,68 @@ async function callOpenAI(
   });
   const data = (await resp.json()) as any;
   return data?.choices?.[0]?.message?.content ?? '';
+}
+
+// ── OpenAI-compatible local inference call ───────────────────────────────────
+
+async function callOllama(
+  baseUrl: string,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens = 1024,
+): Promise<string> {
+  const resp = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  });
+  const data = (await resp.json()) as any;
+  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+type CachedModelResult = { model: string; output: string };
+
+const modelCache = new Map<string, { expiresAt: number; result: CachedModelResult }>();
+
+function cacheTtlMs(env: Env): number {
+  const seconds = Number(env.LLM_CACHE_TTL_SECONDS ?? '0');
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+}
+
+function cacheKey(task: TaskType, model: string, system: string, user: string, maxTokens: number): string {
+  return JSON.stringify([task, model, system, user, maxTokens]);
+}
+
+async function cachedOllama(
+  env: Env,
+  task: TaskType,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+): Promise<CachedModelResult> {
+  const key = cacheKey(task, model, system, user, maxTokens);
+  const ttlMs = cacheTtlMs(env);
+  const cached = ttlMs > 0 ? modelCache.get(key) : undefined;
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return { model: `${cached.result.model} (cache)`, output: cached.result.output };
+  }
+
+  const output = await callOllama(env.OLLAMA_BASE_URL!, model, system, user, maxTokens);
+  const result = { model: `ollama:${model}`, output };
+  if (ttlMs > 0 && output) {
+    modelCache.set(key, { expiresAt: Date.now() + ttlMs, result });
+  }
+  return result;
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -175,6 +237,12 @@ export async function routeToModel(
 
     // ── FREE: CF Workers AI Llama for extraction (no RPD limit) ────────────
     case 'extract': {
+      if (env.MODEL_ROUTER_POLICY === 'cheap-first' && env.OLLAMA_BASE_URL && env.OLLAMA_EXTRACT_MODEL) {
+        try {
+          const result = await cachedOllama(env, task, env.OLLAMA_EXTRACT_MODEL, system, user, maxTokens);
+          if (result.output) return result;
+        } catch { /* fall through */ }
+      }
       if (env.AI) {
         try {
           const output = await callWorkersAI(env.AI, system, user);
@@ -209,19 +277,28 @@ export async function routeToModel(
     // ── FULL: GPT-4o for code generation ────────────────────────────────────
     case 'code': {
       if (env.OPENAI_API_KEY) {
-        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, 'gpt-4o', maxTokens);
-        return { model: 'gpt-4o', output };
+        const model = env.OPENAI_CODE_MODEL ?? 'gpt-4o';
+        const output = await callOpenAI(env.OPENAI_API_KEY, system, user, model, maxTokens);
+        return { model, output };
       }
       if (!env.ANTHROPIC_API_KEY) throw new Error('Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY set');
-      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens);
-      return { model: 'claude-opus-4-6 (fallback)', output };
+      const model = env.ANTHROPIC_REASON_MODEL ?? 'claude-opus-4-6';
+      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, model);
+      return { model: `${model} (fallback)`, output };
     }
 
     // ── FULL: Claude Opus for complex booking reasoning ──────────────────────
     case 'reason': {
+      if (env.OLLAMA_BASE_URL && env.OLLAMA_REASON_MODEL) {
+        try {
+          const output = await callOllama(env.OLLAMA_BASE_URL, env.OLLAMA_REASON_MODEL, system, user, maxTokens);
+          if (output) return { model: `ollama:${env.OLLAMA_REASON_MODEL}`, output };
+        } catch { /* fall through */ }
+      }
       if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
-      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens);
-      return { model: 'claude-opus-4-6', output };
+      const model = env.ANTHROPIC_REASON_MODEL ?? 'claude-opus-4-6';
+      const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, model);
+      return { model, output };
     }
 
     default:

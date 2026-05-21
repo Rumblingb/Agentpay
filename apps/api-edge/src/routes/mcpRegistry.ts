@@ -3,19 +3,20 @@
  *
  * Agent-first MCP server marketplace. Supports both HTTP and stdio transports.
  * TOTP required only for: paid subscriptions + publishing (not free-tier subscribe).
- * Revenue: 70% publisher / 30% AgentPay on per-call billing.
+ * Revenue: 80% publisher / 20% AgentPay on per-call billing.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
 import { generateTotpSecret, verifyTotpCode, buildOtpAuthUri, encryptTotpSecret, decryptTotpSecret } from '../lib/totp';
+import { createHostedCardCheckout } from '../lib/fiatPayments';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const AGENTPAY_ISSUER = 'AgentPay';
-const PUBLISHER_REVENUE_SHARE = 0.70;
+const PUBLISHER_REVENUE_SHARE = 0.80;
 const PLATFORM_FEE_SHARE = 1 - PUBLISHER_REVENUE_SHARE;
 
 async function sha256Hex(input: string): Promise<string> {
@@ -31,7 +32,7 @@ async function getTotpEnrollment(sql: ReturnType<typeof createDb>, agentId: stri
   return rows[0] ?? null;
 }
 
-type HonoContext = Parameters<Parameters<typeof router.post>[1]>[0];
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 async function requireTotp(
   c: HonoContext,
@@ -49,7 +50,7 @@ async function requireTotp(
   if (!totpCode) {
     return { ok: false, response: c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Include totp_code (6-digit code from authenticator app) in the request.' }, 401) as Response };
   }
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = (c.env as unknown as Record<string, string>).TOTP_ENCRYPTION_KEY;
   if (!encKey) throw new Error('TOTP_ENCRYPTION_KEY not configured');
   const secret = await decryptTotpSecret(enrollment.secret_enc, encKey);
   if (!await verifyTotpCode(secret, totpCode)) {
@@ -60,24 +61,31 @@ async function requireTotp(
 
 function buildHarnessConfigs(server: {
   slug: string; name: string; endpoint_url: string; transport: string;
-  command?: string | null; command_args?: unknown; github_url?: string | null;
+  command?: string | null; command_args?: unknown; command_env?: unknown; github_url?: string | null;
 }) {
+  const tomlValue = (value: unknown) => JSON.stringify(String(value));
+  const tomlInlineTable = (value: Record<string, unknown>) =>
+    `{ ${Object.entries(value).map(([k, v]) => `${k} = ${tomlValue(v)}`).join(', ')} }`;
+
   if (server.transport === 'stdio') {
     const cmd = server.command ?? 'python3';
     const args = Array.isArray(server.command_args) ? server.command_args : ['server.py'];
+    const env = server.command_env && typeof server.command_env === 'object' && !Array.isArray(server.command_env)
+      ? server.command_env as Record<string, unknown>
+      : {};
     return {
       transport: 'stdio',
       claude_code: {
         file: '~/.claude/settings.json or .mcp.json',
-        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+        config: { mcpServers: { [server.slug]: { command: cmd, args, ...(Object.keys(env).length ? { env } : {}) } } },
       },
       codex: {
         file: '~/.codex/config.toml',
-        config: `[mcp_servers.${server.slug}]\ncommand = "${cmd}"\nargs = ${JSON.stringify(args)}`,
+        config: `[mcp_servers.${server.slug}]\ncommand = ${tomlValue(cmd)}\nargs = ${JSON.stringify(args)}${Object.keys(env).length ? `\nenv = ${tomlInlineTable(env)}` : ''}`,
       },
       cursor: {
         file: '.cursor/mcp.json',
-        config: { mcpServers: { [server.slug]: { command: cmd, args } } },
+        config: { mcpServers: { [server.slug]: { command: cmd, args, ...(Object.keys(env).length ? { env } : {}) } } },
       },
       install_note: server.github_url
         ? `Install locally first: git clone ${server.github_url} && cd ${server.slug} && pip install -r requirements.txt`
@@ -105,6 +113,14 @@ function buildHarnessConfigs(server: {
   };
 }
 
+function buildRegistryReturnUrl(env: Env, path: string, subscriptionId: string): string {
+  const base = env.FRONTEND_URL || env.API_BASE_URL;
+  const url = new URL(path, base);
+  url.searchParams.set('source', 'mcp_registry_subscription');
+  url.searchParams.set('subscriptionId', subscriptionId);
+  return url.toString();
+}
+
 // ── GET /api/registry/servers ─────────────────────────────────────────────────
 
 router.get('/servers', async (c) => {
@@ -114,7 +130,7 @@ router.get('/servers', async (c) => {
   const sql = createDb(c.env);
   try {
     const conditions: string[] = ["status = 'active'"];
-    const params: unknown[] = [];
+    const params: any[] = [];
     if (q) {
       params.push(`%${q.toLowerCase()}%`);
       conditions.push(`(LOWER(name) LIKE $${params.length} OR LOWER(description) LIKE $${params.length} OR LOWER(category) LIKE $${params.length})`);
@@ -152,12 +168,12 @@ router.get('/servers/:slug', async (c) => {
       price_per_call_usd: string | null; price_monthly_usd: string | null; free_tier_calls: number;
       status: string; verified: boolean; featured: boolean; install_count: number;
       domain_verified: boolean; github_url: string | null; command: string | null;
-      command_args: unknown; metadata: unknown; created_at: Date;
+      command_args: unknown; command_env: unknown; metadata: unknown; created_at: Date;
     }>>(
       `SELECT id, slug, name, description, category, endpoint_url, publisher_id, transport,
               pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls,
               status, verified, featured, install_count, domain_verified,
-              github_url, command, command_args, metadata, created_at
+              github_url, command, command_args, command_env, metadata, created_at
        FROM mcp_servers WHERE slug = $1 AND status = 'active' LIMIT 1`,
       [c.req.param('slug')],
     );
@@ -217,7 +233,7 @@ router.post('/servers', authenticateApiKey, async (c) => {
         command ?? null, JSON.stringify(command_args), JSON.stringify(command_env), github_url ?? null,
         pricing_model, price_per_call_usd ?? null, price_monthly_usd ?? null,
         free_tier_calls, initialStatus, isStdio, JSON.stringify(metadata), verificationToken,
-      ],
+      ] as any[],
     );
     const row = result[0];
     if (!row) return c.json({ error: 'INSERT_FAILED' }, 500);
@@ -267,7 +283,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
     }>>(
       `SELECT id, endpoint_url, publisher_id, verification_token, transport
        FROM mcp_servers WHERE slug = $1 AND status = 'pending' LIMIT 1`,
-      [c.req.param('slug')],
+      [c.req.param('slug') ?? ''],
     );
     const server = rows[0];
     if (!server) return c.json({ error: 'NOT_FOUND', message: 'Server not found or already active.' }, 404);
@@ -324,7 +340,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
 
 router.get('/servers/:slug/config', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const serverSlug = c.req.param('slug');
+  const serverSlug = c.req.param('slug') ?? '';
   const sql = createDb(c.env);
   try {
     const sub = await sql.unsafe<Array<{ id: string }>>(
@@ -385,21 +401,72 @@ router.post('/subscriptions', authenticateApiKey, async (c) => {
   try {
     const rows = await sql.unsafe<Array<{
       id: string; name: string; pricing_model: string;
-      price_monthly_usd: string | null; free_tier_calls: number; transport: string;
+      price_per_call_usd: string | null; price_monthly_usd: string | null;
+      free_tier_calls: number; transport: string;
     }>>(
-      `SELECT id, name, pricing_model, price_monthly_usd, free_tier_calls, transport
+      `SELECT id, name, pricing_model, price_per_call_usd, price_monthly_usd, free_tier_calls, transport
        FROM mcp_servers WHERE slug = $1 AND status = 'active' LIMIT 1`,
       [server_slug],
     );
     const server = rows[0];
     if (!server) return c.json({ error: 'NOT_FOUND', message: `Server "${server_slug}" not found` }, 404);
 
-    const isPaid = server.pricing_model !== 'free' && Boolean(server.price_monthly_usd);
+    const isPaid = server.pricing_model !== 'free' &&
+      (Boolean(server.price_monthly_usd) || Boolean(server.price_per_call_usd));
 
     // TOTP only required for paid subscriptions
     if (isPaid) {
       const totpCheck = await requireTotp(c, sql, merchant.id, totp_code as string | null);
       if (!totpCheck.ok) return totpCheck.response;
+
+      const active = await sql.unsafe<Array<{ id: string }>>(
+        `SELECT id FROM mcp_subscriptions
+         WHERE agent_id = $1 AND server_id = $2 AND status = 'active'
+         LIMIT 1`,
+        [merchant.id, server.id],
+      ).catch(() => []);
+      if (active[0]) {
+        return c.json({
+          success: true,
+          alreadyActive: true,
+          message: `Already subscribed to ${server.name}.`,
+          next: 'Call registry_server_info to get harness connection config.',
+        });
+      }
+
+      const pendingRows = await sql.unsafe<Array<{ id: string }>>(
+        `INSERT INTO mcp_subscriptions (agent_id, server_id, plan, status)
+         VALUES ($1, $2, $3, 'pending_payment')
+         ON CONFLICT (agent_id, server_id)
+         DO UPDATE SET status = 'pending_payment', plan = $3, updated_at = now()
+         RETURNING id`,
+        [merchant.id, server.id, server.pricing_model],
+      ).catch(() => []);
+      const pendingSubscriptionId = pendingRows[0]?.id ?? null;
+
+      return c.json({
+        success: true,
+        payment_required: true,
+        status: 'pending_payment',
+        subscriptionId: pendingSubscriptionId,
+        price_per_call_usd: server.price_per_call_usd,
+        price_monthly_usd: server.price_monthly_usd,
+        message: `Payment is required before ${server.name} becomes active. No harness config or tool access has been granted yet.`,
+        checkoutEndpoint: pendingSubscriptionId
+          ? `/api/registry/subscriptions/${pendingSubscriptionId}/checkout`
+          : null,
+        nextAction: {
+          type: 'funding_required',
+          title: 'Approve paid MCP server subscription',
+          summary: `Authorize payment before AgentPay activates ${server.name}.`,
+          displayPayload: {
+            serverSlug: server_slug,
+            pricingModel: server.pricing_model,
+            pricePerCallUsd: server.price_per_call_usd,
+            priceMonthlyUsd: server.price_monthly_usd,
+          },
+        },
+      }, 202);
     }
 
     await sql.unsafe(
@@ -414,19 +481,108 @@ router.post('/subscriptions', authenticateApiKey, async (c) => {
       [server.id],
     ).catch(() => null);
 
-    if (isPaid) {
-      return c.json({
-        success: true, payment_required: true, price_monthly_usd: server.price_monthly_usd,
-        message: `Subscribed to ${server.name}. Use agentpay_create_payment_intent to pay and activate.`,
-      });
-    }
-
     return c.json({
       success: true,
       message: `Subscribed to ${server.name}. Free tier: ${server.free_tier_calls} calls/month.`,
       next: 'Call registry_server_info to get harness connection config.',
     }, 201);
   } finally { await sql.end().catch(() => {}); }
+});
+
+// ── POST /api/registry/subscriptions/:id/checkout ───────────────────────────
+
+router.post('/subscriptions/:id/checkout', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  const subscriptionId = c.req.param('id') ?? '';
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql.unsafe<Array<{
+      subscription_id: string;
+      status: string;
+      server_id: string;
+      slug: string;
+      name: string;
+      pricing_model: string;
+      price_per_call_usd: string | null;
+      price_monthly_usd: string | null;
+    }>>(
+      `SELECT s.id AS subscription_id, s.status, ms.id AS server_id, ms.slug, ms.name,
+              ms.pricing_model, ms.price_per_call_usd, ms.price_monthly_usd
+       FROM mcp_subscriptions s
+       JOIN mcp_servers ms ON ms.id = s.server_id
+       WHERE s.id = $1 AND s.agent_id = $2
+       LIMIT 1`,
+      [subscriptionId, merchant.id],
+    );
+    const subscription = rows[0];
+    if (!subscription) {
+      return c.json({ error: 'SUBSCRIPTION_NOT_FOUND' }, 404);
+    }
+    if (subscription.status === 'active') {
+      return c.json({
+        success: true,
+        alreadyActive: true,
+        message: `${subscription.name} is already active.`,
+        next: 'Call registry_server_info to get harness connection config.',
+      });
+    }
+    if (subscription.status !== 'pending_payment') {
+      return c.json({ error: 'SUBSCRIPTION_NOT_PAYABLE', status: subscription.status }, 409);
+    }
+    if (subscription.pricing_model === 'per_call') {
+      return c.json({
+        error: 'PER_CALL_METERING_NOT_ACTIVE',
+        message: 'Per-call registry billing is not enabled yet. AgentPay will not activate this subscription until metering and spend limits are enforced.',
+      }, 409);
+    }
+    const amount = Number(subscription.price_monthly_usd ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({ error: 'INVALID_SUBSCRIPTION_PRICE' }, 409);
+    }
+    if (!c.env.STRIPE_SECRET_KEY) {
+      return c.json({ error: 'STRIPE_NOT_CONFIGURED' }, 503);
+    }
+
+    const checkout = await createHostedCardCheckout(c.env, {
+      amount,
+      currency: 'USD',
+      description: `AgentPay MCP Registry: ${subscription.name}`,
+      successUrl: buildRegistryReturnUrl(c.env, '/payment/success', subscription.subscription_id),
+      cancelUrl: buildRegistryReturnUrl(c.env, '/payment/cancel', subscription.subscription_id),
+      customerEmail: merchant.email,
+      metadata: {
+        source: 'mcp_registry_subscription',
+        registrySubscriptionId: subscription.subscription_id,
+        registryServerId: subscription.server_id,
+        registryServerSlug: subscription.slug,
+        merchantId: merchant.id,
+      },
+    });
+
+    if (!checkout) {
+      return c.json({ error: 'CHECKOUT_NOT_AVAILABLE' }, 503);
+    }
+
+    await sql.unsafe(
+      `UPDATE mcp_subscriptions
+       SET agentpay_payment_id = $1,
+           updated_at = now()
+       WHERE id = $2 AND agent_id = $3`,
+      [checkout.checkoutSessionId, subscription.subscription_id, merchant.id],
+    );
+
+    return c.json({
+      success: true,
+      status: 'pending_payment',
+      subscriptionId: subscription.subscription_id,
+      checkoutUrl: checkout.checkoutUrl,
+      checkoutSessionId: checkout.checkoutSessionId,
+      expiresAt: checkout.expiresAt,
+      failSafe: 'Subscription remains pending_payment until Stripe confirms checkout.session.completed via webhook.',
+    });
+  } finally {
+    await sql.end().catch(() => {});
+  }
 });
 
 // ── DELETE /api/registry/subscriptions/:id ───────────────────────────────────
@@ -437,7 +593,7 @@ router.delete('/subscriptions/:id', authenticateApiKey, async (c) => {
   try {
     await sql.unsafe(
       `UPDATE mcp_subscriptions SET status = 'cancelled' WHERE id = $1 AND agent_id = $2`,
-      [c.req.param('id'), merchant.id],
+      [c.req.param('id') ?? '', merchant.id],
     );
     return c.json({ success: true });
   } finally { await sql.end().catch(() => {}); }
@@ -447,7 +603,7 @@ router.delete('/subscriptions/:id', authenticateApiKey, async (c) => {
 
 router.post('/totp/enroll', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = (c.env as unknown as Record<string, string>).TOTP_ENCRYPTION_KEY;
   if (!encKey) return c.json({ error: 'TOTP_NOT_CONFIGURED' }, 503);
 
   const sql = createDb(c.env);
@@ -457,7 +613,7 @@ router.post('/totp/enroll', authenticateApiKey, async (c) => {
 
     const secret = generateTotpSecret();
     const secretEnc = await encryptTotpSecret(secret, encKey);
-    const accountName = (merchant as Record<string, string>).email ?? merchant.id;
+    const accountName = merchant.email ?? merchant.id;
     const otpauthUri = buildOtpAuthUri(secret, AGENTPAY_ISSUER, accountName);
     const setupToken = await sha256Hex(`${merchant.id}-setup-${Date.now()}`);
     const setupUrl = `${c.env.API_BASE_URL}/api/registry/totp/setup?token=${setupToken}&uri=${encodeURIComponent(otpauthUri)}`;
@@ -488,7 +644,7 @@ router.post('/totp/confirm', authenticateApiKey, async (c) => {
   const code = typeof body?.totp_code === 'string' ? body.totp_code : null;
   if (!code) return c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Provide totp_code.' }, 400);
 
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = (c.env as unknown as Record<string, string>).TOTP_ENCRYPTION_KEY;
   if (!encKey) return c.json({ error: 'TOTP_NOT_CONFIGURED' }, 503);
 
   const sql = createDb(c.env);
@@ -621,7 +777,7 @@ router.post('/payouts/calculate', authenticateApiKey, async (c) => {
   const { period_start, period_end } = body ?? {};
 
   // Only admins (ADMIN_SECRET_KEY header match) can run batch calculation for all publishers
-  const adminKey = (c.env as Record<string, string>).ADMIN_SECRET_KEY;
+  const adminKey = (c.env as unknown as Record<string, string>).ADMIN_SECRET_KEY;
   const isAdmin = adminKey && c.req.header('x-admin-key') === adminKey;
 
   const sql = createDb(c.env);
