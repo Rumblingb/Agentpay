@@ -49,6 +49,8 @@ export interface Env {
   VERIFICATION_SECRET: string;
   /** Bearer token for admin API endpoints (x-admin-key header). */
   ADMIN_SECRET_KEY: string;
+  /** AES-256 key for TOTP secret encryption. */
+  TOTP_ENCRYPTION_KEY?: string;
 
   // ── Stripe (optional) ────────────────────────────────────────────────────
   /** Stripe secret key — set to enable Stripe routes. */
