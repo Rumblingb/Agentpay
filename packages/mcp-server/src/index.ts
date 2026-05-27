@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+﻿// (shebang removed for Worker bundling)
 /**
  * AgentPay MCP Server
  *
@@ -1583,7 +1583,7 @@ export async function handleTool(
     case 'registry_verify_domain':
     case 'registry_payouts':
     case 'registry_confirm_totp':
-      return handleRegistryTool(name, args, runtime);
+      return handleRegistryTool(name, args, resolved);
 
     default:
       throw new Error(`Unknown tool: ${name}`);

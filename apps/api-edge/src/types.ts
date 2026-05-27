@@ -393,6 +393,12 @@ export interface Env {
   /** Apple WWDR G4 intermediate certificate PEM. Download from https://www.apple.com/certificateauthority/. npx wrangler secret put APPLE_PASS_WWDR_PEM */
   APPLE_PASS_WWDR_PEM?: string;
 
+  // ── AgentPay Feed ─────────────────────────────────────────────────────────
+  /** Base URL of the AgentPay Feed worker. Defaults to the production URL when absent. */
+  AGENTPAY_FEED_URL?: string;
+  /** Admin bearer token for publishing to the AgentPay Feed (agentpay_verified trust level). */
+  AGENTPAY_FEED_ADMIN_KEY?: string;
+
   // ── Operations webhook ────────────────────────────────────────────────────
   /**
    * Canonical operations webhook URL — every confirmed booking POSTs here.

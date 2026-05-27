@@ -59,6 +59,43 @@ async function requireTotp(
   return { ok: true };
 }
 
+async function publishToFeed(
+  env: Env,
+  server: {
+    name: string; description: string | null; endpoint_url: string; transport: string;
+    category: string | null; pricing_model: string; price_per_call_usd: string | null;
+    price_monthly_usd: string | null; slug: string;
+  },
+): Promise<void> {
+  const adminKey = env.AGENTPAY_FEED_ADMIN_KEY;
+  if (!adminKey) return;
+  const feedUrl = env.AGENTPAY_FEED_URL ?? 'https://agentpay-feed.apaybeta.workers.dev';
+  try {
+    await fetch(`${feedUrl}/v1/feed/publish`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'tool_registration',
+        action: 'register',
+        source: `agentpay-registry/${server.slug}`,
+        payload: {
+          tool_name: server.name,
+          description: server.description,
+          endpoint: server.endpoint_url || undefined,
+          transport: server.transport,
+          tags: [server.category, server.transport].filter(Boolean),
+          pricing: {
+            model: server.pricing_model,
+            per_call: server.price_per_call_usd ? parseFloat(server.price_per_call_usd) : undefined,
+            monthly: server.price_monthly_usd ? parseFloat(server.price_monthly_usd) : undefined,
+            currency: 'USD',
+          },
+        },
+      }),
+    });
+  } catch { /* non-critical */ }
+}
+
 function buildHarnessConfigs(server: {
   slug: string; name: string; endpoint_url: string; transport: string;
   command?: string | null; command_args?: unknown; github_url?: string | null;
@@ -249,6 +286,17 @@ router.post('/servers', authenticateApiKey, async (c) => {
           : { required: false },
       };
     } else {
+      void publishToFeed(c.env, {
+        name: (name as string).trim(),
+        description: (description as string | null | undefined) ?? null,
+        endpoint_url: (github_url as string | null | undefined) ?? '',
+        transport: transport as string,
+        category: (category as string | null | undefined) ?? null,
+        pricing_model: pricing_model as string,
+        price_per_call_usd: (price_per_call_usd as string | null | undefined) ?? null,
+        price_monthly_usd: (price_monthly_usd as string | null | undefined) ?? null,
+        slug: row.slug,
+      });
       response.message = 'stdio server published and active immediately.';
     }
 
@@ -263,12 +311,15 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
   const sql = createDb(c.env);
   try {
     const rows = await sql.unsafe<Array<{
-      id: string; endpoint_url: string; publisher_id: string;
+      id: string; slug: string; endpoint_url: string; publisher_id: string;
       verification_token: string; transport: string;
+      name: string; description: string | null; category: string | null;
+      pricing_model: string; price_per_call_usd: string | null; price_monthly_usd: string | null;
     }>>(
-      `SELECT id, endpoint_url, publisher_id, verification_token, transport
+      `SELECT id, slug, endpoint_url, publisher_id, verification_token, transport,
+              name, description, category, pricing_model, price_per_call_usd, price_monthly_usd
        FROM mcp_servers WHERE slug = $1 AND status = 'pending' LIMIT 1`,
-      [c.req.param('slug')],
+      [c.req.param('slug')!],
     );
     const server = rows[0];
     if (!server) return c.json({ error: 'NOT_FOUND', message: 'Server not found or already active.' }, 404);
@@ -276,6 +327,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
     if (server.transport === 'stdio') {
       // stdio servers don't need domain verification — activate immediately
       await sql.unsafe(`UPDATE mcp_servers SET status = 'active', updated_at = now() WHERE id = $1`, [server.id]);
+      void publishToFeed(c.env, server);
       return c.json({ success: true, message: 'Server activated.', status: 'active' });
     }
 
@@ -317,6 +369,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
       `UPDATE mcp_servers SET domain_verified = true, status = 'active', updated_at = now() WHERE id = $1`,
       [server.id],
     );
+    void publishToFeed(c.env, server);
     return c.json({ success: true, message: `Verified via ${method}. Server is now active.`, status: 'active' });
   } finally { await sql.end().catch(() => {}); }
 });
@@ -325,7 +378,7 @@ router.post('/servers/:slug/verify', authenticateApiKey, async (c) => {
 
 router.get('/servers/:slug/config', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const serverSlug = c.req.param('slug');
+  const serverSlug = c.req.param('slug')!;
   const sql = createDb(c.env);
   try {
     const sub = await sql.unsafe<Array<{ id: string }>>(
@@ -438,7 +491,7 @@ router.delete('/subscriptions/:id', authenticateApiKey, async (c) => {
   try {
     await sql.unsafe(
       `UPDATE mcp_subscriptions SET status = 'cancelled' WHERE id = $1 AND agent_id = $2`,
-      [c.req.param('id'), merchant.id],
+      [c.req.param('id')!, merchant.id],
     );
     return c.json({ success: true });
   } finally { await sql.end().catch(() => {}); }
@@ -458,7 +511,7 @@ router.post('/totp/enroll', authenticateApiKey, async (c) => {
 
     const secret = generateTotpSecret();
     const secretEnc = await encryptTotpSecret(secret, encKey);
-    const accountName = (merchant as Record<string, string>).email ?? merchant.id;
+    const accountName = merchant.email ?? merchant.id;
     const otpauthUri = buildOtpAuthUri(secret, AGENTPAY_ISSUER, accountName);
     const setupToken = await sha256Hex(`${merchant.id}-setup-${Date.now()}`);
     const setupUrl = `${c.env.API_BASE_URL}/api/registry/totp/setup?token=${setupToken}&uri=${encodeURIComponent(otpauthUri)}`;
@@ -622,7 +675,7 @@ router.post('/payouts/calculate', authenticateApiKey, async (c) => {
   const { period_start, period_end } = body ?? {};
 
   // Only admins (ADMIN_SECRET_KEY header match) can run batch calculation for all publishers
-  const adminKey = (c.env as Record<string, string>).ADMIN_SECRET_KEY;
+  const adminKey = c.env.ADMIN_SECRET_KEY;
   const isAdmin = adminKey && c.req.header('x-admin-key') === adminKey;
 
   const sql = createDb(c.env);
