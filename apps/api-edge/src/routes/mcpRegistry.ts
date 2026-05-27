@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
@@ -31,7 +32,7 @@ async function getTotpEnrollment(sql: ReturnType<typeof createDb>, agentId: stri
   return rows[0] ?? null;
 }
 
-type HonoContext = Parameters<Parameters<typeof router.post>[1]>[0];
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 async function requireTotp(
   c: HonoContext,
