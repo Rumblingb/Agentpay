@@ -50,7 +50,7 @@ async function requireTotp(
   if (!totpCode) {
     return { ok: false, response: c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Include totp_code (6-digit code from authenticator app) in the request.' }, 401) as Response };
   }
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = c.env.TOTP_ENCRYPTION_KEY;
   if (!encKey) throw new Error('TOTP_ENCRYPTION_KEY not configured');
   const secret = await decryptTotpSecret(enrollment.secret_enc, encKey);
   if (!await verifyTotpCode(secret, totpCode)) {
@@ -115,7 +115,7 @@ router.get('/servers', async (c) => {
   const sql = createDb(c.env);
   try {
     const conditions: string[] = ["status = 'active'"];
-    const params: unknown[] = [];
+    const params: (string | number | null | boolean)[] = [];
     if (q) {
       params.push(`%${q.toLowerCase()}%`);
       conditions.push(`(LOWER(name) LIKE $${params.length} OR LOWER(description) LIKE $${params.length} OR LOWER(category) LIKE $${params.length})`);
@@ -218,7 +218,7 @@ router.post('/servers', authenticateApiKey, async (c) => {
         command ?? null, JSON.stringify(command_args), JSON.stringify(command_env), github_url ?? null,
         pricing_model, price_per_call_usd ?? null, price_monthly_usd ?? null,
         free_tier_calls, initialStatus, isStdio, JSON.stringify(metadata), verificationToken,
-      ],
+      ] as (string | number | null | boolean)[],
     );
     const row = result[0];
     if (!row) return c.json({ error: 'INSERT_FAILED' }, 500);
@@ -448,7 +448,7 @@ router.delete('/subscriptions/:id', authenticateApiKey, async (c) => {
 
 router.post('/totp/enroll', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = c.env.TOTP_ENCRYPTION_KEY;
   if (!encKey) return c.json({ error: 'TOTP_NOT_CONFIGURED' }, 503);
 
   const sql = createDb(c.env);
@@ -489,7 +489,7 @@ router.post('/totp/confirm', authenticateApiKey, async (c) => {
   const code = typeof body?.totp_code === 'string' ? body.totp_code : null;
   if (!code) return c.json({ error: 'TOTP_CODE_REQUIRED', message: 'Provide totp_code.' }, 400);
 
-  const encKey = (c.env as Record<string, string>).TOTP_ENCRYPTION_KEY;
+  const encKey = c.env.TOTP_ENCRYPTION_KEY;
   if (!encKey) return c.json({ error: 'TOTP_NOT_CONFIGURED' }, 503);
 
   const sql = createDb(c.env);
