@@ -17,6 +17,9 @@ export const voiceRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Daniel (onwK4e9ZLuTAKqWW03F9) — deeper/more formal, but noticeably slower to first byte.
 const DEFAULT_ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
 
+// Cartesia Sonic — primary TTS. Fallback to ElevenLabs if CARTESIA_API_KEY is absent or request fails.
+const DEFAULT_CARTESIA_VOICE_ID = '694f9389-aac1-45b6-b726-9d9369183238';
+
 function broLog(event: string, data: Record<string, unknown>) {
   console.log(
     JSON.stringify({
@@ -44,7 +47,7 @@ function requireBroClientKey(c: {
 }
 
 function containsArabicScript(text: string): boolean {
-  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/.test(text);
+  return /[؀-ۿݐ-ݿࢠ-ࣿ]/.test(text);
 }
 
 function shouldFallbackToEnglishWhisper(text: string): boolean {
@@ -246,13 +249,60 @@ voiceRouter.post('/tts', async (c) => {
   if (!text) return c.json({ error: 'Missing text' }, 400);
   if (text.length > 500) text = text.slice(0, 500);
 
+  const startedAt = Date.now();
+
+  // Primary: Cartesia Sonic
+  if (c.env.CARTESIA_API_KEY) {
+    try {
+      const cartesiaVoiceId = voiceId ?? c.env.CARTESIA_DEFAULT_VOICE_ID ?? DEFAULT_CARTESIA_VOICE_ID;
+      const res = await fetch('https://api.cartesia.ai/tts/bytes', {
+        method: 'POST',
+        headers: {
+          'Cartesia-Version': '2026-03-01',
+          'Authorization': `Bearer ${c.env.CARTESIA_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transcript: text,
+          model_id: 'sonic-3-latest',
+          voice: { mode: 'id', id: cartesiaVoiceId },
+          output_format: { container: 'mp3', encoding: 'mp3', sample_rate: 44100 },
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      const timeToFirstByteMs = Date.now() - startedAt;
+      broLog('tts_requested', {
+        provider: 'cartesia',
+        ok: res.ok,
+        status: res.status,
+        voiceId: cartesiaVoiceId,
+        textLength: text.length,
+        timeToFirstByteMs,
+      });
+
+      if (res.ok && res.body) {
+        return new Response(res.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'audio/mpeg',
+            'Cache-Control': 'no-store',
+            'X-Bro-TTFB-Ms': String(timeToFirstByteMs),
+          },
+        });
+      }
+    } catch (error) {
+      console.warn('[TTS] Cartesia failed, falling back to ElevenLabs:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Fallback: ElevenLabs
   const elevenLabsKey = c.env.ELEVENLABS_API_KEY;
   if (!elevenLabsKey) {
     return c.json({ error: 'tts_unavailable' }, 503);
   }
 
   const selectedVoiceId = voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID;
-  const startedAt = Date.now();
 
   try {
     const res = await fetch(
@@ -279,6 +329,7 @@ voiceRouter.post('/tts', async (c) => {
 
     const timeToFirstByteMs = Date.now() - startedAt;
     broLog('tts_requested', {
+      provider: 'elevenlabs',
       ok: res.ok,
       status: res.status,
       voiceId: selectedVoiceId,
@@ -300,6 +351,7 @@ voiceRouter.post('/tts', async (c) => {
     });
   } catch (error) {
     broLog('tts_failed', {
+      provider: 'elevenlabs',
       voiceId: selectedVoiceId,
       textLength: text.length,
       error: error instanceof Error ? error.message : String(error),
