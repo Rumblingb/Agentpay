@@ -13,6 +13,9 @@ CORS_ORIGIN = "https://apay-delta.vercel.app,https://dashboard.agentpay.gg,https
 API_BASE_URL = "https://api.agentpay.so"
 FRONTEND_URL = "https://agentpay.gg"
 NODE_ENV = "production"
+# Cartesia TTS — default voice (British English, Sonic). Non-sensitive; override per-env if needed.
+# Set the secret separately: npx wrangler secret put CARTESIA_API_KEY
+CARTESIA_DEFAULT_VOICE_ID = "694f9389-aac1-45b6-b726-9d9369183238"
 
 # Custom domain — api.agentpay.so
 [[routes]]
