@@ -85,3 +85,8 @@ crons = [
 #
 # Until the Hyperdrive config exists, staging can fall back to DATABASE_URL
 # by removing the [[hyperdrive]] binding from the staging env section.
+
+# Root domain — redirect to GitHub (product page)
+[[routes]]
+pattern = "agentpay.so"
+custom_domain = true
