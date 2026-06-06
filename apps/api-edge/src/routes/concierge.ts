@@ -957,10 +957,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               dataSource:      item.trainDetails.dataSource,
               finalLegSummary: item.trainDetails.finalLegSummary,
               note: isIndia
-                ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
+                ? 'Schedule data from Indian Railways via IRCTC. Ops team will book and confirm via email.'
                 : item.trainDetails.country === 'eu'
                 ? 'EU rail schedule via Rail Europe / Trainline. Ops team will book and email confirmation.'
-                : 'Schedule data from National Rail via Darwin API. Provider booking not yet integrated.',
+                : 'Schedule data from National Rail via Darwin API. Ops team will book and confirm via email.',
             };
 
             broLog('pending_fulfilment', {
@@ -2154,10 +2154,10 @@ conciergeRouter.post('/confirm', async (c) => {
       dataSource: item.trainDetails.dataSource,
       finalLegSummary: item.trainDetails.finalLegSummary,
       note: isIndia
-        ? 'Schedule data from Indian Railways via IRCTC. Provider booking not yet integrated.'
+        ? 'Schedule data from Indian Railways via IRCTC. Ops team will book and confirm via email.'
         : item.trainDetails.country === 'eu'
         ? 'EU rail schedule via Rail Europe / Trainline. Ops team will book and email confirmation.'
-        : 'Schedule data from National Rail via Darwin API. Provider booking not yet integrated.',
+        : 'Schedule data from National Rail via Darwin API. Ops team will book and confirm via email.',
     };
 
     const walletPassUrl2 = c.env.API_BASE_URL && c.env.AGENTPAY_SIGNING_SECRET
