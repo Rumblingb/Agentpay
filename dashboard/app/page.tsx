@@ -551,7 +551,7 @@ export default function Home() {
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
             <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
-            <a href="https://docs.agentpay.so/mcp" target="_blank" rel="noreferrer" className="nav-link">MCP</a>
+            <Link href="/pricing" className="nav-link">Pricing</Link>
             <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
             <button onClick={openModal} className="btn-primary" style={{ padding: "8px 16px", fontSize: 13 }}>
               Get API key {"→"}
@@ -769,7 +769,7 @@ export default function Home() {
         <div className="footer-links" style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
           <a href="https://docs.agentpay.so" target="_blank" rel="noreferrer" className="nav-link">Docs</a>
           <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
-          <a href="https://docs.agentpay.so/examples" target="_blank" rel="noreferrer" className="nav-link">Examples</a>
+          <Link href="/pricing" className="nav-link">Pricing</Link>
           <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
           <Link href="/privacy" className="nav-link">Privacy</Link>
           <Link href="/terms" className="nav-link">Terms</Link>
