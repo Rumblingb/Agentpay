@@ -262,6 +262,10 @@ function scheduleBackgroundTask(
 // Mirrors src/routes/merchants.ts POST /register exactly.
 // ---------------------------------------------------------------------------
 
+router.get('/register', (c) => {
+  return c.redirect('https://apay-delta.vercel.app#register', 302);
+});
+
 router.post('/register', async (c) => {
   let body: Record<string, unknown>;
   try {
