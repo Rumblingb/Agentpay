@@ -939,10 +939,7 @@ router.post('/rotate-key', authenticateApiKey, async (c) => {
 // ---------------------------------------------------------------------------
 
 router.post('/payments/:transactionId/verify', authenticateApiKey, (c) => {
-  return new Response(
-    JSON.stringify({ status: "beta" }),
-    { status: 200 }
-  );
+  return c.json({ status: 'beta' });
 });
 
 // ---------------------------------------------------------------------------

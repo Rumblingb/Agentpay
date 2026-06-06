@@ -1976,7 +1976,6 @@ router.get('/lanes/eligibility/work-items', authenticateApiKey, async (c) => {
   const limit = parseLimit(c.req.query('limit'), 50, 200);
 
   if (workspaceId && !isUuid(workspaceId)) {
-    sql.end().catch(() => {});
     return validationResponse(c, ['"workspaceId" must be a valid UUID']);
   }
 
@@ -2126,7 +2125,6 @@ router.get('/lanes/claim-status/work-items', authenticateApiKey, async (c) => {
   const limit = parseLimit(c.req.query('limit'), 50, 200);
 
   if (workspaceId && !isUuid(workspaceId)) {
-    sql.end().catch(() => {});
     return validationResponse(c, ['"workspaceId" must be a valid UUID']);
   }
 

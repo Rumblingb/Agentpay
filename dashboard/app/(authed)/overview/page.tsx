@@ -134,7 +134,7 @@ export default function OverviewPage() {
     }
   }, [queryClient]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['overview'],
     queryFn: fetchPaymentsData,
   });
@@ -158,6 +158,7 @@ export default function OverviewPage() {
   }, []);
 
   if (!isClient) return null;
+  if (isError) return <div className="text-red-400 text-sm p-6">Failed to load dashboard data. Please refresh.</div>;
 
   const stats = data?.stats;
   const escrowPayments: Payment[] = (escrowData?.recentReleased ?? []).map((e) => ({

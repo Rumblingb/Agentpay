@@ -27,6 +27,7 @@ async function registryFetch(
     },
   });
   const text = await res.text();
+  if (!res.ok) throw new Error(`Registry error ${res.status}: ${text}`);
   try { return JSON.parse(text); } catch { return { raw: text }; }
 }
 

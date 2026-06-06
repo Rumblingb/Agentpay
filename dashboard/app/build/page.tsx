@@ -70,7 +70,7 @@ export default function BuildPage() {
             <div className="text-sm font-semibold">Developer</div>
             <div className="text-xs text-neutral-400 mt-2">Build with API or SDK</div>
             <div className="mt-4">
-              <Link href="/api/docs" className="text-sm text-neutral-400 hover:text-neutral-200">Read Docs</Link>
+              <Link href="/docs" className="text-sm text-neutral-400 hover:text-neutral-200">Read Docs</Link>
             </div>
           </div>
 
@@ -88,7 +88,7 @@ export default function BuildPage() {
           <Link href="/login" className="btn-primary">Deploy Agent</Link>
           <Link href="/network" className="btn-link">Open Exchange</Link>
           <Link href="/registry" className="btn-link">View Registry</Link>
-          <Link href="/api/docs" className="btn-link">Read Docs</Link>
+          <Link href="/docs" className="btn-link">Read Docs</Link>
         </section>
 
         <p className="text-xs text-neutral-600">Launch and earn your standing on the exchange.</p>

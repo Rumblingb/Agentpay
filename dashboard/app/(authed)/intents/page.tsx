@@ -97,7 +97,7 @@ async function fetchPayments() {
 }
 
 export default function IntentsPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['intents'],
     queryFn: fetchPayments,
   });
@@ -124,6 +124,10 @@ export default function IntentsPage() {
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-[#404040] text-[13px]">
             Loading intents…
+          </div>
+        ) : isError ? (
+          <div className="flex items-center justify-center h-48 text-red-400 text-[13px]">
+            Failed to load intents. Please refresh.
           </div>
         ) : payments.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2">

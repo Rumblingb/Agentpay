@@ -691,7 +691,7 @@ function ExceptionCard({ lane, item, checkPending, onAction, onAppeal }: Excepti
 
 const CONNECTOR_STATUS_LABELS: Record<string, string> = {
   live: 'Live',
-  simulation: 'AI\u2011assisted',
+  simulation: 'AI‑assisted',
   manual_fallback: 'Manual queue',
 };
 
@@ -717,7 +717,7 @@ function ConnectorGrid({
         </div>
         {simCount > 0 && !isLoading && (
           <span style={{ fontSize: 11, color: '#f59e0b' }}>
-            {simCount} AI\u2011assisted — direct API connection coming
+            {simCount} AI‑assisted — direct API connection coming
           </span>
         )}
       </div>

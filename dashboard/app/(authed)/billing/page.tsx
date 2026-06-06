@@ -16,12 +16,13 @@ const FEE_BPS = 50; // 0.5%
 export default function BillingPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch('/api/stats')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then(setStats)
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -31,6 +32,8 @@ export default function BillingPage() {
   const Skeleton = () => (
     <div className="h-6 w-20 rounded bg-slate-800 animate-pulse" />
   );
+
+  if (error) return <div className="text-red-400 text-sm p-6">Failed to load billing data. Please refresh.</div>;
 
   return (
     <div className="space-y-6 max-w-2xl">

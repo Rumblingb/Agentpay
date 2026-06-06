@@ -1099,7 +1099,7 @@ async function handleMandateTool(
 
       const intentId = created.intentId as string | undefined;
       if (!intentId) {
-        return json(created);
+        throw new Error(`Mandate create failed: API did not return an intentId. Response: ${JSON.stringify(created)}`);
       }
 
       const planned = await apiFetch(`${MANDATE_BASE_PATH}/${encodeURIComponent(intentId)}/plan`, {
@@ -1436,6 +1436,9 @@ export async function handleTool(
     }
 
     case 'agentpay_parse_upi_payment_request': {
+      if (!args.upiUrl && !args.qrText) {
+        throw new Error('Provide either upiUrl or qrText');
+      }
       const body: Record<string, unknown> = {};
       if (args.upiUrl) body.upiUrl = args.upiUrl;
       if (args.qrText) body.qrText = args.qrText;
