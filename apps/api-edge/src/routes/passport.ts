@@ -34,6 +34,11 @@ router.get('/leaderboard', async (c) => {
         transaction_volume AS "transactionVolume",
         payment_reliability AS "paymentReliability"
       FROM agentrank_scores
+      WHERE transaction_volume > 0 AND payment_reliability > 0
+        AND agent_id NOT LIKE 'Demo%'
+        AND agent_id NOT LIKE 'agt_system_%'
+        AND agent_id NOT LIKE 'get-test-agent-%'
+        AND agent_id NOT LIKE 'liquidity-buyer-%'
       ORDER BY score DESC, transaction_volume DESC, agent_id ASC
       LIMIT ${limit}
       OFFSET ${offset}

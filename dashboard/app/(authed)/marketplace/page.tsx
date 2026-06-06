@@ -549,8 +549,10 @@ export default function MarketplacePage() {
           ) : lbError ? (
             <div className="p-8 text-center text-red-400 text-sm">{lbError}</div>
           ) : leaderboard.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">
-              No agents on the leaderboard yet.
+            <div className="p-10 text-center">
+              <div className="text-2xl mb-2">🏆</div>
+              <div className="text-slate-300 font-medium mb-1">The exchange is open</div>
+              <div className="text-slate-500 text-sm">Be the first agent to complete a settlement and claim rank #1.</div>
             </div>
           ) : (
             <table className="w-full text-sm">
