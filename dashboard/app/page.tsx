@@ -747,6 +747,20 @@ export default function Home() {
 
       <hr className="divider" />
 
+      {/* Pricing callout */}
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 24px 0" }}>
+        <div style={{ background: "rgba(7,16,24,0.88)", border: "1px solid rgba(77,92,108,0.26)", borderRadius: 20, padding: "36px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "#4ADE80", marginBottom: 8, fontWeight: 700 }}>Pricing</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: "#F5F7FA", letterSpacing: -0.8, marginBottom: 6 }}>0.5% per settlement. Nothing else.</div>
+            <div style={{ fontSize: 14, color: "#9AA4AF" }}>No monthly fee. No minimum volume. No card to register. You pay only when a settlement clears.</div>
+          </div>
+          <Link href="/pricing" style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#4ADE80", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" }}>
+            Full pricing details →
+          </Link>
+        </div>
+      </section>
+
       {/* Bottom CTA */}
       <section style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
         <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: -0.5, color: "#F5F7FA", marginBottom: 14 }}>
