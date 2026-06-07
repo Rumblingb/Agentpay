@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Rumblingb/agentpay",
   "title": "AgentPay",
-  "description": "Payment, identity, and API key management infrastructure for AI agents. Lets agents create governed mandates (user-approved spending limits), vault external API keys via one OTP so agents never handle raw credentials, proxy calls to Firecrawl, Perplexity, OpenAI, and others through a secure capability layer, and settle payments via Stripe or UPI. Use this when building agents that need to spend money, call external APIs on behalf of users, or operate autonomously within user-defined budgets. Works natively with Claude, GPT-4o, and any MCP-compatible host.",
+  "description": "Agent payments, API key vaulting, and governed mandates. Agents spend within user-defined limits.",
   "repository": {
     "url": "https://github.com/Rumblingb/Agentpay",
     "source": "github"

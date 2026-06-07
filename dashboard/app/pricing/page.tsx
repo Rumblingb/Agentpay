@@ -2,16 +2,86 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'AgentPay Pricing — 0.5% per settlement. No monthly fees.',
+  title: 'AgentPay Pricing — Start free, scale with your agents',
   description:
-    'AgentPay charges 0.5% on confirmed settlements. Free to register, free to develop. No subscription. No minimum volume.',
+    'Free to start. Launch plan at $0/mo. Builder at $39/mo. Growth at $149/mo. Plus 0.75% on funded agent actions. No hidden fees.',
 };
 
+const PLANS = [
+  {
+    code: 'launch',
+    name: 'Launch',
+    price: '$0',
+    period: '/mo',
+    tagline: 'Free forever',
+    highlight: false,
+    cta: 'Get started free',
+    ctaHref: '/login',
+    features: [
+      '250 tool calls / month',
+      '25 credential vaults',
+      'MCP server + remote endpoint',
+      'Agent Passport + trust graph',
+      'Community support',
+    ],
+  },
+  {
+    code: 'builder',
+    name: 'Builder',
+    price: '$39',
+    period: '/mo',
+    tagline: 'For active agents',
+    highlight: true,
+    cta: 'Start building',
+    ctaHref: '/login?plan=builder',
+    features: [
+      '10,000 tool calls / month',
+      '500 credential vaults',
+      '$0.40 / 1,000 overage calls',
+      'Governed mandates + audit trail',
+      'Email support',
+    ],
+  },
+  {
+    code: 'growth',
+    name: 'Growth',
+    price: '$149',
+    period: '/mo',
+    tagline: 'For production fleets',
+    highlight: false,
+    cta: 'Scale up',
+    ctaHref: '/login?plan=growth',
+    features: [
+      '100,000 tool calls / month',
+      '5,000 credential vaults',
+      '$0.25 / 1,000 overage calls',
+      'Priority support',
+      'Custom mandate policies',
+    ],
+  },
+  {
+    code: 'enterprise',
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    tagline: 'For large deployments',
+    highlight: false,
+    cta: 'Talk to us',
+    ctaHref: 'mailto:founders@agentpay.so',
+    features: [
+      'Unlimited tool calls',
+      'Unlimited credential vaults',
+      'SLA + dedicated support',
+      'On-prem / private deployment',
+      'Custom compliance + audit',
+    ],
+  },
+];
+
 const INCLUDED = [
-  'Agent Passport — portable identity across every settlement',
   'Capability Vault — credential storage, zero keys in agent context',
   'Governed mandates — budget enforcement before execution',
-  'Payment intents — USDC and card funding flows',
+  'Payment intents — card and UPI funding flows',
   'Settlement receipts — verifiable proof for every action',
   'AgentRank — trust scoring and leaderboard',
   'MCP server — install in Claude, GPT, Cursor in 30 seconds',
@@ -19,8 +89,8 @@ const INCLUDED = [
 ];
 
 const COMPARE = [
-  { label: 'Monthly platform fee', agentpay: '—', stripe: '$0', custom: 'variable' },
-  { label: 'Per-settlement fee', agentpay: '0.5%', stripe: '2.9% + 30¢', custom: 'N/A' },
+  { label: 'Monthly platform fee', agentpay: 'from $0/mo', stripe: '$0', custom: 'variable' },
+  { label: 'Funded action fee', agentpay: '0.75%', stripe: '2.9% + 30¢', custom: 'N/A' },
   { label: 'Agent credential vaulting', agentpay: '✓ included', stripe: '✗', custom: 'build it yourself' },
   { label: 'Mandate enforcement', agentpay: '✓ included', stripe: '✗', custom: 'build it yourself' },
   { label: 'MCP-native integration', agentpay: '✓ included', stripe: '✗', custom: '✗' },
@@ -38,6 +108,12 @@ export default function PricingPage() {
         .btn-green:hover { opacity:0.9; }
         .btn-outline { background:transparent;color:#d1d5db;border:1px solid #2a2a2a; }
         .btn-outline:hover { border-color:#22c55e;color:#f9fafb; }
+        .btn-ghost { background:transparent;color:#9ca3af;border:1px solid #1c1c1c; }
+        .btn-ghost:hover { border-color:#374151;color:#d1d5db; }
+        @media (max-width: 768px) {
+          .plans-grid { grid-template-columns: 1fr !important; }
+          .hero-title { font-size: 36px !important; }
+        }
       `}</style>
 
       {/* Nav */}
@@ -54,52 +130,99 @@ export default function PricingPage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: '80px 24px' }}>
+      <main style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 24px' }}>
 
         {/* Hero */}
-        <div style={{ textAlign: 'center', marginBottom: 72 }}>
+        <div style={{ textAlign: 'center', marginBottom: 64 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 999, padding: '4px 14px', fontSize: 12, color: '#22c55e', marginBottom: 20, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             Simple pricing
           </div>
-          <h1 style={{ fontSize: 52, fontWeight: 900, letterSpacing: -1.6, color: '#f9fafb', lineHeight: 1.02, marginBottom: 20 }}>
-            0.5% per settlement.<br />
-            <span style={{ color: '#22c55e' }}>Nothing else.</span>
+          <h1 className="hero-title" style={{ fontSize: 52, fontWeight: 900, letterSpacing: -1.6, color: '#f9fafb', lineHeight: 1.02, marginBottom: 20 }}>
+            Start free.<br />
+            <span style={{ color: '#22c55e' }}>Scale as your agents do.</span>
           </h1>
-          <p style={{ fontSize: 18, color: '#9ca3af', maxWidth: 540, margin: '0 auto', lineHeight: 1.75 }}>
-            No monthly fee. No minimum volume. No card required to register. Pay only when a settlement clears.
+          <p style={{ fontSize: 18, color: '#9ca3af', maxWidth: 520, margin: '0 auto', lineHeight: 1.75 }}>
+            Monthly plans based on tool calls. Plus 0.75% on funded agent actions — only when money actually moves.
           </p>
         </div>
 
-        {/* Pricing card */}
-        <div style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 24, padding: '48px', marginBottom: 48, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #22c55e, #14b8a6)' }} />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48 }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Developer</div>
-              <div style={{ fontSize: 56, fontWeight: 900, color: '#f9fafb', letterSpacing: -2, lineHeight: 1 }}>
-                0.5<span style={{ fontSize: 28, color: '#9ca3af', fontWeight: 600 }}>%</span>
+        {/* Plan cards */}
+        <div className="plans-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 48 }}>
+          {PLANS.map((plan) => (
+            <div
+              key={plan.code}
+              style={{
+                background: plan.highlight ? '#0a1a10' : '#0d0d0d',
+                border: plan.highlight ? '1px solid rgba(34,197,94,0.4)' : '1px solid #1c1c1c',
+                borderRadius: 20,
+                padding: '32px 24px',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {plan.highlight && (
+                <>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #22c55e, #14b8a6)' }} />
+                  <div style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 999, padding: '2px 10px', fontSize: 11, color: '#22c55e', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Popular
+                  </div>
+                </>
+              )}
+              <div style={{ fontSize: 12, fontWeight: 700, color: plan.highlight ? '#22c55e' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                {plan.name}
               </div>
-              <div style={{ fontSize: 14, color: '#6b7280', marginTop: 8, marginBottom: 32 }}>per confirmed settlement</div>
-              <Link href="/login" className="btn btn-green" style={{ width: '100%', padding: '14px' }}>
-                Get API key — free
-              </Link>
-              <div style={{ marginTop: 12, fontSize: 12, color: '#4b5563', textAlign: 'center' }}>
-                No card required · Instant API key
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, marginBottom: 4 }}>
+                <span style={{ fontSize: plan.price === 'Custom' ? 32 : 44, fontWeight: 900, color: '#f9fafb', letterSpacing: -1.5, lineHeight: 1 }}>
+                  {plan.price}
+                </span>
+                {plan.period && (
+                  <span style={{ fontSize: 15, color: '#6b7280', fontWeight: 500 }}>{plan.period}</span>
+                )}
               </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#d1d5db', marginBottom: 20 }}>Everything included</div>
-              <div style={{ display: 'grid', gap: 12 }}>
-                {INCLUDED.map((item) => (
-                  <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#9ca3af', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: '#4b5563', marginBottom: 24 }}>{plan.tagline}</div>
+              <div style={{ display: 'grid', gap: 10, marginBottom: 28, flex: 1 }}>
+                {plan.features.map((f) => (
+                  <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: '#9ca3af', lineHeight: 1.5 }}>
                     <span style={{ color: '#22c55e', fontWeight: 700, flexShrink: 0, marginTop: 1 }}>✓</span>
-                    {item}
+                    {f}
                   </div>
                 ))}
               </div>
+              <Link
+                href={plan.ctaHref}
+                className={plan.highlight ? 'btn btn-green' : 'btn btn-ghost'}
+                style={{ width: '100%', padding: '12px' }}
+              >
+                {plan.cta}
+              </Link>
             </div>
+          ))}
+        </div>
+
+        {/* Funded actions callout */}
+        <div style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 16, padding: '24px 32px', marginBottom: 64, display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Funded actions</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#f9fafb', letterSpacing: -0.5 }}>0.75% per funded action</div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Min $0.25 · Max $15 · Only charged when money moves</div>
+          </div>
+          <div style={{ fontSize: 13, color: '#9ca3af', maxWidth: 420, lineHeight: 1.7 }}>
+            When an agent creates a payment intent that clears — Stripe card, UPI — AgentPay charges 0.75% of the settled amount. No payment, no fee. This is in addition to your monthly plan.
+          </div>
+        </div>
+
+        {/* What's included */}
+        <div style={{ marginBottom: 64 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#f9fafb', marginBottom: 20, letterSpacing: -0.5 }}>Included on every plan</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+            {INCLUDED.map((item) => (
+              <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#9ca3af', background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 10, padding: '12px 16px', lineHeight: 1.5 }}>
+                <span style={{ color: '#22c55e', fontWeight: 700, flexShrink: 0, marginTop: 1 }}>✓</span>
+                {item}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -136,24 +259,24 @@ export default function PricingPage() {
           <div style={{ display: 'grid', gap: 16 }}>
             {[
               {
-                q: 'When do I pay?',
-                a: 'Only when a settlement confirms. If an agent creates a payment intent that never clears, you pay nothing. The 0.5% is deducted from the settled amount.',
+                q: 'What counts as a tool call?',
+                a: 'Each time an agent calls an AgentPay MCP tool — create mandate, execute capability, get passport, etc. — counts as one tool call. Calls that return errors still count.',
               },
               {
-                q: 'What counts as a settlement?',
-                a: 'A confirmed USDC transfer on-chain, or a card payment captured through the hosted funding flow. Pending intents, failed intents, and cancelled mandates incur no fee.',
+                q: 'What is a funded action?',
+                a: 'A funded action is a payment that clears through AgentPay — a Stripe card capture or UPI payment. The 0.75% fee is charged on the settled amount (min $0.25, max $15). If the intent is created but never funded, no fee applies.',
               },
               {
-                q: 'Is there a free tier?',
-                a: 'Development is always free. You only pay when production settlements clear. There is no monthly fee, no seat fee, and no minimum volume requirement.',
+                q: 'Is there a genuinely free tier?',
+                a: 'Yes. Launch is free forever — 250 tool calls and 25 credential vaults per month. No card required to register. Great for evaluation and low-volume agents.',
               },
               {
-                q: 'Can I use AgentPay without settlements?',
-                a: 'Yes. Capability vaulting (credential management) and mandate governance are available without settlement. There is currently no fee for pure credential or mandate operations.',
+                q: 'What happens when I exceed my plan\'s tool calls?',
+                a: 'Overage is metered automatically. Builder: $0.40 per 1,000 extra calls. Growth: $0.25 per 1,000. You won\'t be cut off — just billed at the overage rate.',
               },
               {
-                q: 'Do I need to manage Solana or USDC myself?',
-                a: 'No. AgentPay handles the on-chain settlement. You register, get an API key, and the MCP server takes care of the rest.',
+                q: 'Can I use AgentPay without making payments?',
+                a: 'Yes. Capability vaulting and mandate governance work on any plan with no funded action fee. You only pay 0.75% when an agent actually moves money.',
               },
             ].map(({ q, a }) => (
               <div key={q} style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 14, padding: '20px 24px' }}>
