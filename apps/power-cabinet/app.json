@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Power Cabinet",
+    "slug": "power-cabinet-game",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0F14",
+    "splash": {
+      "backgroundColor": "#0B0F14"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.agentpay.powercabinet",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0B0F14"
+      },
+      "package": "com.agentpay.powercabinet"
+    },
+    "owner": "rumblingb",
+    "extra": {
+      "eas": {
+        "projectId": "a5a8e308-e85b-4fc6-9ddf-a131541725ec"
+      }
+    }
+  }
+}

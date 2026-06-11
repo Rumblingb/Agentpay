@@ -1,0 +1,10 @@
+{
+  "cli": { "version": ">= 18.0.0" },
+  "build": {
+    "preview": { "distribution": "internal", "android": { "buildType": "apk" } },
+    "production": {
+      "env": { "EXPO_NO_DOTENV": "1", "NODE_OPTIONS": "--max-old-space-size=4096" }
+    }
+  },
+  "submit": { "production": {} }
+}

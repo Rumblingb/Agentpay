@@ -1,0 +1,12 @@
+name = "agentpay-landing"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[env.production]
+routes = [
+  { pattern = "agentpay.so/*", zone_name = "agentpay.so" },
+  { pattern = "www.agentpay.so/*", zone_name = "agentpay.so" }
+]
+
+# Health endpoint preserved — do not override /health or /api/*
+# All other routes serve the landing page HTML
