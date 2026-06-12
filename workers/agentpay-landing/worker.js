@@ -54,12 +54,12 @@ const LANDING_PAGE = `<!DOCTYPE html>
   <meta name="description" content="Your agent just spent $500 in 8 minutes. Did it earn it? AgentPay gives AI agents a trust score, payment rail, and audit trail.">
   <meta property="og:title" content="AgentPay — Financial infrastructure for autonomous agents">
   <meta property="og:description" content="Trust scores. Payment rails. Audit trails. For agents that work at scale.">
-  <style>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       background: #0a0a0f;
-      color: #e8e8f0;
+      color: #F4F1EA;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       line-height: 1.6;
       min-height: 100vh;
@@ -75,10 +75,10 @@ const LANDING_PAGE = `<!DOCTYPE html>
       align-items: center;
       border-bottom: 1px solid rgba(255,255,255,0.06);
     }
-    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
-    .logo span { color: #6c63ff; }
+    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #F4F1EA; }
+    .logo span { color: #FFB020; }
     nav a { color: rgba(255,255,255,0.5); text-decoration: none; font-size: 14px; }
-    nav a:hover { color: #fff; }
+    nav a:hover { color: #F4F1EA; }
 
     /* HERO */
     .hero {
@@ -89,7 +89,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       display: inline-block;
       background: rgba(108,99,255,0.15);
       border: 1px solid rgba(108,99,255,0.3);
-      color: #a09bf0;
+      color: #FFC24A;
       font-size: 12px;
       font-weight: 500;
       padding: 6px 14px;
@@ -99,14 +99,15 @@ const LANDING_PAGE = `<!DOCTYPE html>
       text-transform: uppercase;
     }
     h1 {
-      font-size: clamp(36px, 6vw, 64px);
-      font-weight: 800;
-      letter-spacing: -2px;
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: clamp(38px, 6vw, 68px);
+      font-weight: 500;
+      letter-spacing: -0.03em;
       line-height: 1.05;
       margin-bottom: 24px;
-      color: #fff;
+      color: #F4F1EA;
     }
-    h1 em { color: #6c63ff; font-style: normal; }
+    h1 em { color: #FFB020; font-style: italic; }
     .subhead {
       font-size: 20px;
       color: rgba(255,255,255,0.55);
@@ -118,8 +119,8 @@ const LANDING_PAGE = `<!DOCTYPE html>
     /* CTA BUTTONS */
     .cta-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .btn-primary {
-      background: #6c63ff;
-      color: #fff;
+      background: #FFB020;
+      color: #0B0F14;
       padding: 14px 28px;
       border-radius: 8px;
       text-decoration: none;
@@ -127,7 +128,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       font-size: 15px;
       transition: background 0.2s, transform 0.1s;
     }
-    .btn-primary:hover { background: #5a52e0; transform: translateY(-1px); }
+    .btn-primary:hover { background: #FFC24A; transform: translateY(-1px); }
     .btn-secondary {
       background: rgba(255,255,255,0.06);
       color: rgba(255,255,255,0.7);
@@ -159,12 +160,12 @@ const LANDING_PAGE = `<!DOCTYPE html>
       color: rgba(255,255,255,0.65);
       max-width: 640px;
     }
-    .fear-text strong { color: #fff; font-weight: 600; }
+    .fear-text strong { color: #F4F1EA; font-weight: 600; }
 
     /* CODE BLOCK */
     .code-section { padding: 60px 0; }
     .code-block {
-      background: #111118;
+      background: #0B0F14;
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 12px;
       padding: 32px;
@@ -174,7 +175,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
       font-size: 14px;
       line-height: 1.7;
-      color: #c9d1d9;
+      color: #C9CDD4;
     }
     .code-comment { color: #6a737d; }
     .code-string { color: #a5d6ff; }
@@ -194,7 +195,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       font-weight: 700;
       letter-spacing: -1px;
       margin-bottom: 48px;
-      color: #fff;
+      color: #F4F1EA;
     }
     .feature-grid {
       display: grid;
@@ -202,7 +203,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       gap: 24px;
     }
     .feature-card {
-      background: #111118;
+      background: #0B0F14;
       border: 1px solid rgba(255,255,255,0.06);
       border-radius: 12px;
       padding: 28px;
@@ -214,7 +215,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
     .feature-card h3 {
       font-size: 16px;
       font-weight: 600;
-      color: #fff;
+      color: #F4F1EA;
       margin-bottom: 8px;
     }
     .feature-card p {
@@ -234,7 +235,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
     .score-number {
       font-size: 72px;
       font-weight: 900;
-      color: #6c63ff;
+      color: #FFB020;
       font-variant-numeric: tabular-nums;
       letter-spacing: -3px;
     }
@@ -268,7 +269,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
       font-weight: 800;
       letter-spacing: -1.5px;
       margin-bottom: 16px;
-      color: #fff;
+      color: #F4F1EA;
     }
     .bottom-cta p {
       color: rgba(255,255,255,0.45);
@@ -320,7 +321,7 @@ const LANDING_PAGE = `<!DOCTYPE html>
     <div style="display:flex;gap:24px;align-items:center">
       <a href="/docs">Docs</a>
       <a href="https://github.com/Rumblingb" target="_blank">GitHub</a>
-      <a href="/start" style="color:#6c63ff;font-weight:600">Get started</a>
+      <a href="/start" style="color:#FFB020;font-weight:600">Get started</a>
     </div>
   </nav>
 
@@ -417,13 +418,13 @@ response = agentpay.call(
   <!-- AGENTRANK -->
   <section class="agentrank">
     <div class="section-label">AgentRank</div>
-    <h2 style="font-size:32px;font-weight:700;letter-spacing:-1px;margin-bottom:12px;color:#fff">Agents earn trust the same way people do.</h2>
+    <h2 style="font-size:32px;font-weight:700;letter-spacing:-1px;margin-bottom:12px;color:#F4F1EA">Agents earn trust the same way people do.</h2>
     <p style="color:rgba(255,255,255,0.45);font-size:16px;margin-bottom:32px">By doing what they say, paying what they owe, and showing their work.</p>
     <div class="score-tiers">
       <div class="score-tier"><div class="tier-bar" style="width:40px;background:rgba(108,99,255,0.2)"></div>0–300 · Basic payment authorization</div>
       <div class="score-tier"><div class="tier-bar" style="width:80px;background:rgba(108,99,255,0.35)"></div>300–600 · Higher limits, fewer escalations</div>
       <div class="score-tier"><div class="tier-bar" style="width:120px;background:rgba(108,99,255,0.55)"></div>600–900 · Pre-approved recurring contracts</div>
-      <div class="score-tier"><div class="tier-bar" style="width:160px;background:#6c63ff"></div>900+ · Agent-to-agent credit eligible</div>
+      <div class="score-tier"><div class="tier-bar" style="width:160px;background:#FFB020"></div>900+ · Agent-to-agent credit eligible</div>
     </div>
   </section>
 
