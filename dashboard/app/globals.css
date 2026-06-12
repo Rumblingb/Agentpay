@@ -8,23 +8,23 @@
 :root {
   /* System typography variables (fallbacks when next/font is not used) */
   --font-geist-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-geist-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+  --font-geist-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
   /* Background layers — true jet-black base */
-  --background: #000000;
-  --surface: #060606;
-  --surface-2: #0b0b0b;
-  --panel: #121212;
-  --border: #1c1c1c;
-  --border-subtle: #161616;
+  --background: #0B0F14;
+  --surface: #0E1319;
+  --surface-2: #121821;
+  --panel: #121821;
+  --border: #1C242F;
+  --border-subtle: #161D26;
 
   /* Text */
-  --foreground: #e8e8e8;
-  --muted: #737373;
+  --foreground: #F4F1EA;
+  --muted: #8A8F98;
 
   /* Accents — restrained, purposeful */
-  --accent-emerald: #34d399;   /* economic activity */
-  --accent-amber: #fbbf24;     /* trust signals */
-  --accent-sky: #38bdf8;       /* system operations */
+  --accent-emerald: #5BBE7E;   /* economic activity */
+  --accent-amber: #FFB020;     /* trust signals */
+  --accent-sky: #C9CDD4;       /* system operations */
 }
 
 /* =====================================================
@@ -55,20 +55,20 @@
   ------------------------------------------------------------------ */
 :root {
   /* Semantic color roles (do not change appearance yet) */
-  --color-live: #34d399;       /* emerald */
-  --color-ceremony: #f59e0b;   /* amber */
-  --color-trust: #7c3aed;      /* violet */
+  --color-live: #5BBE7E;       /* emerald */
+  --color-ceremony: #FFB020;   /* amber */
+  --color-trust: #FFB020;      /* violet */
 
   /* Panel materials */
   --panel-glass-bg: rgba(255,255,255,0.02);
   --panel-glass-border: rgba(255,255,255,0.04);
-  --panel-glass-glow: 0 8px 30px rgba(52, 211, 153, 0.06);
-  --panel-glass-elevation: 0 12px 40px rgba(0,0,0,0.6);
+  --panel-glass-glow: none;
+  --panel-glass-elevation: none;
 
   --panel-ledger-bg: rgba(10,8,6,0.75);
   --panel-ledger-border: rgba(255,255,255,0.03);
-  --panel-ledger-glow: 0 10px 36px rgba(11,11,11,0.6);
-  --panel-ledger-elevation: 0 20px 60px rgba(0,0,0,0.7);
+  --panel-ledger-glow: none;
+  --panel-ledger-elevation: none;
 
   --panel-constitutional-bg: linear-gradient(180deg, rgba(124,58,237,0.06), rgba(0,0,0,0.45));
   --panel-constitutional-border: rgba(124,58,237,0.12);
@@ -148,7 +148,7 @@ body {
    ───────────────────────────────────────────────────────────── */
 .panel-depth {
   border-radius: 0.75rem;
-  border: 1px solid #1c1c1c;
+  border: 1px solid #1C242F;
   background: rgba(12, 12, 12, 0.6);
   backdrop-filter: blur(12px);
   box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65);
@@ -212,12 +212,12 @@ body {
   0% {
     opacity: 0;
     transform: translateX(-6px);
-    background-color: rgba(52, 211, 153, 0.06);
+    background-color: rgba(255,176,32,0.06);
   }
   60% {
     opacity: 1;
     transform: translateX(0);
-    background-color: rgba(52, 211, 153, 0.03);
+    background-color: rgba(255,176,32,0.06);
   }
   100% {
     opacity: 1;
@@ -238,7 +238,7 @@ body {
 }
 
 @keyframes value-flash {
-  0%   { color: var(--flash-highlight-color); text-shadow: 0 0 12px rgba(52, 211, 153, 0.4); }
+  0%   { color: var(--flash-highlight-color); text-shadow: 0 0 12px rgba(255,176,32,0.06); }
   100% { color: inherit; text-shadow: none; }
 }
 

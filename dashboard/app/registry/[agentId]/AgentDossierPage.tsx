@@ -505,7 +505,7 @@ export default function AgentDossierPage({ agentId }: { agentId: string }) {
                                 y1={cy}
                                 x2={tx}
                                 y2={ty}
-                                stroke="#34d399"
+                                stroke="#5BBE7E"
                                 strokeWidth="2"
                                 strokeDasharray="4 2"
                                 opacity="0.7"

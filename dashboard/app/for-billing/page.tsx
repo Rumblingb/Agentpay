@@ -195,7 +195,7 @@ export default function ForBillingPage() {
     border: '#141414', border2: '#1c1c1c',
     text: '#ededef', sub: '#737373', faint: '#555',
     accent: '#10b981', accentDim: 'rgba(16,185,129,0.08)',
-    accentBorder: 'rgba(16,185,129,0.18)', accentText: '#34d399',
+    accentBorder: 'rgba(16,185,129,0.18)', accentText: '#5BBE7E',
   };
 
   const isSpeaking = state === 'ace-speaking';

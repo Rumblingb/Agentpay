@@ -36,7 +36,7 @@ const DominanceBar = memo(function DominanceBar({ pct }: { pct: number }) {
             pct >= 50
               ? 'linear-gradient(90deg, #10b981, #f59e0b)'
               : pct >= 25
-                ? 'linear-gradient(90deg, #10b981, #34d399)'
+                ? 'linear-gradient(90deg, #10b981, #5BBE7E)'
                 : '#10b981',
         }}
       />

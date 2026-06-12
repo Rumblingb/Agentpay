@@ -477,7 +477,7 @@ export default function RcmOnboardPage() {
                 </button>
                 {npiOpen && (
                   <div style={{ marginTop: 10, padding: '12px 14px', background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: 8, fontSize: 12, color: '#737373', lineHeight: 1.6 }}>
-                    Your National Provider Identifier — a 10-digit number assigned to every healthcare provider in the US. {"You'll"} find it on your insurance provider forms or at <span style={{ color: '#34d399', fontFamily: 'monospace' }}>nppes.cms.hhs.gov</span>.
+                    Your National Provider Identifier — a 10-digit number assigned to every healthcare provider in the US. {"You'll"} find it on your insurance provider forms or at <span style={{ color: '#5BBE7E', fontFamily: 'monospace' }}>nppes.cms.hhs.gov</span>.
                   </div>
                 )}
               </div>
@@ -508,7 +508,7 @@ export default function RcmOnboardPage() {
                 <div style={{
                   marginTop: 14, padding: '12px 14px',
                   background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
-                  borderRadius: 8, fontSize: 12, color: '#fbbf24', lineHeight: 1.6,
+                  borderRadius: 8, fontSize: 12, color: '#FFB020', lineHeight: 1.6,
                 }}>
                   Workspace setup had an issue — don&apos;t worry, you can complete it from your dashboard.
                   <span style={{ display: 'block', marginTop: 4, color: '#a16207', fontSize: 11 }}>{workspaceError}</span>

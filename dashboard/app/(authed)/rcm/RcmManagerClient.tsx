@@ -344,7 +344,7 @@ function joinMeta(...parts: Array<string | null | undefined>): string {
 function priorityAccent(p: string): string {
   if (p === 'urgent') return '#f43f5e';
   if (p === 'high') return '#f59e0b';
-  if (p === 'normal') return '#38bdf8';
+  if (p === 'normal') return '#C9CDD4';
   return '#3a3a3a';
 }
 
@@ -527,7 +527,7 @@ function ActionBtn({
         cursor: pending ? 'not-allowed' : 'pointer', border: '1px solid',
         background: isGreen ? 'rgba(16,185,129,0.1)' : isAmber ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)',
         borderColor: isGreen ? 'rgba(16,185,129,0.25)' : isAmber ? 'rgba(245,158,11,0.2)' : '#1e1e1e',
-        color: isGreen ? '#34d399' : isAmber ? '#fcd34d' : '#888',
+        color: isGreen ? '#5BBE7E' : isAmber ? '#fcd34d' : '#888',
         opacity: pending ? 0.6 : 1, transition: 'opacity 0.15s',
       }}
     >
@@ -730,7 +730,7 @@ function ConnectorGrid({
         }}>
           <Zap size={12} style={{ color: '#10b981', flexShrink: 0 }} />
           <span style={{ fontSize: 12, color: '#555' }}>
-            <span style={{ color: '#34d399', fontWeight: 600 }}>{liveCount} live</span>
+            <span style={{ color: '#5BBE7E', fontWeight: 600 }}>{liveCount} live</span>
             {' '}payer{liveCount !== 1 ? 's' : ''} — claims process via direct API.
           </span>
         </div>
@@ -745,7 +745,7 @@ function ConnectorGrid({
           const isLive = c.status === 'live';
           const isSim = c.status === 'simulation';
           const statusLabel = CONNECTOR_STATUS_LABELS[c.status] ?? c.status;
-          const color = isLive ? '#34d399' : isSim ? '#fcd34d' : '#555';
+          const color = isLive ? '#5BBE7E' : isSim ? '#fcd34d' : '#555';
           const bg = isLive ? 'rgba(16,185,129,0.08)' : isSim ? 'rgba(245,158,11,0.06)' : 'rgba(255,255,255,0.02)';
           const bdr = isLive ? 'rgba(16,185,129,0.2)' : isSim ? 'rgba(245,158,11,0.15)' : '#1a1a1a';
           const speed = isLive ? '~24h via API' : isSim ? 'Connecting...' : '3–5 business days';
@@ -783,7 +783,7 @@ function ConnectorGrid({
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>Credentials stored</span>
+                      <span style={{ fontSize: 11, color: '#5BBE7E', fontWeight: 600 }}>Credentials stored</span>
                       <span style={{ fontSize: 10, color: '#333' }}>· {cred.credentialType.replace(/_/g, ' ')}</span>
                     </div>
                     <button
@@ -876,7 +876,7 @@ function WorkspaceGrid({
 // ── Agent console ─────────────────────────────────────────────────────────────
 
 function modeBadge(m: LaneMode): { label: string; color: string; bg: string; border: string } {
-  if (m === 'auto') return { label: 'Fully auto', color: '#34d399', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.2)' };
+  if (m === 'auto') return { label: 'Fully auto', color: '#5BBE7E', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.2)' };
   if (m === 'auto_notify') return { label: 'Auto + notify', color: '#fcd34d', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' };
   return { label: 'Human review', color: '#fb7185', bg: 'rgba(244,63,94,0.06)', border: 'rgba(244,63,94,0.15)' };
 }
@@ -900,7 +900,7 @@ function AgentConsole({
   const conf = avgConfidencePct ?? 70;
   const trustScore = Math.round(autoClosedPct * 0.5 + conf * 0.3 + (100 - humanInterventionPct) * 0.2);
   const grade = trustScore >= 80 ? 'A' : trustScore >= 70 ? 'B' : trustScore >= 60 ? 'C' : trustScore >= 50 ? 'D' : 'F';
-  const gradeColor = grade === 'A' ? '#10b981' : grade === 'B' ? '#34d399' : grade === 'C' ? '#f59e0b' : '#f43f5e';
+  const gradeColor = grade === 'A' ? '#10b981' : grade === 'B' ? '#5BBE7E' : grade === 'C' ? '#f59e0b' : '#f43f5e';
 
   const agentId = workspace
     ? `agt_rcm_${workspace.workspaceId.replace(/-/g, '').slice(0, 10)}`
@@ -992,7 +992,7 @@ function AgentConsole({
             cursor: 'pointer', border: '1px solid', transition: 'all 0.15s',
             background: isPaused ? 'rgba(16,185,129,0.06)' : 'rgba(244,63,94,0.06)',
             borderColor: isPaused ? 'rgba(16,185,129,0.2)' : 'rgba(244,63,94,0.15)',
-            color: isPaused ? '#34d399' : '#fb7185',
+            color: isPaused ? '#5BBE7E' : '#fb7185',
           }}
         >
           {isPaused ? '▶ Resume autonomous actions' : '⏸ Pause autonomous actions (24h)'}
@@ -1071,7 +1071,7 @@ function AgentConsole({
         </div>
 
         <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.03)', border: '1px solid rgba(16,185,129,0.08)', fontSize: 11, color: '#444', lineHeight: 1.65 }}>
-          <span style={{ color: '#34d399', fontWeight: 600 }}>Fully auto</span> — Ace acts immediately{' · '}
+          <span style={{ color: '#5BBE7E', fontWeight: 600 }}>Fully auto</span> — Ace acts immediately{' · '}
           <span style={{ color: '#fcd34d', fontWeight: 600 }}>Auto + notify</span> — Ace acts, you get an alert{' · '}
           <span style={{ color: '#fb7185', fontWeight: 600 }}>Human review</span> — Ace queues it for you
         </div>
@@ -1260,7 +1260,7 @@ function TeamSection({ activeTab }: { activeTab: ActiveTab }) {
                       padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, flexShrink: 0,
                       background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
                       border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
-                      color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                      color: copied ? '#5BBE7E' : '#888', cursor: 'pointer',
                     }}
                   >
                     {copied ? 'Copied' : 'Copy'}
@@ -1501,10 +1501,10 @@ function ImportModal({
                 </div>
               ) : (
                 <div>
-                  <div style={{ fontSize: 13, color: '#34d399', marginBottom: 16 }}>{resultMsg}</div>
+                  <div style={{ fontSize: 13, color: '#5BBE7E', marginBottom: 16 }}>{resultMsg}</div>
                   <button
                     onClick={onDone}
-                    style={{ padding: '10px 24px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#34d399', cursor: 'pointer' }}
+                    style={{ padding: '10px 24px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#5BBE7E', cursor: 'pointer' }}
                   >
                     Done
                   </button>
@@ -1603,7 +1603,7 @@ function ConnectModal({
                     padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                     background: credType === val ? 'rgba(16,185,129,0.1)' : 'transparent',
                     border: `1px solid ${credType === val ? 'rgba(16,185,129,0.3)' : '#1c1c1c'}`,
-                    color: credType === val ? '#34d399' : '#555',
+                    color: credType === val ? '#5BBE7E' : '#555',
                   }}
                 >
                   {label}
@@ -1719,7 +1719,7 @@ function AppealModal({
                     padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600,
                     background: copied ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
                     border: `1px solid ${copied ? 'rgba(16,185,129,0.25)' : '#1c1c1c'}`,
-                    color: copied ? '#34d399' : '#888', cursor: 'pointer',
+                    color: copied ? '#5BBE7E' : '#888', cursor: 'pointer',
                   }}
                 >
                   {copied ? 'Copied' : 'Copy'}
@@ -1834,7 +1834,7 @@ function PayerIntelligence({ data, loading }: { data: PayerIntelData | undefined
                   <span style={{ fontSize: 12, color: p.denialRate > 20 ? '#f59e0b' : '#555', fontWeight: p.denialRate > 20 ? 600 : 400 }}>
                     {p.denialRate.toFixed(1)}%
                   </span>
-                  <span style={{ fontSize: 12, color: p.autoClosePct > 60 ? '#34d399' : '#555', fontWeight: p.autoClosePct > 60 ? 600 : 400 }}>
+                  <span style={{ fontSize: 12, color: p.autoClosePct > 60 ? '#5BBE7E' : '#555', fontWeight: p.autoClosePct > 60 ? 600 : 400 }}>
                     {p.autoClosePct.toFixed(1)}%
                   </span>
                   <span style={{ fontSize: 12, color: '#888' }}>
@@ -1962,7 +1962,7 @@ function VoiceFAB({
     <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
       {label && (
         <div style={{
-          padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#34d399',
+          padding: '7px 13px', borderRadius: 8, fontSize: 12, color: '#5BBE7E',
           background: '#0d0d0d', border: '1px solid rgba(16,185,129,0.15)',
           maxWidth: 200, textAlign: 'right',
           boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -2141,7 +2141,7 @@ export default function RcmManagerClient() {
       label: 'In progress',
       value: isLoading ? '—' : String(q?.totalOpen ?? 0),
       sub: isLoading ? '' : `${q?.totalWorkItems ?? 0} total`,
-      icon: Layers, accent: '#38bdf8',
+      icon: Layers, accent: '#C9CDD4',
     },
     {
       label: 'Ace auto-closed',
@@ -2214,7 +2214,7 @@ export default function RcmManagerClient() {
             style={{
               padding: '9px 18px', borderRadius: 8, fontSize: 12, fontWeight: 600,
               background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
-              color: '#34d399', cursor: 'pointer',
+              color: '#5BBE7E', cursor: 'pointer',
             }}
           >
             Go to Connectors →
@@ -2238,7 +2238,7 @@ export default function RcmManagerClient() {
                     display: 'inline-flex', alignItems: 'center', gap: 5,
                     padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
                     background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)',
-                    color: '#34d399', cursor: 'pointer',
+                    color: '#5BBE7E', cursor: 'pointer',
                   }}
                 >
                   + Import claims
@@ -2300,16 +2300,16 @@ export default function RcmManagerClient() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)',
           borderRadius: 8, padding: '12px 24px', marginBottom: 16,
-          fontSize: 13, color: '#fbbf24', gap: 12,
+          fontSize: 13, color: '#FFB020', gap: 12,
         }}>
           <span>Your session expires soon — sign in again to stay connected.</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
-            <a href="/rcm-login" style={{ color: '#fbbf24', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            <a href="/rcm-login" style={{ color: '#FFB020', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
               Sign in again →
             </a>
             <button
               onClick={() => setShowExpiryBanner(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fbbf24', padding: 0, lineHeight: 1, fontSize: 16 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FFB020', padding: 0, lineHeight: 1, fontSize: 16 }}
               aria-label="Dismiss"
             >
               ×
@@ -2325,7 +2325,7 @@ export default function RcmManagerClient() {
           padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
           background: flash.tone === 'ok' ? 'rgba(16,185,129,0.1)' : 'rgba(244,63,94,0.08)',
           border: `1px solid ${flash.tone === 'ok' ? 'rgba(16,185,129,0.25)' : 'rgba(244,63,94,0.2)'}`,
-          color: flash.tone === 'ok' ? '#34d399' : '#fb7185',
+          color: flash.tone === 'ok' ? '#5BBE7E' : '#fb7185',
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
           {flash.msg}

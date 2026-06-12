@@ -84,14 +84,14 @@ function synthEvents(agents: LeaderboardAgent[]): TickerEvent[] {
 const TYPE_COLOR: Record<TickerEvent['type'], string> = {
   payment:      '#22c55e',
   trust:        '#818cf8',
-  verification: '#38bdf8',
+  verification: '#C9CDD4',
   standing:     '#94a3b8',
 };
 
 const TYPE_DOT: Record<TickerEvent['type'], string> = {
   payment:      '#22c55e',
   trust:        '#818cf8',
-  verification: '#38bdf8',
+  verification: '#C9CDD4',
   standing:     '#475569',
 };
 

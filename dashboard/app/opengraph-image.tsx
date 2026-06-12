@@ -77,7 +77,7 @@ export default function Image() {
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 24, color: "#94a3b8" }}>
           <div>npx -y @agentpayxyz/mcp-server</div>
-          <div style={{ color: "#38bdf8" }}>app.agentpay.so</div>
+          <div style={{ color: "#C9CDD4" }}>app.agentpay.so</div>
         </div>
       </div>
     ),

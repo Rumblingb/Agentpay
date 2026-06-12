@@ -107,7 +107,7 @@ const customTooltipStyle = {
     color: '#d4d4d4',
   },
   labelStyle: { color: '#525252' },
-  itemStyle: { color: '#34d399' },
+  itemStyle: { color: '#5BBE7E' },
 };
 
 export default function OverviewPage() {
