@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.agentpay.bee.pull</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/brain/.local/node/bin/node</string><string>/Users/brain/Agentpay/ops/mac-mini/bee/bee.mjs</string><string>pull</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>BEE_CODEX_BIN</key><string>/Users/brain/.npm-global/bin/codex</string>
+    <key>BEE_CLAUDE_BIN</key><string>/Users/brain/.npm-global/bin/claude</string>
+    <key>BEE_HERMES_BIN</key><string>/Users/brain/.local/bin/hermes</string>
+    <key>BEE_VOICE</key><string>Samantha</string><key>BEE_RATE</key><string>185</string>
+    <key>PATH</key><string>/Users/brain/.local/bin:/Users/brain/.npm-global/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key><integer>600</integer><key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/brain/.bee/logs/pull.log</string>
+  <key>StandardErrorPath</key><string>/Users/brain/.bee/logs/pull.err.log</string>
+</dict></plist>

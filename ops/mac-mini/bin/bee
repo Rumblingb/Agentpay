@@ -1,0 +1,3 @@
+#!/bin/bash
+# Bee — Labs-only orchestration ingress. See ops/mac-mini/BEE_ARCHITECTURE.md
+exec node "$(dirname -- "$0")/../bee/bee.mjs" "$@"
