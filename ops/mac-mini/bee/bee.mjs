@@ -1,0 +1,1113 @@
+#!/usr/bin/env node
+// Bee — founder control plane for the AgentPay fleet.
+// Labs work may run autonomously; fund execution and external side effects are approval-gated.
+// Storage: sqlite3 CLI (dependency-free). DB: ~/.bee/labs-board.db
+// Spec: Agentpay/ops/mac-mini/BEE_ARCHITECTURE.md
+
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const BEE_DIR = join(homedir(), '.bee');
+const DB = process.env.BEE_DB || join(BEE_DIR, 'labs-board.db');
+const INBOX_DIR = join(BEE_DIR, 'inbox');           // drop a *.txt request here → daemon routes it
+const VAULT = join(homedir(), 'Documents/memorybrain'); // fleet shared brain (agents read their lane inbox)
+for (const d of [BEE_DIR, INBOX_DIR, join(INBOX_DIR, 'done')]) if (!existsSync(d)) mkdirSync(d, { recursive: true });
+
+// Load ~/.bee/.env (local secrets: NVIDIA_API_KEY, …) into process.env — keys stay out of source + git.
+(function loadEnv() {
+  try {
+    for (const line of readFileSync(join(BEE_DIR, '.env'), 'utf8').split('\n')) {
+      if (/^\s*#/.test(line) || !line.includes('=')) continue;
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  } catch {}
+})();
+
+// ---------- sqlite helpers ----------
+const esc = (s) => String(s ?? '').replace(/'/g, "''");
+function sql(query, { json = false } = {}) {
+  const args = json ? ['-json', DB, query] : [DB, query];
+  const out = execFileSync('sqlite3', args, { encoding: 'utf8' });
+  if (!json) return out.trim();
+  return out.trim() ? JSON.parse(out) : [];
+}
+const now = () => Math.floor(Date.now() / 1000);
+const rid = (p) => `${p}_${now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+
+// ---------- schema ----------
+function init() {
+  sql(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT,
+    lane TEXT NOT NULL DEFAULT 'labs',        -- labs|fund (fund autonomy is read-only)
+    difficulty TEXT,                           -- trivial|standard|hard
+    risk TEXT,                                 -- low|medium|high
+    assignee TEXT,                             -- worker chosen by router
+    model_tier TEXT,                           -- native|local|free|paid|paid-heavy|human
+    status TEXT NOT NULL DEFAULT 'inbox',      -- inbox|routed|in_progress|blocked|done
+    needs_human INTEGER NOT NULL DEFAULT 0,    -- the approval-wall flag
+    rationale TEXT,
+    result TEXT,                               -- worker output excerpt
+    source_key TEXT,                           -- stable origin for dedupe (blueprint/project/etc.)
+    created_by TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT, kind TEXT, detail TEXT, at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+  `);
+  // migrate older DBs that predate the result column
+  const cols = sql(`PRAGMA table_info(tasks);`, { json: true }).map((c) => c.name);
+  if (!cols.includes('result')) sql(`ALTER TABLE tasks ADD COLUMN result TEXT;`);
+  if (!cols.includes('source_key')) sql(`ALTER TABLE tasks ADD COLUMN source_key TEXT;`);
+  sql(`CREATE INDEX IF NOT EXISTS idx_tasks_source_key ON tasks(source_key);`);
+}
+
+// ---------- lane detection + fund safety gate ----------
+// Bee is a two-lane control plane (founder-authorized 2026-06-15). Fund lane:
+//   research/analysis/backtest (read-only, no money) → autonomous on cheap workers
+//   ANY execution (trade/order/money/live/bankroll) → founder-only, NEVER autonomous
+const FUND_RE      = /\b(bill|hedge|trading|trade[ds]?|futures?|topstep|backtest|broker|hedge fund|p&l|pnl|clob|prediction[- ]?market|databento|bankroll)\b/i;
+const FUND_EXEC_RE = /\b(execute|order|buy|sell|fill|position|go ?live|live[- ]?activat|deploy capital|withdraw|deposit|size up|increase bankroll|place .*trade|move money|transfer)\b/i;
+
+// ---------- difficulty-classified router (the cost ladder) ----------
+// Rule: cheap-by-default, but hard/high-stakes goes STRAIGHT to the heavy model.
+const HUMAN_RE = /\b(oauth|log[- ]?in|sign[- ]?in|accounts?|app ?store|asc|play console|publish|upload|drag|stripe|api ?key|secret|token|\.env|mcpize|grant|2fa|verify|tiktok|instagram|facebook|connect .*channel|money|credential)\b/i;
+const HARD_RE  = /\b(architect|design|strategy|launch|pricing|revenue|customer|copy|narrative|brand|review|refactor|migrate|security|tradeoff)\b/i;
+const IMPL_RE  = /\b(implement|build|code|fix bug|endpoint|api|test|ci|deploy|script|component|kaggle|github|app|release)\b/i;
+const RESEARCH_RE = /\b(research|scrape|render|shorts?|video|summari[sz]e|monitor|sweep|draft|digest)\b/i;
+const SCREEN_RE = /\b(screen|click|type into|fill .*form|browser|open .*app|navigate|on[- ]?screen|gui|window|tab|safari|chrome|button|drag)\b/i;
+
+function safetyFloor(title, body = '') {
+  const text = `${title} ${body}`.replace(/_/g, ' ');
+  if (FUND_RE.test(text) && FUND_EXEC_RE.test(text)) return { ...KIND_MAP['fund-exec'] };
+  if (HUMAN_RE.test(text)) return { ...KIND_MAP.human };
+  return null;
+}
+
+// ---------- INTELLIGENT classifier: local LLM brain ($0) with a rule-based safety FLOOR ----------
+const BRAIN_URL = process.env.BEE_BRAIN_URL || 'http://localhost:11434/v1/chat/completions';
+const BRAIN_MODEL = process.env.BEE_BRAIN_MODEL || 'gemma3:12b';
+// Cloud reasoning fallback: NVIDIA NIM (Nemotron). Free-tier, OpenAI-compatible. Key from ~/.bee/.env.
+const NIM_URL = process.env.BEE_NIM_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
+const NIM_MODEL = process.env.BEE_NIM_MODEL || 'meta/llama-3.3-70b-instruct'; // verified live on this NIM account
+function nimBrain(messages, max) {
+  const key = process.env.NVIDIA_API_KEY; if (!key) return '';
+  const payload = JSON.stringify({ model: NIM_MODEL, temperature: 0, max_tokens: max, stream: false, messages });
+  try {
+    const r = execFileSync('curl', ['-s', '-m', '25', NIM_URL, '-H', 'content-type: application/json', '-H', `authorization: Bearer ${key}`, '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    return JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
+  } catch { return ''; }
+}
+// Local gemma first ($0) for cheap/fast calls; NIM (70b) for hard reasoning via {big:true}.
+// big=true → NIM-first (sharper decisions); otherwise local-first with NIM as fallback. Both OpenAI-shaped.
+function brain(prompt, { sys = '', max = 200, big = false } = {}) {
+  const messages = [...(sys ? [{ role: 'system', content: sys }] : []), { role: 'user', content: prompt }];
+  if (big) { const n = nimBrain(messages, max); if (n) return n; }
+  try {
+    const payload = JSON.stringify({ model: BRAIN_MODEL, temperature: 0, stream: false, messages });
+    const r = execFileSync('curl', ['-s', '-m', '20', BRAIN_URL, '-H', 'content-type: application/json', '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    const out = JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
+    if (out) return out;
+  } catch {}
+  return nimBrain(messages, max);
+}
+function llmClassify(title, body) {
+  const sys = 'You are Bee, a sharp startup cofounder routing the founder\'s requests. Output ONLY compact JSON: '
+    + '{"kind":one of [trivial,impl,research,judgment,human,fund-research,fund-exec],"needs_screen":bool,"say":"<spoken reply to the founder, <=12 words, natural, first person as Bee>","speak":bool}. '
+    + 'kind=human if it needs a person to log in / OAuth / publish / move money / use an app store. '
+    + 'kind=fund-exec ONLY for executing trades/orders/money/going-live. kind=fund-research for read-only market analysis. '
+    + 'kind=judgment for design/strategy/copy/architecture/launch decisions. kind=impl for coding/building/shipping. needs_screen=true if it needs to see/control the desktop or browser GUI. '
+    + 'say = what you would tell the founder out loud (e.g. "On it — handing the pricing page to Claude."). speak=true unless it is trivial/routine.';
+  const out = brain(`Founder request: "${title}${body ? ' — ' + body : ''}"`, { sys });
+  const m = out.match(/\{[\s\S]*\}/); if (!m) return null;
+  try { const o = JSON.parse(m[0]); if (!o.kind) return null; return o; } catch { return null; }
+}
+const KIND_MAP = {
+  'fund-exec':     { lane: 'fund', assignee: 'rajiv', model_tier: 'human', needs_human: 1, difficulty: 'standard', risk: 'high', rationale: '🔒 FUND EXECUTION — founder-only, never autonomous. Staged for your action.' },
+  'fund-research': { lane: 'fund', assignee: 'hermes-lenovo', model_tier: 'free', needs_human: 0, difficulty: 'standard', risk: 'medium', rationale: 'Fund research/analysis (read-only, no money) — autonomous on cheap workers.' },
+  human:    { lane: 'labs', assignee: 'rajiv', model_tier: 'human', needs_human: 1, difficulty: 'standard', risk: 'high', rationale: 'Needs a human action-time approval — staged for one-click.' },
+  judgment: { lane: 'labs', assignee: 'claude', model_tier: 'paid-heavy', needs_human: 0, difficulty: 'hard', risk: 'high', rationale: 'High-stakes/judgment → heavy model (Claude Opus).' },
+  impl:     { lane: 'labs', assignee: 'codex', model_tier: 'paid', needs_human: 0, difficulty: 'standard', risk: 'medium', rationale: 'Bounded implementation → Codex (gpt-5.5).' },
+  research: { lane: 'labs', assignee: 'hermes-lenovo', model_tier: 'free', needs_human: 0, difficulty: 'standard', risk: 'low', rationale: 'Research/render → Hermes-Lenovo + free gateways ($0).' },
+  trivial:  { lane: 'labs', assignee: 'local-gemma', model_tier: 'local', needs_human: 0, difficulty: 'trivial', risk: 'low', rationale: 'Trivial/triage → local model ($0).' },
+};
+
+function classify(title, body = '') {
+  const t = `${title} ${body}`.replace(/_/g, ' ');
+  // SAFETY FLOOR (rule-based, never delegated to the LLM): execution and external side effects.
+  const safe = safetyFloor(title, body);
+  if (safe) return safe;
+  // Intelligent path: local LLM understands intent → mapped to policy in code.
+  const llm = llmClassify(title, body);
+  if (llm) {
+    let kind = llm.kind;
+    // A model cannot invent fund authority for a request that has no fund signal.
+    if (!FUND_RE.test(t) && /^fund-/.test(kind)) kind = 'judgment';
+    const base = KIND_MAP[kind] || KIND_MAP.trivial;
+    const d = { ...base, rationale: `🧠 ${base.rationale}`, say: llm.say, speak: llm.speak !== false };
+    if (llm.needs_screen && !d.needs_human) {
+      if (d.lane === 'fund') { d.assignee = 'rajiv'; d.model_tier = 'human'; d.needs_human = 1; d.rationale = '🔒 Fund GUI control (broker/exec risk) — founder-only.'; }
+      else { d.assignee = 'cua'; d.model_tier = 'cua'; d.rationale = '🧠🖥️ Screen/GUI control → CUA driver (Hermes computer_use, background).'; }
+    }
+    return d;
+  }
+  // FALLBACK: deterministic rules (LLM unreachable).
+  return ruleClassify(title, body);
+}
+
+function ruleClassify(title, body = '') {
+  const t = `${title} ${body}`.replace(/_/g, ' '); // underscores (ENV_VAR_NAMES) → spaces so \b works
+  if (SCREEN_RE.test(t) && !FUND_RE.test(t) && !HUMAN_RE.test(t)) return { lane: 'labs', difficulty: 'standard', risk: 'medium', assignee: 'cua', model_tier: 'cua', needs_human: 0, rationale: '🖥️ Screen/GUI control → CUA driver.' };
+  // ---- FUND lane (founder-authorized two-lane control) ----
+  if (FUND_RE.test(t)) {
+    if (FUND_EXEC_RE.test(t)) return { lane: 'fund', difficulty: 'standard', risk: 'high', assignee: 'rajiv', model_tier: 'human', needs_human: 1,
+      rationale: '🔒 FUND EXECUTION — founder-only, never autonomous. Staged for your action.' };
+    return { lane: 'fund', difficulty: 'standard', risk: 'medium', assignee: 'hermes-lenovo', model_tier: 'free', needs_human: 0,
+      rationale: 'Fund research/analysis (read-only, no money) — autonomous on cheap workers.' };
+  }
+  // ---- LABS lane ----
+  if (HUMAN_RE.test(t)) return { lane: 'labs', difficulty: 'standard', risk: 'high', assignee: 'rajiv', model_tier: 'human', needs_human: 1,
+    rationale: 'Needs a human action-time approval (OAuth/login/store/money) — staged for one-click.' };
+  if (HARD_RE.test(t))  return { lane: 'labs', difficulty: 'hard', risk: 'high', assignee: 'claude', model_tier: 'paid-heavy', needs_human: 0,
+    rationale: 'High-stakes/judgment work → routed straight to heavy model (Claude Opus), no cheap-first.' };
+  // Research/render/sweep verbs win over impl nouns (e.g. "research Kaggle …" → cheap lane)
+  if (RESEARCH_RE.test(t)) return { lane: 'labs', difficulty: 'standard', risk: 'low', assignee: 'hermes-lenovo', model_tier: 'free', needs_human: 0,
+    rationale: 'Research/render/sweep → Hermes-Lenovo + free gateways ($0).' };
+  if (IMPL_RE.test(t))  return { lane: 'labs', difficulty: 'standard', risk: 'medium', assignee: 'codex', model_tier: 'paid', needs_human: 0,
+    rationale: 'Bounded implementation → Codex (gpt-5.5).' };
+  return { lane: 'labs', difficulty: 'trivial', risk: 'low', assignee: 'local-gemma', model_tier: 'local', needs_human: 0,
+    rationale: 'Trivial/triage → local Gemma ($0 on-device).' };
+}
+
+function logEvent(taskId, kind, detail = '') {
+  sql(`INSERT INTO events(task_id,kind,detail,at) VALUES('${esc(taskId)}','${esc(kind)}','${esc(detail)}',${now()});`);
+}
+
+// ---------- commands ----------
+function create(title, { body = '', createdBy = 'bee', route = true, sourceKey = '' } = {}) {
+  if (sourceKey) {
+    const existing = sql(`SELECT id FROM tasks WHERE source_key='${esc(sourceKey)}' AND status!='done' ORDER BY created_at DESC LIMIT 1;`, { json: true })[0];
+    if (existing) return existing.id;
+  }
+  const id = rid('t');
+  const ts = now();
+  sql(`INSERT INTO tasks(id,title,body,source_key,created_by,created_at,updated_at)
+       VALUES('${esc(id)}','${esc(title)}','${esc(body)}','${esc(sourceKey)}','${esc(createdBy)}',${ts},${ts});`);
+  logEvent(id, 'created', title);
+  if (route) routeOne(id);
+  return id;
+}
+
+function routeOne(id) {
+  const rows = sql(`SELECT title,body FROM tasks WHERE id='${esc(id)}';`, { json: true });
+  if (!rows.length) { console.error(`no task ${id}`); return; }
+  const c = classify(rows[0].title, rows[0].body || '');
+  // Safety invariant: a fund EXECUTION task can never end up autonomous.
+  if (c.lane === 'fund' && FUND_EXEC_RE.test(`${rows[0].title} ${rows[0].body || ''}`)) { c.needs_human = 1; c.assignee = 'rajiv'; c.model_tier = 'human'; }
+  // Registry-aware implementation failover. Never downgrade judgment or approval work silently.
+  if (!c.needs_human && c.assignee === 'codex' && !agentAvailable('codex')) {
+    const fallback = agentAvailable('nemotron') ? 'nemotron' : (agentAvailable('claude') ? 'claude' : 'rajiv');
+    c.assignee = fallback;
+    c.model_tier = fallback === 'nemotron' ? 'free' : (fallback === 'claude' ? 'paid-heavy' : 'human');
+    c.needs_human = fallback === 'rajiv' ? 1 : 0;
+    c.rationale = `${c.rationale} ↪ Codex unavailable → ${fallback}.`;
+  }
+  sql(`UPDATE tasks SET lane='${c.lane}',difficulty='${c.difficulty}',risk='${c.risk}',assignee='${esc(c.assignee)}',
+       model_tier='${c.model_tier}',needs_human=${c.needs_human},status='${c.needs_human ? 'blocked' : 'routed'}',
+       rationale='${esc(c.rationale)}',updated_at=${now()} WHERE id='${esc(id)}';`);
+  logEvent(id, 'routed', `${c.assignee}/${c.model_tier}`);
+  printTask(id);
+  return c;
+}
+
+function setStatus(id, status) {
+  sql(`UPDATE tasks SET status='${esc(status)}',updated_at=${now()} WHERE id='${esc(id)}';`);
+  logEvent(id, 'status', status);
+  if (status === 'done') { const r = sql(`SELECT title,assignee FROM tasks WHERE id='${esc(id)}';`, { json: true })[0]; if (r) remember(`shipped: ${r.title} (${r.assignee || '?'})`, 'done'); }
+  console.log(`${id} → ${status}`);
+}
+
+// ---------- DURABLE MEMORY: Bee writes lasting facts into the Obsidian vault (the fleet's shared brain) ----------
+// Operational state lives in ~/.bee/labs-board.db (fast, structured). Durable knowledge lives in the vault,
+// human-readable + linkable + graphify-able, where Codex/Hermes/Obsidian all see it. This is the bridge.
+const MEM_FILE = join(VAULT, 'Agent-Shared', 'Bee-Memory.md');
+function remember(text, kind = 'note') {
+  if (!text || !String(text).trim()) return;
+  const line = `- ${new Date(now() * 1000).toISOString().slice(0, 16).replace('T', ' ')} · **${kind}** — ${String(text).trim()}\n`;
+  try { mkdirSync(join(MEM_FILE, '..'), { recursive: true }); execFileSync('bash', ['-c', `cat >> '${MEM_FILE.replace(/'/g, "'\\''")}'`], { input: line }); } catch {}
+}
+function memory(n = 20) { try { return readFileSync(MEM_FILE, 'utf8').trim().split('\n').slice(-n).join('\n'); } catch { return '(no memory yet)'; } }
+
+// ---------- AGENTPAY FEED: Bee consumes its own product's newsfeed of tools + upgrades (dogfooding) ----------
+const FEED_URL = process.env.BEE_FEED_URL || 'https://agentpay-feed.apaybeta.workers.dev';
+function feedEvents(limit = 8) {
+  try {
+    const r = execFileSync('curl', ['-s', '-m', '8', `${FEED_URL}/v1/feed/events?since_ms=0&limit=${limit}`], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    const j = JSON.parse(r); return Array.isArray(j.events) ? j.events : [];
+  } catch { return []; }
+}
+function feedStats() { try { return JSON.parse(execFileSync('curl', ['-s', '-m', '8', `${FEED_URL}/v1/feed/stats`], { encoding: 'utf8' })); } catch { return null; } }
+function feedJSON(limit = 8) {
+  return feedEvents(limit).map((e) => { const p = e.payload || {}; return { category: e.category, action: e.action, tool: p.tool_name || e.source, desc: p.description || '', endpoint: p.endpoint || '', install: p.install_command || '', ts: e.ts_ms }; });
+}
+function feed() {
+  const ev = feedJSON(12), st = feedStats();
+  console.log(`\n📡 AGENTPAY FEED — tools & upgrades for agents  (${FEED_URL})`);
+  if (st) console.log(`   ${st.total_published} published · ${st.ring_size} live (events expire after 24h)`);
+  if (!ev.length) { console.log('   (no live events right now)'); return; }
+  ev.forEach((e) => console.log(`   • [${e.category}/${e.action}] ${e.tool}${e.desc ? ' — ' + e.desc.slice(0, 72) : ''}${e.install ? '\n       install: ' + e.install : ''}`));
+}
+
+function printTask(id) {
+  const r = sql(`SELECT id,title,status,difficulty,risk,assignee,model_tier,needs_human,rationale FROM tasks WHERE id='${esc(id)}';`, { json: true })[0];
+  if (!r) return;
+  const flag = r.needs_human ? ' 🔔NEEDS-YOU' : '';
+  console.log(`\n  ${r.id}  [${r.status}]${flag}`);
+  console.log(`  ${r.title}`);
+  console.log(`  → ${r.assignee} · ${r.model_tier} · ${r.difficulty}/${r.risk}`);
+  console.log(`  ${r.rationale}\n`);
+}
+
+function list(where = '1=1') {
+  const rows = sql(`SELECT id,title,status,assignee,model_tier,needs_human,lane FROM tasks WHERE ${where} ORDER BY needs_human DESC, created_at DESC;`, { json: true });
+  if (!rows.length) { console.log('(empty)'); return; }
+  for (const r of rows) {
+    const flag = r.needs_human ? '🔔' : '  ';
+    console.log(`${flag} ${(r.lane||'labs').padEnd(4)} ${r.id}  [${(r.status||'').padEnd(11)}] ${(r.assignee||'?').padEnd(13)} ${r.title}`);
+  }
+}
+
+function board() {
+  for (const s of ['inbox', 'routed', 'in_progress', 'blocked', 'done']) {
+    const rows = sql(`SELECT count(*) c FROM tasks WHERE status='${s}';`, { json: true })[0];
+    console.log(`\n━━ ${s.toUpperCase()} (${rows.c}) ━━`);
+    list(`status='${s}'`);
+  }
+}
+
+function approvals() {
+  console.log('\n🔔 BEE APPROVAL QUEUE — the single human-action wall (clear these to unblock revenue):\n');
+  const rows = sql(`SELECT id,title,rationale FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY created_at;`, { json: true });
+  if (!rows.length) { console.log('  ✅ nothing waiting on you'); return; }
+  rows.forEach((r, i) => console.log(`  ${i + 1}. ${r.title}\n      (${r.id}) ${r.rationale}`));
+  console.log('');
+}
+
+// ---------- FUND lane: READ-ONLY operational status ----------
+// Founder-authorized view. Shows only operational health + freshness (is the fund
+// alive and cycling), NOT positions/strategy/PnL. Reads only; persists nothing; never acts.
+function fundStatus() {
+  const lines = [];
+  try {
+    const ll = execFileSync('launchctl', ['list'], { encoding: 'utf8' }).split('\n')
+      .filter((l) => /com\.agentpay\.bill\./.test(l));
+    const up = ll.filter((l) => !/^-\t/.test(l)).length;
+    lines.push(`bill launchd jobs: ${ll.length} registered, ${up} with a live PID`);
+    const bad = ll.filter((l) => { const p = l.split('\t'); return p[1] && p[1] !== '0' && p[1] !== '-'; });
+    if (bad.length) lines.push(`  ⚠ ${bad.length} job(s) reporting non-zero last exit`);
+  } catch { lines.push('bill launchd: (could not read)'); }
+  const pcl = join(homedir(), 'hedge/.rumbling-hedge/logs/prediction-cycle-history.jsonl');
+  try {
+    const last = readFileSync(pcl, 'utf8').trim().split('\n').pop();
+    const o = JSON.parse(last);
+    const ts = o.ts || o.timestamp || o.time;
+    lines.push(`prediction-cycle: last entry ${ts ? new Date(ts).toISOString?.() || ts : '(present)'}`);
+  } catch { lines.push('prediction-cycle: (no readable history)'); }
+  const st = join(homedir(), '.openclaw/workspace-bill/STATUS.md');
+  try { lines.push(`bill STATUS: ${readFileSync(st, 'utf8').split('\n').find((l) => l.trim()) || '(empty)'}`); } catch {}
+  return lines;
+}
+
+// ---------- AGENCY OS lane: READ-ONLY view of Codex's company-building runtime ----------
+// Codex's Agency OS lives at ~/.openclaw/workspace-agency-os (STATUS/OUTBOX + JSON boards: crm, content,
+// experiments, approvals). Bee is the founder face OVER it — reads its health, never mutates it here.
+const AGENCY_WS = join(homedir(), '.openclaw/workspace-agency-os');
+function agencyStatus() {
+  const out = { present: existsSync(AGENCY_WS), lines: [], boards: {}, approvals: 0, lastSync: '', gateway: false };
+  if (!out.present) return out;
+  try { execFileSync('curl', ['-s', '-o', '/dev/null', '-m', '2', 'http://127.0.0.1:18789/'], { stdio: ['ignore', 'ignore', 'ignore'] }); out.gateway = true; } catch {}
+  try {
+    const s = readFileSync(join(AGENCY_WS, 'STATUS.md'), 'utf8');
+    for (const l of s.split('\n')) { const m = l.match(/^- (.*)$/); if (m) out.lines.push(m[1]); }
+    const ls = out.lines.find((l) => /last sync/i.test(l)); out.lastSync = ls ? ls.replace(/last sync:?\s*/i, '') : '';
+  } catch {}
+  try {
+    for (const f of readdirSync(join(AGENCY_WS, 'boards')).filter((n) => n.endsWith('.json'))) {
+      try { const j = JSON.parse(readFileSync(join(AGENCY_WS, 'boards', f), 'utf8')); const n = Array.isArray(j) ? j.length : (Array.isArray(j.items) ? j.items.length : Object.keys(j).length); out.boards[f.replace('.json', '')] = n; } catch {}
+    }
+    out.approvals = out.boards.approvals || 0;
+  } catch {}
+  return out;
+}
+// Agency OS's own approval queue (external sends, spend, public claims…) → surfaced on Bee's unified wall.
+function agencyApprovals() {
+  try {
+    const j = JSON.parse(readFileSync(join(AGENCY_WS, 'boards', 'approvals.json'), 'utf8'));
+    return (j.requests || []).map((r, i) => ({ id: r.id || `agency-${i}`, lane: 'agency', title: r.title || r.summary || r.action || 'Agency OS approval', rationale: r.detail || r.purpose || j.purpose || '' }));
+  } catch { return []; }
+}
+// Bee is the FRONT DOOR into Agency OS: write a founder request into its INBOX (consumed when the gateway runs).
+function agencyAsk(text) {
+  if (!text || !String(text).trim()) { console.error('usage: bee agency "<request>"'); return; }
+  const inbox = join(AGENCY_WS, 'INBOX.md');
+  const entry = `\n## ${new Date(now() * 1000).toISOString()} — founder via Bee\n${String(text).trim()}\n`;
+  try { mkdirSync(AGENCY_WS, { recursive: true }); execFileSync('bash', ['-c', `cat >> '${inbox.replace(/'/g, "'\\''")}'`], { input: entry }); console.log(`📨 sent to Agency OS INBOX → ${inbox}`); speak('Sent to the Agency OS lane.'); }
+  catch (e) { console.error('could not write Agency OS INBOX:', e.message); }
+}
+
+// ---------- UNIFIED TWO-LANE DASHBOARD ----------
+function dashboard() {
+  const c = (s) => (sql(`SELECT count(*) c FROM tasks WHERE ${s};`, { json: true })[0] || {}).c || 0;
+  console.log('\n╔══════════════════════════════════════════════════════════════╗');
+  console.log('║  BEE — unified control plane (Labs + Fund)                     ║');
+  console.log('╚══════════════════════════════════════════════════════════════╝');
+
+  console.log(`\n▌ LABS LANE   routed:${c("lane='labs' AND status='routed'")}  in-progress:${c("lane='labs' AND status='in_progress'")}  blocked:${c("lane='labs' AND status='blocked'")}  done:${c("lane='labs' AND status='done'")}`);
+  list("lane='labs' AND status IN ('routed','in_progress')");
+
+  console.log(`\n▌ FUND LANE   (view + stage + autonomous read-only research; you execute)`);
+  console.log('  ── live fund status (read-only) ──');
+  for (const l of fundStatus()) console.log(`    ${l}`);
+  const fundTasks = sql(`SELECT count(*) c FROM tasks WHERE lane='fund';`, { json: true })[0].c;
+  if (fundTasks) { console.log('  ── fund tasks on Bee board ──'); list("lane='fund' AND status!='done'"); }
+
+  const ag = agencyStatus();
+  if (ag.present) {
+    console.log(`\n▌ AGENCY OS LANE   (Codex's company-building cells — read-only via Bee)`);
+    console.log(`  last sync: ${ag.lastSync || '(unknown)'}${ag.lines.find((l) => /active internal cells/i.test(l)) ? ' · ' + ag.lines.find((l) => /active internal cells/i.test(l)) : ''}`);
+    const boards = Object.entries(ag.boards).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join('  ');
+    if (boards) console.log(`  boards: ${boards}`);
+  }
+
+  console.log('\n🔔 APPROVAL WALL — your action clears these (all lanes):');
+  const w = [...sql(`SELECT lane,title FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY lane,created_at;`, { json: true }), ...agencyApprovals().map((a) => ({ lane: a.lane, title: a.title }))];
+  if (!w.length) console.log('   ✅ nothing waiting on you');
+  else w.forEach((r, i) => console.log(`   ${i + 1}. [${r.lane}] ${r.title}`));
+  console.log('');
+}
+
+// ---------- AUTONOMY + BLUEPRINTS (the proactive control plane) ----------
+// Bee is proactive BY DEFAULT — it acts on routed work on its own until the founder says stop.
+const AUTONOMY_FILE = join(BEE_DIR, 'autonomy.json');
+function getAutonomy() { try { return { proactive: true, ...JSON.parse(readFileSync(AUTONOMY_FILE, 'utf8')) }; } catch { return { proactive: true }; } }
+function setAutonomy(p) { const a = { ...getAutonomy(), proactive: !!p }; writeFileSync(AUTONOMY_FILE, JSON.stringify(a)); return a; }
+
+// What Bee can run on its own — modelled on the Hermes automation-blueprint catalog, scoped to AgentPay's real loops.
+const BLUEPRINTS = [
+  { key: 'project-operator', name: 'Project operator', desc: 'Advance the highest-impact safe AgentPay Labs outcome that is not already in flight.', cadence: 'hourly', assignee: 'codex' },
+  { key: 'fleet-sweep',      name: 'Daily Labs sweep',       desc: 'Check AgentPay Labs agent lanes, surface new blockers, and summarize progress without reading the fund lane.', cadence: 'daily' },
+  { key: 'revenue-chaser',   name: 'Revenue-blocker chaser', desc: 'Re-check each approval-wall blocker and ping you only when one is genuinely ready to clear.', cadence: 'hourly' },
+  { key: 'content-engine',   name: 'Content engine',         desc: 'Draft and stage posts across channels from the week’s shipped work.', cadence: 'daily' },
+  { key: 'competitor-watch', name: 'Competitor watch',       desc: 'Scan competitor pricing and launches; summarize what changed.', cadence: 'weekly' },
+  { key: 'inbox-triage',     name: 'Inbox triage',           desc: 'Classify and route anything dropped to Bee; escalate only the human-action items.', cadence: 'continuous' },
+  { key: 'tool-watch',       name: 'Tool watch',             desc: 'Poll the AgentPay Feed for new tools/upgrades and note anything Bee should adopt.', cadence: 'daily' },
+  { key: 'chief-of-staff',   name: 'Chief of staff',         desc: 'Run an OODA decision pass over the whole company and stage the day’s priorities to memory.', cadence: 'daily' },
+];
+function projectBrief() {
+  const ledger = join(VAULT, 'Shared-Brain', 'LEDGER.md');
+  let remaining = '';
+  try {
+    const text = readFileSync(ledger, 'utf8');
+    remaining = (text.split(/^## 📋 REMAINING\b/m)[1] || '').split(/^## 🔒 BLOCKED ON RAJIV\b/m)[0];
+  } catch {}
+  const external = /\b(remove|delete|publish|posting|activate|account|oauth|log[- ]?in|auth|submit|upload|promote|production|store|console|stripe|secret|token|payment|money|deploy|send|email)\b/i;
+  const candidates = remaining.split('\n').filter((line) => /^- \*\*/.test(line) && !external.test(line));
+  const active = sql(`SELECT title,assignee,status FROM tasks WHERE lane='labs' AND status IN ('routed','in_progress') AND needs_human=0 ORDER BY updated_at DESC LIMIT 20;`, { json: true });
+  return `SAFE CURRENT LABS CANDIDATES (external/founder-gated rows removed):\n${candidates.join('\n') || '(none)'}\n\nACTIVE BEE LABS WORK (do not duplicate):\n${active.map((t) => `- [${t.status}/${t.assignee}] ${t.title}`).join('\n') || '(none)'}`;
+}
+function runBlueprint(key) {
+  const b = BLUEPRINTS.find((x) => x.key === key);
+  if (!b) { console.error(`unknown blueprint "${key}". try: ${BLUEPRINTS.map((x) => x.key).join(', ')}`); return null; }
+  if (key === 'tool-watch') {                          // runs in-process: poll the feed, note new tools to durable memory
+    const ev = feedJSON(10);
+    if (ev.length) { ev.slice(0, 5).forEach((e) => remember(`feed: [${e.category}/${e.action}] ${e.tool}${e.desc ? ' — ' + e.desc.slice(0, 60) : ''}`, 'tool-watch')); console.log(`📡 tool-watch: noted ${Math.min(5, ev.length)} feed item(s)`); speak(`${ev.length} new ${ev.length === 1 ? 'tool' : 'tools'} on the feed.`); }
+    else { console.log('📡 tool-watch: feed quiet, nothing new'); }
+    return { assignee: 'bee' };
+  }
+  if (key === 'chief-of-staff') {                      // runs in-process: an OODA decision pass, staged to memory
+    decide(undefined, false);
+    return { assignee: 'bee' };
+  }
+  // Dedupe: don't stack a new run while the previous one is still open (stops hourly pile-ups of paid work).
+  const open = sql(`SELECT count(*) c FROM tasks WHERE title LIKE '[${esc(b.name)}]%' AND status!='done';`, { json: true })[0]?.c || 0;
+  if (open > 0) { console.log(`↩ "${b.name}" already has ${open} open — skipping this run`); return null; }
+  const projectBody = key === 'project-operator'
+    ? `Pick exactly ONE highest-impact AgentPay Labs outcome from the sanitized brief below that you can complete or materially advance now. Skip any candidate whose next step needs the founder, credentials, external deployment, publishing, account access, payment, or a store console; choose another candidate instead. Prefer shipping local code, tests, launch assets, reliability, or conversion infrastructure. Do not open any other fleet ledger/status files. Do not read or touch Bill, hedge, Trading, Research-Catalog, broker, market, strategy, position, PnL, or execution material. Implement and verify locally.\n\n${projectBrief()}`
+    : '';
+  const id = create(`[${b.name}] ${b.desc}`, { body: projectBody, createdBy: 'blueprint', route: false, sourceKey: `blueprint:${b.key}` });
+  const blueprintAssignee = b.assignee === 'codex' && !agentAvailable('codex') && agentAvailable('nemotron') ? 'nemotron' : b.assignee;
+  const d = b.assignee
+    ? { lane: 'labs', difficulty: 'standard', risk: 'medium', assignee: blueprintAssignee, model_tier: blueprintAssignee === 'codex' ? 'paid' : 'free', needs_human: 0, rationale: `Trusted Labs blueprint policy → ${blueprintAssignee}. External actions remain worker-gated.` }
+    : routeOne(id);
+  if (b.assignee) {
+    sql(`UPDATE tasks SET lane='labs',difficulty='${d.difficulty}',risk='${d.risk}',assignee='${esc(d.assignee)}',model_tier='${esc(d.model_tier)}',needs_human=0,status='routed',rationale='${esc(d.rationale)}',updated_at=${now()} WHERE id='${esc(id)}';`);
+    logEvent(id, 'routed', `${d.assignee}/${d.model_tier}`);
+    printTask(id);
+  }
+  dispatch(id);
+  console.log(`▶ ran blueprint "${b.name}" → ${id} (${d?.assignee || 'routed'})`);
+  speak(`Running ${b.name}.`);
+  return d;
+}
+
+// Scheduler: fires each blueprint on its cadence. State (last-run per key) in ~/.bee/schedule.json.
+const SCHED_FILE = join(BEE_DIR, 'schedule.json');
+const CADENCE_SECS = { continuous: 0, hourly: 3600, daily: 86400, weekly: 604800 };
+function getSched() { try { return JSON.parse(readFileSync(SCHED_FILE, 'utf8')); } catch { return {}; } }
+function blueprintTiming(b) {
+  const last = getSched()[b.key] || 0;
+  const interval = CADENCE_SECS[b.cadence] ?? 0;
+  return { last, interval, nextDue: (last && interval) ? last + interval : 0, continuous: interval === 0 };
+}
+// Called every daemon tick. Cheap: only writes when a clock starts or a blueprint actually fires.
+function tickBlueprints() {
+  if (!getAutonomy().proactive) return;
+  const s = getSched(); let changed = false;
+  for (const b of BLUEPRINTS) {
+    const iv = CADENCE_SECS[b.cadence] ?? 0;
+    if (!iv) continue;                                  // 'continuous' is handled live by the daemon, not timed
+    if (!s[b.key]) { s[b.key] = now(); changed = true; continue; } // start the clock on first sight — don't fire on boot
+    if (now() - s[b.key] >= iv) { try { runBlueprint(b.key); } catch {} s[b.key] = now(); changed = true; }
+  }
+  if (changed) writeFileSync(SCHED_FILE, JSON.stringify(s));
+}
+
+// Single JSON snapshot for the desktop dashboard — same truth the CLI dashboard prints, structured.
+function stateJSON() {
+  const c = (s) => (sql(`SELECT count(*) c FROM tasks WHERE ${s};`, { json: true })[0] || {}).c || 0;
+  const labs = {
+    routed: c("lane='labs' AND status='routed' AND needs_human=0"),
+    inProgress: c("lane='labs' AND status='in_progress'"),
+    blocked: c("lane='labs' AND status='blocked' AND needs_human=0"),
+    done: c("lane='labs' AND status='done'"),
+    active: sql(`SELECT id,title,assignee,status,model_tier FROM tasks WHERE lane='labs' AND status IN ('routed','in_progress') AND needs_human=0 ORDER BY updated_at DESC LIMIT 8;`, { json: true }),
+  };
+  const approvals = [...sql(`SELECT id,lane,title,rationale FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY lane,created_at;`, { json: true }), ...agencyApprovals()];
+  const fund = {
+    status: fundStatus(),
+    tasks: sql(`SELECT id,title,status,needs_human FROM tasks WHERE lane='fund' AND status!='done' ORDER BY created_at;`, { json: true }),
+  };
+  const needs = approvals.length;
+  const state = needs > 0 ? 'alert' : (labs.inProgress + labs.routed > 0 ? 'cocoon' : 'idle');
+  const presence = needs > 0 ? `${needs} ${needs === 1 ? 'task needs' : 'tasks need'} your call.`
+    : labs.inProgress > 0 ? `${labs.inProgress} ${labs.inProgress === 1 ? 'task' : 'tasks'} in flight.`
+    : labs.routed > 0 ? `${labs.routed} queued and ready.`
+    : 'All quiet — watching the fleet.';
+  const nextMoves = [];
+  if (labs.routed > 0) nextMoves.push(`Dispatch ${labs.routed} routed ${labs.routed === 1 ? 'task' : 'tasks'} to their workers.`);
+  if (needs > 0) nextMoves.push(`${needs} ${needs === 1 ? 'blocker is' : 'blockers are'} waiting on you to unblock revenue.`);
+  if (labs.blocked > 0) nextMoves.push(`Re-check ${labs.blocked} blocked ${labs.blocked === 1 ? 'task' : 'tasks'} for anything now unblocked.`);
+  if (!nextMoves.length) nextMoves.push('Nothing pressing — Bee is watching and will act the moment work appears.');
+  const blueprints = BLUEPRINTS.map((b) => { const t = blueprintTiming(b); return { ...b, lastRun: t.last, nextDue: t.nextDue, continuous: t.continuous }; });
+  return { ts: now(), state, presence, autonomy: getAutonomy(), labs, fund, agency: agencyStatus(), approvals, blueprints, nextMoves };
+}
+
+// ---------- BEE KNOWS ITS TEAM (registry → understanding) ----------
+function loadRegistry() { try { return JSON.parse(readFileSync(REGISTRY, 'utf8')); } catch { return null; } }
+function agents() {
+  const reg = loadRegistry();
+  if (!reg) { console.log('No registry yet — run `bee scan` first.'); return; }
+  console.log("\n🧠 BEE'S TEAM — who Bee hands work to:\n");
+  for (const a of reg.agents) console.log(`  ${(a.name || '').padEnd(14)} ${a.role}  ·  ${a.status}`);
+  const labs = (reg.skills || []).filter((s) => s.lane === 'labs');
+  console.log(`\n  Hermes/Codex skills usable (${labs.length}):`);
+  console.log('    ' + labs.map((s) => s.name).join(', '));
+  console.log(`\n  Tools on this box: ${(reg.tools || []).join(', ')}`);
+  if (reg.rails) { console.log('\n  Rails:'); if (reg.rails.spend) console.log(`    spend → ${reg.rails.spend}`); if (reg.rails.earn) console.log(`    earn  → ${reg.rails.earn}`); }
+}
+
+// ---------- DECISION ENGINE: Bee runs an OODA loop over the whole picture ----------
+// Observe (board+registry+lanes) → Orient (compact context) → Decide (brain: what/who/when/why)
+// → Act (optional: create+route through the normal safety pipeline). `bee decide [goal] [--act]`.
+function decide(goal, enact = false) {
+  const reg = loadRegistry() || { agents: [], skills: [] };
+  const s = stateJSON();                                                   // OBSERVE
+  const agentsCtx = reg.agents.map((a) => `- ${a.name}: ${a.role} [${a.status}]`).join('\n');
+  const skills = reg.skills.filter((x) => x.lane === 'labs').map((x) => x.name);
+  const board = `queued:${s.labs.routed} in-progress:${s.labs.inProgress} blocked:${s.labs.blocked} done:${s.labs.done} · wall:${s.approvals.length}`;
+  const active = (s.labs.active || []).map((t) => `${t.assignee}:${t.title}`).join('; ') || 'none';
+  const wall = s.approvals.map((a) => a.title).slice(0, 8).join('; ') || 'none';
+  const sys = "You are Bee, the founder's autonomous chief-of-staff running a 3-agent company: "
+    + "Claude=judgment/design/copy/strategy; Codex=implementation/code/CI; Hermes(-lenovo)=research/render/distribution with a skill library; Nemotron=fast free execution. "
+    + "Run the OODA loop and decide the next best moves toward the goal. Output ONLY JSON: "
+    + '{"summary":"<=20 words","decisions":[{"action":"<concrete task>","assignee":"claude|codex|hermes-lenovo|nemotron|rajiv","skill":"<hermes skill or empty>","when":"now|today|this-week","priority":1,"why":"<=14 words"}]}. '
+    + "HARD RULES: anything needing OAuth/login/app-store/money/payment/trade => assignee rajiv (founder-only). Prefer free/local workers. Be concrete and minimal — at most 6 decisions, highest-leverage first.";
+  const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nDecide.`;
+  speak('Let me think it through.');
+  const out = brain(prompt, { sys, max: 900, big: true });                 // DECIDE — NIM 70b for the sharpest plan
+  const m = out.match(/\{[\s\S]*\}/); let plan;
+  try { plan = JSON.parse(m[0]); } catch { console.log('Could not parse a clean decision:\n' + out.slice(0, 300)); speak("I couldn't decide cleanly — the brain may be down."); return; }
+  const decisions = (plan.decisions || []).sort((a, b) => (a.priority || 9) - (b.priority || 9));
+  console.log(`\n🧭 BEE'S DECISION — ${plan.summary || ''}\n`);
+  decisions.forEach((d) => console.log(`  P${d.priority || '?'} [${(d.when || '?').padEnd(9)}] ${d.action}\n        → ${d.assignee}${d.skill ? ' · skill:' + d.skill : ''} — ${d.why || ''}`));
+  remember(`decision: ${plan.summary} (${decisions.length} moves)`, 'decide');
+  if (enact) {                                                             // ACT (opt-in) — through the normal safety pipeline
+    let made = 0;
+    for (const d of decisions) {
+      if (d.assignee === 'rajiv') continue;                                // founder wall items already staged
+      const body = `${d.why || ''}${d.skill ? `  [use Hermes skill: ${d.skill}]` : ''}  (Bee-decided, ${d.when || 'today'})`;
+      const id = create(d.action, { body, createdBy: 'bee-decide', route: false });
+      routeOne(id); if (getAutonomy().proactive) dispatch(id); made++;       // classify() safety-floor still governs assignee/needs_human
+    }
+    console.log(`\n✅ enacted ${made} decision(s) onto the board (safety pipeline applied).`);
+    speak(`On it — I've put ${made} ${made === 1 ? 'move' : 'moves'} into motion.`);
+  } else {
+    console.log(`\n(plan only — run \`bee decide "${(goal || '').replace(/"/g, '')}" --act\` to put these on the board)`);
+    speak(cleanSay(plan.summary) || "That's my read.");
+  }
+}
+
+// ---------- VOICE ----------
+const VOICE = process.env.BEE_VOICE || 'Samantha';  // macOS `say` fallback voice
+const RATE = process.env.BEE_RATE || '185';
+const SAY_SH = new URL('bee-say.sh', import.meta.url).pathname; // neural Kokoro (server) → say fallback
+function speak(text) {
+  if (!text || !String(text).trim()) return;
+  // non-blocking; bee-say.sh uses the Kokoro TTS server (warm ~0.3s) and falls back to `say`.
+  try { spawn('bash', [SAY_SH, String(text)], { detached: true, stdio: 'ignore' }).unref(); }
+  catch { try { spawn('say', ['-v', VOICE, '-r', RATE, String(text)], { detached: true, stdio: 'ignore' }).unref(); } catch {} }
+}
+// ---------- PERSONALITY (Bee's voice) ----------
+// Bee = a warm, sharp, slightly witty cofounder. Concise, proactive, calm under load, owns outcomes.
+// Never sycophantic, never a generic assistant. Personality affects WORDING only — never routing/safety.
+const BEE_PERSONA = "You are Bee — the founder's AI cofounder. Warm, sharp, a little witty, calm, concise. "
+  + "You own outcomes, you don't grovel, you never say 'as an AI' or 'I can't assist'. Speak like a trusted partner who's already on it.";
+const ACKS = ['On it.', 'Got it — moving.', 'Say less, handling it.', "I'm on it.", 'Mm, good one — on it.'];
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+function ack() { return pick(ACKS); }
+function cleanSay(s) { return (s && !/sorry|can'?t (assist|help)|as an (ai|assistant)|unable to|i cannot|i'?m an? (ai|assistant)/i.test(s)) ? s.trim() : ''; }
+function replyFor(d) {
+  if (!d) return ack();
+  if (d.needs_human) return d.lane === 'fund'
+    ? pick(["That's a fund move — only you can pull that trigger. Staged it for you.", "Fund action, so it's yours to run — I've teed it up on your wall."])
+    : pick(["This one needs your hands — it's on your approval wall.", "I staged it; one tap from you and it's live."]);
+  const who = { codex: 'Codex', claude: 'Claude', 'hermes-lenovo': 'Hermes', hermes: 'Hermes', nemotron: 'Nemotron', cua: 'my pointer', 'local-gemma': 'the local model' }[d.assignee] || d.assignee;
+  return cleanSay(d.say) || pick([`On it — handing this to ${who}.`, `Got it. ${who}'s taking it from here.`, `Done thinking — ${who} is on it.`]);
+}
+function transcribe() {
+  // push-to-talk: record ~6s from default mic, transcribe with whisper-cpp
+  const wav = join(BEE_DIR, 'listen.wav');
+  const model = process.env.WHISPER_MODEL || join(homedir(), '.bee/models/ggml-base.en.bin');
+  if (!existsSync(model)) { console.error(`no whisper model at ${model} — download ggml-base.en.bin from huggingface.co/ggerganov/whisper.cpp into ~/.bee/models/`); return ''; }
+  speak('Listening.');
+  try {
+    execFileSync('ffmpeg', ['-y', '-f', 'avfoundation', '-i', ':default', '-t', '6', '-ar', '16000', '-ac', '1', wav], { stdio: 'ignore' });
+  } catch (e) { console.error('mic capture failed (grant Terminal microphone access):', e.message.split('\n')[0]); return ''; }
+  const bin = ['whisper-cli', 'whisper-cpp', 'main'].map((b) => { try { return execFileSync('which', [b], { encoding: 'utf8' }).trim(); } catch { return ''; } }).find(Boolean);
+  if (!bin) { console.error('no whisper binary'); return ''; }
+  const out = execFileSync(bin, ['-m', model, '-f', wav, '-nt', '-otxt', '-of', join(BEE_DIR, 'listen')], { encoding: 'utf8' });
+  try { return readFileSync(join(BEE_DIR, 'listen.txt'), 'utf8').trim(); } catch { return out.trim(); }
+}
+
+// ---------- VISION: Bee sees the screen ----------
+function see(question = 'Describe what is on screen and any state worth acting on.') {
+  const dir = join(BEE_DIR, 'vision'); if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const shot = join(dir, `screen-${now()}.png`);
+  try { execFileSync('screencapture', ['-x', '-t', 'png', shot], { stdio: 'ignore' }); }
+  catch (e) { console.error('screencapture failed (grant Screen Recording to the terminal):', e.message.split('\n')[0]); return; }
+  console.log(`📸 ${shot}`);
+  // Describe via a vision-capable endpoint if configured (else just save the frame).
+  const vurl = process.env.BEE_VISION_URL, vmodel = process.env.BEE_VISION_MODEL;
+  if (!vurl) { console.log('(no BEE_VISION_URL set — frame saved; set it to a vision endpoint for descriptions)'); return shot; }
+  try {
+    const b64 = execFileSync('base64', ['-i', shot], { encoding: 'utf8' }).replace(/\n/g, '');
+    const payload = JSON.stringify({ model: vmodel || 'gemini', temperature: 0, messages: [{ role: 'user', content: [{ type: 'text', text: question }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }] });
+    const r = execFileSync('curl', ['-s', '-m', '40', vurl, '-H', 'content-type: application/json', '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 24 });
+    console.log('👁  ' + (JSON.parse(r).choices?.[0]?.message?.content?.trim() || '(no description)'));
+  } catch (e) { console.error('vision describe failed:', e.message.split('\n')[0]); }
+  return shot;
+}
+
+// ---------- DISPATCH: Bee → the right agent's lane inbox (the founder's instruction channel) ----------
+const LANE_INBOX = { codex: 'Agent-Codex', claude: 'Agent-Claude', 'hermes-lenovo': 'Agent-Hermes', hermes: 'Agent-Hermes', nemotron: 'Agent-Hermes', cua: 'Agent-Hermes', 'local-gemma': 'Agent-Shared' };
+// Registry-aware availability (B1.5): is an agent usable right now?
+function agentAvailable(name) {
+  try { const reg = JSON.parse(readFileSync(REGISTRY, 'utf8')); const a = reg.agents.find((x) => x.name === name); return !a || !/limit|down|offline|unavailable/i.test(a.status); } catch { return true; }
+}
+function dispatch(id) {
+  const r = sql(`SELECT id,title,assignee,model_tier,lane,needs_human,rationale FROM tasks WHERE id='${esc(id)}';`, { json: true })[0];
+  if (!r) return;
+  if (r.needs_human) { console.log(`(${id} is on the approval wall — needs you, not dispatched)`); return; }
+  const dir = LANE_INBOX[r.assignee];
+  if (!dir) { console.log(`(no agent inbox for assignee ${r.assignee})`); return; }
+  const stamp = new Date(now() * 1000).toISOString();
+  const entry = `\n## ${stamp} — Bee dispatch ${r.id}\n- **lane:** ${r.lane} · **tier:** ${r.model_tier}\n- **task:** ${r.title}\n- _${r.rationale}_\n- claim with: \`ops/mac-mini/bin/bee start ${r.id}\` → on finish \`bee done ${r.id}\`\n`;
+  for (const f of [join(VAULT, dir, 'bee-inbox.md'), join(VAULT, 'Shared-Brain', 'BEE-DISPATCH.md')]) {
+    try { mkdirSync(join(f, '..'), { recursive: true }); execFileSync('bash', ['-c', `cat >> '${f.replace(/'/g, "'\\''")}'`], { input: entry }); } catch (e) { /* vault may be absent */ }
+  }
+  logEvent(id, 'dispatched', `${r.assignee} ← ${dir}/bee-inbox.md`);
+  console.log(`📤 dispatched ${id} → ${r.assignee} (${dir}/bee-inbox.md)`);
+}
+function dispatchAll() {
+  const ids = sql(`SELECT id FROM tasks WHERE status='routed' AND needs_human=0;`, { json: true }).map((r) => r.id);
+  ids.forEach(dispatch);
+  console.log(`dispatched ${ids.length} routed task(s).`);
+}
+
+// ---------- WORKER AUTO-PULL: Codex claims a routed card and executes it (closes the loop) ----------
+const CODEX_SAFETY = [
+  'Safety contract (hard, non-negotiable):',
+  '- Do NOT read, inspect, summarize, search, or modify the hedge/Bill/trading lane: no /Users/brain/hedge, no Bill files, no Trading, no Research-Catalog, no broker/order/position/strategy/PnL material.',
+  '- Do NOT publish, post, send email, change OAuth/cloud-console settings, or move money.',
+  '- Do NOT `git push`/force-push and do NOT commit unless the task explicitly says to. Leave changes in the working tree for the founder to review.',
+  '- If one read-only verification command fails, try an equivalent command before declaring the task blocked.',
+  '- If the task needs an action you are not allowed to take, STOP and explain what the founder must do.',
+].join('\n');
+const EXEC_ASSIGNEES = ['codex', 'claude', 'nemotron', 'hermes-lenovo', 'cua']; // workers Bee can drive headlessly
+function workerCommand(assignee, prompt, cwd) {
+  if (assignee === 'codex') {
+    const tier = process.env.BEE_CODEX_TIER || 'fast';
+    return { bin: process.env.BEE_CODEX_BIN || 'codex', args: ['exec', '--full-auto', '--skip-git-repo-check', '-c', `service_tier=${tier}`, '-C', cwd, prompt], cwd: undefined };
+  }
+  if (assignee === 'claude') {
+    return { bin: process.env.BEE_CLAUDE_BIN || 'claude', args: ['-p', '--permission-mode', 'acceptEdits', '--no-session-persistence', '--model', process.env.BEE_CLAUDE_MODEL || 'sonnet', prompt], cwd };
+  }
+  // Hermes lives on the LENOVO box (WSL), not the Mac — driving a local `hermes` binary just ENOENTs.
+  // Route hermes-lenovo over SSH. The exact WSL invocation is env-tunable (set BEE_HERMES_REMOTE to the
+  // working remote prefix once Lenovo's wsl path is confirmed, e.g. "wsl -e bash -lc hermes").
+  if (assignee === 'hermes-lenovo') {
+    const host = process.env.BEE_LENOVO_SSH || 'lenovo';
+    const remote = `${process.env.BEE_HERMES_REMOTE || 'hermes'} -z ${JSON.stringify(prompt)}`;
+    return { bin: 'ssh', args: ['-o', 'ConnectTimeout=10', host, remote], cwd: undefined };
+  }
+  // Nemotron execution: pinned to the verified NVIDIA 120B model via the local Hermes gateway.
+  const args = ['-z', prompt];
+  if (assignee === 'nemotron') args.push('--provider', process.env.BEE_NEMOTRON_PROVIDER || 'nvidia', '-m', process.env.BEE_NEMOTRON_MODEL || 'nvidia/nemotron-3-super-120b-a12b');
+  return { bin: process.env.BEE_HERMES_BIN || 'hermes', args, cwd };
+}
+function workerOutcome(output) {
+  const declared = String(output || '').match(/BEE_OUTCOME:\s*(done|blocked)\b/i)?.[1]?.toLowerCase();
+  if (declared) return declared;
+  return 'blocked';
+}
+// Nemotron worker = NVIDIA NIM, executed in-process. Does research/analysis/writing tasks (text artifacts),
+// writes the deliverable to the vault, and closes the card. This is what makes the Nemotron lane actually
+// run on the Mac (no hermes binary) and what the Codex-timeout failover lands on.
+function nimExecute(card, prompt) {
+  if (!process.env.NVIDIA_API_KEY) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: no NVIDIA_API_KEY in ~/.bee/.env')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — no NIM key.`); return 'deferred'; }
+  setStatus(card.id, 'in_progress');
+  console.log(`▶ nemotron (NIM ${NIM_MODEL}) executing ${card.id}: ${card.title}`);
+  const sys = 'You are a Bee worker powered by NVIDIA NIM. Complete the research / analysis / writing task FULLY as text — concrete, specific, founder-ready. You cannot run code or change files; if the task strictly requires that, say so. End with exactly one line: "BEE_OUTCOME: done" if you produced the artifact, else "BEE_OUTCOME: blocked" and a "BEE_BLOCKER: <reason>" line.';
+  const outText = nimBrain([{ role: 'system', content: sys }, { role: 'user', content: prompt }], 2000);
+  try { writeFileSync(join(BEE_DIR, 'logs', `exec-${card.id}-nemotron.log`), outText || ''); } catch {}
+  if (!outText) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: NIM unreachable')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — NIM unreachable.`); return 'deferred'; }
+  if (workerOutcome(outText) === 'blocked') { setStatus(card.id, 'blocked'); const b = outText.match(/BEE_BLOCKER:\s*(.+)/i)?.[1] || 'worker could not complete'; sql(`UPDATE tasks SET result='${esc(b.slice(0, 500))}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.error(`✗ blocked ${card.id} — ${b}`); return 'blocked'; }
+  const f = join(VAULT, 'Agent-Hermes', `nim-${card.id}.md`);
+  try { mkdirSync(join(f, '..'), { recursive: true }); writeFileSync(f, `# ${card.title}\n\n_Nemotron (NIM) via Bee · ${new Date(now() * 1000).toISOString().slice(0, 16).replace('T', ' ')}_\n\n${outText}\n`); } catch {}
+  sql(`UPDATE tasks SET result='${esc(outText.split('\n').filter(Boolean).slice(-6).join(' | ').slice(0, 500))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+  setStatus(card.id, 'done');   // setStatus('done') logs to memory
+  speak(`Done: ${card.title}`);
+  console.log(`✅ done ${card.id} (nemotron/NIM) → vault Agent-Hermes/nim-${card.id}.md`);
+  return 'done';
+}
+function pull() {
+  const dry = process.env.BEE_PULL_DRYRUN === '1';
+  const cwd = process.env.BEE_CODEX_CWD || '/Users/brain/Agentpay';
+  const inlist = EXEC_ASSIGNEES.map((a) => `'${a}'`).join(',');
+  // Skip cards deferred in the last 30 min so an unreachable worker can't wedge the whole queue.
+  const card = sql(`SELECT id,title,body,assignee FROM tasks t WHERE assignee IN (${inlist}) AND status='routed' AND needs_human=0
+    AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.kind='deferred' AND e.at > ${now() - 1800})
+    ORDER BY created_at ASC LIMIT 1;`, { json: true })[0];
+  if (!card) { console.log('no routed cards to pull.'); return; }
+  const prompt = `You are executing a task dispatched by Bee (the founder's orchestrator). Work only within ${cwd}.\n\nTASK: ${card.title}${card.body ? '\n' + card.body : ''}\n\n${CODEX_SAFETY}\n\nDo the work and verify it. End with exactly one outcome line: BEE_OUTCOME: done only if you materially changed or produced the requested artifact and verified it; otherwise BEE_OUTCOME: blocked. For blocked work, add BEE_BLOCKER: <specific reason>. Summarize work in <=3 bullets.`;
+  if (card.assignee === 'nemotron' && !dry) return nimExecute(card, prompt);  // Nemotron executes IN-PROCESS via NIM (works on the Mac; no hermes binary)
+  const command = workerCommand(card.assignee, prompt, cwd);
+  if (dry) { console.log(`[DRYRUN] ${card.assignee} → ${command.bin} ${command.args.slice(0, -1).join(' ')} <prompt>`); return 'dryrun'; }
+  setStatus(card.id, 'in_progress');
+  console.log(`▶ ${card.assignee} executing ${card.id}: ${card.title}`);
+  const logf = join(BEE_DIR, 'logs', `exec-${card.id}-${card.assignee}.log`);
+  // Both runners exit 0 even on API errors → parse output, not exit code.
+  // Enrich PATH so workers (hermes ~/.local/bin, codex, node22) resolve under launchd too — not just an interactive shell.
+  const H = homedir();
+  const workerPath = `${H}/.local/bin:${H}/.npm-global/bin:${H}/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}`;
+  const r = spawnSync(command.bin, command.args, { encoding: 'utf8', maxBuffer: 1 << 26, timeout: 900000, cwd: command.cwd, env: { ...process.env, PATH: workerPath } });
+  const out = `${r.stdout || ''}\n${r.stderr || ''}`.trim();
+  writeFileSync(logf, out);
+  const quota = /usage limit|rate.?limit|quota exceeded|credit balance is too low|insufficient credits?/i.test(out);
+  // Infra gap (worker binary/host missing) ≠ task failure — defer, don't permanently block.
+  const missingWorker = r.error?.code === 'ENOENT' || /ENOENT|command not found|cannot find the path|could not resolve hostname|uv trampoline|failed to spawn .*child process|connection refused|connection timed out/i.test(out);
+  if (missingWorker) {
+    setStatus(card.id, 'routed');
+    sql(`UPDATE tasks SET result='${esc(`deferred: ${card.assignee} worker unavailable on this host (infra) — will retry`)}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    logEvent(card.id, 'deferred', `${card.assignee} worker unavailable`);
+    console.log(`⏸ deferred ${card.id} — ${card.assignee} worker not reachable here (kept routed for retry).`);
+    return 'deferred';
+  }
+  // Codex timed out (long task hit the 15-min cap) → fail over to Nemotron (NIM), which executes in-process.
+  const timedOut = r.error?.code === 'ETIMEDOUT' || (r.signal === 'SIGTERM' && r.status === null);
+  if (timedOut && card.assignee === 'codex') {
+    markAgentStatus('codex', 'timeout');
+    sql(`UPDATE tasks SET assignee='nemotron',model_tier='free',status='routed',result='${esc('deferred: codex timed out → failover to Nemotron (NIM)')}',rationale=coalesce(rationale,'') || ' ↪ codex timeout → Nemotron.',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    logEvent(card.id, 'rerouted', 'codex timeout → nemotron');
+    console.log(`↪ rerouted ${card.id} — Codex timed out, Nemotron (NIM) will take it.`);
+    return process.env.BEE_PULL_NO_CHAIN === '1' ? 'rerouted' : pull();
+  }
+  const fatal = r.error || r.status !== 0 || !out || /invalid_request_error|traceback \(most recent|API call failed|HTTP [45]\d\d|RESOURCE_EXHAUSTED/i.test(out);
+  const outcome = workerOutcome(out);
+  if (quota && card.assignee !== 'nemotron') {
+    markAgentStatus(card.assignee, 'usage-limited');
+    sql(`UPDATE tasks SET assignee='nemotron',model_tier='free',status='routed',result='${esc(`deferred: ${card.assignee} unavailable; reassigned to Nemotron`)}',rationale=coalesce(rationale,'') || ' ↪ ${esc(card.assignee)} unavailable → Nemotron.',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    logEvent(card.id, 'rerouted', `${card.assignee} unavailable → nemotron`);
+    console.log(`↪ rerouted ${card.id} — ${card.assignee} unavailable, Nemotron will take it.`);
+    return process.env.BEE_PULL_NO_CHAIN === '1' ? 'rerouted' : pull();
+  } else if (fatal || outcome === 'blocked') {
+    setStatus(card.id, 'blocked');
+    const blocker = out.match(/BEE_BLOCKER:\s*(.+)/i)?.[1] || out.split('\n').find((l) => /error|block|required founder|no changes/i.test(l)) || r.error?.message || 'worker did not complete material work';
+    sql(`UPDATE tasks SET result='${esc(blocker.slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    console.error(`✗ blocked ${card.id} — see ${logf}`);
+    speak(`${card.assignee} hit a problem on ${card.title}. It needs you.`);
+    return 'blocked';
+  } else {
+    const tail = out.split('\n').filter(Boolean).slice(-8).join('\n');
+    sql(`UPDATE tasks SET result='${esc(tail.slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    setStatus(card.id, 'done'); logEvent(card.id, 'executed', card.assignee);
+    if (card.assignee === 'codex' || card.assignee === 'claude') markAgentStatus(card.assignee, 'available');
+    speak(`Done: ${card.title}`);
+    console.log(`✅ done ${card.id} (${card.assignee}) — log ${logf}`);
+    return 'done';
+  }
+}
+
+// ---------- DAEMON: always-on founder ingress (drop *.txt in ~/.bee/inbox → routed+dispatched+spoken) ----------
+function daemonTick() {
+  for (const f of readdirSync(INBOX_DIR).filter((n) => n.endsWith('.txt'))) {
+    const p = join(INBOX_DIR, f);
+    let text = ''; try { text = readFileSync(p, 'utf8').trim(); } catch { continue; }
+    if (text) {
+      speak(ack());                                   // instant ack — never leave the founder hanging while the brain thinks
+      const id = create(text, { createdBy: 'founder-ingress', route: false });
+      const d = routeOne(id);
+      dispatch(id);
+      speak(replyFor(d));                                  // always reply to a founder request
+    }
+    try { renameSync(p, join(INBOX_DIR, 'done', `${now()}-${f}`)); } catch {}
+  }
+  // Proactive pass: when autonomy is on, Bee dispatches any routed labs work on its own — ONCE each.
+  // dispatch() refuses approval-wall / fund-exec items (can't cross the wall) and logs a 'dispatched'
+  // event, so the NOT EXISTS guard stops it from re-appending the same card on every 3s tick.
+  if (getAutonomy().proactive) {
+    const pending = sql(`SELECT t.id FROM tasks t WHERE t.lane='labs' AND t.status='routed' AND t.needs_human=0
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.kind='dispatched');`, { json: true });
+    pending.forEach((r) => { try { dispatch(r.id); } catch {} });
+  }
+  tickBlueprints();   // fire any blueprint whose cadence is due (no-op unless proactive + something is due)
+}
+async function daemon() {
+  speak('Bee online.');
+  console.log(`[bee daemon] watching ${INBOX_DIR} — drop *.txt to route+dispatch. ${new Date(now()*1000).toISOString()}`);
+  for (;;) { try { daemonTick(); } catch (e) { console.error('[bee daemon] tick error:', e.message); } await new Promise((r) => setTimeout(r, 3000)); }
+}
+
+// ---------- CAPABILITY REGISTRY (B1): Bee knows the agents, skills, tools, rails ----------
+// `bee scan` indexes everything Bee can route to → ~/.bee/registry.json. The router consults it.
+const REGISTRY = join(BEE_DIR, 'registry.json');
+const WORKER_STATUS = join(BEE_DIR, 'worker-status.json');
+function workerStatuses() { try { return JSON.parse(readFileSync(WORKER_STATUS, 'utf8')); } catch { return {}; } }
+function markAgentStatus(name, status) {
+  const overrides = workerStatuses();
+  overrides[name] = { status, updated_at: now() };
+  writeFileSync(WORKER_STATUS, JSON.stringify(overrides, null, 2));
+  try {
+    const reg = JSON.parse(readFileSync(REGISTRY, 'utf8'));
+    const agent = reg.agents.find((item) => item.name === name);
+    if (agent) { agent.status = status; writeFileSync(REGISTRY, JSON.stringify(reg, null, 2)); }
+  } catch {}
+}
+function firstDesc(p) { try { const m = readFileSync(p, 'utf8').match(/description:\s*["']?(.+)/i); return m ? m[1].replace(/["']/g, '').slice(0, 90) : ''; } catch { return ''; } }
+function scan() {
+  const reg = { generated_at: now(), agents: [], skills: [], mcp: [], tools: [], rails: {} };
+  // Agents + live-ish status (fund stays walled)
+  const ollamaUp = (() => { try { execFileSync('curl', ['-s', '-m', '2', 'http://localhost:11434/api/tags'], { stdio: ['ignore', 'ignore', 'ignore'] }); return true; } catch { return false; } })();
+  const toolPresent = (name) => { try { execFileSync('which', [name], { stdio: 'ignore' }); return true; } catch { return false; } };
+  const overrides = workerStatuses();
+  const agentStatus = (name, fallback = 'available') => process.env[`BEE_${name.toUpperCase().replace(/-/g, '_')}_STATUS`] || overrides[name]?.status || fallback;
+  reg.agents = [
+    { name: 'claude', role: 'judgment/design/publishing', status: agentStatus('claude', toolPresent('claude') ? 'available' : 'unavailable') },
+    { name: 'codex', role: 'implementation', status: agentStatus('codex', toolPresent('codex') ? 'available' : 'unavailable') },
+    { name: 'hermes-lenovo', role: 'research/render/distribution', status: 'available' },
+    { name: 'nemotron', role: 'fast execution (NVIDIA, via Hermes)', status: agentStatus('nemotron') },
+    { name: 'cua', role: 'screen/GUI control (Hermes computer_use)', status: 'available' },
+    { name: 'local-gemma', role: 'triage/classify (gemma3:12b)', status: ollamaUp ? 'available' : 'ollama down' },
+  ];
+  // Hermes skills (bill-* tagged fund/walled — Bee may see, never autonomously use)
+  const FUND_SKILL = /bill|quant|trading|\btrade|strateg|polymarket|prediction|macro|edge[- ]?detect|venue|oos[- ]|range[- ]?breakout|onchain|backtest|cross[- ]?venue/i;
+  try {
+    for (const d of readdirSync(join(homedir(), '.hermes/skills'), { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name.startsWith('.')) continue;          // skip hidden/backup dirs
+      const lane = FUND_SKILL.test(d.name) ? 'fund(walled)' : 'labs';     // wall: trading/quant skills are fund, not just bill-*
+      reg.skills.push({ source: 'hermes', name: d.name, lane, desc: firstDesc(join(homedir(), '.hermes/skills', d.name, 'SKILL.md')) });
+    }
+  } catch {}
+  // Codex skills
+  try { for (const d of readdirSync(join(homedir(), '.codex/skills'), { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith('.')) reg.skills.push({ source: 'codex', name: d.name, lane: FUND_SKILL.test(d.name) ? 'fund(walled)' : 'labs', desc: '' }); } catch {}
+  // MCP servers wired into Codex
+  try { const t = readFileSync(join(homedir(), '.codex/config.toml'), 'utf8'); for (const m of t.matchAll(/\[mcp_servers\.([^\]]+)\]/g)) reg.mcp.push({ host: 'codex', name: m[1] }); } catch {}
+  // Key CLIs/tools present
+  for (const t of ['codex', 'gh', 'stripe', 'hermes', 'ollama', 'ffmpeg', 'whisper-cli', 'wrangler', 'vercel', 'eas', 'node', 'screencapture', 'say']) {
+    try { execFileSync('which', [t], { stdio: ['ignore', 'ignore', 'ignore'] }); reg.tools.push(t); } catch {}
+  }
+  // Money rails (the earn→spend loop)
+  reg.rails = {
+    spend: { provider: 'stripe-projects', controls: 'per-provider caps + dev/staging/prod isolation', bee_cap_daily: process.env.BEE_SPEND_CAP_DAILY || '20', note: 'Hermes is a native Stripe Projects agent platform' },
+    earn: ['hermeshub (x402/MPP skill sales, 95% payout)', 'agentpay (x402 pay-per-call, FREE_LIMIT=50→paid)', 'app sales (stores)'],
+    skills_marketplace: 'hermeshub.xyz — install: hermes skills install github:<owner>/<repo>/skills/<name>',
+  };
+  writeFileSync(REGISTRY, JSON.stringify(reg, null, 2));
+  console.log(`🧭 registry → ${REGISTRY}`);
+  caps();
+}
+function caps() {
+  let reg; try { reg = JSON.parse(readFileSync(REGISTRY, 'utf8')); } catch { console.log('no registry — run `bee scan`'); return; }
+  const labs = reg.skills.filter((s) => s.lane === 'labs'), fund = reg.skills.filter((s) => /fund/.test(s.lane));
+  console.log(`\n🧭 BEE CAPABILITIES (scanned ${new Date(reg.generated_at * 1000).toISOString()})`);
+  console.log(`\nAGENTS:`); reg.agents.forEach((a) => console.log(`  ${a.name.padEnd(14)} ${a.role}  [${a.status}]`));
+  console.log(`\nSKILLS: ${labs.length} usable (labs) + ${fund.length} walled (fund) · MCP: ${reg.mcp.length} · TOOLS: ${reg.tools.length}`);
+  console.log(`  usable e.g.: ${labs.slice(0, 12).map((s) => s.name).join(', ')}${labs.length > 12 ? ' …' : ''}`);
+  console.log(`  tools: ${reg.tools.join(', ')}`);
+  console.log(`\n💸 RAILS  spend: ${reg.rails.spend?.provider} (cap $${reg.rails.spend?.bee_cap_daily}/day, ${reg.rails.spend?.controls})`);
+  console.log(`          earn: ${(reg.rails.earn || []).join(' · ')}`);
+  console.log('');
+}
+
+// ---------- DOCTOR (production readiness — "shouldn't break"): verify every part, report ----------
+function portUp(p) { try { execFileSync('bash', ['-c', `nc -z -G2 127.0.0.1 ${p}`], { stdio: 'ignore' }); return true; } catch { return false; } }
+// Running jobs are healthy regardless of a previous exit code. Idle periodic jobs use last exit.
+function serviceHealthy(line) {
+  const [pid, lastExit] = String(line || '').trim().split(/\s+/);
+  if (!pid || !lastExit) return false;
+  return pid !== '-' || lastExit === '0' || lastExit === '-';
+}
+function svcUp(label) {
+  try {
+    const line = execFileSync('launchctl', ['list'], { encoding: 'utf8' }).split('\n').find((row) => row.trim().endsWith(label));
+    return serviceHealthy(line);
+  } catch { return false; }
+}
+function doctor() {
+  const checks = [];
+  const ok = (n, pass, detail = '') => checks.push({ n, pass, detail });
+  ok('DB readable', (() => { try { sql('SELECT 1;'); return true; } catch { return false; } })(), DB);
+  // self-heal the brain (ollama has no crash-supervisor) before judging it
+  let brain = portUp(11434);
+  if (!brain) { try { execFileSync('open', ['-a', 'Ollama']); execFileSync('bash', ['-c', 'sleep 5']); brain = portUp(11434); } catch {} }
+  ok('brain (ollama gemma)', brain, brain ? BRAIN_MODEL : 'down — heal failed');
+  ok('TTS server (Kokoro)', portUp(8790), 'voice :8790');
+  ok('daemon service', svcUp('com.agentpay.bee.daemon'));
+  ok('pull service', svcUp('com.agentpay.bee.pull'));
+  ok('tts service', svcUp('com.agentpay.bee.tts'));
+  ok('registry present', existsSync(REGISTRY));
+  ok('voice helper', existsSync(SAY_SH));
+  let reg = {}; try { reg = JSON.parse(readFileSync(REGISTRY, 'utf8')); } catch {}
+  const fundLeak = (reg.skills || []).filter((s) => s.lane === 'labs' && /bill|quant|trad|polymarket|hedge|futures/i.test(s.name));
+  ok('wall intact (no fund leak)', fundLeak.length === 0, fundLeak.map((s) => s.name).join(',') || 'clean');
+  console.log('\n🩺 BEE DOCTOR');
+  let fails = 0;
+  for (const c of checks) { console.log(`  ${c.pass ? '✅' : '❌'} ${c.n.padEnd(26)} ${c.detail || ''}`); if (!c.pass) fails++; }
+  console.log(fails ? `\n⚠️  ${fails} issue(s) — not live-ready.\n` : `\n✅ all green — Bee is healthy.\n`);
+  return fails === 0;
+}
+
+// ---------- SCREEN-ACT: Bee sees the UI (macOS Accessibility), points, and acts (fill/click) ----------
+const AX_SNAPSHOT = `tell application "System Events"
+  set proc to first application process whose frontmost is true
+  set out to (name of proc) & "\n"
+  tell proc
+    try
+      repeat with e in (entire contents of front window)
+        try
+          set r to (role of e) as text
+          if r is in {"AXButton","AXTextField","AXTextArea","AXCheckBox","AXPopUpButton","AXMenuButton","AXRadioButton"} then
+            set nm to ""
+            try
+              set nm to (name of e) as text
+            end try
+            if nm is missing value then set nm to ""
+            set p to position of e
+            set s to size of e
+            set out to out & r & "|" & nm & "|" & (item 1 of p) & "|" & (item 2 of p) & "|" & (item 1 of s) & "|" & (item 2 of s) & "\n"
+          end if
+        end try
+      end repeat
+    end try
+  end tell
+  return out
+end tell`;
+function axSnapshot() {
+  let raw = ''; try { raw = execFileSync('osascript', ['-e', AX_SNAPSHOT], { encoding: 'utf8', timeout: 15000 }); } catch { return { app: '', els: [] }; }
+  const lines = raw.split('\n'); const app = (lines.shift() || '').trim();
+  const els = lines.map((l) => { const [role, name, x, y, w, h] = l.split('|'); return { role, name: (name || '').trim(), x: +x, y: +y, w: +w, h: +h }; }).filter((e) => e.role && !isNaN(e.x));
+  return { app, els };
+}
+function pointAt(x, y, label, secs = 4) { try { writeFileSync(join(BEE_DIR, 'pointer.json'), JSON.stringify({ x: Math.round(x), y: Math.round(y), label: label || '', until: now() + secs })); } catch {} }
+// RIDE mode: the butterfly leaves its perch and rides the live cursor — Bee "owns" the screen while it acts.
+let riding = false;
+function rideOn(label, secs = 30) { riding = true; try { writeFileSync(join(BEE_DIR, 'pointer.json'), JSON.stringify({ ride: true, label: label || '', until: now() + secs })); } catch {} }
+function rideOff() { riding = false; try { writeFileSync(join(BEE_DIR, 'pointer.json'), JSON.stringify({ until: 0 })); } catch {} }
+function clickEl(e, label) { const cx = e.x + e.w / 2, cy = e.y + e.h / 2; if (!riding) pointAt(cx, cy, label || e.name || 'click'); try { execFileSync('cliclick', [`c:${Math.round(cx)},${Math.round(cy)}`]); return true; } catch { return false; } }
+function screen() {
+  const { app, els } = axSnapshot();
+  console.log(`👁  frontmost: ${app || '(none)'} — ${els.length} actionable elements`);
+  els.forEach((e, i) => console.log(`  [${i}] ${e.role.replace('AX', '').padEnd(11)} ${(e.name || '(unnamed)').slice(0, 32).padEnd(32)} @${e.x},${e.y}`));
+  return { app, els };
+}
+function beeClick(target) {
+  const { els } = axSnapshot();
+  const e = /^\d+$/.test(target) ? els[+target] : els.find((x) => x.name && x.name.toLowerCase().includes(target.toLowerCase()));
+  if (!e) { console.error(`no element matching "${target}"`); return false; }
+  console.log(`👉 click "${e.name || e.role}" @${e.x},${e.y}`); speak(`Clicking ${e.name || 'it'}.`); return clickEl(e, e.name);
+}
+function beeFill(hint, value) {
+  const { els } = axSnapshot(); const fields = els.filter((e) => /TextField|TextArea/.test(e.role));
+  const e = (hint && fields.find((x) => x.name && x.name.toLowerCase().includes(hint.toLowerCase()))) || fields[/^\d+$/.test(hint) ? +hint : 0];
+  if (!e) { console.error('no text field found'); return false; }
+  clickEl(e, e.name || hint); execFileSync('bash', ['-c', 'sleep 0.3']);
+  try { execFileSync('cliclick', [`t:${value}`]); console.log(`⌨️  filled "${e.name || hint}" = ${value}`); speak(`Filled ${e.name || 'that field'}.`); return true; } catch { return false; }
+}
+const ACT_UNSAFE_RE = /\b(delete|remove|erase|uninstall|quit|purchase|buy|pay|checkout|place order|send|publish|post|upload|transfer|withdraw|deposit|trade|sell|sign[- ]?in|log[- ]?in|oauth|password|secret|token|api key|2fa)\b/i;
+const ACT_MAX_STEPS = Math.max(1, Math.min(12, Number(process.env.BEE_ACT_MAX_STEPS) || 8));
+
+function parseObject(text) {
+  const match = String(text || '').match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
+function actStep(goal, app, els, history) {
+  const menu = els.map((e, i) => `${i}:${e.role.replace('AX', '')}:${e.name || '(unnamed)'}`).join('\n');
+  const sys = 'You drive a macOS GUI through Accessibility. Choose exactly ONE next action from the current FRONT WINDOW. '
+    + 'Output ONLY JSON: {"done":bool,"action":"click|fill|type","index":<element index>,"value":"<text>","say":"<<=8 words>"}. '
+    + 'Set done=true when the goal is complete or no safe action exists. Use only a current index. Never delete, quit, buy, pay, send, publish, upload, authenticate, reveal credentials, or perform financial actions.';
+  return parseObject(brain(`App: ${app}\nGoal: ${goal}\nCompleted: ${history.join('; ') || '(none)'}\nCurrent elements:\n${menu}`, { sys }));
+}
+
+// `bee act "<goal>"` — observe, take one safe action, then observe again.
+function act(goal) {
+  const dry = process.env.BEE_ACT_DRY === '1';
+  if (!goal.trim()) { console.error('usage: bee act "<goal>"'); return false; }
+  if (ACT_UNSAFE_RE.test(goal)) {
+    console.error('blocked: this goal requires founder-controlled or destructive action');
+    speak('I staged that for you instead of acting.');
+    return false;
+  }
+  speak(ack());
+  const history = [];
+  rideOn('On it.');
+  try {
+    for (let i = 0; i < ACT_MAX_STEPS; i++) {
+      const { app, els } = axSnapshot();
+      if (!els.length) { console.log('stopped: no actionable controls visible'); return false; }
+      const step = actStep(goal, app, els, history);
+      if (!step) { console.log('stopped: planner returned invalid JSON'); return false; }
+      if (step.done) { console.log(`✅ goal complete after ${history.length} step(s)`); speak('Done.'); return true; }
+      if (!['click', 'fill', 'type'].includes(step.action) || !Number.isInteger(step.index) || !els[step.index]) {
+        console.log('stopped: planner selected an invalid current control'); return false;
+      }
+      const el = els[step.index];
+      const actionText = `${step.action} ${el.name || ''} ${step.value || ''}`;
+      if (ACT_UNSAFE_RE.test(actionText)) { console.log(`blocked unsafe step: ${actionText}`); return false; }
+      console.log(`  ${i + 1}. ${step.action} [${step.index}] ${el.name || el.role}${step.value ? ' = ' + step.value : ''}`);
+      if (dry) { console.log('(BEE_ACT_DRY — first action planned, not executed)'); return true; }
+      if (step.say) { speak(step.say); rideOn(step.say); }
+      let ok = false;
+      if (step.action === 'click') ok = clickEl(el, el.name);
+      else {
+        ok = clickEl(el, el.name);
+        if (ok) { execFileSync('bash', ['-c', 'sleep 0.3']); try { execFileSync('cliclick', [`t:${step.value || ''}`]); } catch { ok = false; } }
+      }
+      if (!ok) { console.log(`stopped: ${step.action} failed`); return false; }
+      history.push(`${step.action} ${el.name || el.role}`);
+      execFileSync('bash', ['-c', 'sleep 1']);
+    }
+    console.log(`stopped: ${ACT_MAX_STEPS}-step safety limit reached`);
+    speak('I paused at the safety limit.');
+    return false;
+  } finally { rideOff(); }
+}
+
+// ---------- CLI ----------
+async function main() {
+  init();
+  const [cmd, ...rest] = process.argv.slice(2);
+  const arg = rest.join(' ');
+  switch (cmd) {
+  case undefined:
+  case 'dash': dashboard(); break;
+  case 'state': console.log(JSON.stringify(stateJSON())); break;   // JSON snapshot for the desktop dashboard
+  case 'autonomy': {
+    const v = (rest[0] || 'status').toLowerCase();
+    if (v === 'on' || v === 'start' || v === 'go') { setAutonomy(true); console.log('🟢 proactive mode ON — Bee acts on its own.'); speak("Proactive mode on. I'll keep things moving."); }
+    else if (v === 'off' || v === 'stop' || v === 'pause') { setAutonomy(false); console.log('⏸  proactive mode OFF — Bee waits for your word.'); speak("Okay — I'll hold and wait for you."); }
+    else console.log(`autonomy: ${getAutonomy().proactive ? 'proactive (on)' : 'paused (off)'}`);
+    break; }
+  case 'blueprints': BLUEPRINTS.forEach((b) => console.log(`  ${b.key.padEnd(16)} ${b.name}  ·  ${b.cadence}\n      ${b.desc}`)); break;
+  case 'run': runBlueprint(rest[0]); break;
+  case 'agency': agencyAsk(arg); break;             // Bee → Agency OS ingress (writes its INBOX)
+  case 'agents': agents(); break;
+  case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
+  case 'feed': feed(); break;
+  case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
+  case 'remember': remember(arg, 'note'); console.log('🧠 remembered → vault'); speak('Noted.'); break;
+  case 'memory': console.log(memory(parseInt(rest[0], 10) || 20)); break;
+  case 'schedule': {
+    const fmt = (s) => !s ? '—' : new Date(s * 1000).toISOString().replace('T', ' ').slice(0, 16);
+    console.log(`schedule (proactive ${getAutonomy().proactive ? 'ON' : 'OFF'}):`);
+    BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
+      console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
+    break; }
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (the team) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory · brain→gemma then NVIDIA NIM\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | daemon · route/start/done/block <id>'); break;
+  case 'list': list(); break;
+  case 'board': board(); break;
+  case 'approvals': approvals(); break;
+  case 'route': routeOne(rest[0]); break;
+  case 'dispatch': rest[0] && rest[0] !== 'all' ? dispatch(rest[0]) : dispatchAll(); break;
+  case 'pull': pull(); break;
+  case 'scan': scan(); break;
+  case 'caps': caps(); break;
+  case 'worker-status': {
+    const name = rest[0], status = rest.slice(1).join(' ');
+    if (!name || !status) { console.error('usage: bee worker-status <name> <status>'); break; }
+    markAgentStatus(name, status); console.log(`${name} → ${status}`); break; }
+  case 'doctor': process.exitCode = doctor() ? 0 : 1; break;
+  case 'point': {                                       // Clicky points at a screen coordinate. bee point <x> <y> [label] [seconds]
+    const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10);
+    const secs = parseInt(rest[rest.length - 1], 10); const hasSecs = !isNaN(secs) && rest.length > 3;
+    const label = rest.slice(2, hasSecs ? -1 : undefined).join(' ');
+    if (isNaN(x) || isNaN(y)) { console.error('usage: bee point <x> <y> [label] [seconds]'); break; }
+    writeFileSync(join(BEE_DIR, 'pointer.json'), JSON.stringify({ x, y, label, until: now() + (hasSecs ? secs : 6) }));
+    console.log(`👉 pointing at ${x},${y}${label ? ' — ' + label : ''}`); break; }
+  case 'unpoint': writeFileSync(join(BEE_DIR, 'pointer.json'), JSON.stringify({ until: 0 })); console.log('pointer cleared'); break;
+  case 'screen': screen(); break;
+  case 'click': beeClick(arg); break;
+  case 'fill': beeFill(rest[0], rest.slice(1).join(' ')); break;
+  case 'type': try { execFileSync('cliclick', [`t:${arg}`]); console.log('typed'); } catch { console.error('cliclick failed'); } break;
+  case 'act': act(arg); break;
+  case 'speak': speak(arg); break;
+  case 'see': see(arg || undefined); break;
+  case 'daemon': await daemon(); break;
+  case 'listen': {
+    const t = transcribe();
+    if (!t) { speak("I didn't catch that — say it again."); console.log('(no speech / mic not granted)'); break; }
+    console.log(`heard: "${t}"`); speak(ack());
+    const id = create(t, { createdBy: 'voice', route: false }); const d = routeOne(id); dispatch(id);
+    speak(replyFor(d));
+    break; }
+  case 'start': setStatus(rest[0], 'in_progress'); break;
+  case 'done': setStatus(rest[0], 'done'); break;
+  case 'block': setStatus(rest[0], 'blocked'); break;
+  default: { const id = create(cmd === 'add' ? arg : [cmd, ...rest].join(' '), { route: false }); const d = routeOne(id); dispatch(id); speak(replyFor(d)); } // `bee "..."` → create+route+dispatch+reply
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+
+export { actStep, classify, ruleClassify, safetyFloor, serviceHealthy, workerCommand, workerOutcome };
