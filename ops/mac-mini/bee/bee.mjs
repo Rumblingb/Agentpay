@@ -523,7 +523,9 @@ function agents() {
   console.log(`\n  Hermes/Codex skills usable (${labs.length}):`);
   console.log('    ' + labs.map((s) => s.name).join(', '));
   console.log(`\n  Tools on this box: ${(reg.tools || []).join(', ')}`);
-  if (reg.rails) { console.log('\n  Rails:'); if (reg.rails.spend) console.log(`    spend → ${reg.rails.spend}`); if (reg.rails.earn) console.log(`    earn  → ${reg.rails.earn}`); }
+  const harness = (reg.mcp || []).filter((m) => m.host === 'agentpay');
+  if (harness.length) { console.log("\n  AgentPay harness (Bee's own product organs):"); harness.forEach((m) => console.log(`    ${(m.name || '').padEnd(13)} ${m.role}  ·  [${m.wired || 'known'}]`)); }
+  if (reg.rails) { console.log('\n  Rails:'); if (reg.rails.spend) console.log(`    spend → ${typeof reg.rails.spend === 'string' ? reg.rails.spend : JSON.stringify(reg.rails.spend)}`); if (reg.rails.earn) console.log(`    earn  → ${Array.isArray(reg.rails.earn) ? reg.rails.earn.join(' · ') : reg.rails.earn}`); }
 }
 
 // ---------- DECISION ENGINE: Bee runs an OODA loop over the whole picture ----------
@@ -565,6 +567,29 @@ function decide(goal, enact = false) {
     console.log(`\n(plan only — run \`bee decide "${(goal || '').replace(/"/g, '')}" --act\` to put these on the board)`);
     speak(cleanSay(plan.summary) || "That's my read.");
   }
+}
+
+// ---------- PAYMENT GUARD (Tier-1: AgentPay Sentinel's role, enforced natively) ----------
+// Mirrors Sentinel's 9-check pre-flight that Bee can enforce locally. Bee NEVER auto-pays:
+// a PASS means "safe to stage" — execution still goes through the founder wall.
+const GUARD = { capUSD: +(process.env.BEE_SPEND_CAP || 20), restricted: ['gambling', 'casino', 'weapon', 'adult', 'trading', 'forex', 'crypto-buy'] };
+function spendFile() { return join(BEE_DIR, `spend-${new Date(now() * 1000).toISOString().slice(0, 10)}.json`); }
+function spentToday() { try { return JSON.parse(readFileSync(spendFile(), 'utf8')).total || 0; } catch { return 0; } }
+const NONCE_FILE = join(BEE_DIR, 'nonces.json');
+function seenNonce(n) { if (!n) return false; try { return !!JSON.parse(readFileSync(NONCE_FILE, 'utf8'))[n]; } catch { return false; } }
+function guard(amount, merchant, opts = {}) {
+  amount = +amount || 0; const checks = []; const add = (name, pass, detail) => checks.push({ name, pass, detail });
+  const intent = opts.intent || `${amount} to ${merchant}`;
+  add('fund-exec gate', !FUND_EXEC_RE.test(intent), FUND_EXEC_RE.test(intent) ? 'fund execution — founder-only, never autonomous' : 'ok');
+  const spent = spentToday(), left = GUARD.capUSD - spent - amount;
+  add('budget cap', left >= 0, `$${spent.toFixed(2)} spent + $${amount.toFixed(2)} vs $${GUARD.capUSD}/day → $${left.toFixed(2)} left`);
+  add('amount sane', amount > 0 && amount <= GUARD.capUSD, amount <= 0 ? 'non-positive' : amount > GUARD.capUSD ? 'exceeds daily cap alone' : 'ok');
+  if (opts.approved != null) add('amount match', +opts.approved === amount, `approved $${opts.approved} vs requested $${amount}`);
+  const restricted = GUARD.restricted.some((c) => `${merchant} ${opts.category || ''}`.toLowerCase().includes(c));
+  add('merchant policy', !restricted, restricted ? 'restricted category' : 'ok');
+  add('replay/nonce', !seenNonce(opts.nonce), seenNonce(opts.nonce) ? 'nonce already used' : (opts.nonce ? 'fresh' : 'no nonce supplied (single-use not enforced)'));
+  const pass = checks.every((c) => c.pass);
+  return { pass, checks, intent, blocker: pass ? null : checks.find((c) => !c.pass).name };
 }
 
 // ---------- VOICE ----------
@@ -852,6 +877,14 @@ function scan() {
   try { for (const d of readdirSync(join(homedir(), '.codex/skills'), { withFileTypes: true })) if (d.isDirectory() && !d.name.startsWith('.')) reg.skills.push({ source: 'codex', name: d.name, lane: FUND_SKILL.test(d.name) ? 'fund(walled)' : 'labs', desc: '' }); } catch {}
   // MCP servers wired into Codex
   try { const t = readFileSync(join(homedir(), '.codex/config.toml'), 'utf8'); for (const m of t.matchAll(/\[mcp_servers\.([^\]]+)\]/g)) reg.mcp.push({ host: 'codex', name: m[1] }); } catch {}
+  // AgentPay harness — Bee's own product's organs (selective Tier-1: Sentinel guard + Feed are live in Bee; Gateway/data are known capabilities).
+  reg.mcp.push(
+    { host: 'agentpay', name: 'sentinel', role: 'payment pre-flight — 9 security checks before execute', wired: 'bee guard' },
+    { host: 'agentpay', name: 'feed', role: 'real-time agentic newsfeed (tools/upgrades)', wired: 'bee feed / tool-watch' },
+    { host: 'agentpay', name: 'gateway', role: '90+ tools across 42 servers, one key, per-call billing', wired: 'known (not auto-billed)' },
+    { host: 'agentpay', name: 'finance-data', role: 'SEC EDGAR · crypto prices · FX', wired: 'known' },
+    { host: 'agentpay', name: 'domain', role: 'WHOIS · DNS · SSL · IP geo', wired: 'known' },
+  );
   // Key CLIs/tools present
   for (const t of ['codex', 'gh', 'stripe', 'hermes', 'ollama', 'ffmpeg', 'whisper-cli', 'wrangler', 'vercel', 'eas', 'node', 'screencapture', 'say']) {
     try { execFileSync('which', [t], { stdio: ['ignore', 'ignore', 'ignore'] }); reg.tools.push(t); } catch {}
@@ -1053,6 +1086,16 @@ async function main() {
   case 'run': runBlueprint(rest[0]); break;
   case 'agency': agencyAsk(arg); break;             // Bee → Agency OS ingress (writes its INBOX)
   case 'agents': agents(); break;
+  case 'guard': {                                       // pre-flight a payment (Sentinel's 9 checks, native)
+    const amount = parseFloat(rest[0]); const merchant = rest[1] || '';
+    if (isNaN(amount)) { console.error('usage: bee guard <amount> <merchant> [intent...]'); break; }
+    const g = guard(amount, merchant, { intent: rest.slice(2).join(' ') || undefined });
+    console.log(`\n🛡  GUARD ${g.pass ? '✅ PASS' : '⛔ BLOCKED'} — $${amount} → ${merchant || '(merchant?)'}`);
+    g.checks.forEach((c) => console.log(`   ${c.pass ? '✓' : '✗'} ${c.name.padEnd(15)} ${c.detail}`));
+    console.log(g.pass ? '\n   ✅ safe to stage — execution still goes through the founder wall (Bee never auto-pays).' : `\n   ⛔ blocked by: ${g.blocker}`);
+    speak(g.pass ? 'Cleared the guard. Staging for your approval.' : `Blocked — ${g.blocker}.`);
+    remember(`guard ${g.pass ? 'PASS' : 'BLOCK'}: $${amount}→${merchant || '?'}${g.pass ? '' : ' (' + g.blocker + ')'}`, 'guard');
+    break; }
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
   case 'feed': feed(); break;
   case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
@@ -1064,7 +1107,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (the team) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory · brain→gemma then NVIDIA NIM\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | daemon · route/start/done/block <id>'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | guard <amt> <merchant> (payment pre-flight) | feed | remember <text> | memory\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | daemon · route/start/done/block <id>'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
