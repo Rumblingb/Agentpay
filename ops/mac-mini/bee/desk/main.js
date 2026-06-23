@@ -5,6 +5,9 @@ const { homedir } = require('os');
 const { join } = require('path');
 const { readFileSync, writeFileSync } = require('fs');
 
+// Never let a benign teardown race (a timer firing into a just-destroyed window) pop a modal mid-demo.
+process.on('uncaughtException', (e) => { if (/destroyed|EPIPE/i.test(e && e.message)) return; console.error('[bee-desk] main error:', e && e.message); });
+
 const DB = process.env.BEE_DB || join(homedir(), '.bee', 'labs-board.db');
 const BEE = join(__dirname, '..', 'bee.mjs');
 const POINTER_FILE = join(homedir(), '.bee', 'pointer.json');
@@ -38,9 +41,32 @@ function deriveState(c) {
   return 'egg';                                    // dormant — the calmest, quietest presence
 }
 function tick() {
-  if (!win) return;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
   const c = counts();
-  win.webContents.send('state', { state: deriveState(c), counts: c, approvals: approvals() });
+  let cmd = null; try { cmd = JSON.parse(readFileSync(BUTTERFLY_FILE, 'utf8')); } catch {}
+  const cmdActive = cmd && cmd.until && (Date.now() / 1000) < cmd.until && cmd.state;  // a live fly-command owns the stage
+  win.webContents.send('state', { state: cmdActive ? cmd.state : deriveState(c), counts: c, approvals: approvals() });
+}
+
+// ── BUTTERFLY MOTION: Bee can fly the creature anywhere + command its life-stage (full expressive use) ──
+// Bee writes ~/.bee/butterfly.json {state,x,y,until}; the creature glides there and shows that stage,
+// then flies home to its perch when the command lapses. The butterfly need not stay in one position.
+const BUTTERFLY_FILE = join(homedir(), '.bee', 'butterfly.json');
+let lastCmdState = '', flyTarget = null;
+function homePerch() { const { workArea } = screen.getPrimaryDisplay(); return { x: workArea.x + workArea.width - COLLAPSED.w - 24, y: workArea.y + workArea.height - COLLAPSED.h - 24 }; }
+function butterflyTick() {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  let cmd = null; try { cmd = JSON.parse(readFileSync(BUTTERFLY_FILE, 'utf8')); } catch {}
+  const active = cmd && cmd.until && (Date.now() / 1000) < cmd.until;
+  if (active) {
+    if (cmd.state && cmd.state !== lastCmdState) { lastCmdState = cmd.state; const c = counts(); win.webContents.send('state', { state: cmd.state, counts: c, approvals: approvals() }); }
+    if (Number.isFinite(cmd.x) && Number.isFinite(cmd.y)) flyTarget = { x: Math.round(cmd.x - COLLAPSED.w / 2), y: Math.round(cmd.y - COLLAPSED.h / 2) };
+  } else if (lastCmdState) { lastCmdState = ''; tick(); flyTarget = homePerch(); }   // command lapsed → resume + fly home
+  if (flyTarget) {
+    const b = win.getBounds(); const dx = flyTarget.x - b.x, dy = flyTarget.y - b.y;
+    if (Math.abs(dx) < 3 && Math.abs(dy) < 3) flyTarget = null;
+    else win.setBounds({ x: Math.round(b.x + dx * 0.2), y: Math.round(b.y + dy * 0.2), width: b.width, height: b.height });   // eased glide
+  }
 }
 
 function createWindow() {
@@ -81,17 +107,19 @@ function createPointerWindow() {                       // Clicky's own pointer �
   ptrWin.loadFile(join(__dirname, 'pointer.html'));
 }
 function pointerTick() {                               // poll ~/.bee/pointer.json → drive the overlay
-  if (!ptrWin) return;
-  let p = null; try { p = JSON.parse(readFileSync(POINTER_FILE, 'utf8')); } catch {}
-  const active = p && p.until && (Date.now() / 1000) < p.until;
-  if (!active) { ptrWin.webContents.send('pointer', { active: false }); return; }
-  const b = screen.getPrimaryDisplay().bounds;
-  if (p.ride) {                                        // Clicky OWNS the cursor: the butterfly rides the live pointer
-    const c = screen.getCursorScreenPoint();
-    ptrWin.webContents.send('pointer', { active: true, ride: true, x: c.x - b.x, y: c.y - b.y, label: p.label || '' });
-  } else {                                             // spotlight a fixed coordinate (point-at mode)
-    ptrWin.webContents.send('pointer', { active: true, ride: false, x: p.x - b.x, y: p.y - b.y, label: p.label || '' });
-  }
+  if (!ptrWin || ptrWin.isDestroyed() || ptrWin.webContents.isDestroyed()) return;
+  try {
+    let p = null; try { p = JSON.parse(readFileSync(POINTER_FILE, 'utf8')); } catch {}
+    const active = p && p.until && (Date.now() / 1000) < p.until;
+    if (!active) { ptrWin.webContents.send('pointer', { active: false }); return; }
+    const b = screen.getPrimaryDisplay().bounds;
+    if (p.ride) {                                      // Clicky OWNS the cursor: the butterfly rides the live pointer
+      const c = screen.getCursorScreenPoint();
+      ptrWin.webContents.send('pointer', { active: true, ride: true, x: c.x - b.x, y: c.y - b.y, label: p.label || '' });
+    } else {                                           // spotlight a fixed coordinate (point-at mode)
+      ptrWin.webContents.send('pointer', { active: true, ride: false, x: p.x - b.x, y: p.y - b.y, label: p.label || '' });
+    }
+  } catch {}                                           // window torn down mid-send — ignore
 }
 
 // Grow/shrink the window around a FIXED bottom-right corner so the creature never moves —
@@ -145,6 +173,7 @@ app.whenReady().then(() => {
   createWindow();
   createPointerWindow();
   setInterval(pointerTick, 55);   // ~18fps — smooth enough for the butterfly to ride the cursor
+  setInterval(butterflyTick, 90); // butterfly flight + commanded life-stage
   const icon = nativeImage.createFromNamedImage('NSImageNameTouchBarColorPickerFont', [0, 0, 0]);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('Bee — founder in a box');
