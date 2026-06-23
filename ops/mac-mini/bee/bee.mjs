@@ -635,10 +635,11 @@ function approveMandate(id) {
   speak(`Approved. ${m.intent} is cleared to settle.`);
   remember(`mandate approved ${m.id}`, 'mandate');
 }
-function settleMandate(id) {
+function settleMandate(id, execute = false) {
   const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
   if (!m) { console.log(`no mandate ${id}`); return; }
-  if (m.status === 'ready_to_settle' || m.status === 'executed') { console.log(`${m.id} already ${m.status}`); return; }
+  if (m.status === 'executed') { console.log(`${m.id} already executed`); return; }
+  if (m.status === 'ready_to_settle' && !execute) { console.log(`${m.id} already ready_to_settle`); return; }
   if (m.status !== 'approved') { console.log(`⛔ ${m.id} not approved (status: ${m.status}) — founder must approve first.`); speak("That mandate isn't approved yet."); return; }
   if (m.sig !== mandateSig(m)) { console.log(`⛔ ${m.id} tampered — refusing.`); return; }
   if (now() > m.expires_at) { m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return; }
@@ -647,10 +648,42 @@ function settleMandate(id) {
   addNonce(m.nonce); recordSpend(m.amount);                            // spend the nonce (replay) + count against the cap
   m.status = 'ready_to_settle'; m.settlement = settlementPayload(m); m.settled_at = now(); saveMandates(ms);
   if (m.task_id) sql(`UPDATE tasks SET rationale='${esc('💳 Mandate approved + guarded — execute on the rail (founder-triggered).')}', updated_at=${now()} WHERE id='${esc(m.task_id)}';`);
-  console.log(`\n💸 ${m.id} GUARDED + READY — rail payload staged (${m.settlement.protocol}). Bee does not move money; you trigger the actual settlement:`);
+  console.log(`\n💸 ${m.id} GUARDED + READY — rail payload staged (${m.settlement.protocol}). Bee does not move real money; you trigger live settlement:`);
   console.log(JSON.stringify(m.settlement, null, 2));
+  if (execute) {
+    // SANDBOX / test-mode only — simulates the rail response. NO real funds move. Live money stays founder-triggered.
+    const txn = /x402|usdc|usdt/i.test(m.rail) ? 'sol_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24) : 'pi_test_' + createHash('sha256').update(m.id).digest('hex').slice(0, 18);
+    m.status = 'executed'; m.receipt = { mode: 'SANDBOX (test mode — no real funds moved)', txn, protocol: m.settlement.protocol, amount: m.amount, at: now() }; saveMandates(loadMandates().map((x) => x.id === m.id ? m : x));
+    if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
+    console.log(`✅ SANDBOX SETTLED ${m.id} — ${txn}  (test mode, no real money moved)`);
+    speak(`Settled ${m.intent} in sandbox — test mode, no real money moved. That's the full loop.`);
+    remember(`mandate SANDBOX-settled ${m.id}: $${m.amount}→${m.merchant} ${txn}`, 'mandate');
+    return;
+  }
   speak(`${m.intent} passed every check and is ready. The actual payment is yours to trigger.`);
   remember(`mandate ready-to-settle ${m.id}: $${m.amount}→${m.merchant} via ${m.settlement.protocol}`, 'mandate');
+}
+
+// ---------- BUTTERFLY CONTROL + END-TO-END DEMO (full expressive use: fly + shift life-stage) ----------
+function screenSize() { try { const o = execFileSync('osascript', ['-e', 'tell application "Finder" to get bounds of window of desktop'], { encoding: 'utf8', timeout: 2500 }); const p = o.trim().split(', ').map(Number); return { w: p[2] || 1440, h: p[3] || 900 }; } catch { return { w: 1440, h: 900 }; } }
+function butterfly(state, x, y, say, secs = 9) { try { writeFileSync(join(BEE_DIR, 'butterfly.json'), JSON.stringify({ state, x: Math.round(x), y: Math.round(y), until: now() + secs })); } catch {} if (say) speak(say); }
+function demo() {
+  const sl = (s) => { try { execFileSync('bash', ['-c', `sleep ${s}`]); } catch {} };
+  const S = screenSize(), cx = Math.round(S.w / 2), cy = Math.round(S.h / 2);
+  try { writeFileSync(spendFile(), JSON.stringify({ total: 0 })); writeFileSync(NONCE_FILE, '{}'); } catch {} // repeatable
+  console.log('\n🎬 BEE — end-to-end push demo: decide → mandate → guard → approve → settle (SANDBOX)\n');
+  butterfly('egg', S.w - 150, S.h - 150, 'Watching the fleet — all quiet.'); sl(3);
+  butterfly('larva', S.w * 0.24, S.h * 0.42, 'I spotted one — our hosting needs paying. Lining it up.'); sl(4);
+  butterfly('cocoon', cx, cy, 'Drafting a payment mandate and running it through the guard.'); sl(1);
+  const m = issueMandate(8, 'vercel.com', 'pay Vercel hosting', { rail: 'usdc' }); sl(3);
+  if (!m) { butterfly('landed', cx, cy, 'The guard blocked it — nothing leaves without passing.'); return; }
+  butterfly('landed', S.w * 0.8, S.h * 0.22, 'It is on your wall. I never pay without your nod.'); sl(4);
+  approveMandate(m.id); butterfly('cocoon', cx, cy, 'Approved — re-checking every guard before settlement.'); sl(3);
+  settleMandate(m.id, true);
+  butterfly('flight', S.w * 0.5, S.h * 0.28, 'Settled — eight USDC in sandbox, no real money. That is the whole loop.'); sl(3);
+  butterfly('flight', S.w * 0.16, S.h * 0.2, 'Decide, guard, your approval, settle — end to end.'); sl(3);
+  butterfly('egg', S.w - 150, S.h - 150, 'Back to watching. Say the word for the next one.', 5); sl(1);
+  console.log('🎬 demo complete — see `bee mandates` for the executed mandate.');
 }
 function mandates() {
   const ms = loadMandates();
@@ -1213,7 +1246,9 @@ async function main() {
     break; }
   case 'mandates': mandates(); break;
   case 'approve': approveMandate(rest[0]); break;
-  case 'settle': settleMandate(rest[0]); break;
+  case 'settle': settleMandate(rest[0], rest.includes('--execute')); break;
+  case 'fly': { const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10); if (isNaN(x) || isNaN(y)) { console.error('usage: bee fly <x> <y> [stage] [say…]'); break; } butterfly(rest[2] || 'flight', x, y, rest.slice(3).join(' ') || undefined); console.log(`🦋 flying to ${x},${y} as ${rest[2] || 'flight'}`); break; }
+  case 'demo': demo(); break;
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
   case 'feed': feed(); break;
   case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
@@ -1225,7 +1260,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  PAY: guard <amt> <merchant> (pre-flight) | mandate <amt> <merchant> [intent] (issue) | mandates | approve <id> | settle <id>\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] | mandates | approve <id> | settle <id> [--execute]\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
