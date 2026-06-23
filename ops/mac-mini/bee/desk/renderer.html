@@ -3,15 +3,15 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; cursor:default; }
   html,body { width:100%; height:100%; overflow:hidden; background:transparent;
     font-family:-apple-system,'SF Pro Display','SF Pro Text',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
-  /* life-stage → accent. The metamorphosis carries the meaning; color is the calm, peripheral signal. */
-  body.egg    { --a:#ffd98a; } body.larva { --a:#8fd694; } body.cocoon { --a:#7cc6ff; }
-  body.flight { --a:#7fe3c4; } body.landed{ --a:#ffb27a; }
+  /* life-stage → accent. Muted, premium tones — the metamorphosis carries the meaning; color stays a calm, peripheral whisper. */
+  body.egg    { --a:#e7cfa0; } body.larva { --a:#a7c6a0; } body.cocoon { --a:#a3c0d6; }
+  body.flight { --a:#a6d4c6; } body.landed{ --a:#e0a98e; }
 
   /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
   #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
-  #aura { position:absolute; left:50%; top:52%; width:150px; height:150px; transform:translate(-50%,-50%);
-    border-radius:50%; filter:blur(28px); opacity:.5; transition:background .7s, opacity .7s; pointer-events:none;
-    background:radial-gradient(circle, color-mix(in srgb,var(--a) 85%,transparent) 0%, color-mix(in srgb,var(--a) 22%,transparent) 55%, transparent 72%); }
+  #aura { position:absolute; left:50%; top:52%; width:160px; height:160px; transform:translate(-50%,-50%);
+    border-radius:50%; filter:blur(34px); opacity:.5; transition:background .7s, opacity .7s; pointer-events:none;
+    background:radial-gradient(circle, color-mix(in srgb,var(--a) 50%,transparent) 0%, color-mix(in srgb,var(--a) 14%,transparent) 52%, transparent 74%); }
   #creature { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:140px; height:140px;
     display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s; }
   svg { overflow:visible; display:block; }
@@ -30,22 +30,22 @@
   .spark{display:none}
 
   /* EGG — dormant, the calmest presence */
-  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite; filter:saturate(.92)} body.egg #aura{opacity:.26}
+  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite; filter:saturate(.85)} body.egg #aura{opacity:.2}
   /* LARVA — queued, building potential */
-  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite} body.larva #aura{opacity:.4}
+  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite; filter:saturate(.9)} body.larva #aura{opacity:.28}
   /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
   body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
   body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
-  body.cocoon #aura{opacity:.2}
+  body.cocoon #aura{opacity:.16}
   /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
   body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
-  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 13px #8be0ff) saturate(1.18)}
-  body.flight .spark{display:block} body.flight #aura{opacity:.72}
+  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--a) 50%,transparent))}
+  body.flight .spark{display:block} body.flight #aura{opacity:.44}
   body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
   /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
   body.landed #butterfly{display:block} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
-  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 9px color-mix(in srgb,var(--a) 70%,transparent)) saturate(1.05)}
-  body.landed #aura{opacity:.6}
+  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 6px color-mix(in srgb,var(--a) 42%,transparent))}
+  body.landed #aura{opacity:.42}
 
   /* glanceable, peripheral status line — the ambient signal that replaces the red badge */
   #hint{ position:absolute; left:0; right:0; bottom:5px; text-align:center; font-size:10px; letter-spacing:.4px;
@@ -121,7 +121,7 @@
       <svg id="egg" class="stage" width="96" height="108" viewBox="0 0 96 108">
         <defs>
           <radialGradient id="gEgg" cx=".4" cy=".32" r=".78"><stop offset="0%" stop-color="#fff5da"/><stop offset="55%" stop-color="#ffd98a"/><stop offset="100%" stop-color="#e3a548"/></radialGradient>
-          <linearGradient id="gLeaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#a6d985"/><stop offset="100%" stop-color="#5c9a45"/></linearGradient>
+          <linearGradient id="gLeaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#b2cb98"/><stop offset="100%" stop-color="#6f9a60"/></linearGradient>
         </defs>
         <path d="M14 84 C30 66, 66 66, 82 84 C66 95, 30 95, 14 84 Z" fill="url(#gLeaf)" opacity=".92"/>
         <path d="M20 84 C40 79, 56 79, 76 84" stroke="#3f7a32" stroke-width="1.2" fill="none" opacity=".5"/>
@@ -130,7 +130,7 @@
       </svg>
       <!-- LARVA -->
       <svg id="larva" class="stage" width="128" height="92" viewBox="0 0 128 92">
-        <defs><linearGradient id="gCat" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#bdeb8e"/><stop offset="100%" stop-color="#6fae46"/></linearGradient></defs>
+        <defs><linearGradient id="gCat" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#bcd6a6"/><stop offset="100%" stop-color="#7ea568"/></linearGradient></defs>
         <g stroke="#4f8a34" stroke-width="1">
           <circle cx="28" cy="58" r="13" fill="url(#gCat)"/><circle cx="46" cy="60" r="14" fill="url(#gCat)"/>
           <circle cx="65" cy="60" r="14" fill="url(#gCat)"/><circle cx="84" cy="58" r="13" fill="url(#gCat)"/>
@@ -141,7 +141,7 @@
         </g>
         <circle cx="105" cy="47" r="2.5" fill="#2c3a1c"/>
         <path d="M99 40 C101 33, 106 31, 109 32" stroke="#4f8a34" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-        <circle cx="109" cy="32" r="2.1" fill="#bdeb8e"/>
+        <circle cx="109" cy="32" r="2.1" fill="#bcd6a6"/>
       </svg>
       <!-- COCOON -->
       <svg id="cocoon" class="stage" width="96" height="124" viewBox="0 0 96 124">
@@ -154,18 +154,18 @@
       <!-- BUTTERFLY (flight + landed) -->
       <svg id="butterfly" class="stage" width="140" height="140" viewBox="0 0 132 132">
         <defs>
-          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffe08a"/><stop offset="55%" stop-color="#ffb02f"/><stop offset="100%" stop-color="#ff7a2f"/></linearGradient>
-          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffc24a"/><stop offset="100%" stop-color="#ff6a2f"/></linearGradient>
+          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f4d7a0"/><stop offset="55%" stop-color="#e6ac68"/><stop offset="100%" stop-color="#d98f57"/></linearGradient>
+          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#eab977"/><stop offset="100%" stop-color="#d4824f"/></linearGradient>
           <radialGradient id="gBody" cx="0.5" cy="0.3" r="0.8"><stop offset="0%" stop-color="#5a4022"/><stop offset="100%" stop-color="#2c1d0e"/></radialGradient>
         </defs>
         <g class="wing wL">
-          <path d="M66 52 C30 16, 4 36, 12 58 C18 78, 46 74, 66 60 Z" fill="url(#gUp)" stroke="#c25a18" stroke-width="1.2"/>
-          <path d="M66 62 C44 74, 18 92, 26 106 C34 118, 56 98, 66 78 Z" fill="url(#gLo)" stroke="#c25a18" stroke-width="1.2"/>
+          <path d="M66 52 C30 16, 4 36, 12 58 C18 78, 46 74, 66 60 Z" fill="url(#gUp)" stroke="#b07a44" stroke-width="1.2"/>
+          <path d="M66 62 C44 74, 18 92, 26 106 C34 118, 56 98, 66 78 Z" fill="url(#gLo)" stroke="#b07a44" stroke-width="1.2"/>
           <circle cx="30" cy="46" r="5.5" fill="#3a2a14" opacity=".85"/><circle cx="40" cy="92" r="4" fill="#3a2a14" opacity=".8"/>
         </g>
         <g class="wing wR">
-          <path d="M66 52 C102 16, 128 36, 120 58 C114 78, 86 74, 66 60 Z" fill="url(#gUp)" stroke="#c25a18" stroke-width="1.2"/>
-          <path d="M66 62 C88 74, 114 92, 106 106 C98 118, 76 98, 66 78 Z" fill="url(#gLo)" stroke="#c25a18" stroke-width="1.2"/>
+          <path d="M66 52 C102 16, 128 36, 120 58 C114 78, 86 74, 66 60 Z" fill="url(#gUp)" stroke="#b07a44" stroke-width="1.2"/>
+          <path d="M66 62 C88 74, 114 92, 106 106 C98 118, 76 98, 66 78 Z" fill="url(#gLo)" stroke="#b07a44" stroke-width="1.2"/>
           <circle cx="102" cy="46" r="5.5" fill="#3a2a14" opacity=".85"/><circle cx="92" cy="92" r="4" fill="#3a2a14" opacity=".8"/>
         </g>
         <ellipse cx="66" cy="62" rx="4.5" ry="24" fill="url(#gBody)"/>
@@ -173,9 +173,9 @@
         <path d="M66 37 C61 26, 55 22, 51 22" stroke="#2c1d0e" stroke-width="2" fill="none" stroke-linecap="round"/>
         <path d="M66 37 C71 26, 77 22, 81 22" stroke="#2c1d0e" stroke-width="2" fill="none" stroke-linecap="round"/>
         <circle cx="51" cy="22" r="2.2" fill="#ffcf6a"/><circle cx="81" cy="22" r="2.2" fill="#ffcf6a"/>
-        <g class="spark s1"><path d="M20 30 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" fill="#bfe9ff"/></g>
+        <g class="spark s1"><path d="M20 30 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" fill="#dCe9ee"/></g>
         <g class="spark s2"><path d="M112 36 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5 z" fill="#fff"/></g>
-        <g class="spark s3"><path d="M100 100 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5 z" fill="#bfe9ff"/></g>
+        <g class="spark s3"><path d="M100 100 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5 z" fill="#dCe9ee"/></g>
       </svg>
     </div>
     <div id="hint">✦ Hey Bee</div>
