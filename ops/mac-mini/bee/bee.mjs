@@ -5,7 +5,7 @@
 // Spec: Agentpay/ops/mac-mini/BEE_ARCHITECTURE.md
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -634,6 +634,22 @@ function transcribe() {
   try { return readFileSync(join(BEE_DIR, 'listen.txt'), 'utf8').trim(); } catch { return out.trim(); }
 }
 
+// Bidirectional voice: a continuous listen↔act↔speak loop (not single-shot). Founder talks, Bee responds + acts.
+async function converse() {
+  speak("I'm listening — talk to me, and say stop when you're done.");
+  console.log('🎙  Bee is conversing. Say "stop" to end.');
+  for (let turn = 0; turn < 200; turn++) {
+    const t = (transcribe() || '').trim();
+    if (!t) continue;
+    if (/\b(stop|goodbye|good bye|that'?s all|we'?re done|exit bee|bye bee)\b/i.test(t)) { speak('Talk soon.'); console.log('🎙  ended.'); break; }
+    console.log(`🗣  "${t}"`);
+    if (t.split(/\s+/).length < 3) { speak(ack()); continue; }   // filler/ack — don't make a task of it
+    const id = create(t, { createdBy: 'voice', route: false });  // a real instruction → route + dispatch + reply
+    const d = routeOne(id); dispatch(id);
+    speak(replyFor(d));
+  }
+}
+
 // ---------- VISION: Bee sees the screen ----------
 function see(question = 'Describe what is on screen and any state worth acting on.') {
   const dir = join(BEE_DIR, 'vision'); if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -715,6 +731,21 @@ function workerOutcome(output) {
   if (declared) return declared;
   return 'blocked';
 }
+// Truthfulness layer (Cursor-style): never trust the worker's "done" — VERIFY the artifact.
+// Snapshot the repo before the run, compare after; a claim with no NEW change and no recent
+// artifact is treated as a possible hallucination and flagged, not accepted. Cuts false positives.
+function gitPaths(cwd) {
+  try { return new Set(execFileSync('git', ['-C', cwd, 'status', '--porcelain'], { encoding: 'utf8' }).trim().split('\n').map((l) => l.slice(3)).filter(Boolean)); } catch { return new Set(); }
+}
+function verifyWork(out, cwd, before) {
+  const after = gitPaths(cwd);
+  const fresh = [...after].filter((p) => !before.has(p));
+  if (fresh.length) return { ok: true, why: `${fresh.length} new/changed file(s): ${fresh.slice(0, 2).join(', ')}` };
+  const claimed = [...new Set([...String(out).matchAll(/([\/~][\w./-]+\.[a-z0-9]{1,6})\b/gi)].map((m) => m[1]))];
+  const recent = claimed.filter((f) => { try { const p = f.startsWith('~') ? join(homedir(), f.slice(1)) : f; return existsSync(p) && (Date.now() - statSync(p).mtimeMs) < 1200000; } catch { return false; } });
+  if (recent.length) return { ok: true, why: `recent artifact(s): ${recent.slice(0, 2).join(', ')}` };
+  return { ok: false, why: 'no new repo change and no recently-written file the worker claimed' };
+}
 // Nemotron worker = NVIDIA NIM, executed in-process. Does research/analysis/writing tasks (text artifacts),
 // writes the deliverable to the vault, and closes the card. This is what makes the Nemotron lane actually
 // run on the Mac (no hermes binary) and what the Codex-timeout failover lands on.
@@ -755,6 +786,7 @@ function pull() {
   // Enrich PATH so workers (hermes ~/.local/bin, codex, node22) resolve under launchd too — not just an interactive shell.
   const H = homedir();
   const workerPath = `${H}/.local/bin:${H}/.npm-global/bin:${H}/.nvm/versions/node/v22.22.2/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}`;
+  const beforeWork = gitPaths(cwd);   // snapshot for truthful verification
   const r = spawnSync(command.bin, command.args, { encoding: 'utf8', maxBuffer: 1 << 26, timeout: 900000, cwd: command.cwd, env: { ...process.env, PATH: workerPath } });
   const out = `${r.stdout || ''}\n${r.stderr || ''}`.trim();
   writeFileSync(logf, out);
@@ -793,12 +825,21 @@ function pull() {
     speak(`${card.assignee} hit a problem on ${card.title}. It needs you.`);
     return 'blocked';
   } else {
+    const v = verifyWork(out, cwd, beforeWork);   // worker SAID done — but did it actually do anything?
+    if (!v.ok) {                                   // claim unverifiable → don't lie; flag for review (anti-hallucination)
+      setStatus(card.id, 'blocked');
+      sql(`UPDATE tasks SET result='${esc(`UNVERIFIED — ${card.assignee} claimed done but ${v.why}. Flagged (truthfulness guard).`)}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+      logEvent(card.id, 'unverified', v.why);
+      console.error(`⚠ ${card.id}: claimed done but UNVERIFIED (${v.why}) — flagged for review, not marked done.`);
+      speak(`${card.assignee} said it finished, but I couldn't verify it — I've flagged it rather than claim it's done.`);
+      return 'unverified';
+    }
     const tail = out.split('\n').filter(Boolean).slice(-8).join('\n');
-    sql(`UPDATE tasks SET result='${esc(tail.slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
-    setStatus(card.id, 'done'); logEvent(card.id, 'executed', card.assignee);
+    sql(`UPDATE tasks SET result='${esc(('✓ verified — ' + v.why + ' · ' + tail).slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    setStatus(card.id, 'done'); logEvent(card.id, 'executed', `${card.assignee} · verified`);
     if (card.assignee === 'codex' || card.assignee === 'claude') markAgentStatus(card.assignee, 'available');
-    speak(`Done: ${card.title}`);
-    console.log(`✅ done ${card.id} (${card.assignee}) — log ${logf}`);
+    speak(`Done and verified: ${card.title}`);
+    console.log(`✅ done ${card.id} (${card.assignee}) — verified: ${v.why}`);
     return 'done';
   }
 }
@@ -1107,7 +1148,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | guard <amt> <merchant> (payment pre-flight) | feed | remember <text> | memory\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | daemon · route/start/done/block <id>'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | guard <amt> <merchant> (payment pre-flight) | feed | remember <text> | memory\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
@@ -1134,6 +1175,8 @@ async function main() {
   case 'fill': beeFill(rest[0], rest.slice(1).join(' ')); break;
   case 'type': try { execFileSync('cliclick', [`t:${arg}`]); console.log('typed'); } catch { console.error('cliclick failed'); } break;
   case 'act': act(arg); break;
+  case 'install': try { execFileSync('bash', [new URL('install.sh', import.meta.url).pathname], { stdio: 'inherit' }); } catch (e) { console.error('install failed:', e.message.split('\n')[0]); } break;
+  case 'converse': await converse(); break;
   case 'speak': speak(arg); break;
   case 'see': see(arg || undefined); break;
   case 'daemon': await daemon(); break;
