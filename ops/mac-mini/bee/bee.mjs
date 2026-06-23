@@ -8,6 +8,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const BEE_DIR = join(homedir(), '.bee');
@@ -577,6 +578,8 @@ function spendFile() { return join(BEE_DIR, `spend-${new Date(now() * 1000).toIS
 function spentToday() { try { return JSON.parse(readFileSync(spendFile(), 'utf8')).total || 0; } catch { return 0; } }
 const NONCE_FILE = join(BEE_DIR, 'nonces.json');
 function seenNonce(n) { if (!n) return false; try { return !!JSON.parse(readFileSync(NONCE_FILE, 'utf8'))[n]; } catch { return false; } }
+function addNonce(n) { if (!n) return; let s = {}; try { s = JSON.parse(readFileSync(NONCE_FILE, 'utf8')); } catch {} s[n] = now(); try { writeFileSync(NONCE_FILE, JSON.stringify(s)); } catch {} }
+function recordSpend(a) { const t = spentToday() + (+a || 0); try { writeFileSync(spendFile(), JSON.stringify({ total: t })); } catch {} return t; }
 function guard(amount, merchant, opts = {}) {
   amount = +amount || 0; const checks = []; const add = (name, pass, detail) => checks.push({ name, pass, detail });
   const intent = opts.intent || `${amount} to ${merchant}`;
@@ -590,6 +593,70 @@ function guard(amount, merchant, opts = {}) {
   add('replay/nonce', !seenNonce(opts.nonce), seenNonce(opts.nonce) ? 'nonce already used' : (opts.nonce ? 'fresh' : 'no nonce supplied (single-use not enforced)'));
   const pass = checks.every((c) => c.pass);
   return { pass, checks, intent, blocker: pass ? null : checks.find((c) => !c.pass).name };
+}
+
+// ---------- MANDATE PRIMITIVE: the signed, provable-consent artifact (AP2/Agentic-Token shaped) ----------
+// Loop: Bee ISSUES (guarded, proposed) → founder APPROVES (the wall) → SETTLE re-guards + stages the
+// exact rail payload (x402/USDC or Stripe). Bee NEVER moves money autonomously — settlement is founder-triggered.
+const MANDATE_FILE = join(BEE_DIR, 'mandates.json');
+const loadMandates = () => { try { return JSON.parse(readFileSync(MANDATE_FILE, 'utf8')); } catch { return []; } };
+const saveMandates = (m) => { try { writeFileSync(MANDATE_FILE, JSON.stringify(m, null, 2)); } catch {} };
+const mandateSig = (m) => createHash('sha256').update(`${m.agent}:${m.merchant}:${m.amount}:${m.currency}:${m.nonce}`).digest('hex').slice(0, 16); // binds agent+merchant+amount (Sentinel-style)
+const findMandate = (id) => loadMandates().find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+function settlementPayload(m) {
+  if (/x402|usdc/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
+  if (/usdt/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDT', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
+  return { protocol: 'stripe-acp', payment_intent: { amount: Math.round(m.amount * 100), currency: (m.currency || 'USD').toLowerCase(), description: m.intent, metadata: { mandate: m.id, agent: 'bee' } } };
+}
+function issueMandate(amount, merchant, intent, opts = {}) {
+  amount = +amount || 0;
+  const g = guard(amount, merchant, { intent });                       // pre-flight BEFORE issuing
+  if (!g.pass) { console.log(`⛔ guard blocked the mandate: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`I can't issue that — ${g.blocker}.`); return null; }
+  const m = { id: rid('mnd'), intent: intent || `pay ${merchant} $${amount}`, amount, currency: opts.currency || 'USD', merchant, cap: +opts.cap || amount, rail: opts.rail || 'auto', agent: 'bee', nonce: rid('n'), issued_at: now(), expires_at: now() + (opts.ttl || 3600), status: 'proposed', approved_by: null };
+  m.sig = mandateSig(m);
+  const taskId = create(`[MANDATE ${m.id}] approve payment: ${m.intent}`, { body: `$${amount} ${m.currency} → ${merchant} · rail ${m.rail} · expires ${new Date(m.expires_at * 1000).toISOString().slice(0, 16)} · sig ${m.sig}`, route: false });
+  sql(`UPDATE tasks SET lane='labs', assignee='rajiv', model_tier='human', needs_human=1, status='blocked', rationale='${esc('💳 Payment mandate — founder approval required. Bee never auto-pays.')}', updated_at=${now()} WHERE id='${esc(taskId)}';`);
+  m.task_id = taskId;
+  const ms = loadMandates(); ms.push(m); saveMandates(ms);
+  console.log(`💳 issued ${m.id} — $${amount} ${m.currency} → ${merchant}  [proposed → on the wall]`);
+  g.checks.forEach((c) => console.log(`   ✓ ${c.name}`));
+  console.log(`   approve with:  bee approve ${m.id}`);
+  speak(`Mandate ready — ${m.intent}. It's on your wall; I won't pay until you approve.`);
+  remember(`mandate issued ${m.id}: $${amount}→${merchant} (proposed)`, 'mandate');
+  return m;
+}
+function approveMandate(id) {
+  const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+  if (!m) { console.log(`no mandate ${id}`); return; }
+  if (m.sig !== mandateSig(m)) { console.log(`⛔ ${m.id} signature mismatch — tampered. Refusing.`); speak('That mandate looks tampered — refusing.'); return; }
+  if (now() > m.expires_at) { m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return; }
+  m.status = 'approved'; m.approved_by = 'rajiv'; m.approved_at = now(); saveMandates(ms);
+  console.log(`✅ ${m.id} APPROVED — guarded & ready. Settle with:  bee settle ${m.id}`);
+  speak(`Approved. ${m.intent} is cleared to settle.`);
+  remember(`mandate approved ${m.id}`, 'mandate');
+}
+function settleMandate(id) {
+  const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+  if (!m) { console.log(`no mandate ${id}`); return; }
+  if (m.status === 'ready_to_settle' || m.status === 'executed') { console.log(`${m.id} already ${m.status}`); return; }
+  if (m.status !== 'approved') { console.log(`⛔ ${m.id} not approved (status: ${m.status}) — founder must approve first.`); speak("That mandate isn't approved yet."); return; }
+  if (m.sig !== mandateSig(m)) { console.log(`⛔ ${m.id} tampered — refusing.`); return; }
+  if (now() > m.expires_at) { m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return; }
+  const g = guard(m.amount, m.merchant, { intent: m.intent, nonce: m.nonce, approved: m.cap }); // full Sentinel pass incl. amount-match + replay
+  if (!g.pass) { m.status = 'blocked'; saveMandates(ms); console.log(`⛔ guard blocked at settle: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`Blocked at settlement — ${g.blocker}.`); return; }
+  addNonce(m.nonce); recordSpend(m.amount);                            // spend the nonce (replay) + count against the cap
+  m.status = 'ready_to_settle'; m.settlement = settlementPayload(m); m.settled_at = now(); saveMandates(ms);
+  if (m.task_id) sql(`UPDATE tasks SET rationale='${esc('💳 Mandate approved + guarded — execute on the rail (founder-triggered).')}', updated_at=${now()} WHERE id='${esc(m.task_id)}';`);
+  console.log(`\n💸 ${m.id} GUARDED + READY — rail payload staged (${m.settlement.protocol}). Bee does not move money; you trigger the actual settlement:`);
+  console.log(JSON.stringify(m.settlement, null, 2));
+  speak(`${m.intent} passed every check and is ready. The actual payment is yours to trigger.`);
+  remember(`mandate ready-to-settle ${m.id}: $${m.amount}→${m.merchant} via ${m.settlement.protocol}`, 'mandate');
+}
+function mandates() {
+  const ms = loadMandates();
+  if (!ms.length) { console.log('no mandates yet — `bee mandate <amount> <merchant> [intent…]`'); return; }
+  console.log('\n💳 MANDATES  (Bee issues + guards; founder approves; Bee never auto-pays):\n');
+  ms.slice(-14).forEach((m) => console.log(`  ${m.id}  ${(m.status || '').padEnd(15)} $${m.amount} ${m.currency} → ${(m.merchant || '').padEnd(16)} ${m.intent}`));
 }
 
 // ---------- VOICE ----------
@@ -1137,6 +1204,16 @@ async function main() {
     speak(g.pass ? 'Cleared the guard. Staging for your approval.' : `Blocked — ${g.blocker}.`);
     remember(`guard ${g.pass ? 'PASS' : 'BLOCK'}: $${amount}→${merchant || '?'}${g.pass ? '' : ' (' + g.blocker + ')'}`, 'guard');
     break; }
+  case 'mandate': {                                     // issue a payment mandate (guarded, proposed, on the wall)
+    const amount = parseFloat(rest[0]); const merchant = rest[1] || '';
+    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent…] [--rail x402|usdc|usdt|stripe]'); break; }
+    const railIdx = rest.indexOf('--rail'); const rail = railIdx > -1 ? rest[railIdx + 1] : undefined;
+    const words = rest.slice(2).filter((_, i) => railIdx === -1 || (i + 2 !== railIdx && i + 2 !== railIdx + 1));
+    issueMandate(amount, merchant, words.join(' ') || undefined, { rail });
+    break; }
+  case 'mandates': mandates(); break;
+  case 'approve': approveMandate(rest[0]); break;
+  case 'settle': settleMandate(rest[0]); break;
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
   case 'feed': feed(); break;
   case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
@@ -1148,7 +1225,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | guard <amt> <merchant> (payment pre-flight) | feed | remember <text> | memory\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  PAY: guard <amt> <merchant> (pre-flight) | mandate <amt> <merchant> [intent] (issue) | mandates | approve <id> | settle <id>\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
