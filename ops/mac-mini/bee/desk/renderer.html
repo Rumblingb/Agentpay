@@ -3,15 +3,16 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; cursor:default; }
   html,body { width:100%; height:100%; overflow:hidden; background:transparent;
     font-family:-apple-system,'SF Pro Display','SF Pro Text',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
-  /* life-stage → accent. Muted, premium tones — the metamorphosis carries the meaning; color stays a calm, peripheral whisper. */
-  body.egg    { --a:#e7cfa0; } body.larva { --a:#a7c6a0; } body.cocoon { --a:#a3c0d6; }
-  body.flight { --a:#a6d4c6; } body.landed{ --a:#e0a98e; }
+  /* life-stage → accent (--a, used on the dark card) + a always-WARM glow (--glow) that matches the amber creature,
+     so the halo never goes cool/blue under warm wings. Rich but not neon. */
+  body.egg    { --a:#e7cfa0; --glow:#f4c879; } body.larva { --a:#a7c6a0; --glow:#a9cf82; } body.cocoon { --a:#a3c0d6; --glow:#e6b766; }
+  body.flight { --a:#a6d4c6; --glow:#ffc25e; } body.landed{ --a:#e0a98e; --glow:#f2a85e; }
 
   /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
   #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
   #aura { position:absolute; left:50%; top:52%; width:160px; height:160px; transform:translate(-50%,-50%);
     border-radius:50%; filter:blur(34px); opacity:.5; transition:background .7s, opacity .7s; pointer-events:none;
-    background:radial-gradient(circle, color-mix(in srgb,var(--a) 50%,transparent) 0%, color-mix(in srgb,var(--a) 14%,transparent) 52%, transparent 74%); }
+    background:radial-gradient(circle, color-mix(in srgb,var(--glow) 70%,transparent) 0%, color-mix(in srgb,var(--glow) 20%,transparent) 52%, transparent 74%); }
   #creature { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:140px; height:140px;
     display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s; }
   svg { overflow:visible; display:block; }
@@ -30,22 +31,22 @@
   .spark{display:none}
 
   /* EGG — dormant, the calmest presence */
-  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite; filter:saturate(.85)} body.egg #aura{opacity:.2}
+  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite} body.egg #aura{opacity:.32}
   /* LARVA — queued, building potential */
-  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite; filter:saturate(.9)} body.larva #aura{opacity:.28}
+  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite} body.larva #aura{opacity:.36}
   /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
   body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
   body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
   body.cocoon #aura{opacity:.16}
   /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
   body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
-  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--a) 50%,transparent))}
-  body.flight .spark{display:block} body.flight #aura{opacity:.44}
+  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 55%,transparent))}
+  body.flight .spark{display:block} body.flight #aura{opacity:.6}
   body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
   /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
   body.landed #butterfly{display:block} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
-  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 6px color-mix(in srgb,var(--a) 42%,transparent))}
-  body.landed #aura{opacity:.42}
+  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 50%,transparent))}
+  body.landed #aura{opacity:.55}
 
   /* glanceable, peripheral status line — the ambient signal that replaces the red badge */
   #hint{ position:absolute; left:0; right:0; bottom:5px; text-align:center; font-size:10px; letter-spacing:.4px;
@@ -154,8 +155,8 @@
       <!-- BUTTERFLY (flight + landed) -->
       <svg id="butterfly" class="stage" width="140" height="140" viewBox="0 0 132 132">
         <defs>
-          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f4d7a0"/><stop offset="55%" stop-color="#e6ac68"/><stop offset="100%" stop-color="#d98f57"/></linearGradient>
-          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#eab977"/><stop offset="100%" stop-color="#d4824f"/></linearGradient>
+          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffdc8a"/><stop offset="55%" stop-color="#f2a948"/><stop offset="100%" stop-color="#e2812f"/></linearGradient>
+          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f6bd5e"/><stop offset="100%" stop-color="#df7d36"/></linearGradient>
           <radialGradient id="gBody" cx="0.5" cy="0.3" r="0.8"><stop offset="0%" stop-color="#5a4022"/><stop offset="100%" stop-color="#2c1d0e"/></radialGradient>
         </defs>
         <g class="wing wL">
