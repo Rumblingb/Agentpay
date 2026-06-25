@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;cursor:crosshair}
+  html,body{width:100%;height:100%;overflow:hidden;background:rgba(10,11,16,.34);
+    font-family:-apple-system,'SF Pro Display',system-ui,sans-serif}
+  #hud{position:fixed;left:0;right:0;top:54px;text-align:center;color:#f2f2f6;pointer-events:none}
+  #hud .q{font-size:15px;font-weight:600;opacity:.9;max-width:60%;margin:0 auto;line-height:1.4}
+  #hud .k{margin-top:14px;font-size:13px;color:rgba(255,255,255,.62);letter-spacing:.3px}
+  #hud .k b{color:#86e0b0;font-weight:700} #hud .k i{color:#ff8f7a;font-style:normal;font-weight:700}
+  canvas{position:fixed;inset:0}
+  #verdict{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%) scale(.6);opacity:0;font-size:120px;font-weight:800;transition:transform .25s cubic-bezier(.2,.9,.3,1.3),opacity .25s}
+  #verdict.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #verdict.ok{color:#86e0b0;text-shadow:0 0 40px rgba(134,224,176,.6)} #verdict.no{color:#ff8f7a;text-shadow:0 0 40px rgba(255,143,122,.6)}
+</style></head>
+<body>
+  <div id="hud"><div class="q" id="q">Approve this?</div>
+    <div class="k">Draw <b>✓</b> to approve · <i>✗</i> to reject</div>
+  </div>
+  <canvas id="c"></canvas>
+  <div id="verdict"></div>
+<script src="gesture-recognizer.js"></script>
+<script>
+  const cv=document.getElementById('c'),x=cv.getContext('2d');
+  function size(){cv.width=innerWidth;cv.height=innerHeight} size(); onresize=size;
+  let strokes=[],cur=null,drawing=false,finalizeT=null,requestToken='',submitted=false;
+  window.beeApproval.onRequest(d=>{ if(d&&d.label) document.getElementById('q').textContent=d.label; requestToken=d&&d.token||''; });
+
+  function draw(){ x.clearRect(0,0,cv.width,cv.height);
+    x.lineWidth=5;x.lineCap='round';x.lineJoin='round';x.strokeStyle='rgba(255,224,160,.95)';x.shadowColor='rgba(255,200,110,.7)';x.shadowBlur=14;
+    for(const s of strokes.concat(cur?[cur]:[])){ if(s.length<2)continue; x.beginPath();x.moveTo(s[0].x,s[0].y); for(const p of s)x.lineTo(p.x,p.y); x.stroke(); } }
+
+  addEventListener('mousedown',e=>{ if(finalizeT){clearTimeout(finalizeT);finalizeT=null} drawing=true;cur=[{x:e.clientX,y:e.clientY}]; });
+  addEventListener('mousemove',e=>{ if(!drawing)return; cur.push({x:e.clientX,y:e.clientY}); draw(); });
+  addEventListener('mouseup',()=>{ if(!drawing)return; drawing=false; if(cur&&cur.length>2)strokes.push(cur); cur=null; draw();
+    finalizeT=setTimeout(finalize,520); });               // wait briefly for a 2nd stroke (the X)
+  addEventListener('keydown',e=>{ if(e.key==='Escape'&&!submitted){ submitted=true; window.beeApproval.submit('cancel',requestToken); } });
+
+  function finalize(){ const v=window.BeeGesture.recognize(strokes); strokes=[];
+    if(!v){ draw(); return; }                              // ambiguous → let them try again
+    submitted=true; show(v); setTimeout(()=>window.beeApproval.submit(v,requestToken),650); }
+  function show(v){ const el=document.getElementById('verdict'); el.textContent=v==='approve'?'✓':'✗'; el.className='on '+(v==='approve'?'ok':'no'); }
+</script>
+</body></html>

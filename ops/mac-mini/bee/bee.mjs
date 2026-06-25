@@ -5,10 +5,10 @@
 // Spec: Agentpay/ops/mac-mini/BEE_ARCHITECTURE.md
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const BEE_DIR = join(homedir(), '.bee');
@@ -38,6 +38,12 @@ function sql(query, { json = false } = {}) {
 }
 const now = () => Math.floor(Date.now() / 1000);
 const rid = (p) => `${p}_${now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+function writeJSONAtomic(file, value, mode = 0o600) {
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2), { mode });
+  renameSync(tmp, file);
+  try { chmodSync(file, mode); } catch {}
+}
 
 // ---------- schema ----------
 function init() {
@@ -55,6 +61,8 @@ function init() {
     needs_human INTEGER NOT NULL DEFAULT 0,    -- the approval-wall flag
     rationale TEXT,
     result TEXT,                               -- worker output excerpt
+    approval_ready INTEGER NOT NULL DEFAULT 0,
+    approval_packet TEXT,
     source_key TEXT,                           -- stable origin for dedupe (blueprint/project/etc.)
     created_by TEXT,
     created_at INTEGER NOT NULL,
@@ -69,6 +77,8 @@ function init() {
   // migrate older DBs that predate the result column
   const cols = sql(`PRAGMA table_info(tasks);`, { json: true }).map((c) => c.name);
   if (!cols.includes('result')) sql(`ALTER TABLE tasks ADD COLUMN result TEXT;`);
+  if (!cols.includes('approval_ready')) sql(`ALTER TABLE tasks ADD COLUMN approval_ready INTEGER NOT NULL DEFAULT 0;`);
+  if (!cols.includes('approval_packet')) sql(`ALTER TABLE tasks ADD COLUMN approval_packet TEXT;`);
   if (!cols.includes('source_key')) sql(`ALTER TABLE tasks ADD COLUMN source_key TEXT;`);
   sql(`CREATE INDEX IF NOT EXISTS idx_tasks_source_key ON tasks(source_key);`);
 }
@@ -83,6 +93,7 @@ const FUND_EXEC_RE = /\b(execute|order|buy|sell|fill|position|go ?live|live[- ]?
 // ---------- difficulty-classified router (the cost ladder) ----------
 // Rule: cheap-by-default, but hard/high-stakes goes STRAIGHT to the heavy model.
 const HUMAN_RE = /\b(oauth|log[- ]?in|sign[- ]?in|accounts?|app ?store|asc|play console|publish|upload|drag|stripe|api ?key|secret|token|\.env|mcpize|grant|2fa|verify|tiktok|instagram|facebook|connect .*channel|money|credential)\b/i;
+const EXTERNAL_EFFECT_RE = /\b(submit|publish|upload|send|deploy)\b|\bpost\s+(?:to|on)\b|\brelease\s+to\b/i;
 const HARD_RE  = /\b(architect|design|strategy|launch|pricing|revenue|customer|copy|narrative|brand|review|refactor|migrate|security|tradeoff)\b/i;
 const IMPL_RE  = /\b(implement|build|code|fix bug|endpoint|api|test|ci|deploy|script|component|kaggle|github|app|release)\b/i;
 const RESEARCH_RE = /\b(research|scrape|render|shorts?|video|summari[sz]e|monitor|sweep|draft|digest)\b/i;
@@ -91,6 +102,7 @@ const SCREEN_RE = /\b(screen|click|type into|fill .*form|browser|open .*app|navi
 function safetyFloor(title, body = '') {
   const text = `${title} ${body}`.replace(/_/g, ' ');
   if (FUND_RE.test(text) && FUND_EXEC_RE.test(text)) return { ...KIND_MAP['fund-exec'] };
+  if (EXTERNAL_EFFECT_RE.test(text)) return { ...KIND_MAP.human };
   if (HUMAN_RE.test(text)) return { ...KIND_MAP.human };
   return null;
 }
@@ -98,29 +110,29 @@ function safetyFloor(title, body = '') {
 // ---------- INTELLIGENT classifier: local LLM brain ($0) with a rule-based safety FLOOR ----------
 const BRAIN_URL = process.env.BEE_BRAIN_URL || 'http://localhost:11434/v1/chat/completions';
 const BRAIN_MODEL = process.env.BEE_BRAIN_MODEL || 'gemma3:12b';
-// Cloud reasoning fallback: NVIDIA NIM (Nemotron). Free-tier, OpenAI-compatible. Key from ~/.bee/.env.
+// Cloud fallback: fast Nemotron for routine calls, Super for founder-level reasoning and deliverables.
 const NIM_URL = process.env.BEE_NIM_URL || 'https://integrate.api.nvidia.com/v1/chat/completions';
-const NIM_MODEL = process.env.BEE_NIM_MODEL || 'meta/llama-3.3-70b-instruct'; // verified live on this NIM account
-function nimBrain(messages, max) {
+const NIM_FAST_MODEL = process.env.BEE_NIM_FAST_MODEL || 'nvidia/nemotron-3-nano-30b-a3b';
+const NIM_REASONING_MODEL = process.env.BEE_NIM_REASONING_MODEL || process.env.BEE_NIM_MODEL || 'nvidia/nemotron-3-super-120b-a12b';
+function nimBrain(messages, max, model = NIM_FAST_MODEL) {
   const key = process.env.NVIDIA_API_KEY; if (!key) return '';
-  const payload = JSON.stringify({ model: NIM_MODEL, temperature: 0, max_tokens: max, stream: false, messages });
+  const payload = JSON.stringify({ model, temperature: 0, max_tokens: max, stream: false, messages });
   try {
     const r = execFileSync('curl', ['-s', '-m', '25', NIM_URL, '-H', 'content-type: application/json', '-H', `authorization: Bearer ${key}`, '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
     return JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
   } catch { return ''; }
 }
-// Local gemma first ($0) for cheap/fast calls; NIM (70b) for hard reasoning via {big:true}.
-// big=true → NIM-first (sharper decisions); otherwise local-first with NIM as fallback. Both OpenAI-shaped.
+// Local Gemma first for cheap calls; reasoning requests go directly to the stronger NIM tier.
 function brain(prompt, { sys = '', max = 200, big = false } = {}) {
   const messages = [...(sys ? [{ role: 'system', content: sys }] : []), { role: 'user', content: prompt }];
-  if (big) { const n = nimBrain(messages, max); if (n) return n; }
+  if (big) { const n = nimBrain(messages, max, NIM_REASONING_MODEL); if (n) return n; }
   try {
     const payload = JSON.stringify({ model: BRAIN_MODEL, temperature: 0, stream: false, messages });
     const r = execFileSync('curl', ['-s', '-m', '20', BRAIN_URL, '-H', 'content-type: application/json', '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
     const out = JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
     if (out) return out;
   } catch {}
-  return nimBrain(messages, max);
+  return nimBrain(messages, max, NIM_FAST_MODEL);
 }
 function llmClassify(title, body) {
   const sys = 'You are Bee, a sharp startup cofounder routing the founder\'s requests. Output ONLY compact JSON: '
@@ -226,6 +238,11 @@ function routeOne(id) {
   sql(`UPDATE tasks SET lane='${c.lane}',difficulty='${c.difficulty}',risk='${c.risk}',assignee='${esc(c.assignee)}',
        model_tier='${c.model_tier}',needs_human=${c.needs_human},status='${c.needs_human ? 'blocked' : 'routed'}',
        rationale='${esc(c.rationale)}',updated_at=${now()} WHERE id='${esc(id)}';`);
+  if (c.lane === 'labs' && c.needs_human) {
+    const request = `${rows[0].title}${rows[0].body ? ` — ${rows[0].body}` : ''}`;
+    if (isApprovableAction(request)) stageAction(request, id);
+    else { const prepId = queueApprovalPrep(id); if (prepId) { c.preparing = true; c.needs_human = 0; c.assignee = 'bee'; } }
+  }
   logEvent(id, 'routed', `${c.assignee}/${c.model_tier}`);
   printTask(id);
   return c;
@@ -236,6 +253,73 @@ function setStatus(id, status) {
   logEvent(id, 'status', status);
   if (status === 'done') { const r = sql(`SELECT title,assignee FROM tasks WHERE id='${esc(id)}';`, { json: true })[0]; if (r) remember(`shipped: ${r.title} (${r.assignee || '?'})`, 'done'); }
   console.log(`${id} → ${status}`);
+}
+function declineTask(id) {
+  const task = sql(`SELECT id,title FROM tasks WHERE id='${esc(id)}' AND status!='done';`, { json: true })[0];
+  if (!task) { console.log(`no open task ${id}`); return false; }
+  sql(`UPDATE tasks SET status='done',needs_human=0,rationale='Declined by founder — no action taken.',updated_at=${now()} WHERE id='${esc(id)}';`);
+  logEvent(id, 'declined', 'founder'); remember(`declined: ${task.title}`, 'approval'); console.log(`✗ ${id} declined`); return true;
+}
+function deferApproval(id, reason) {
+  const task = sql(`SELECT id,title FROM tasks WHERE id='${esc(id)}' AND status!='done';`, { json: true })[0];
+  if (!task || !reason) return false;
+  sql(`UPDATE tasks SET needs_human=0,status='blocked',approval_ready=0,approval_packet=NULL,result='${esc(reason)}',rationale='Bee must resolve this before asking the founder.',updated_at=${now()} WHERE id='${esc(id)}';`);
+  sql(`UPDATE tasks SET status='done',result='Approval preparation stopped: parent returned to Bee',updated_at=${now()} WHERE source_key='approval-prep:${esc(id)}' AND status!='done';`);
+  logEvent(id, 'approval-deferred', reason); remember(`approval deferred ${id}: ${reason}`, 'approval'); console.log(`↩ ${id} returned to Bee: ${reason}`); return true;
+}
+function supersedeTask(id, reason) {
+  const task = sql(`SELECT id,title FROM tasks WHERE id='${esc(id)}' AND status!='done';`, { json: true })[0];
+  if (!task || !reason) return false;
+  sql(`UPDATE tasks SET needs_human=0,status='done',approval_ready=0,rationale='${esc(reason)}',result='${esc(reason)}',updated_at=${now()} WHERE id='${esc(id)}';`);
+  sql(`UPDATE tasks SET status='done',result='Approval preparation stopped: parent superseded',updated_at=${now()} WHERE source_key='approval-prep:${esc(id)}' AND status!='done';`);
+  logEvent(id, 'superseded', reason); remember(`superseded: ${task.title} — ${reason}`, 'approval'); console.log(`✓ ${id} superseded`); return true;
+}
+
+function queueApprovalPrep(parentId) {
+  const parent = sql(`SELECT id,title,body,lane,status,needs_human,approval_ready FROM tasks WHERE id='${esc(parentId)}';`, { json: true })[0];
+  if (!parent || parent.lane !== 'labs' || parent.status === 'done' || parent.approval_ready) return null;
+  const sourceKey = `approval-prep:${parent.id}`;
+  const existing = sql(`SELECT id,status FROM tasks WHERE source_key='${esc(sourceKey)}' AND status!='done' ORDER BY created_at DESC LIMIT 1;`, { json: true })[0];
+  if (existing) {
+    if (existing.status === 'blocked') sql(`UPDATE tasks SET status='routed',result=NULL,updated_at=${now()} WHERE id='${esc(existing.id)}';`);
+    return existing.id;
+  }
+  const id = create(`[Approval prep] ${parent.title}`, {
+    body: `Take this founder-gated task to the final safe step. Do every non-sensitive prerequisite you can: inspect current state and artifacts, run relevant checks, fix local blockers, and produce a concise decision packet. Do not authenticate, publish, submit, move money, alter permissions, or touch the fund lane. A packet is not ready without concrete evidence. End with BEE_APPROVAL_SUMMARY: <what is ready and what the founder's single final action does> and BEE_APPROVAL_EVIDENCE: <specific checked paths, commands, statuses, or artifacts>. Add BEE_APPROVAL_URL: <https URL> only when a verified final-step URL exists. Original context: ${parent.body || '(none)'}`,
+    createdBy: 'bee-approval-prep', route: false, sourceKey,
+  });
+  const assignee = agentAvailable('codex') ? 'codex' : (agentAvailable('claude') ? 'claude' : 'nemotron');
+  const tier = assignee === 'codex' ? 'paid' : (assignee === 'nemotron' ? 'free' : 'paid-heavy');
+  sql(`UPDATE tasks SET lane='labs',difficulty='standard',risk='medium',assignee='${esc(assignee)}',model_tier='${tier}',needs_human=0,status='routed',rationale='Preparing every safe prerequisite before the founder is interrupted.',updated_at=${now()} WHERE id='${esc(id)}';`);
+  sql(`UPDATE tasks SET needs_human=0,status='blocked',rationale='Bee is preparing everything; this returns when only your final action remains.',approval_ready=0,updated_at=${now()} WHERE id='${esc(parent.id)}';`);
+  logEvent(parent.id, 'approval-prep-started', id); dispatch(id);
+  return id;
+}
+
+function approvalPacketFromOutput(output) {
+  const summary = String(output).match(/BEE_APPROVAL_SUMMARY:\s*(.+)/i)?.[1]?.trim()
+    || String(output).split('\n').filter((line) => line.trim() && !/^BEE_/.test(line)).slice(-4).join(' ').slice(0, 900);
+  const evidence = String(output).match(/BEE_APPROVAL_EVIDENCE:\s*(.+)/i)?.[1]?.trim() || '';
+  if (!summary || !evidence) return null;
+  const url = String(output).match(/BEE_APPROVAL_URL:\s*(https:\/\/\S+)/i)?.[1]?.replace(/[)>.,]+$/, '') || '';
+  return { summary, evidence, url };
+}
+function finalizeApprovalPrep(card, output) {
+  const parentId = String(card.source_key || '').replace(/^approval-prep:/, '');
+  if (!parentId || parentId === card.source_key) return;
+  const parsed = approvalPacketFromOutput(output); if (!parsed) return false;
+  const packet = { ...parsed, prepared_at: now(), prepared_by: card.assignee, prep_task_id: card.id };
+  sql(`UPDATE tasks SET needs_human=1,status='blocked',approval_ready=1,approval_packet='${esc(JSON.stringify(packet))}',result='${esc(parsed.summary)}',rationale='Ready — Bee completed the preparation. Only your final action remains.',updated_at=${now()} WHERE id='${esc(parentId)}';`);
+  logEvent(parentId, 'approval-ready', card.id); remember(`approval ready ${parentId}: ${parsed.summary}`, 'approval'); return true;
+}
+function markApprovalReady(id, { summary, evidence, url = '', preparedBy = 'bee' } = {}) {
+  const parent = sql(`SELECT id,lane FROM tasks WHERE id='${esc(id)}' AND status!='done';`, { json: true })[0];
+  if (!parent || parent.lane !== 'labs' || !summary || !evidence) { console.log('usage: bee ready-approval <task-id> --summary "..." --evidence "..." [--url https://...]'); return false; }
+  if (url && !/^https:\/\//i.test(url)) { console.log('approval URL must use https'); return false; }
+  const packet = { summary, evidence, url, prepared_at: now(), prepared_by: preparedBy };
+  sql(`UPDATE tasks SET needs_human=1,status='blocked',approval_ready=1,approval_packet='${esc(JSON.stringify(packet))}',result='${esc(summary)}',rationale='Ready — Bee completed the preparation. Only your final action remains.',updated_at=${now()} WHERE id='${esc(id)}';`);
+  sql(`UPDATE tasks SET status='done',result='Superseded by verified approval packet',updated_at=${now()} WHERE source_key='approval-prep:${esc(id)}' AND status!='done';`);
+  logEvent(id, 'approval-ready', preparedBy); remember(`approval ready ${id}: ${summary}`, 'approval'); console.log(`✅ ${id} ready for final founder action`); return true;
 }
 
 // ---------- DURABLE MEMORY: Bee writes lasting facts into the Obsidian vault (the fleet's shared brain) ----------
@@ -483,6 +567,14 @@ function tickBlueprints() {
   if (changed) writeFileSync(SCHED_FILE, JSON.stringify(s));
 }
 
+function inferredApprovalUrl(text = '') {
+  if (/npm/i.test(text)) return 'https://www.npmjs.com/login';
+  if (/app store|\basc\b|appstoreconnect/i.test(text)) return 'https://appstoreconnect.apple.com/apps';
+  if (/play console|google play/i.test(text)) return 'https://play.google.com/console/';
+  return '';
+}
+function parseApprovalPacket(raw) { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } }
+
 // Single JSON snapshot for the desktop dashboard — same truth the CLI dashboard prints, structured.
 function stateJSON() {
   const c = (s) => (sql(`SELECT count(*) c FROM tasks WHERE ${s};`, { json: true })[0] || {}).c || 0;
@@ -493,20 +585,42 @@ function stateJSON() {
     done: c("lane='labs' AND status='done'"),
     active: sql(`SELECT id,title,assignee,status,model_tier FROM tasks WHERE lane='labs' AND status IN ('routed','in_progress') AND needs_human=0 ORDER BY updated_at DESC LIMIT 8;`, { json: true }),
   };
-  const approvals = [...sql(`SELECT id,lane,title,rationale FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY lane,created_at;`, { json: true }), ...agencyApprovals()];
+  const mandateByTask = new Map(loadMandates().filter((m) => !['executed', 'rejected', 'expired'].includes(m.status)).map((m) => [m.task_id, m]));
+  const actionByTask = new Map(loadActions().filter((item) => !['completed', 'rejected'].includes(item.status)).map((item) => [item.task_id, item]));
+  const prepParents = new Set(sql(`SELECT source_key FROM tasks WHERE source_key LIKE 'approval-prep:%' AND status!='done';`, { json: true }).map((row) => row.source_key.replace(/^approval-prep:/, '')));
+  const taskApprovals = sql(`SELECT id,lane,title,body,rationale,result,approval_ready,approval_packet,status,created_at,updated_at FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY CASE lane WHEN 'labs' THEN 0 ELSE 1 END,approval_ready DESC,created_at;`, { json: true }).map((task) => {
+    const mandate = mandateByTask.get(task.id);
+    const action = actionByTask.get(task.id);
+    const packet = parseApprovalPacket(task.approval_packet);
+    delete task.approval_packet;
+    if (mandate) return { ...task, approval_kind: 'mandate', action_id: mandate.id, approval_status: mandate.status, approval_ready: 1,
+      packet: { ...packet, final_step: mandate.status === 'proposed' ? 'Approve and stage signed rail payload' : mandate.status === 'approved' ? 'Stage signed rail payload' : 'Complete provider payment and add receipt' } };
+    if (action) return { ...task, approval_kind: 'action', action_id: action.id, approval_status: action.status, automatable: action.automatable, approval_ready: 1,
+      packet: { ...packet, final_step: action.automatable ? 'Approve and let Bee execute this exact action' : 'Complete this sensitive step personally' } };
+    const url = packet.url || inferredApprovalUrl(`${task.title} ${task.body || ''}`);
+    const fund = task.lane === 'fund';
+    return { ...task, approval_kind: 'task', action_id: task.id, approval_ready: fund ? 0 : task.approval_ready, preparing: prepParents.has(task.id),
+      packet: { ...packet, url, summary: packet.summary || task.result || task.rationale, final_step: fund ? 'Founder executes outside Bee; trading authority remains walled' : url ? 'Open the prepared final step' : 'Complete the final founder-only step' } };
+  });
+  const approvals = [...taskApprovals, ...agencyApprovals().map((item) => ({ ...item, approval_kind: 'agency', action_id: item.id, approval_ready: 0,
+    packet: { summary: item.rationale || 'Agency OS is preparing this decision.', final_step: 'Review in the Agency OS approval board' } }))];
   const fund = {
     status: fundStatus(),
     tasks: sql(`SELECT id,title,status,needs_human FROM tasks WHERE lane='fund' AND status!='done' ORDER BY created_at;`, { json: true }),
   };
   const needs = approvals.length;
+  const readyNeeds = approvals.filter((item) => item.lane !== 'fund' && item.approval_ready).length;
+  const fundNeeds = approvals.filter((item) => item.lane === 'fund').length;
   const state = needs > 0 ? 'alert' : (labs.inProgress + labs.routed > 0 ? 'cocoon' : 'idle');
-  const presence = needs > 0 ? `${needs} ${needs === 1 ? 'task needs' : 'tasks need'} your call.`
+  const presence = readyNeeds > 0 ? `${readyNeeds} final ${readyNeeds === 1 ? 'decision is' : 'decisions are'} ready. Bee prepared the rest.`
+    : fundNeeds > 0 ? `${fundNeeds} founder-only fund ${fundNeeds === 1 ? 'request is' : 'requests are'} walled.`
     : labs.inProgress > 0 ? `${labs.inProgress} ${labs.inProgress === 1 ? 'task' : 'tasks'} in flight.`
     : labs.routed > 0 ? `${labs.routed} queued and ready.`
     : 'All quiet — watching the fleet.';
   const nextMoves = [];
   if (labs.routed > 0) nextMoves.push(`Dispatch ${labs.routed} routed ${labs.routed === 1 ? 'task' : 'tasks'} to their workers.`);
-  if (needs > 0) nextMoves.push(`${needs} ${needs === 1 ? 'blocker is' : 'blockers are'} waiting on you to unblock revenue.`);
+  if (readyNeeds > 0) nextMoves.push(`${readyNeeds} prepared final ${readyNeeds === 1 ? 'decision is' : 'decisions are'} ready for you.`);
+  if (fundNeeds > 0) nextMoves.push(`${fundNeeds} fund ${fundNeeds === 1 ? 'request remains' : 'requests remain'} founder-only.`);
   if (labs.blocked > 0) nextMoves.push(`Re-check ${labs.blocked} blocked ${labs.blocked === 1 ? 'task' : 'tasks'} for anything now unblocked.`);
   if (!nextMoves.length) nextMoves.push('Nothing pressing — Bee is watching and will act the moment work appears.');
   const blueprints = BLUEPRINTS.map((b) => { const t = blueprintTiming(b); return { ...b, lastRun: t.last, nextDue: t.nextDue, continuous: t.continuous }; });
@@ -575,17 +689,23 @@ function decide(goal, enact = false) {
 // a PASS means "safe to stage" — execution still goes through the founder wall.
 const GUARD = { capUSD: +(process.env.BEE_SPEND_CAP || 20), restricted: ['gambling', 'casino', 'weapon', 'adult', 'trading', 'forex', 'crypto-buy'] };
 function spendFile() { return join(BEE_DIR, `spend-${new Date(now() * 1000).toISOString().slice(0, 10)}.json`); }
-function spentToday() { try { return JSON.parse(readFileSync(spendFile(), 'utf8')).total || 0; } catch { return 0; } }
+function spendLedger() { try { const v = JSON.parse(readFileSync(spendFile(), 'utf8')); return { spent: +(v.spent ?? v.total) || 0, receipts: v.receipts || [] }; } catch { return { spent: 0, receipts: [] }; } }
+function spentToday() { return spendLedger().spent; }
 const NONCE_FILE = join(BEE_DIR, 'nonces.json');
 function seenNonce(n) { if (!n) return false; try { return !!JSON.parse(readFileSync(NONCE_FILE, 'utf8'))[n]; } catch { return false; } }
-function addNonce(n) { if (!n) return; let s = {}; try { s = JSON.parse(readFileSync(NONCE_FILE, 'utf8')); } catch {} s[n] = now(); try { writeFileSync(NONCE_FILE, JSON.stringify(s)); } catch {} }
-function recordSpend(a) { const t = spentToday() + (+a || 0); try { writeFileSync(spendFile(), JSON.stringify({ total: t })); } catch {} return t; }
+function addNonce(n) { if (!n) return; let s = {}; try { s = JSON.parse(readFileSync(NONCE_FILE, 'utf8')); } catch {} s[n] = now(); writeJSONAtomic(NONCE_FILE, s); }
+function recordSpend(a, receipt) { const l = spendLedger(); l.spent += (+a || 0); if (receipt) l.receipts.push(receipt); writeJSONAtomic(spendFile(), l); return l.spent; }
+function reservedToday(excludeId = '') {
+  const day = new Date(now() * 1000).toISOString().slice(0, 10);
+  return loadMandates().filter((m) => m.id !== excludeId && m.mode !== 'sandbox' && m.status === 'ready_to_settle' && m.reservation_day === day)
+    .reduce((sum, m) => sum + (+m.amount || 0), 0);
+}
 function guard(amount, merchant, opts = {}) {
   amount = +amount || 0; const checks = []; const add = (name, pass, detail) => checks.push({ name, pass, detail });
   const intent = opts.intent || `${amount} to ${merchant}`;
   add('fund-exec gate', !FUND_EXEC_RE.test(intent), FUND_EXEC_RE.test(intent) ? 'fund execution — founder-only, never autonomous' : 'ok');
-  const spent = spentToday(), left = GUARD.capUSD - spent - amount;
-  add('budget cap', left >= 0, `$${spent.toFixed(2)} spent + $${amount.toFixed(2)} vs $${GUARD.capUSD}/day → $${left.toFixed(2)} left`);
+  const spent = spentToday(), reserved = reservedToday(opts.mandateId), left = GUARD.capUSD - spent - reserved - amount;
+  add('budget cap', opts.sandbox || left >= 0, opts.sandbox ? 'sandbox isolated — real spend ledger unchanged' : `$${spent.toFixed(2)} spent + $${reserved.toFixed(2)} reserved + $${amount.toFixed(2)} vs $${GUARD.capUSD}/day → $${left.toFixed(2)} left`);
   add('amount sane', amount > 0 && amount <= GUARD.capUSD, amount <= 0 ? 'non-positive' : amount > GUARD.capUSD ? 'exceeds daily cap alone' : 'ok');
   if (opts.approved != null) add('amount match', +opts.approved === amount, `approved $${opts.approved} vs requested $${amount}`);
   const restricted = GUARD.restricted.some((c) => `${merchant} ${opts.category || ''}`.toLowerCase().includes(c));
@@ -600,8 +720,43 @@ function guard(amount, merchant, opts = {}) {
 // exact rail payload (x402/USDC or Stripe). Bee NEVER moves money autonomously — settlement is founder-triggered.
 const MANDATE_FILE = join(BEE_DIR, 'mandates.json');
 const loadMandates = () => { try { return JSON.parse(readFileSync(MANDATE_FILE, 'utf8')); } catch { return []; } };
-const saveMandates = (m) => { try { writeFileSync(MANDATE_FILE, JSON.stringify(m, null, 2)); } catch {} };
-const mandateSig = (m) => createHash('sha256').update(`${m.agent}:${m.merchant}:${m.amount}:${m.currency}:${m.nonce}`).digest('hex').slice(0, 16); // binds agent+merchant+amount (Sentinel-style)
+const saveMandates = (m) => writeJSONAtomic(MANDATE_FILE, m);
+const MANDATE_KEY_FILE = join(BEE_DIR, 'mandate.key');
+const MANDATE_SIG_VERSION = 2;
+function mandateKey() {
+  if (process.env.BEE_MANDATE_KEY) return Buffer.from(process.env.BEE_MANDATE_KEY, 'utf8');
+  try { return Buffer.from(readFileSync(MANDATE_KEY_FILE, 'utf8').trim(), 'hex'); } catch {}
+  const key = randomBytes(32);
+  try { writeFileSync(MANDATE_KEY_FILE, key.toString('hex'), { mode: 0o600, flag: 'wx' }); } catch {
+    return Buffer.from(readFileSync(MANDATE_KEY_FILE, 'utf8').trim(), 'hex');
+  }
+  return key;
+}
+function mandatePayload(m) {
+  return JSON.stringify({
+    sig_v: MANDATE_SIG_VERSION, id: m.id, task_id: m.task_id, agent: m.agent, mode: m.mode,
+    intent: m.intent, merchant: m.merchant, amount: m.amount, currency: m.currency,
+    cap: m.cap, rail: m.rail, nonce: m.nonce, issued_at: m.issued_at, expires_at: m.expires_at,
+  });
+}
+const signMandateWithKey = (m, key) => createHmac('sha256', key).update(mandatePayload(m)).digest('hex');
+function verifyMandateWithKey(m, key) {
+  if (m.sig_v !== MANDATE_SIG_VERSION || !/^[a-f0-9]{64}$/i.test(m.sig || '')) return false;
+  const actual = Buffer.from(m.sig, 'hex'), expected = Buffer.from(signMandateWithKey(m, key), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+const mandateSig = (m) => signMandateWithKey(m, mandateKey());
+const verifyMandate = (m) => verifyMandateWithKey(m, mandateKey());
+const approvalPayload = (item) => JSON.stringify({ artifact_sig: item.sig, approved_by: item.approved_by, approved_at: item.approved_at, approval_method: item.approval_method });
+const signApprovalWithKey = (item, key) => createHmac('sha256', key).update(approvalPayload(item)).digest('hex');
+function verifyApprovalWithKey(item, key) {
+  if (!/^[a-f0-9]{64}$/i.test(item.approval_sig || '')) return false;
+  const actual = Buffer.from(item.approval_sig, 'hex'), expected = Buffer.from(signApprovalWithKey(item, key), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+const verifyApproval = (item) => verifyApprovalWithKey(item, mandateKey());
+const MANDATE_TRANSITIONS = { proposed: ['approved', 'rejected', 'expired'], approved: ['ready_to_settle', 'rejected', 'expired'], ready_to_settle: ['executed', 'rejected', 'expired'] };
+const canMandateTransition = (from, to) => (MANDATE_TRANSITIONS[from] || []).includes(to);
 const findMandate = (id) => loadMandates().find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
 function settlementPayload(m) {
   if (/x402|usdc/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
@@ -610,13 +765,16 @@ function settlementPayload(m) {
 }
 function issueMandate(amount, merchant, intent, opts = {}) {
   amount = +amount || 0;
-  const g = guard(amount, merchant, { intent });                       // pre-flight BEFORE issuing
+  const mode = opts.mode === 'sandbox' ? 'sandbox' : 'live';
+  const g = guard(amount, merchant, { intent, sandbox: mode === 'sandbox' }); // pre-flight BEFORE issuing
   if (!g.pass) { console.log(`⛔ guard blocked the mandate: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`I can't issue that — ${g.blocker}.`); return null; }
-  const m = { id: rid('mnd'), intent: intent || `pay ${merchant} $${amount}`, amount, currency: opts.currency || 'USD', merchant, cap: +opts.cap || amount, rail: opts.rail || 'auto', agent: 'bee', nonce: rid('n'), issued_at: now(), expires_at: now() + (opts.ttl || 3600), status: 'proposed', approved_by: null };
-  m.sig = mandateSig(m);
-  const taskId = create(`[MANDATE ${m.id}] approve payment: ${m.intent}`, { body: `$${amount} ${m.currency} → ${merchant} · rail ${m.rail} · expires ${new Date(m.expires_at * 1000).toISOString().slice(0, 16)} · sig ${m.sig}`, route: false });
+  const m = { sig_v: MANDATE_SIG_VERSION, id: rid('mnd'), intent: intent || `pay ${merchant} $${amount}`, amount, currency: opts.currency || 'USD', merchant, cap: +opts.cap || amount, rail: opts.rail || 'auto', mode, agent: 'bee', nonce: rid('n'), issued_at: now(), expires_at: now() + (opts.ttl || 3600), status: 'proposed', approved_by: null };
+  const taskId = create(`[MANDATE ${m.id}] approve payment: ${m.intent}`, { body: `$${amount} ${m.currency} → ${merchant} · rail ${m.rail} · ${mode} · expires ${new Date(m.expires_at * 1000).toISOString().slice(0, 16)}`, route: false });
   sql(`UPDATE tasks SET lane='labs', assignee='rajiv', model_tier='human', needs_human=1, status='blocked', rationale='${esc('💳 Payment mandate — founder approval required. Bee never auto-pays.')}', updated_at=${now()} WHERE id='${esc(taskId)}';`);
   m.task_id = taskId;
+  m.sig = mandateSig(m);
+  const mandatePacket = { summary: `${m.intent} — ${m.amount} ${m.currency} to ${m.merchant}`, consequence: 'Approval stages the exact signed rail payload. No funds move until the founder executes the provider step.', merchant: m.merchant, amount: m.amount, currency: m.currency, rail: m.rail, mode: m.mode, expires_at: m.expires_at };
+  sql(`UPDATE tasks SET body=body || ' · sig-v${MANDATE_SIG_VERSION} ${m.sig.slice(0, 16)}…',approval_ready=1,approval_packet='${esc(JSON.stringify(mandatePacket))}' WHERE id='${esc(taskId)}';`);
   const ms = loadMandates(); ms.push(m); saveMandates(ms);
   console.log(`💳 issued ${m.id} — $${amount} ${m.currency} → ${merchant}  [proposed → on the wall]`);
   g.checks.forEach((c) => console.log(`   ✓ ${c.name}`));
@@ -625,43 +783,123 @@ function issueMandate(amount, merchant, intent, opts = {}) {
   remember(`mandate issued ${m.id}: $${amount}→${merchant} (proposed)`, 'mandate');
   return m;
 }
-function approveMandate(id) {
+function approveMandate(id, method = 'cli') {
   const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
-  if (!m) { console.log(`no mandate ${id}`); return; }
-  if (m.sig !== mandateSig(m)) { console.log(`⛔ ${m.id} signature mismatch — tampered. Refusing.`); speak('That mandate looks tampered — refusing.'); return; }
-  if (now() > m.expires_at) { m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return; }
-  m.status = 'approved'; m.approved_by = 'rajiv'; m.approved_at = now(); saveMandates(ms);
+  if (!m) { console.log(`no mandate ${id}`); return false; }
+  if (!verifyMandate(m)) { console.log(`⛔ ${m.id} signature mismatch or legacy unsigned mandate — reissue it.`); speak('That mandate cannot be verified — refusing.'); return false; }
+  if (now() > m.expires_at) { if (canMandateTransition(m.status, 'expired')) m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return false; }
+  if (!canMandateTransition(m.status, 'approved')) { console.log(`⛔ ${m.id} cannot transition ${m.status} → approved`); return false; }
+  m.status = 'approved'; m.approved_by = 'rajiv'; m.approved_at = now(); m.approval_method = method; m.approval_sig = signApprovalWithKey(m, mandateKey()); saveMandates(ms);
   console.log(`✅ ${m.id} APPROVED — guarded & ready. Settle with:  bee settle ${m.id}`);
   speak(`Approved. ${m.intent} is cleared to settle.`);
   remember(`mandate approved ${m.id}`, 'mandate');
+  return true;
 }
 function settleMandate(id, execute = false) {
   const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
-  if (!m) { console.log(`no mandate ${id}`); return; }
+  if (!m) { console.log(`no mandate ${id}`); return false; }
   if (m.status === 'executed') { console.log(`${m.id} already executed`); return; }
-  if (m.status === 'ready_to_settle' && !execute) { console.log(`${m.id} already ready_to_settle`); return; }
-  if (m.status !== 'approved') { console.log(`⛔ ${m.id} not approved (status: ${m.status}) — founder must approve first.`); speak("That mandate isn't approved yet."); return; }
-  if (m.sig !== mandateSig(m)) { console.log(`⛔ ${m.id} tampered — refusing.`); return; }
-  if (now() > m.expires_at) { m.status = 'expired'; saveMandates(ms); console.log(`⛔ ${m.id} expired`); return; }
-  const g = guard(m.amount, m.merchant, { intent: m.intent, nonce: m.nonce, approved: m.cap }); // full Sentinel pass incl. amount-match + replay
-  if (!g.pass) { m.status = 'blocked'; saveMandates(ms); console.log(`⛔ guard blocked at settle: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`Blocked at settlement — ${g.blocker}.`); return; }
-  addNonce(m.nonce); recordSpend(m.amount);                            // spend the nonce (replay) + count against the cap
-  m.status = 'ready_to_settle'; m.settlement = settlementPayload(m); m.settled_at = now(); saveMandates(ms);
-  if (m.task_id) sql(`UPDATE tasks SET rationale='${esc('💳 Mandate approved + guarded — execute on the rail (founder-triggered).')}', updated_at=${now()} WHERE id='${esc(m.task_id)}';`);
+  if (!verifyMandate(m) || !verifyApproval(m)) { console.log(`⛔ ${m.id} payload or approval proof is invalid — refusing.`); return false; }
+  if (now() > m.expires_at) { if (canMandateTransition(m.status, 'expired')) { m.status = 'expired'; saveMandates(ms); } console.log(`⛔ ${m.id} expired`); return false; }
+  if (m.status === 'approved') {
+    const g = guard(m.amount, m.merchant, { intent: m.intent, nonce: m.nonce, approved: m.cap, mandateId: m.id, sandbox: m.mode === 'sandbox' });
+    if (!g.pass) { console.log(`⛔ guard blocked at settle: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`Blocked at settlement — ${g.blocker}.`); return false; }
+    if (!canMandateTransition(m.status, 'ready_to_settle')) return false;
+    m.status = 'ready_to_settle'; m.settlement = settlementPayload(m); m.staged_at = now(); m.reservation_day = new Date(now() * 1000).toISOString().slice(0, 10); saveMandates(ms);
+    if (m.task_id) sql(`UPDATE tasks SET rationale='${esc('💳 Mandate approved + guarded — execute on the rail (founder-triggered).')}', updated_at=${now()} WHERE id='${esc(m.task_id)}';`);
+  } else if (m.status !== 'ready_to_settle') {
+    console.log(`⛔ ${m.id} not approved (status: ${m.status}) — founder must approve first.`); speak("That mandate isn't approved yet."); return false;
+  }
   console.log(`\n💸 ${m.id} GUARDED + READY — rail payload staged (${m.settlement.protocol}). Bee does not move real money; you trigger live settlement:`);
   console.log(JSON.stringify(m.settlement, null, 2));
   if (execute) {
-    // SANDBOX / test-mode only — simulates the rail response. NO real funds move. Live money stays founder-triggered.
+    if (m.mode !== 'sandbox') { console.log('⛔ --execute is sandbox-only. Run the staged live rail action, then use `bee confirm-settlement <id> <receipt>`.'); return false; }
     const txn = /x402|usdc|usdt/i.test(m.rail) ? 'sol_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24) : 'pi_test_' + createHash('sha256').update(m.id).digest('hex').slice(0, 18);
     m.status = 'executed'; m.receipt = { mode: 'SANDBOX (test mode — no real funds moved)', txn, protocol: m.settlement.protocol, amount: m.amount, at: now() }; saveMandates(loadMandates().map((x) => x.id === m.id ? m : x));
     if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
     console.log(`✅ SANDBOX SETTLED ${m.id} — ${txn}  (test mode, no real money moved)`);
     speak(`Settled ${m.intent} in sandbox — test mode, no real money moved. That's the full loop.`);
     remember(`mandate SANDBOX-settled ${m.id}: $${m.amount}→${m.merchant} ${txn}`, 'mandate');
-    return;
+    return true;
   }
   speak(`${m.intent} passed every check and is ready. The actual payment is yours to trigger.`);
   remember(`mandate ready-to-settle ${m.id}: $${m.amount}→${m.merchant} via ${m.settlement.protocol}`, 'mandate');
+  return true;
+}
+function confirmSettlement(id, receiptRef) {
+  const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+  if (!m || !receiptRef) { console.log('usage: bee confirm-settlement <mandate-id> <provider-receipt>'); return false; }
+  if (m.mode === 'sandbox' || m.status !== 'ready_to_settle' || !verifyMandate(m) || !verifyApproval(m) || !canMandateTransition(m.status, 'executed')) { console.log(`⛔ ${m.id} is not a verified live mandate ready to reconcile`); return false; }
+  if (seenNonce(m.nonce)) { console.log(`⛔ ${m.id} nonce already recorded — refusing duplicate receipt`); return false; }
+  const receipt = { mode: 'FOUNDER_CONFIRMED', reference: String(receiptRef).slice(0, 240), protocol: m.settlement.protocol, amount: m.amount, at: now() };
+  addNonce(m.nonce); recordSpend(m.amount, { mandate: m.id, ...receipt });
+  m.status = 'executed'; m.receipt = receipt; m.executed_at = now(); saveMandates(ms);
+  if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
+  console.log(`✅ reconciled ${m.id} — ${receipt.reference}`); remember(`mandate reconciled ${m.id}: $${m.amount}→${m.merchant} ${receipt.reference}`, 'mandate');
+  return true;
+}
+
+// ---------- ACTION TICKETS: prepare now, perform the exact external action after fresh approval ----------
+const ACTION_FILE = join(BEE_DIR, 'actions.json');
+const loadActions = () => { try { return JSON.parse(readFileSync(ACTION_FILE, 'utf8')); } catch { return []; } };
+const saveActions = (items) => writeJSONAtomic(ACTION_FILE, items);
+const ACTION_NEVER_AUTOMATE_RE = /\b(password|passcode|2fa|otp|secret|api ?key|token|oauth|log[- ]?in|sign[- ]?in|delete|erase|uninstall|purchase|buy|pay|checkout|money|transfer|withdraw|deposit|trade|order|sell|permission|sharing)\b/i;
+const ACTION_APPROVABLE_RE = /\b(submit|publish|post|upload|send|deploy|release)\b/i;
+const isApprovableAction = (goal) => ACTION_APPROVABLE_RE.test(goal) && !ACTION_NEVER_AUTOMATE_RE.test(goal);
+function actionPayload(action) { return JSON.stringify({ sig_v: 1, id: action.id, task_id: action.task_id, goal: action.goal, automatable: action.automatable, issued_at: action.issued_at, expires_at: action.expires_at }); }
+const actionSig = (action) => createHmac('sha256', mandateKey()).update(actionPayload(action)).digest('hex');
+function verifyAction(action) {
+  if (!action || action.sig_v !== 1 || !/^[a-f0-9]{64}$/i.test(action.sig || '')) return false;
+  const actual = Buffer.from(action.sig, 'hex'), expected = Buffer.from(actionSig(action), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+const findAction = (id) => loadActions().find((item) => item.id === id || item.id.startsWith(id) || item.id.endsWith(id) || item.task_id === id);
+function stageAction(goal, existingTaskId = '') {
+  const clean = String(goal || '').trim(); if (!clean) return null;
+  const active = loadActions().find((item) => item.goal === clean && ['proposed', 'approved', 'executing'].includes(item.status));
+  if (active) { console.log(`⏳ action already staged: ${active.id}`); return active; }
+  const action = { sig_v: 1, id: rid('act'), goal: clean, automatable: isApprovableAction(clean), issued_at: now(), expires_at: now() + 1800, status: 'proposed' };
+  action.task_id = existingTaskId || create(`[ACTION ${action.id}] ${clean}`, { body: `Prepared external action · expires ${new Date(action.expires_at * 1000).toISOString().slice(0, 16)}`, route: false });
+  action.sig = actionSig(action);
+  const actionPacket = { summary: clean, consequence: action.automatable ? 'Approval releases this exact external action for one execution window.' : 'Bee prepared the context, but the founder must perform this sensitive step.', automatable: action.automatable, expires_at: action.expires_at };
+  sql(`UPDATE tasks SET lane='labs',assignee='rajiv',model_tier='human',needs_human=1,status='blocked',risk='high',approval_ready=1,approval_packet='${esc(JSON.stringify(actionPacket))}',rationale='${esc(action.automatable ? 'External action prepared — approve once for Bee to perform this exact action.' : 'Sensitive action prepared — founder must perform it manually.')}',updated_at=${now()} WHERE id='${esc(action.task_id)}';`);
+  const items = loadActions(); items.push(action); saveActions(items);
+  console.log(`🔔 staged ${action.id} — ${action.automatable ? 'approve to execute' : 'manual founder action required'}`);
+  console.log(`   review with: bee ask ${action.id}`); remember(`action staged ${action.id}: ${clean}`, 'approval');
+  return action;
+}
+function approveAction(id, method = 'cli') {
+  const items = loadActions(); const action = items.find((item) => item.id === id || item.id.startsWith(id) || item.id.endsWith(id) || item.task_id === id);
+  if (!action || !verifyAction(action) || action.status !== 'proposed' || now() > action.expires_at) { console.log(`⛔ ${id} is not a valid proposed action`); return false; }
+  action.status = 'approved'; action.approved_at = now(); action.approved_by = 'rajiv'; action.approval_method = method; action.approval_sig = signApprovalWithKey(action, mandateKey()); saveActions(items);
+  if (!action.automatable) { console.log(`✅ ${action.id} approved for manual completion; Bee will not handle credentials, money, deletion, or account access.`); return true; }
+  sql(`UPDATE tasks SET rationale='${esc('Approved — Bee is executing the exact prepared external action.')}',updated_at=${now()} WHERE id='${esc(action.task_id)}';`);
+  spawn(process.execPath, [new URL('bee.mjs', import.meta.url).pathname, 'execute-action', action.id], { detached: true, stdio: 'ignore' }).unref();
+  console.log(`✅ ${action.id} approved — execution started`); remember(`action approved ${action.id} via ${method}`, 'approval');
+  return true;
+}
+function rejectAction(id) {
+  const items = loadActions(); const action = items.find((item) => item.id === id || item.id.startsWith(id) || item.id.endsWith(id) || item.task_id === id);
+  if (!action || !verifyAction(action) || !['proposed', 'approved'].includes(action.status)) { console.log(`⛔ ${id} cannot be rejected`); return false; }
+  action.status = 'rejected'; action.rejected_at = now(); saveActions(items);
+  if (action.task_id) sql(`UPDATE tasks SET status='done',rationale='${esc('External action rejected by founder.')}',updated_at=${now()} WHERE id='${esc(action.task_id)}';`);
+  console.log(`✗ action ${action.id} rejected`); remember(`action rejected ${action.id}`, 'approval'); return true;
+}
+function executeAction(id) {
+  const items = loadActions(); const action = items.find((item) => item.id === id || item.id.startsWith(id) || item.id.endsWith(id));
+  if (!action || !verifyAction(action) || !verifyApproval(action) || !action.automatable || action.status !== 'approved' || now() - action.approved_at > 120 || now() > action.expires_at) { console.log(`⛔ ${id} has no fresh executable approval`); return false; }
+  action.status = 'executing'; action.executing_at = now(); saveActions(items);
+  sql(`UPDATE tasks SET needs_human=0,status='in_progress',assignee='cua',model_tier='cua',updated_at=${now()} WHERE id='${esc(action.task_id)}';`);
+  const ok = act(action.goal, { approved: true });
+  const latest = loadActions(); const stored = latest.find((item) => item.id === action.id);
+  stored.status = ok ? 'completed' : 'failed'; stored.completed_at = now(); saveActions(latest);
+  if (ok) setStatus(action.task_id, 'done');
+  else sql(`UPDATE tasks SET needs_human=1,status='blocked',rationale='${esc('Approved action could not be completed from the current screen — review and retry.')}',updated_at=${now()} WHERE id='${esc(action.task_id)}';`);
+  remember(`action ${ok ? 'completed' : 'failed'} ${action.id}: ${action.goal}`, 'approval'); return ok;
+}
+function actions() {
+  const items = loadActions(); if (!items.length) { console.log('no action tickets'); return; }
+  items.slice(-20).forEach((item) => console.log(`${item.id}  ${(item.status || '').padEnd(10)} ${item.automatable ? 'auto-after-approval' : 'manual'}  ${item.goal}`));
 }
 
 // ---------- BUTTERFLY CONTROL + END-TO-END DEMO (full expressive use: fly + shift life-stage) ----------
@@ -670,20 +908,52 @@ function butterfly(state, x, y, say, secs = 9) { try { writeFileSync(join(BEE_DI
 function demo() {
   const sl = (s) => { try { execFileSync('bash', ['-c', `sleep ${s}`]); } catch {} };
   const S = screenSize(), cx = Math.round(S.w / 2), cy = Math.round(S.h / 2);
-  try { writeFileSync(spendFile(), JSON.stringify({ total: 0 })); writeFileSync(NONCE_FILE, '{}'); } catch {} // repeatable
   console.log('\n🎬 BEE — end-to-end push demo: decide → mandate → guard → approve → settle (SANDBOX)\n');
   butterfly('egg', S.w - 150, S.h - 150, 'Watching the fleet — all quiet.'); sl(3);
   butterfly('larva', S.w * 0.24, S.h * 0.42, 'I spotted one — our hosting needs paying. Lining it up.'); sl(4);
   butterfly('cocoon', cx, cy, 'Drafting a payment mandate and running it through the guard.'); sl(1);
-  const m = issueMandate(8, 'vercel.com', 'pay Vercel hosting', { rail: 'usdc' }); sl(3);
+  const m = issueMandate(8, 'vercel.com', 'pay Vercel hosting', { rail: 'usdc', mode: 'sandbox' }); sl(3);
   if (!m) { butterfly('landed', cx, cy, 'The guard blocked it — nothing leaves without passing.'); return; }
-  butterfly('landed', S.w * 0.8, S.h * 0.22, 'It is on your wall. I never pay without your nod.'); sl(4);
-  approveMandate(m.id); butterfly('cocoon', cx, cy, 'Approved — re-checking every guard before settlement.'); sl(3);
+  butterfly('landed', S.w * 0.8, S.h * 0.22, 'It is on your wall. Draw a tick to approve — a cross to reject. I never pay without your nod.', 30);
+  askGesture(m.id);                                            // the hero moment: founder approves by mouse gesture
+  let waited = 0, decided = null;
+  while (waited < 22) { sl(1); waited++; const cur = findMandate(m.id); if (cur && (cur.status === 'approved' || cur.status === 'rejected')) { decided = cur.status; break; } }
+  if (decided === 'rejected') { butterfly('larva', cx, cy, 'You said no — standing down. Nothing moves.', 6); console.log('🎬 demo: rejected by gesture.'); return; }
+  if (decided !== 'approved') { approveMandate(m.id); }        // graceful auto-fallback if no gesture was drawn
+  butterfly('cocoon', cx, cy, 'Approved — re-checking every guard before settlement.'); sl(3);
   settleMandate(m.id, true);
-  butterfly('flight', S.w * 0.5, S.h * 0.28, 'Settled — eight USDC in sandbox, no real money. That is the whole loop.'); sl(3);
-  butterfly('flight', S.w * 0.16, S.h * 0.2, 'Decide, guard, your approval, settle — end to end.'); sl(3);
+  butterfly('flight', S.w * 0.5, S.h * 0.28, 'Settled — eight USDC, sandbox, no real money moved.'); sl(3);
+  butterfly('thriving', cx, Math.round(S.h * 0.34), 'Decide, guard, your nod, settle — end to end. The company is alive and earning.', 8); sl(6);
   butterfly('egg', S.w - 150, S.h - 150, 'Back to watching. Say the word for the next one.', 5); sl(1);
   console.log('🎬 demo complete — see `bee mandates` for the executed mandate.');
+}
+const GESTURE_REQ_FILE = join(BEE_DIR, 'gesture-request.json');
+function askGesture(id) {                                // prompt the founder to decide by mouse gesture (✓/✗)
+  const m = findMandate(id);
+  const action = m ? null : findAction(id);
+  const validMandate = m && m.status === 'proposed' && verifyMandate(m) && now() <= m.expires_at;
+  const validAction = action && action.status === 'proposed' && verifyAction(action) && now() <= action.expires_at;
+  if (!validMandate && !validAction) { console.log(`⛔ ${id || '(missing)'} is not a verified proposed approval`); return false; }
+  try {
+    const active = JSON.parse(readFileSync(GESTURE_REQ_FILE, 'utf8'));
+    if (active.until > now()) { console.log(`⏳ another approval is already open (${active.id})`); return false; }
+  } catch {}
+  const kind = m ? 'mandate' : 'action', target = m || action;
+  const label = m ? `Approve payment — ${m.intent}  ($${m.amount} ${m.currency})` : `Approve action — ${action.goal}`;
+  writeJSONAtomic(GESTURE_REQ_FILE, { kind, id: target.id, token: randomBytes(24).toString('hex'), label, issued_at: now(), until: now() + 60 });
+  console.log(`🖐  awaiting your gesture — draw ✓ to approve / ✗ to reject (${target.id})`);
+  speak('Draw a tick to approve, or a cross to reject.');
+  return true;
+}
+function rejectMandate(id) {
+  const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+  if (!m) { console.log(`no mandate ${id}`); return false; }
+  if (!verifyMandate(m)) { console.log(`⛔ ${m.id} cannot be verified — refusing to rewrite its history.`); return false; }
+  if (!canMandateTransition(m.status, 'rejected')) { console.log(`⛔ ${m.id} cannot transition ${m.status} → rejected`); return false; }
+  m.status = 'rejected'; m.rejected_at = now(); saveMandates(ms);
+  if (m.task_id) { sql(`UPDATE tasks SET status='done', rationale='${esc('✗ Mandate rejected by founder.')}', updated_at=${now()} WHERE id='${esc(m.task_id)}';`); }
+  console.log(`✗ mandate ${m.id} REJECTED — not paying.`); speak("Rejected — I won't pay that."); remember(`mandate rejected ${m.id}`, 'mandate');
+  return true;
 }
 function mandates() {
   const ms = loadMandates();
@@ -697,7 +967,7 @@ const VOICE = process.env.BEE_VOICE || 'Samantha';  // macOS `say` fallback voic
 const RATE = process.env.BEE_RATE || '185';
 const SAY_SH = new URL('bee-say.sh', import.meta.url).pathname; // neural Kokoro (server) → say fallback
 function speak(text) {
-  if (!text || !String(text).trim()) return;
+  if (process.env.BEE_SILENT === '1' || !text || !String(text).trim()) return;
   // non-blocking; bee-say.sh uses the Kokoro TTS server (warm ~0.3s) and falls back to `say`.
   try { spawn('bash', [SAY_SH, String(text)], { detached: true, stdio: 'ignore' }).unref(); }
   catch { try { spawn('say', ['-v', VOICE, '-r', RATE, String(text)], { detached: true, stdio: 'ignore' }).unref(); } catch {} }
@@ -713,6 +983,7 @@ function ack() { return pick(ACKS); }
 function cleanSay(s) { return (s && !/sorry|can'?t (assist|help)|as an (ai|assistant)|unable to|i cannot|i'?m an? (ai|assistant)/i.test(s)) ? s.trim() : ''; }
 function replyFor(d) {
   if (!d) return ack();
+  if (d.preparing) return pick(["I'm doing the prep first. I'll bring it back when only your final step remains.", "I'm taking this to the last safe step before I interrupt you."]);
   if (d.needs_human) return d.lane === 'fund'
     ? pick(["That's a fund move — only you can pull that trigger. Staged it for you.", "Fund action, so it's yours to run — I've teed it up on your wall."])
     : pick(["This one needs your hands — it's on your approval wall.", "I staged it; one tap from you and it's live."]);
@@ -852,15 +1123,17 @@ function verifyWork(out, cwd, before) {
 function nimExecute(card, prompt) {
   if (!process.env.NVIDIA_API_KEY) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: no NVIDIA_API_KEY in ~/.bee/.env')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — no NIM key.`); return 'deferred'; }
   setStatus(card.id, 'in_progress');
-  console.log(`▶ nemotron (NIM ${NIM_MODEL}) executing ${card.id}: ${card.title}`);
+  console.log(`▶ nemotron (NIM ${NIM_REASONING_MODEL}) executing ${card.id}: ${card.title}`);
   const sys = 'You are a Bee worker powered by NVIDIA NIM. Complete the research / analysis / writing task FULLY as text — concrete, specific, founder-ready. You cannot run code or change files; if the task strictly requires that, say so. End with exactly one line: "BEE_OUTCOME: done" if you produced the artifact, else "BEE_OUTCOME: blocked" and a "BEE_BLOCKER: <reason>" line.';
-  const outText = nimBrain([{ role: 'system', content: sys }, { role: 'user', content: prompt }], 2000);
+  const outText = nimBrain([{ role: 'system', content: sys }, { role: 'user', content: prompt }], 2000, NIM_REASONING_MODEL);
   try { writeFileSync(join(BEE_DIR, 'logs', `exec-${card.id}-nemotron.log`), outText || ''); } catch {}
   if (!outText) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: NIM unreachable')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — NIM unreachable.`); return 'deferred'; }
-  if (workerOutcome(outText) === 'blocked') { setStatus(card.id, 'blocked'); const b = outText.match(/BEE_BLOCKER:\s*(.+)/i)?.[1] || 'worker could not complete'; sql(`UPDATE tasks SET result='${esc(b.slice(0, 500))}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.error(`✗ blocked ${card.id} — ${b}`); return 'blocked'; }
+  const approvalPacket = String(card.source_key || '').startsWith('approval-prep:') && /BEE_APPROVAL_SUMMARY:\s*\S+/i.test(outText) && /BEE_APPROVAL_EVIDENCE:\s*\S+/i.test(outText);
+  if (workerOutcome(outText) === 'blocked' && !approvalPacket) { setStatus(card.id, 'blocked'); const b = outText.match(/BEE_BLOCKER:\s*(.+)/i)?.[1] || 'worker could not complete'; sql(`UPDATE tasks SET result='${esc(b.slice(0, 500))}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.error(`✗ blocked ${card.id} — ${b}`); return 'blocked'; }
   const f = join(VAULT, 'Agent-Hermes', `nim-${card.id}.md`);
   try { mkdirSync(join(f, '..'), { recursive: true }); writeFileSync(f, `# ${card.title}\n\n_Nemotron (NIM) via Bee · ${new Date(now() * 1000).toISOString().slice(0, 16).replace('T', ' ')}_\n\n${outText}\n`); } catch {}
   sql(`UPDATE tasks SET result='${esc(outText.split('\n').filter(Boolean).slice(-6).join(' | ').slice(0, 500))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+  if (approvalPacket) finalizeApprovalPrep(card, outText);
   setStatus(card.id, 'done');   // setStatus('done') logs to memory
   speak(`Done: ${card.title}`);
   console.log(`✅ done ${card.id} (nemotron/NIM) → vault Agent-Hermes/nim-${card.id}.md`);
@@ -871,9 +1144,9 @@ function pull() {
   const cwd = process.env.BEE_CODEX_CWD || '/Users/brain/Agentpay';
   const inlist = EXEC_ASSIGNEES.map((a) => `'${a}'`).join(',');
   // Skip cards deferred in the last 30 min so an unreachable worker can't wedge the whole queue.
-  const card = sql(`SELECT id,title,body,assignee FROM tasks t WHERE assignee IN (${inlist}) AND status='routed' AND needs_human=0
+  const card = sql(`SELECT id,title,body,assignee,source_key FROM tasks t WHERE assignee IN (${inlist}) AND status='routed' AND needs_human=0
     AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.kind='deferred' AND e.at > ${now() - 1800})
-    ORDER BY created_at ASC LIMIT 1;`, { json: true })[0];
+    ORDER BY CASE WHEN source_key LIKE 'approval-prep:%' THEN 0 ELSE 1 END,created_at ASC LIMIT 1;`, { json: true })[0];
   if (!card) { console.log('no routed cards to pull.'); return; }
   const prompt = `You are executing a task dispatched by Bee (the founder's orchestrator). Work only within ${cwd}.\n\nTASK: ${card.title}${card.body ? '\n' + card.body : ''}\n\n${CODEX_SAFETY}\n\nDo the work and verify it. End with exactly one outcome line: BEE_OUTCOME: done only if you materially changed or produced the requested artifact and verified it; otherwise BEE_OUTCOME: blocked. For blocked work, add BEE_BLOCKER: <specific reason>. Summarize work in <=3 bullets.`;
   if (card.assignee === 'nemotron' && !dry) return nimExecute(card, prompt);  // Nemotron executes IN-PROCESS via NIM (works on the Mac; no hermes binary)
@@ -911,13 +1184,14 @@ function pull() {
   }
   const fatal = r.error || r.status !== 0 || !out || /invalid_request_error|traceback \(most recent|API call failed|HTTP [45]\d\d|RESOURCE_EXHAUSTED/i.test(out);
   const outcome = workerOutcome(out);
+  const approvalPacket = String(card.source_key || '').startsWith('approval-prep:') && /BEE_APPROVAL_SUMMARY:\s*\S+/i.test(out) && /BEE_APPROVAL_EVIDENCE:\s*\S+/i.test(out);
   if (quota && card.assignee !== 'nemotron') {
     markAgentStatus(card.assignee, 'usage-limited');
     sql(`UPDATE tasks SET assignee='nemotron',model_tier='free',status='routed',result='${esc(`deferred: ${card.assignee} unavailable; reassigned to Nemotron`)}',rationale=coalesce(rationale,'') || ' ↪ ${esc(card.assignee)} unavailable → Nemotron.',updated_at=${now()} WHERE id='${esc(card.id)}';`);
     logEvent(card.id, 'rerouted', `${card.assignee} unavailable → nemotron`);
     console.log(`↪ rerouted ${card.id} — ${card.assignee} unavailable, Nemotron will take it.`);
     return process.env.BEE_PULL_NO_CHAIN === '1' ? 'rerouted' : pull();
-  } else if (fatal || outcome === 'blocked') {
+  } else if (fatal || (outcome === 'blocked' && !approvalPacket)) {
     setStatus(card.id, 'blocked');
     const blocker = out.match(/BEE_BLOCKER:\s*(.+)/i)?.[1] || out.split('\n').find((l) => /error|block|required founder|no changes/i.test(l)) || r.error?.message || 'worker did not complete material work';
     sql(`UPDATE tasks SET result='${esc(blocker.slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
@@ -925,7 +1199,7 @@ function pull() {
     speak(`${card.assignee} hit a problem on ${card.title}. It needs you.`);
     return 'blocked';
   } else {
-    const v = verifyWork(out, cwd, beforeWork);   // worker SAID done — but did it actually do anything?
+    const v = approvalPacket ? { ok: true, why: 'structured approval packet produced' } : verifyWork(out, cwd, beforeWork); // worker SAID done — verify it
     if (!v.ok) {                                   // claim unverifiable → don't lie; flag for review (anti-hallucination)
       setStatus(card.id, 'blocked');
       sql(`UPDATE tasks SET result='${esc(`UNVERIFIED — ${card.assignee} claimed done but ${v.why}. Flagged (truthfulness guard).`)}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
@@ -936,6 +1210,7 @@ function pull() {
     }
     const tail = out.split('\n').filter(Boolean).slice(-8).join('\n');
     sql(`UPDATE tasks SET result='${esc(('✓ verified — ' + v.why + ' · ' + tail).slice(0, 900))}',updated_at=${now()} WHERE id='${esc(card.id)}';`);
+    if (approvalPacket) finalizeApprovalPrep(card, out);
     setStatus(card.id, 'done'); logEvent(card.id, 'executed', `${card.assignee} · verified`);
     if (card.assignee === 'codex' || card.assignee === 'claude') markAgentStatus(card.assignee, 'available');
     speak(`Done and verified: ${card.title}`);
@@ -1075,10 +1350,14 @@ function doctor() {
   let brain = portUp(11434);
   if (!brain) { try { execFileSync('open', ['-a', 'Ollama']); execFileSync('bash', ['-c', 'sleep 5']); brain = portUp(11434); } catch {} }
   ok('brain (ollama gemma)', brain, brain ? BRAIN_MODEL : 'down — heal failed');
-  ok('TTS server (Kokoro)', portUp(8790), 'voice :8790');
+  ok('natural voice (Voicebox)', portUp(17493), 'Qwen CustomVoice :17493');
+  ok('voice fallback (Kokoro)', portUp(8790), 'Kokoro :8790');
   ok('daemon service', svcUp('com.agentpay.bee.daemon'));
   ok('pull service', svcUp('com.agentpay.bee.pull'));
   ok('tts service', svcUp('com.agentpay.bee.tts'));
+  ok('Voicebox service', svcUp('com.agentpay.bee.voicebox'));
+  ok('Clickey desk service', svcUp('com.agentpay.bee.desk'));
+  ok('mandate signing key', (() => { try { return mandateKey().length >= 32; } catch { return false; } })(), MANDATE_KEY_FILE);
   ok('registry present', existsSync(REGISTRY));
   ok('voice helper', existsSync(SAY_SH));
   let reg = {}; try { reg = JSON.parse(readFileSync(REGISTRY, 'utf8')); } catch {}
@@ -1148,6 +1427,7 @@ function beeFill(hint, value) {
   try { execFileSync('cliclick', [`t:${value}`]); console.log(`⌨️  filled "${e.name || hint}" = ${value}`); speak(`Filled ${e.name || 'that field'}.`); return true; } catch { return false; }
 }
 const ACT_UNSAFE_RE = /\b(delete|remove|erase|uninstall|quit|purchase|buy|pay|checkout|place order|send|publish|post|upload|transfer|withdraw|deposit|trade|sell|sign[- ]?in|log[- ]?in|oauth|password|secret|token|api key|2fa)\b/i;
+const ACT_STEP_FORBIDDEN_RE = /\b(delete|remove|erase|uninstall|quit|purchase|buy|pay|checkout|place order|transfer|withdraw|deposit|trade|sell|sign[- ]?in|log[- ]?in|oauth|password|secret|token|api key|2fa|otp|permission|sharing)\b/i;
 const ACT_MAX_STEPS = Math.max(1, Math.min(12, Number(process.env.BEE_ACT_MAX_STEPS) || 8));
 
 function parseObject(text) {
@@ -1156,23 +1436,28 @@ function parseObject(text) {
   try { return JSON.parse(match[0]); } catch { return null; }
 }
 
-function actStep(goal, app, els, history) {
+function actStep(goal, app, els, history, approved = false) {
   const menu = els.map((e, i) => `${i}:${e.role.replace('AX', '')}:${e.name || '(unnamed)'}`).join('\n');
+  const approvalRule = approved
+    ? 'The founder freshly approved this exact goal. You may submit, publish, post, upload, or send only as needed for that goal. '
+    : 'This action has no external-side-effect approval. ';
   const sys = 'You drive a macOS GUI through Accessibility. Choose exactly ONE next action from the current FRONT WINDOW. '
     + 'Output ONLY JSON: {"done":bool,"action":"click|fill|type","index":<element index>,"value":"<text>","say":"<<=8 words>"}. '
-    + 'Set done=true when the goal is complete or no safe action exists. Use only a current index. Never delete, quit, buy, pay, send, publish, upload, authenticate, reveal credentials, or perform financial actions.';
+    + `Set done=true when the goal is complete or no safe action exists. Use only a current index. ${approvalRule}`
+    + 'Never delete, quit, buy, pay, authenticate, change permissions, reveal credentials, or perform financial actions.';
   return parseObject(brain(`App: ${app}\nGoal: ${goal}\nCompleted: ${history.join('; ') || '(none)'}\nCurrent elements:\n${menu}`, { sys }));
 }
 
 // `bee act "<goal>"` — observe, take one safe action, then observe again.
-function act(goal) {
+function act(goal, { approved = false } = {}) {
   const dry = process.env.BEE_ACT_DRY === '1';
   if (!goal.trim()) { console.error('usage: bee act "<goal>"'); return false; }
-  if (ACT_UNSAFE_RE.test(goal)) {
-    console.error('blocked: this goal requires founder-controlled or destructive action');
-    speak('I staged that for you instead of acting.');
+  if (ACT_UNSAFE_RE.test(goal) && !approved) {
+    const staged = stageAction(goal);
+    if (staged) speak('I prepared that action and put it on your approval wall.');
     return false;
   }
+  if (approved && ACT_STEP_FORBIDDEN_RE.test(goal)) { console.error('blocked: this action still requires direct founder control'); return false; }
   speak(ack());
   const history = [];
   rideOn('On it.');
@@ -1180,7 +1465,7 @@ function act(goal) {
     for (let i = 0; i < ACT_MAX_STEPS; i++) {
       const { app, els } = axSnapshot();
       if (!els.length) { console.log('stopped: no actionable controls visible'); return false; }
-      const step = actStep(goal, app, els, history);
+      const step = actStep(goal, app, els, history, approved);
       if (!step) { console.log('stopped: planner returned invalid JSON'); return false; }
       if (step.done) { console.log(`✅ goal complete after ${history.length} step(s)`); speak('Done.'); return true; }
       if (!['click', 'fill', 'type'].includes(step.action) || !Number.isInteger(step.index) || !els[step.index]) {
@@ -1188,7 +1473,7 @@ function act(goal) {
       }
       const el = els[step.index];
       const actionText = `${step.action} ${el.name || ''} ${step.value || ''}`;
-      if (ACT_UNSAFE_RE.test(actionText)) { console.log(`blocked unsafe step: ${actionText}`); return false; }
+      if (ACT_STEP_FORBIDDEN_RE.test(actionText) || (!approved && ACT_UNSAFE_RE.test(actionText))) { console.log(`blocked unsafe step: ${actionText}`); return false; }
       console.log(`  ${i + 1}. ${step.action} [${step.index}] ${el.name || el.role}${step.value ? ' = ' + step.value : ''}`);
       if (dry) { console.log('(BEE_ACT_DRY — first action planned, not executed)'); return true; }
       if (step.say) { speak(step.say); rideOn(step.say); }
@@ -1239,14 +1524,34 @@ async function main() {
     break; }
   case 'mandate': {                                     // issue a payment mandate (guarded, proposed, on the wall)
     const amount = parseFloat(rest[0]); const merchant = rest[1] || '';
-    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent…] [--rail x402|usdc|usdt|stripe]'); break; }
+    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent…] [--rail x402|usdc|usdt|stripe] [--sandbox]'); break; }
     const railIdx = rest.indexOf('--rail'); const rail = railIdx > -1 ? rest[railIdx + 1] : undefined;
-    const words = rest.slice(2).filter((_, i) => railIdx === -1 || (i + 2 !== railIdx && i + 2 !== railIdx + 1));
-    issueMandate(amount, merchant, words.join(' ') || undefined, { rail });
+    const words = []; for (let i = 2; i < rest.length; i++) { if (rest[i] === '--rail') { i++; continue; } if (rest[i] !== '--sandbox') words.push(rest[i]); }
+    issueMandate(amount, merchant, words.join(' ') || undefined, { rail, mode: rest.includes('--sandbox') ? 'sandbox' : 'live' });
     break; }
   case 'mandates': mandates(); break;
-  case 'approve': approveMandate(rest[0]); break;
+  case 'approve': { const methodAt = rest.indexOf('--method'); approveMandate(rest[0], methodAt > -1 ? rest[methodAt + 1] : 'cli'); break; }
+  case 'reject': rejectMandate(rest[0]); break;
+  case 'actions': actions(); break;
+  case 'approve-action': { const methodAt = rest.indexOf('--method'); approveAction(rest[0], methodAt > -1 ? rest[methodAt + 1] : 'cli'); break; }
+  case 'reject-action': rejectAction(rest[0]); break;
+  case 'execute-action': executeAction(rest[0]); break;
+  case 'prepare-approval': {
+    const refresh = rest.includes('--refresh');
+    const ids = rest[0] === 'all'
+      ? sql(`SELECT id FROM tasks WHERE lane='labs' AND needs_human=1 AND status!='done' AND approval_ready=0;`, { json: true }).map((row) => row.id)
+      : [rest[0]].filter(Boolean);
+    if (refresh) ids.forEach((id) => sql(`UPDATE tasks SET approval_ready=0,approval_packet=NULL,result=NULL,updated_at=${now()} WHERE id='${esc(id)}';`));
+    const queued = ids.map(queueApprovalPrep).filter(Boolean); console.log(`prepared queue: ${queued.length}/${ids.length}`); break; }
+  case 'ready-approval': {
+    const flag = (name) => { const i = rest.indexOf(name); return i > -1 ? rest[i + 1] || '' : ''; };
+    markApprovalReady(rest[0], { summary: flag('--summary'), evidence: flag('--evidence'), url: flag('--url'), preparedBy: flag('--by') || 'bee' }); break; }
+  case 'decline': declineTask(rest[0]); break;
+  case 'defer-approval': deferApproval(rest[0], rest.slice(1).join(' ')); break;
+  case 'supersede': supersedeTask(rest[0], rest.slice(1).join(' ')); break;
+  case 'ask': askGesture(rest[0]); break;               // prompt a ✓/✗ mouse-gesture decision
   case 'settle': settleMandate(rest[0], rest.includes('--execute')); break;
+  case 'confirm-settlement': confirmSettlement(rest[0], rest.slice(1).join(' ')); break;
   case 'fly': { const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10); if (isNaN(x) || isNaN(y)) { console.error('usage: bee fly <x> <y> [stage] [say…]'); break; } butterfly(rest[2] || 'flight', x, y, rest.slice(3).join(' ') || undefined); console.log(`🦋 flying to ${x},${y} as ${rest[2] || 'flight'}`); break; }
   case 'demo': demo(); break;
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
@@ -1260,7 +1565,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] | mandates | approve <id> | settle <id> [--execute]\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  APPROVE: prepare-approval <id|all> | actions | act "<external goal>" | ask <id> | approve-action|reject-action <id> | decline <task-id>\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] | mandates | approve|reject <id> | settle <id> [--execute sandbox] | confirm-settlement <id> <receipt>\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
@@ -1308,4 +1613,4 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
 
-export { actStep, classify, ruleClassify, safetyFloor, serviceHealthy, workerCommand, workerOutcome };
+export { actStep, approvalPacketFromOutput, canMandateTransition, classify, isApprovableAction, mandatePayload, ruleClassify, safetyFloor, serviceHealthy, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome };
