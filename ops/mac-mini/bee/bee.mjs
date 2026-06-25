@@ -762,7 +762,9 @@ const findMandate = (id) => loadMandates().find((x) => x.id === id || x.id.start
 function settlementPayload(m) {
   if (/x402|usdc/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
   if (/usdt/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDT', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
-  return { protocol: 'stripe-acp', payment_intent: { amount: Math.round(m.amount * 100), currency: (m.currency || 'USD').toLowerCase(), description: m.intent, metadata: { mandate: m.id, agent: 'bee' } } };
+  // Fiat settles THROUGH AgentPay's own checkout rail (the one Codex repaired/deployed) — Bee never talks raw Stripe.
+  // client_reference_id = mandate id so AgentPay's webhook reconciles the payment back to this mandate.
+  return { protocol: 'stripe-acp', via: 'agentpay', endpoint: (process.env.BEE_AGENTPAY_API || 'https://api.agentpay.so') + '/v1/checkout', client_reference_id: m.id, payment_intent: { amount: Math.round(m.amount * 100), currency: (m.currency || 'USD').toLowerCase(), description: m.intent, metadata: { mandate: m.id, agent: 'bee' } } };
 }
 function issueMandate(amount, merchant, intent, opts = {}) {
   amount = +amount || 0;
