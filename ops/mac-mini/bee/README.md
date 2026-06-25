@@ -160,3 +160,13 @@ node --test ops/mac-mini/bee/bee.test.mjs
 BEE_ACT_DRY=1 ops/mac-mini/bin/bee act "open the settings panel"
 ops/mac-mini/bin/bee scan && ops/mac-mini/bin/bee doctor
 ```
+
+
+## Stripe Integration (added 2026-06-25)
+
+Bee can dispatch Stripe-aware tasks. The Stripe MCP server is configured in Hermes.
+
+**Read ops** (autonomous): balance check, payment listing, subscription status, product lookup
+**Write ops** (Clickey-gated): refunds, subscription changes, product edits
+
+Full ref: `Shared-Brain/STRIPE-REFERENCE.md`

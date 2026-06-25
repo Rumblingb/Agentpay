@@ -8,6 +8,7 @@
   body.egg    { --a:#e7cfa0; --glow:#f4c879; } body.larva { --a:#a7c6a0; --glow:#a9cf82; } body.cocoon { --a:#a3c0d6; --glow:#e6b766; }
   body.flight { --a:#a6d4c6; --glow:#ffc25e; } body.landed{ --a:#e0a98e; --glow:#f2a85e; }
   body.thriving{ --a:#ffce86; --glow:#ffc153; }   /* end stage: the imago — alive & earning */
+  body.thinking{ --a:#cdbdf0; --glow:#caa6ff; }    /* deep reasoning in progress — chrysalis pulsing */
 
   /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
   #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
@@ -17,9 +18,11 @@
   .stage { display:none; position:absolute; }
   .wing { transform-box:fill-box; transform-origin:center; } .wL { transform-origin:right center; } .wR { transform-origin:left center; }
 
-  @keyframes flapIdle { 0%,100%{transform:scaleX(1) rotate(0deg)} 50%{transform:scaleX(.8) rotate(-1deg)} }
-  @keyframes flapFast { 0%,100%{transform:scaleX(1)} 50%{transform:scaleX(.5)} }
-  @keyframes flutter { 0%{transform:translate(-50%,-50%)} 25%{transform:translate(-54%,-58%) rotate(-3deg)} 50%{transform:translate(-50%,-46%)} 75%{transform:translate(-46%,-58%) rotate(3deg)} 100%{transform:translate(-50%,-50%)} }
+  /* lifelike wingbeat: quick snap closed, slower open (real butterflies do this) */
+  @keyframes flapIdle { 0%,100%{transform:scaleX(1)} 42%{transform:scaleX(.76)} 58%{transform:scaleX(.78)} }
+  @keyframes flapFast { 0%{transform:scaleX(1)} 32%{transform:scaleX(.42)} 50%{transform:scaleX(.5)} 78%{transform:scaleX(.94)} 100%{transform:scaleX(1)} }
+  /* graceful figure-8 drift while in flight */
+  @keyframes flutter { 0%{transform:translate(-50%,-50%) rotate(0)} 22%{transform:translate(-54%,-57%) rotate(-3.5deg)} 46%{transform:translate(-48%,-44%) rotate(2deg)} 70%{transform:translate(-46%,-57%) rotate(3.5deg)} 100%{transform:translate(-50%,-50%) rotate(0)} }
   @keyframes restBreathe { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-51%) scale(1.025)} }
   @keyframes eggBreathe { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.04)} }
   @keyframes inch { 0%,100%{transform:translate(-50%,-50%) scaleX(1)} 50%{transform:translate(-52%,-50%) scaleX(.92)} }
@@ -35,6 +38,10 @@
   /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
   body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
   body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
+  /* THINKING — deep reasoning: the chrysalis pulses, present + alive (not receding). Bee is working a hard problem. */
+  @keyframes think { 0%,100%{transform:translate(-50%,-50%) scale(.93)} 50%{transform:translate(-50%,-50%) scale(1.02)} }
+  body.thinking #cocoon{display:block} body.thinking #cocoon .chr{animation:shimmer 1.05s ease-in-out infinite}
+  body.thinking #creature{animation:think 1.3s ease-in-out infinite; filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 68%,transparent)) drop-shadow(0 0 22px color-mix(in srgb,var(--glow) 40%,transparent))}
   /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
   body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
   body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 80%,transparent)) drop-shadow(0 0 20px color-mix(in srgb,var(--glow) 42%,transparent))}
@@ -183,8 +190,8 @@
   </div>
 <script>
   const body=document.body, card=document.getElementById('card'), creature=document.getElementById('creature'), hint=document.getElementById('hint');
-  const STATES=['egg','larva','cocoon','flight','landed','thriving'];
-  const LABEL={egg:'Idle',larva:'Queued',cocoon:'Working',flight:'Shipped',landed:'Needs you',thriving:'Thriving'};
+  const STATES=['egg','larva','cocoon','flight','landed','thriving','thinking'];
+  const LABEL={egg:'Idle',larva:'Queued',cocoon:'Working',flight:'Shipped',landed:'Needs you',thriving:'Thriving',thinking:'Thinking'};
   const CARD_BOTTOM=196, CARD_TOPGAP=18;
   let last={}, open=false;
 
@@ -194,7 +201,7 @@
   });
 
   function setHint(d){ const c=d.counts||{}, s=d.state, n=c.needsHuman||0;
-    hint.textContent = s==='landed' ? `${n} need you` : s==='thriving' ? 'earning ✦' : s==='flight' ? 'shipped ✦' : s==='larva' ? 'queued' : s==='cocoon' ? '' : '✦ Hey Bee';
+    hint.textContent = s==='landed' ? `${n} need you` : s==='thinking' ? 'thinking…' : s==='thriving' ? 'earning ✦' : s==='flight' ? 'shipped ✦' : s==='larva' ? 'queued' : s==='cocoon' ? '' : '✦ Hey Bee';
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function presence(){ const c=last.counts||{}, s=last.state, n=c.needsHuman||0;
@@ -203,6 +210,7 @@
     if(s==='cocoon')   return `${c.inProgress||0} ${(c.inProgress||0)===1?'task':'tasks'} in flight — heads down.`;
     if(s==='larva')    return `${c.routed||0} queued and ready.`;
     if(s==='thriving') return 'The company is alive and earning.';
+    if(s==='thinking') return 'Thinking it through…';
     return 'All quiet — watching the fleet.';
   }
   function render(){ const c=last.counts||{}, a=last.approvals||[], s=last.state;
