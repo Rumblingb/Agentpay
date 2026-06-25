@@ -118,7 +118,7 @@ function nimBrain(messages, max, model = NIM_FAST_MODEL) {
   const key = process.env.NVIDIA_API_KEY; if (!key) return '';
   const payload = JSON.stringify({ model, temperature: 0, max_tokens: max, stream: false, messages });
   try {
-    const r = execFileSync('curl', ['-s', '-m', '25', NIM_URL, '-H', 'content-type: application/json', '-H', `authorization: Bearer ${key}`, '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    const r = execFileSync('curl', ['-s', '-m', '45', NIM_URL, '-H', 'content-type: application/json', '-H', `authorization: Bearer ${key}`, '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });   // let deep reasoning finish (don't cut thinking short)
     return JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
   } catch { return ''; }
 }
@@ -660,8 +660,9 @@ function decide(goal, enact = false) {
     + '{"summary":"<=20 words","decisions":[{"action":"<concrete task>","assignee":"claude|codex|hermes-lenovo|nemotron|rajiv","skill":"<hermes skill or empty>","when":"now|today|this-week","priority":1,"why":"<=14 words"}]}. '
     + "HARD RULES: anything needing OAuth/login/app-store/money/payment/trade => assignee rajiv (founder-only). Prefer free/local workers. Be concrete and minimal — at most 6 decisions, highest-leverage first.";
   const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nDecide.`;
-  speak('Let me think it through.');
-  const out = brain(prompt, { sys, max: 900, big: true });                 // DECIDE — NIM 70b for the sharpest plan
+  thinkStart('Let me think it through.');                                  // butterfly → thinking (chrysalis pulse)
+  const out = brain(prompt, { sys, max: 900, big: true });                 // DECIDE — NIM 70b for the sharpest plan; runs to completion
+  thinkStop();                                                             // done reasoning → return to real state
   const m = out.match(/\{[\s\S]*\}/); let plan;
   try { plan = JSON.parse(m[0]); } catch { console.log('Could not parse a clean decision:\n' + out.slice(0, 300)); speak("I couldn't decide cleanly — the brain may be down."); return; }
   const decisions = (plan.decisions || []).sort((a, b) => (a.priority || 9) - (b.priority || 9));
@@ -905,6 +906,9 @@ function actions() {
 // ---------- BUTTERFLY CONTROL + END-TO-END DEMO (full expressive use: fly + shift life-stage) ----------
 function screenSize() { try { const o = execFileSync('osascript', ['-e', 'tell application "Finder" to get bounds of window of desktop'], { encoding: 'utf8', timeout: 2500 }); const p = o.trim().split(', ').map(Number); return { w: p[2] || 1440, h: p[3] || 900 }; } catch { return { w: 1440, h: 900 }; } }
 function butterfly(state, x, y, say, secs = 9) { try { writeFileSync(join(BEE_DIR, 'butterfly.json'), JSON.stringify({ state, x: Math.round(x), y: Math.round(y), until: now() + secs })); } catch {} if (say) speak(say); }
+// Deep-thinking presence: the chrysalis pulses while Bee reasons, then returns to its real state when done.
+function thinkStart(say) { try { writeFileSync(join(BEE_DIR, 'butterfly.json'), JSON.stringify({ state: 'thinking', until: now() + 50 })); } catch {} if (say) speak(say); }
+function thinkStop() { try { writeFileSync(join(BEE_DIR, 'butterfly.json'), JSON.stringify({ until: 0 })); } catch {} }
 function demo() {
   const sl = (s) => { try { execFileSync('bash', ['-c', `sleep ${s}`]); } catch {} };
   const S = screenSize(), cx = Math.round(S.w / 2), cy = Math.round(S.h / 2);
