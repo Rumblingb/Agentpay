@@ -27,8 +27,8 @@ function counts() {
   };
 }
 function approvals() {
-  const out = q(`SELECT lane||'|'||substr(title,1,60) FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY created_at LIMIT 6;`);
-  return out ? out.split('\n').map((l) => { const [lane, ...t] = l.split('|'); return { lane, title: t.join('|') }; }) : [];
+  const out = q(`SELECT id||'|'||lane||'|'||substr(title,1,60) FROM tasks WHERE needs_human=1 AND status!='done' ORDER BY created_at LIMIT 6;`);
+  return out ? out.split('\n').map((l) => { const [id, lane, ...t] = l.split('|'); return { id, lane, title: t.join('|') }; }) : [];
 }
 // Bee's state IS the butterfly's life-cycle — the metamorphosis carries the meaning (calm-tech: no alert badges).
 function deriveState(c) {
@@ -47,6 +47,47 @@ function tick() {
   const cmdActive = cmd && cmd.until && (Date.now() / 1000) < cmd.until && cmd.state;  // a live fly-command owns the stage
   win.webContents.send('state', { state: cmdActive ? cmd.state : deriveState(c), counts: c, approvals: approvals() });
 }
+
+// ── GESTURE APPROVALS: founder draws ✓ (approve) or ✗ (reject) with the mouse to clear a pending item ──
+const GESTURE_REQ = join(homedir(), '.bee', 'gesture-request.json');
+let gestureWin, gestureReq = null;
+function openGestureWindow(req) {
+  gestureReq = req;
+  const { bounds } = screen.getPrimaryDisplay();
+  gestureWin = new BrowserWindow({
+    x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+    frame: false, transparent: true, resizable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, fullscreenable: false,
+    webPreferences: { preload: join(__dirname, 'gesture-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  gestureWin.setAlwaysOnTop(true, 'screen-saver');
+  gestureWin.loadFile(join(__dirname, 'gesture.html'));
+  gestureWin.webContents.on('did-finish-load', () => { try { gestureWin.webContents.send('gesture', { label: req.label, token: req.token }); } catch {} });
+  gestureWin.on('closed', () => { gestureWin = null; });
+  gestureWin.focus();
+}
+function gestureTick() {
+  let req = null; try { req = JSON.parse(readFileSync(GESTURE_REQ, 'utf8')); } catch {}
+  const active = req && req.until && (Date.now() / 1000) < req.until;
+  if (active && !gestureWin) openGestureWindow(req);
+  if (!active && gestureWin && !gestureWin.isDestroyed()) gestureWin.close();
+}
+ipcMain.on('gesture-result', (event, result) => {
+  if (!gestureWin || gestureWin.isDestroyed() || event.sender !== gestureWin.webContents) return;
+  const decision = result && result.decision, token = result && result.token;
+  let diskReq = null; try { diskReq = JSON.parse(readFileSync(GESTURE_REQ, 'utf8')); } catch {}
+  const valid = gestureReq && diskReq && token && token === gestureReq.token && token === diskReq.token
+    && diskReq.id === gestureReq.id && diskReq.kind === gestureReq.kind && diskReq.until > Date.now() / 1000;
+  if (valid && (decision === 'approve' || decision === 'reject')) {
+    const actionTicket = gestureReq.kind === 'action';
+    const args = decision === 'approve'
+      ? [actionTicket ? 'approve-action' : 'approve', gestureReq.id, '--method', 'gesture']
+      : [actionTicket ? 'reject-action' : 'reject', gestureReq.id];
+    try { execFileSync('node', [BEE, ...args], { timeout: 15000, stdio: 'ignore' }); } catch {}
+  }
+  try { writeFileSync(GESTURE_REQ, JSON.stringify({ until: 0 }), { mode: 0o600 }); } catch {}
+  gestureReq = null;
+  if (gestureWin && !gestureWin.isDestroyed()) gestureWin.close();
+});
 
 // ── BUTTERFLY MOTION: Bee can fly the creature anywhere + command its life-stage (full expressive use) ──
 // Bee writes ~/.bee/butterfly.json {state,x,y,until}; the creature glides there and shows that stage,
@@ -137,33 +178,57 @@ ipcMain.on('panel-resize', (_e, arg) => {
 });
 
 // ── DASHBOARD WINDOW: a clean, full product surface (replaces the old Terminal dump) ──
-let dashWin, dashTimer, feedTimer;
+let dashWin, dashTimer, feedTimer, dashSelection = '';
 function beeState() { try { return JSON.parse(execFileSync('node', [BEE, 'state'], { encoding: 'utf8', timeout: 12000 })); } catch { return null; } }
 function pushDash() { if (dashWin && !dashWin.isDestroyed()) { const s = beeState(); if (s) dashWin.webContents.send('dash-data', s); } }
 function pushFeed() {                                   // the AgentPay Feed — fetched on its own slow cadence (not every state tick)
   if (!dashWin || dashWin.isDestroyed()) return;
   try { const f = JSON.parse(execFileSync('node', [BEE, 'feed-json', '8'], { encoding: 'utf8', timeout: 12000 })); dashWin.webContents.send('dash-feed', f); } catch {}
 }
-function openDashboardWindow() {
-  if (dashWin && !dashWin.isDestroyed()) { dashWin.show(); dashWin.focus(); pushDash(); return; }
+function selectDashboardApproval(id) { if (!id) return; dashSelection = String(id); if (dashWin && !dashWin.isDestroyed()) dashWin.webContents.send('dash-select', dashSelection); }
+function openDashboardWindow(approvalId = '') {
+  if (approvalId) dashSelection = String(approvalId);
+  if (dashWin && !dashWin.isDestroyed()) { dashWin.show(); dashWin.focus(); pushDash(); selectDashboardApproval(dashSelection); return; }
   dashWin = new BrowserWindow({
     width: 980, height: 720, minWidth: 760, minHeight: 560, show: false,
     titleBarStyle: 'hiddenInset', frame: false, backgroundColor: '#0b0c0f', vibrancy: 'under-window',
     webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true },
   });
   dashWin.loadFile(join(__dirname, 'dashboard.html'));
-  dashWin.once('ready-to-show', () => { dashWin.show(); dashWin.focus(); pushDash(); pushFeed(); });
+  dashWin.once('ready-to-show', () => { dashWin.show(); dashWin.focus(); pushDash(); pushFeed(); selectDashboardApproval(dashSelection); });
   dashTimer = setInterval(pushDash, 3000);
   feedTimer = setInterval(pushFeed, 300000);            // refresh the feed every 5 min
   dashWin.on('closed', () => { clearInterval(dashTimer); clearInterval(feedTimer); dashWin = null; });
 }
-ipcMain.on('open-dashboard', openDashboardWindow);
-ipcMain.on('dash-close', () => { if (dashWin && !dashWin.isDestroyed()) dashWin.close(); });
-ipcMain.on('dash-action', (_e, a) => {                // dashboard buttons → bee commands, then refresh
+ipcMain.on('open-dashboard', (event, approvalId) => openDashboardWindow(approvalId));
+ipcMain.on('dash-close', (event) => { if (dashWin && !dashWin.isDestroyed() && event.sender === dashWin.webContents) dashWin.close(); });
+ipcMain.on('dash-action', (event, a) => {                // dashboard buttons → bee commands, then refresh
+  if (!dashWin || dashWin.isDestroyed() || event.sender !== dashWin.webContents || !a || typeof a.kind !== 'string') return;
   const run = (args) => { try { execFileSync('node', [BEE, ...args], { timeout: 20000 }); } catch {} };
   if (a.kind === 'autonomy') run(['autonomy', a.arg]);
   else if (a.kind === 'run') run(['run', a.arg]);
   else if (a.kind === 'done') run(['done', a.arg]);
+  else if (a.kind === 'review-approval') run(['ask', a.arg]);
+  else if (a.kind === 'reject-approval') {
+    const isAction = /^act_/.test(String(a.arg)); run([isAction ? 'reject-action' : 'reject', a.arg]);
+  }
+  else if (a.kind === 'stage-mandate') run(['settle', a.arg]);
+  else if (a.kind === 'approve-final') {
+    const id = String(a.arg || '');
+    if (/^act_/.test(id)) run(['approve-action', id, '--method', 'dashboard']);
+    else if (/^mnd_/.test(id)) { run(['approve', id, '--method', 'dashboard']); run(['settle', id]); }
+  }
+  else if (a.kind === 'reject-final') {
+    const id = String(a.arg || '');
+    if (/^act_/.test(id)) run(['reject-action', id]);
+    else if (/^mnd_/.test(id)) run(['reject', id]);
+    else run(['decline', id]);
+  }
+  else if (a.kind === 'prepare-approval') run(['prepare-approval', a.arg]);
+  else if (a.kind === 'complete-manual') run(['done', a.arg]);
+  else if (a.kind === 'open-url') {
+    try { const u = new URL(String(a.arg || '')); if (u.protocol === 'https:') shell.openExternal(u.toString()); } catch {}
+  }
   else if (a.kind === 'dispatch-all') run(['dispatch', 'all']);
   setTimeout(pushDash, 400); tick();
 });
@@ -174,12 +239,13 @@ app.whenReady().then(() => {
   createPointerWindow();
   setInterval(pointerTick, 55);   // ~18fps — smooth enough for the butterfly to ride the cursor
   setInterval(butterflyTick, 90); // butterfly flight + commanded life-stage
+  setInterval(gestureTick, 250);  // watch for a gesture-approval request
   const icon = nativeImage.createFromNamedImage('NSImageNameTouchBarColorPickerFont', [0, 0, 0]);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('Bee — founder in a box');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show/Hide Bee', click: () => (win.isVisible() ? win.hide() : win.show()) },
-    { label: 'Open dashboard', click: () => ipcMain.emit('open-dashboard') },
+    { label: 'Open dashboard', click: () => openDashboardWindow() },
     { type: 'separator' },
     { label: 'Quit Bee', click: () => app.quit() },
   ]));

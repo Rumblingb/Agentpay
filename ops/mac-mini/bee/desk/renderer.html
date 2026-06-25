@@ -7,12 +7,10 @@
      so the halo never goes cool/blue under warm wings. Rich but not neon. */
   body.egg    { --a:#e7cfa0; --glow:#f4c879; } body.larva { --a:#a7c6a0; --glow:#a9cf82; } body.cocoon { --a:#a3c0d6; --glow:#e6b766; }
   body.flight { --a:#a6d4c6; --glow:#ffc25e; } body.landed{ --a:#e0a98e; --glow:#f2a85e; }
+  body.thriving{ --a:#ffce86; --glow:#ffc153; }   /* end stage: the imago — alive & earning */
 
   /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
   #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
-  #aura { position:absolute; left:50%; top:52%; width:160px; height:160px; transform:translate(-50%,-50%);
-    border-radius:50%; filter:blur(34px); opacity:.5; transition:background .7s, opacity .7s; pointer-events:none;
-    background:radial-gradient(circle, color-mix(in srgb,var(--glow) 70%,transparent) 0%, color-mix(in srgb,var(--glow) 20%,transparent) 52%, transparent 74%); }
   #creature { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:140px; height:140px;
     display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s; }
   svg { overflow:visible; display:block; }
@@ -31,22 +29,26 @@
   .spark{display:none}
 
   /* EGG — dormant, the calmest presence */
-  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite} body.egg #aura{opacity:.32}
+  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 38%,transparent))}
   /* LARVA — queued, building potential */
-  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite} body.larva #aura{opacity:.36}
+  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 34%,transparent))}
   /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
   body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
   body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
-  body.cocoon #aura{opacity:.16}
   /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
   body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
   body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 55%,transparent))}
-  body.flight .spark{display:block} body.flight #aura{opacity:.6}
+  body.flight .spark{display:block}
   body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
   /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
   body.landed #butterfly{display:block} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
   body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 50%,transparent))}
-  body.landed #aura{opacity:.55}
+  /* THRIVING — the END STAGE: imago, wings full open, a slow radiant bloom. The company is alive + earning. */
+  @keyframes bloom { 0%,100%{transform:translate(-50%,-50%) scale(1.05)} 50%{transform:translate(-50%,-53%) scale(1.13)} }
+  body.thriving #butterfly{display:block} body.thriving .wing{animation:flapIdle 3.2s ease-in-out infinite}
+  body.thriving #creature{animation:bloom 3.8s ease-in-out infinite; filter:drop-shadow(0 0 14px color-mix(in srgb,var(--glow) 62%,transparent)) saturate(1.05)}
+  body.thriving .spark{display:block}
+  body.thriving .s1{animation:sparkle 2.2s ease-in-out infinite} body.thriving .s2{animation:sparkle 2.2s .7s ease-in-out infinite} body.thriving .s3{animation:sparkle 2.2s 1.4s ease-in-out infinite}
 
   /* glanceable, peripheral status line — the ambient signal that replaces the red badge */
   #hint{ position:absolute; left:0; right:0; bottom:5px; text-align:center; font-size:10px; letter-spacing:.4px;
@@ -57,7 +59,7 @@
 
   /* ── CARD (status popover, unchanged behaviour) ── */
   #card { position:fixed; right:18px; bottom:196px; width:308px; -webkit-app-region:no-drag; display:none;
-    transform-origin:bottom right; padding:16px 16px 15px; border-radius:20px; color:#f2f2f6;
+    transform-origin:bottom right; padding:16px 16px 15px; border-radius:8px; color:#f2f2f6;
     background:linear-gradient(180deg, rgba(30,31,40,.90), rgba(18,18,25,.92));
     backdrop-filter:blur(28px) saturate(1.4); -webkit-backdrop-filter:blur(28px) saturate(1.4);
     border:1px solid rgba(255,255,255,.10);
@@ -69,7 +71,7 @@
   @keyframes cardIn { from{opacity:0; transform:translateY(12px) scale(.95)} to{opacity:1; transform:none} }
   @keyframes cardOut { to{opacity:0; transform:translateY(8px) scale(.97)} }
   .ch { display:flex; align-items:center; justify-content:space-between; }
-  .brand { font-size:16px; font-weight:800; letter-spacing:-.2px;
+  .brand { font-size:16px; font-weight:800; letter-spacing:0;
     background:linear-gradient(135deg, #fff, var(--a)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px 4px 8px; border-radius:999px;
     font-size:10px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--a);
@@ -78,26 +80,25 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
   .presence { margin-top:11px; font-size:13px; line-height:1.4; color:rgba(255,255,255,.72); font-weight:450; }
   .tiles { margin-top:14px; display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-  .tile { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.07); border-radius:13px; padding:11px 6px; text-align:center; }
+  .tile { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.07); border-radius:8px; padding:11px 6px; text-align:center; }
   .tile .n { font-size:23px; font-weight:750; line-height:1; color:#fff; font-variant-numeric:tabular-nums; }
   .tile.live .n { color:var(--a); }
   .tile .k { margin-top:5px; font-size:9px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:rgba(255,255,255,.42); }
   #needs { margin-top:14px; display:none; }
   .needs-h { font-size:11px; font-weight:700; letter-spacing:.3px; color:var(--a); display:flex; align-items:center; gap:5px; }
-  .nrow { margin-top:8px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:11px;
-    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); }
+  .nrow { width:100%; margin-top:8px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px;
+    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); color:inherit; text-align:left; cursor:pointer; }
+  .nrow:hover{background:rgba(255,255,255,.08);border-color:color-mix(in srgb,var(--a) 30%,transparent)}
   .lane { flex:none; font-size:8.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:rgba(255,255,255,.55);
     background:rgba(255,255,255,.08); padding:3px 7px; border-radius:6px; }
   .ntitle { flex:1; font-size:12px; color:rgba(255,255,255,.86); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .more { margin-top:7px; font-size:10.5px; color:rgba(255,255,255,.4); padding-left:2px; }
   .actions { margin-top:16px; display:flex; align-items:center; gap:10px; }
-  #dash { -webkit-app-region:no-drag; cursor:pointer; flex:1; padding:10px 14px; border:none; border-radius:12px;
+  #dash { -webkit-app-region:no-drag; cursor:pointer; flex:1; padding:10px 14px; border:none; border-radius:8px;
     font-size:12.5px; font-weight:700; letter-spacing:.1px; color:#10121a;
     background:linear-gradient(135deg, var(--a), color-mix(in srgb,var(--a) 55%, #6a4bff)); box-shadow:0 6px 18px color-mix(in srgb, var(--a) 35%, transparent);
     transition:filter .15s, transform .1s; }
   #dash:hover { filter:brightness(1.08); } #dash:active { transform:translateY(1px); }
-  .kbd { font-size:9.5px; font-weight:600; letter-spacing:.3px; color:rgba(255,255,255,.4); padding:5px 8px;
-    border-radius:7px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); }
 </style></head>
 <body class="egg">
   <div id="card">
@@ -112,11 +113,10 @@
       <div class="tile" id="tile-shipped"><div class="n" id="t-shipped">0</div><div class="k">Shipped</div></div>
     </div>
     <div id="needs"></div>
-    <div class="actions"><button id="dash">Open dashboard</button><span class="kbd">esc</span></div>
+    <div class="actions"><button id="dash">Open dashboard</button></div>
   </div>
 
   <div id="dock">
-    <div id="aura"></div>
     <div id="creature" title="Bee">
       <!-- EGG -->
       <svg id="egg" class="stage" width="96" height="108" viewBox="0 0 96 108">
@@ -183,8 +183,8 @@
   </div>
 <script>
   const body=document.body, card=document.getElementById('card'), creature=document.getElementById('creature'), hint=document.getElementById('hint');
-  const STATES=['egg','larva','cocoon','flight','landed'];
-  const LABEL={egg:'Idle',larva:'Queued',cocoon:'Working',flight:'Shipped',landed:'Needs you'};
+  const STATES=['egg','larva','cocoon','flight','landed','thriving'];
+  const LABEL={egg:'Idle',larva:'Queued',cocoon:'Working',flight:'Shipped',landed:'Needs you',thriving:'Thriving'};
   const CARD_BOTTOM=196, CARD_TOPGAP=18;
   let last={}, open=false;
 
@@ -194,14 +194,15 @@
   });
 
   function setHint(d){ const c=d.counts||{}, s=d.state, n=c.needsHuman||0;
-    hint.textContent = s==='landed' ? `${n} need you` : s==='flight' ? 'shipped ✦' : s==='larva' ? 'queued' : s==='cocoon' ? '' : '✦ Hey Bee';
+    hint.textContent = s==='landed' ? `${n} need you` : s==='thriving' ? 'earning ✦' : s==='flight' ? 'shipped ✦' : s==='larva' ? 'queued' : s==='cocoon' ? '' : '✦ Hey Bee';
   }
-  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
   function presence(){ const c=last.counts||{}, s=last.state, n=c.needsHuman||0;
     if(s==='landed')   return `${n} ${n===1?'task needs':'tasks need'} your call.`;
     if(s==='flight')   return 'Just shipped ✦ nicely done.';
     if(s==='cocoon')   return `${c.inProgress||0} ${(c.inProgress||0)===1?'task':'tasks'} in flight — heads down.`;
     if(s==='larva')    return `${c.routed||0} queued and ready.`;
+    if(s==='thriving') return 'The company is alive and earning.';
     return 'All quiet — watching the fleet.';
   }
   function render(){ const c=last.counts||{}, a=last.approvals||[], s=last.state;
@@ -214,7 +215,7 @@
     document.getElementById('tile-shipped').classList.toggle('live', s==='flight');
     const needs=document.getElementById('needs');
     if(a.length){ let h=`<div class="needs-h">▲ Needs your call</div>`;
-      a.slice(0,3).forEach(x=>{ h+=`<div class="nrow"><span class="lane">${esc(x.lane)}</span><span class="ntitle">${esc(x.title)}</span></div>`; });
+      a.slice(0,3).forEach(x=>{ h+=`<button class="nrow" data-approval-id="${esc(x.id)}"><span class="lane">${esc(x.lane)}</span><span class="ntitle">${esc(x.title)}</span></button>`; });
       if(a.length>3) h+=`<div class="more">+${a.length-3} more waiting</div>`;
       needs.innerHTML=h; needs.style.display='block';
     } else needs.style.display='none';
@@ -230,6 +231,7 @@
   creature.addEventListener('click', e=>{ e.stopPropagation(); open?closeCard():openCard(); });
   creature.addEventListener('dblclick', e=>{ e.stopPropagation(); window.bee.openDashboard(); });
   document.getElementById('dash').addEventListener('click', e=>{ e.stopPropagation(); window.bee.openDashboard(); });
+  document.getElementById('needs').addEventListener('click', e=>{ const row=e.target.closest('[data-approval-id]'); if(row){ e.stopPropagation(); window.bee.openDashboard(row.dataset.approvalId); } });
   card.addEventListener('click', e=>e.stopPropagation());
   document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeCard(); });
 </script>

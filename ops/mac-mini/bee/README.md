@@ -10,20 +10,21 @@ ops/mac-mini/bin/bee                                        # the unified two-la
 ops/mac-mini/bin/bee "design the dashboard pricing page"   # create → route → dispatch to the agent
 ops/mac-mini/bin/bee dash | board | approvals               # dashboard / board / human-action wall
 ops/mac-mini/bin/bee dispatch [<id>|all]                    # push routed cards to agent inboxes
-ops/mac-mini/bin/bee speak "..."                            # Bee talks (Kokoro, macOS say fallback)
+ops/mac-mini/bin/bee speak "..."                            # Bee talks (Voicebox, Kokoro fallback)
 ops/mac-mini/bin/bee listen                                 # push-to-talk: speak → whisper → route
 ops/mac-mini/bin/bee route|start|done|block <id>            # lifecycle
 ```
 
 ## Always-on (the cofounder you talk to)
 
-`com.agentpay.bee.daemon` (launchd, KeepAlive) runs `bee daemon` 24/7. It watches
+`com.agentpay.bee.daemon` (launchd, KeepAlive) runs `bee daemon` 24/7. `com.agentpay.bee.desk`
+keeps Clickey's butterfly, dashboard, and approval overlay alive after login. The daemon watches
 `~/.bee/inbox/*.txt` — drop a request from anywhere (voice, Discord bridge, a script) and Bee
 **routes + dispatches + speaks** the confirmation, then files the request under `inbox/done/`.
 
 - **Speak to Bee:** `bee listen` (push-to-talk). Needs one-time Microphone grant for the terminal/node
   in System Settings → Privacy → Microphone. STT = `whisper-cli` + `~/.bee/models/ggml-base.en.bin`.
-- **Bee speaks back:** local neural **Kokoro** through `com.agentpay.bee.tts` on `:8790`, with macOS `say` (`BEE_VOICE`, `BEE_RATE`) as the fallback. Every founder request gets an immediate acknowledgement before routing, so Bee never goes silent. Background churn stays quiet; completion and blockers speak.
+- **Bee speaks back:** **Voicebox + Qwen CustomVoice 0.6B** through MLX on `:17493`, with a dedicated `Bee` profile and natural delivery instructions. Warm Kokoro on `:8790`, then macOS `say`, remain automatic fallbacks. Override the profile, engine, size, or delivery with `BEE_VOICEBOX_PROFILE`, `BEE_VOICEBOX_ENGINE`, `BEE_VOICEBOX_MODEL_SIZE`, and `BEE_VOICEBOX_INSTRUCT`.
 
 ## Project operator and worker auto-pull
 
@@ -68,7 +69,7 @@ Agents claim with `bee start <id>` and close with `bee done <id>`.
 
 ## Two lanes, asymmetric autonomy
 
-- **Labs** — routes + (soon) workers act; outward actions (publish/OAuth/money) approval-gated.
+- **Labs** — routes and executes internal work; outward actions are prepared, then approval-gated.
 - **Fund** — VIEW (read-only operational status), STAGE actions, and autonomously run read-only
   research/backtests (no money). **Never autonomous execution** — trade/order/money/live/bankroll
   are founder-only, forced to the approval wall by `FUND_EXEC_RE`. Founder-authorized 2026-06-15.
@@ -80,6 +81,9 @@ Agents claim with `bee start <id>` and close with `bee done <id>`.
   runs first and is never delegated to the LLM: fund execution (`FUND_EXEC_RE`) and money/login actions
   are forced to the approval wall regardless of what the model says. If the brain is unreachable, Bee
   falls back to deterministic keyword rules. Override with `BEE_BRAIN_URL` / `BEE_BRAIN_MODEL`.
+- **NIM tiers:** routine cloud fallback uses `nvidia/nemotron-3-nano-30b-a3b`; founder planning and
+  Nemotron deliverables use `nvidia/nemotron-3-super-120b-a12b`. Override with
+  `BEE_NIM_FAST_MODEL` and `BEE_NIM_REASONING_MODEL`.
 - **Eyes (`bee see [question]`):** `screencapture` a frame → describe via a vision endpoint
   (`BEE_VISION_URL` / `BEE_VISION_MODEL`, e.g. the Hermes gemini-vision gateway). Needs a one-time
   **Screen Recording** grant for the terminal/node.
@@ -87,8 +91,35 @@ Agents claim with `bee start <id>` and close with `bee done <id>`.
   background `computer_use` driver (`Agent-Hermes`, doesn't steal cursor/focus). Fund + screen control
   is forced to the founder (broker/exec risk), never autonomous.
 - **Hands (`bee act`):** direct foreground actions use an observe → one safe action → observe loop.
-  Bee re-reads the Accessibility tree after every step, stops after eight actions by default, and
-  deterministically blocks destructive, authentication, publishing, payment, and trading actions.
+  Bee re-reads the Accessibility tree after every step and stops after eight actions by default.
+  Submissions, uploads, publishing, and sends become signed one-time action tickets; a fresh Clickey
+  or CLI approval releases only that exact action for two minutes. Authentication, credentials,
+  deletion, permissions, payments, and trading remain founder-controlled.
+
+## Approvals and payment mandates
+
+```bash
+bee act "submit the prepared App Store listing"  # creates an action ticket
+bee actions                                      # inspect prepared actions
+bee ask <act-id>                                 # Clickey tick/cross approval
+
+bee mandate 8 vercel.com "pay hosting" --rail stripe
+bee ask <mandate-id>                             # founder approval
+bee settle <mandate-id>                          # stage exact signed rail payload
+bee confirm-settlement <mandate-id> <receipt>    # reconcile a founder-completed live payment
+```
+
+Mandates use a local HMAC key at `~/.bee/mandate.key` and bind the task, intent, merchant, amount,
+currency, cap, rail, nonce, mode, issue time, and expiry. Sandbox demos have isolated accounting and
+cannot alter the live spend or replay ledgers. Clickey approval uses a dedicated preload, validates
+the sending renderer and request token, and rejects ambiguous gestures.
+
+The dashboard's **Founder queue** only interrupts when an approval packet is ready. Human-gated Labs
+work first creates an internal preparation card; Bee checks artifacts, fixes safe prerequisites, and
+requires a concrete `BEE_APPROVAL_EVIDENCE` receipt before the parent returns to the queue. Selecting a
+queue row opens its final-decision pane with the exact destination, authority, prepared evidence, and
+the remaining approve/reject/open-final-step action. Tasks still missing internal prerequisites stay
+with Bee rather than appearing as premature founder blockers.
 
 ## How it routes (difficulty-classified cost ladder)
 
@@ -119,8 +150,8 @@ There is no code path by which Bee autonomously executes a fund money action.
 
 - Bee MCP connector so Claude, Codex, and Hermes claim/update cards through structured tools.
 - Auto-pull for Claude/Hermes and outcome telemetry (route, cost, latency, result, correction).
-- Full-duplex PersonaPlex-style voice interruption and turn-taking.
-- One capped earn → approval → spend demonstration through AgentPay rails.
+- Full-duplex interruption and turn-taking on top of the new natural Voicebox output.
+- Provider adapters that can consume the already-staged Stripe/x402 payload after action-time approval.
 
 ## Verification
 
