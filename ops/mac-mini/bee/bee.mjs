@@ -933,6 +933,32 @@ function demo() {
   butterfly('egg', S.w - 150, S.h - 150, 'Back to watching. Say the word for the next one.', 5); sl(1);
   console.log('🎬 demo complete — see `bee mandates` for the executed mandate.');
 }
+
+// `bee introduce` — Bee presents ITSELF and shows its working, live + first-person (Polsia-style transparency).
+// This is the demo: identity → what it runs on → watch it think → guarded mandate → your gesture nod → settle → thriving.
+function introduce() {
+  const sl = (s) => { try { execFileSync('bash', ['-c', `sleep ${s}`]); } catch {} };
+  const S = screenSize(), cx = Math.round(S.w / 2), cy = Math.round(S.h / 2);
+  console.log('\n🐝 Bee — introducing itself\n');
+  butterfly('egg', S.w - 150, S.h - 150, "Hi — I'm Bee, your founder in a box. I live on your desk and run the company with you, not instead of you.", 8); sl(7);
+  butterfly('larva', Math.round(S.w * 0.22), Math.round(S.h * 0.4), "I run on local models and NVIDIA Nemotron through Hermes — free first, fast when it matters. And I never lie about what I do.", 9); sl(8);
+  thinkStart('Watch me work. First I think — what is the highest-leverage move right now.'); sl(5); thinkStop();
+  butterfly('cocoon', cx, cy, "Say the hosting needs paying. I draft a signed mandate and run it through nine safety checks before a cent could move.", 9);
+  const m = issueMandate(8, 'vercel.com', 'pay Vercel hosting', { rail: 'usdc', mode: 'sandbox' }); sl(8);
+  if (!m) { butterfly('landed', cx, cy, 'If anything fails the guard, nothing leaves. That is the whole point.', 7); return; }
+  butterfly('landed', Math.round(S.w * 0.8), Math.round(S.h * 0.22), 'But I never pay without your nod. Draw a tick to approve — a cross to say no.', 30);
+  askGesture(m.id);
+  let waited = 0, decided = null;
+  while (waited < 22) { sl(1); waited++; const c = findMandate(m.id); if (c && (c.status === 'approved' || c.status === 'rejected')) { decided = c.status; break; } }
+  if (decided === 'rejected') { butterfly('larva', cx, cy, 'You said no — so nothing moves. Your call, always.', 7); console.log('🐝 introduction: rejected by gesture.'); return; }
+  if (decided !== 'approved') approveMandate(m.id);
+  butterfly('cocoon', cx, cy, "Approved. I re-check every guard, then settle through AgentPay's own rail.", 5); sl(4);
+  settleMandate(m.id, true);
+  butterfly('flight', cx, Math.round(S.h * 0.3), 'Settled — sandbox, no real money moved. Decide, guard, your nod, settle.', 5); sl(4);
+  butterfly('thriving', cx, Math.round(S.h * 0.34), "That's me — Bee. I earn and spend, guarded and truthful, on your machine. The company is alive and earning.", 9); sl(8);
+  butterfly('egg', S.w - 150, S.h - 150, 'Back to watching. Ask me anything.', 5); sl(1);
+  console.log('🐝 introduction complete.');
+}
 const GESTURE_REQ_FILE = join(BEE_DIR, 'gesture-request.json');
 function askGesture(id) {                                // prompt the founder to decide by mouse gesture (✓/✗)
   const m = findMandate(id);
@@ -1560,6 +1586,7 @@ async function main() {
   case 'confirm-settlement': confirmSettlement(rest[0], rest.slice(1).join(' ')); break;
   case 'fly': { const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10); if (isNaN(x) || isNaN(y)) { console.error('usage: bee fly <x> <y> [stage] [say…]'); break; } butterfly(rest[2] || 'flight', x, y, rest.slice(3).join(' ') || undefined); console.log(`🦋 flying to ${x},${y} as ${rest[2] || 'flight'}`); break; }
   case 'demo': demo(); break;
+  case 'introduce': case 'intro': case 'pitch': introduce(); break;
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
   case 'feed': feed(); break;
   case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
@@ -1613,7 +1640,11 @@ async function main() {
   case 'start': setStatus(rest[0], 'in_progress'); break;
   case 'done': setStatus(rest[0], 'done'); break;
   case 'block': setStatus(rest[0], 'blocked'); break;
-  default: { const id = create(cmd === 'add' ? arg : [cmd, ...rest].join(' '), { route: false }); const d = routeOne(id); dispatch(id); speak(replyFor(d)); } // `bee "..."` → create+route+dispatch+reply
+  default: {
+    const text = cmd === 'add' ? arg : [cmd, ...rest].join(' ');
+    if (/\b(introduce|introduce yourself|show me what you (can )?do|show your(self| work)|pitch yourself|who are you|demo yourself|present yourself)\b/i.test(text)) { introduce(); break; }  // "Bee, introduce yourself" → the self-demo
+    const id = create(text, { route: false }); const d = routeOne(id); dispatch(id); speak(replyFor(d)); // `bee "..."` → create+route+dispatch+reply
+  }
   }
 }
 
