@@ -14,7 +14,7 @@
 </style></head>
 <body>
   <div id="hud"><div class="q" id="q">Approve this?</div>
-    <div class="k">Draw <b>✓</b> to approve · <i>✗</i> to reject</div>
+    <div class="k">Draw <b>✓</b> to approve · <i>✗</i> (two strokes) to reject</div>
   </div>
   <canvas id="c"></canvas>
   <div id="verdict"></div>
@@ -32,7 +32,7 @@
   addEventListener('mousedown',e=>{ if(finalizeT){clearTimeout(finalizeT);finalizeT=null} drawing=true;cur=[{x:e.clientX,y:e.clientY}]; });
   addEventListener('mousemove',e=>{ if(!drawing)return; cur.push({x:e.clientX,y:e.clientY}); draw(); });
   addEventListener('mouseup',()=>{ if(!drawing)return; drawing=false; if(cur&&cur.length>2)strokes.push(cur); cur=null; draw();
-    finalizeT=setTimeout(finalize,520); });               // wait briefly for a 2nd stroke (the X)
+    finalizeT=setTimeout(finalize,1150); });              // ✗ is two strokes — give time to draw the 2nd line before finalizing
   addEventListener('keydown',e=>{ if(e.key==='Escape'&&!submitted){ submitted=true; window.beeApproval.submit('cancel',requestToken); } });
 
   function finalize(){ const v=window.BeeGesture.recognize(strokes); strokes=[];
