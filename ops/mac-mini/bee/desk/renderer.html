@@ -29,24 +29,24 @@
   .spark{display:none}
 
   /* EGG — dormant, the calmest presence */
-  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 38%,transparent))}
+  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--glow) 60%,transparent)) drop-shadow(0 0 16px color-mix(in srgb,var(--glow) 30%,transparent))}
   /* LARVA — queued, building potential */
-  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 34%,transparent))}
+  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--glow) 55%,transparent)) drop-shadow(0 0 15px color-mix(in srgb,var(--glow) 28%,transparent))}
   /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
   body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
   body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
   /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
   body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
-  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 55%,transparent))}
+  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 80%,transparent)) drop-shadow(0 0 20px color-mix(in srgb,var(--glow) 42%,transparent))}
   body.flight .spark{display:block}
   body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
   /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
   body.landed #butterfly{display:block} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
-  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 50%,transparent))}
+  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 72%,transparent)) drop-shadow(0 0 18px color-mix(in srgb,var(--glow) 38%,transparent))}
   /* THRIVING — the END STAGE: imago, wings full open, a slow radiant bloom. The company is alive + earning. */
   @keyframes bloom { 0%,100%{transform:translate(-50%,-50%) scale(1.05)} 50%{transform:translate(-50%,-53%) scale(1.13)} }
   body.thriving #butterfly{display:block} body.thriving .wing{animation:flapIdle 3.2s ease-in-out infinite}
-  body.thriving #creature{animation:bloom 3.8s ease-in-out infinite; filter:drop-shadow(0 0 14px color-mix(in srgb,var(--glow) 62%,transparent)) saturate(1.05)}
+  body.thriving #creature{animation:bloom 3.8s ease-in-out infinite; filter:drop-shadow(0 0 10px color-mix(in srgb,var(--glow) 85%,transparent)) drop-shadow(0 0 28px color-mix(in srgb,var(--glow) 50%,transparent)) saturate(1.06)}
   body.thriving .spark{display:block}
   body.thriving .s1{animation:sparkle 2.2s ease-in-out infinite} body.thriving .s2{animation:sparkle 2.2s .7s ease-in-out infinite} body.thriving .s3{animation:sparkle 2.2s 1.4s ease-in-out infinite}
 
@@ -155,8 +155,8 @@
       <!-- BUTTERFLY (flight + landed) -->
       <svg id="butterfly" class="stage" width="140" height="140" viewBox="0 0 132 132">
         <defs>
-          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffdc8a"/><stop offset="55%" stop-color="#f2a948"/><stop offset="100%" stop-color="#e2812f"/></linearGradient>
-          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f6bd5e"/><stop offset="100%" stop-color="#df7d36"/></linearGradient>
+          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffd778"/><stop offset="55%" stop-color="#f5a637"/><stop offset="100%" stop-color="#e87a1e"/></linearGradient>
+          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f8b848"/><stop offset="100%" stop-color="#e2762a"/></linearGradient>
           <radialGradient id="gBody" cx="0.5" cy="0.3" r="0.8"><stop offset="0%" stop-color="#5a4022"/><stop offset="100%" stop-color="#2c1d0e"/></radialGradient>
         </defs>
         <g class="wing wL">
