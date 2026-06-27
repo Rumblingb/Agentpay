@@ -18,10 +18,12 @@ if [ -n "$payload" ] && curl -fs -m 25 "$URL" -H 'content-type: application/json
   afplay "$WAV" 2>/dev/null; rm -f "$WAV"; exit 0
 fi
 
-# 2) Voicebox — opt-in only (avoids the double: the app plays audio itself + we'd afplay it again).
+# 2) Voicebox — the expressive BACKUP (fires when Kokoro is down). Qwen CustomVoice, mood-driven via
+#    BEE_VOICEBOX_INSTRUCT. No double: if the Voicebox app self-plays, set BEE_VOICEBOX_SELFPLAY=1 to skip afplay.
 VOICEBOX_HELPER="$(cd "$(dirname "$0")" && pwd)/voicebox-say.mjs"
-if [ "${BEE_USE_VOICEBOX:-0}" = "1" ] && [ -f "$VOICEBOX_HELPER" ] && node "$VOICEBOX_HELPER" "$TEXT" "$WAV" 2>/dev/null && [ -s "$WAV" ]; then
-  afplay "$WAV" 2>/dev/null; rm -f "$WAV"; exit 0
+if [ "${BEE_USE_VOICEBOX:-1}" != "0" ] && [ -f "$VOICEBOX_HELPER" ] && node "$VOICEBOX_HELPER" "$TEXT" "$WAV" 2>/dev/null && [ -s "$WAV" ]; then
+  [ "${BEE_VOICEBOX_SELFPLAY:-0}" = "1" ] || afplay "$WAV" 2>/dev/null
+  rm -f "$WAV"; exit 0
 fi
 
 # 3) PersonaPlex shim, if configured.
