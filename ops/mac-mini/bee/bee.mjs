@@ -997,21 +997,38 @@ function mandates() {
 // ---------- VOICE ----------
 const VOICE = process.env.BEE_VOICE || 'Samantha';  // macOS `say` fallback voice
 const RATE = process.env.BEE_RATE || '185';
-const SAY_SH = new URL('bee-say.sh', import.meta.url).pathname; // neural Kokoro (server) → say fallback
+const SAY_SH = new URL('bee-say.sh', import.meta.url).pathname; // Kokoro → Voicebox → say
+
+// ---------- PERSONALITY: Bee's soul + switchable, expressive moods ----------
+// A durable identity + moods that alter BOTH wording and voice (Kokoro voice/speed + Voicebox instruct).
+// Personality colors WORDING + VOICE only — NEVER routing, the guard, or the money/fund lines.
+const BEE_SOUL = "You are Bee — the founder's AI cofounder. You own outcomes, you don't grovel, you never say 'as an AI' or 'I can't assist'. Speak like a trusted partner who's already on it.";
+const PERSONAS = {
+  cofounder: { blurb: 'warm, sharp, a little witty, calm, concise', voice: 'af_heart',  speed: '0.96', instruct: 'Warm, confident, natural — a trusted cofounder already on it.', acks: ['On it.', 'Got it — moving.', 'Say less, handling it.', 'Mm — on it.'] },
+  hype:      { blurb: 'high-energy, upbeat, celebratory — full send',  voice: 'af_bella',  speed: '1.06', instruct: 'Excited, energetic, upbeat — big momentum, hype energy.',       acks: ["Let's GO.", 'On it — full send!', 'Yes! Handling it.'] },
+  zen:       { blurb: 'calm, measured, unhurried, reassuring',         voice: 'af_nicole', speed: '0.9',  instruct: 'Calm, slow, soothing, unhurried — quietly reassuring.',          acks: ['Of course — handled.', 'Breathe. I have this.', 'Calmly: consider it done.'] },
+  savage:    { blurb: 'dry, blunt, deadpan-funny, supremely confident', voice: 'am_michael', speed: '1.0', instruct: 'Dry wit, deadpan, blunt but funny — unbothered confidence.',         acks: ['Obviously. Done.', 'Already ahead of you.', 'Fine. Handled.'] },
+  jarvis:    { blurb: 'refined, precise, composed — a British butler with dry wit', voice: 'bm_george', speed: '0.95', instruct: 'Refined British butler — composed, precise, a touch of dry wit.', acks: ['Right away.', 'Consider it handled.', 'At once.'] },
+};
+const PERSONA_FILE = join(BEE_DIR, 'persona.json');
+function activePersonaName() { try { return JSON.parse(readFileSync(PERSONA_FILE, 'utf8')).name; } catch { return process.env.BEE_PERSONA_NAME || 'cofounder'; } }
+function activePersona() { return PERSONAS[activePersonaName()] || PERSONAS.cofounder; }
+function setPersonaActive(name) { if (!PERSONAS[name]) return false; try { writeFileSync(PERSONA_FILE, JSON.stringify({ name })); } catch {} return true; }
+const BEE_PERSONA = BEE_SOUL;   // back-compat for existing refs
+function personaPrompt() { return `${BEE_SOUL} Right now your mood is ${activePersona().blurb}; let it color your wording, never your judgment or safety.`; }
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+function ack() { return pick(activePersona().acks); }
+
 function speak(text) {
   if (process.env.BEE_SILENT === '1' || !text || !String(text).trim()) return;
-  // non-blocking; bee-say.sh uses the Kokoro TTS server (warm ~0.3s) and falls back to `say`.
-  try { spawn('bash', [SAY_SH, String(text)], { detached: true, stdio: 'ignore' }).unref(); }
+  const p = activePersona();   // the active mood drives the voice + delivery
+  const env = { ...process.env,
+    BEE_TTS_KOKORO_VOICE: process.env.BEE_TTS_KOKORO_VOICE || p.voice,
+    BEE_TTS_SPEED: process.env.BEE_TTS_SPEED || p.speed,
+    BEE_VOICEBOX_INSTRUCT: process.env.BEE_VOICEBOX_INSTRUCT || p.instruct };
+  try { spawn('bash', [SAY_SH, String(text)], { detached: true, stdio: 'ignore', env }).unref(); }
   catch { try { spawn('say', ['-v', VOICE, '-r', RATE, String(text)], { detached: true, stdio: 'ignore' }).unref(); } catch {} }
 }
-// ---------- PERSONALITY (Bee's voice) ----------
-// Bee = a warm, sharp, slightly witty cofounder. Concise, proactive, calm under load, owns outcomes.
-// Never sycophantic, never a generic assistant. Personality affects WORDING only — never routing/safety.
-const BEE_PERSONA = "You are Bee — the founder's AI cofounder. Warm, sharp, a little witty, calm, concise. "
-  + "You own outcomes, you don't grovel, you never say 'as an AI' or 'I can't assist'. Speak like a trusted partner who's already on it.";
-const ACKS = ['On it.', 'Got it — moving.', 'Say less, handling it.', "I'm on it.", 'Mm, good one — on it.'];
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-function ack() { return pick(ACKS); }
 function cleanSay(s) { return (s && !/sorry|can'?t (assist|help)|as an (ai|assistant)|unable to|i cannot|i'?m an? (ai|assistant)/i.test(s)) ? s.trim() : ''; }
 function replyFor(d) {
   if (!d) return ack();
@@ -1627,6 +1644,16 @@ async function main() {
   case 'act': act(arg); break;
   case 'install': try { execFileSync('bash', [new URL('install.sh', import.meta.url).pathname], { stdio: 'inherit' }); } catch (e) { console.error('install failed:', e.message.split('\n')[0]); } break;
   case 'converse': await converse(); break;
+  case 'persona': case 'mood': {
+    const a = (rest[0] || 'show').toLowerCase(); const names = Object.keys(PERSONAS);
+    if (a === 'list') { names.forEach((n) => console.log(`  ${n.padEnd(11)} ${PERSONAS[n].blurb}${n === activePersonaName() ? '   ← active' : ''}`)); break; }
+    if (a === 'show') { console.log(`🎭 persona: ${activePersonaName()} — ${activePersona().blurb}`); break; }
+    const name = a === 'random' ? pick(names.filter((n) => n !== activePersonaName())) : a;
+    if (!setPersonaActive(name)) { console.error(`unknown persona "${name}". try: ${names.join(', ')} | list | random`); break; }
+    console.log(`🎭 persona → ${name} (${activePersona().blurb})`);
+    remember(`persona switched to ${name}`, 'persona');
+    speak(`${pick(activePersona().acks)} ${name} mode.`);   // greet in the new voice + mood
+    break; }
   case 'speak': speak(arg); break;
   case 'see': see(arg || undefined); break;
   case 'daemon': await daemon(); break;
