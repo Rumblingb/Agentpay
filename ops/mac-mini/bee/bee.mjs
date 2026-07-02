@@ -731,7 +731,7 @@ function decide(goal, enact = false) {
     + "Run the OODA loop and decide the next best moves toward the goal. Output ONLY JSON: "
     + '{"summary":"<=20 words","decisions":[{"action":"<concrete task>","assignee":"claude|codex|hermes-lenovo|nemotron|rajiv","skill":"<hermes skill or empty>","when":"now|today|this-week","priority":1,"why":"<=14 words"}]}. '
     + "HARD RULES: anything needing OAuth/login/app-store/money/payment/trade => assignee rajiv (founder-only). Prefer free/local workers. Be concrete and minimal — at most 6 decisions, highest-leverage first.";
-  const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nLESSONS (Bee's recent memory — outcomes, decisions, earnings; learn from these):\n${memory(8)}\nEARNED TO DATE: $${earnTotal().toFixed(2)} (sandbox sales of Bee's judgment)\n\nDecide.`;
+  const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\nSPECIALIST BENCH (auto-attached to worker prompts by task keywords): ${loadSpecialists().map((s) => s.name).join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nLESSONS (Bee's recent memory — outcomes, decisions, earnings; learn from these):\n${memory(8)}\nEARNED TO DATE: $${earnTotal().toFixed(2)} (sandbox sales of Bee's judgment)\n\nDecide.`;
   thinkStart('Let me think it through.');                                  // butterfly → thinking (chrysalis pulse)
   const out = brain(prompt, { sys, max: 2400, big: true });                // DECIDE — reasoning tier thinks out loud first; give it room to reach the JSON
   thinkStop();                                                             // done reasoning → return to real state
@@ -757,6 +757,36 @@ function decide(goal, enact = false) {
   }
 }
 
+// ---------- SPECIALIST BENCH: curated role cards attached to worker prompts (adapted from msitarzewski/agency-agents, MIT) ----------
+// Eight distilled specialists, not 232 — quality per lane without prompt bloat. A card is markdown:
+// "# Name" + "match: <keywords>" + the system-prompt body. Matched by keyword score against the task text.
+const SPEC_DIR = new URL('specialists/', import.meta.url).pathname;
+function loadSpecialists() {
+  try {
+    return readdirSync(SPEC_DIR).filter((f) => f.endsWith('.md')).map((f) => {
+      const t = readFileSync(join(SPEC_DIR, f), 'utf8');
+      const name = t.match(/^#\s*(.+)$/m)?.[1]?.trim() || f.replace('.md', '');
+      const match = (t.match(/^match:\s*(.+)$/m)?.[1] || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      const body = t.split('\n').filter((l) => !/^#\s|^match:|^Adapted from/.test(l)).join('\n').trim();
+      return { key: f.replace('.md', ''), name, match, body };
+    });
+  } catch { return []; }
+}
+function pickSpecialist(text) {
+  const t = String(text || '').toLowerCase();
+  let best = null, bestScore = 0;
+  for (const s of loadSpecialists()) {
+    const score = s.match.reduce((n, k) => n + (t.includes(k) ? 1 : 0), 0);
+    if (score > bestScore) { best = s; bestScore = score; }
+  }
+  return best;                                                  // null = no confident match → generic worker prompt
+}
+function specialists() {
+  const all = loadSpecialists();
+  console.log(`\n🎓 SPECIALIST BENCH — ${all.length} cards (adapted from The Agency, MIT) · attach: auto by task keywords`);
+  all.forEach((s) => console.log(`   • ${s.name}  [${s.key}] — matches: ${s.match.slice(0, 5).join(', ')}…`));
+}
+
 // ---------- EARN: Bee sells its judgment over x402 (the founder-in-a-box earns, not just spends) ----------
 // `bee serve` exposes POST /v1/decide behind an HTTP 402 paywall. Sandbox mode only: payment proof is a
 // one-time nonce (replay-protected via the same nonce store as the spend guard). No real money moves here —
@@ -779,7 +809,7 @@ async function serve(port = +(process.env.BEE_EARN_PORT || 8402)) {
   const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
   const srv = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/') {
-      return send(res, 200, { service: 'bee', tagline: 'founder-in-a-box — judgment for hire', earnings_usd: +earnTotal().toFixed(2), mode: 'sandbox', endpoints: [{ method: 'POST', path: '/v1/decide', price_usd: EARN_PRICE_USD, body: '{"goal":"..."}', pay: 'x402 — call without payment to get terms' }] });
+      return send(res, 200, { service: 'bee', tagline: 'founder-in-a-box — judgment for hire', earnings_usd: +earnTotal().toFixed(2), mode: 'sandbox', specialists: loadSpecialists().map((s) => ({ key: s.key, name: s.name })), endpoints: [{ method: 'POST', path: '/v1/decide', price_usd: EARN_PRICE_USD, body: '{"goal":"...", "specialist"?: "<key>"}', pay: 'x402 — call without payment to get terms' }] });
     }
     if (req.method === 'POST' && req.url === '/v1/decide') {
       const pay = String(req.headers['x-payment'] || '');
@@ -790,11 +820,14 @@ async function serve(port = +(process.env.BEE_EARN_PORT || 8402)) {
       let body = '';
       req.on('data', (c) => { body += c; if (body.length > 65536) req.destroy(); });
       req.on('end', () => {
-        let goal = ''; try { goal = String(JSON.parse(body || '{}').goal || '').slice(0, 500); } catch {}
-        if (!goal) return send(res, 400, { error: 'body must be {"goal":"..."}' });
+        let goal = '', wantSpec = '';
+        try { const b = JSON.parse(body || '{}'); goal = String(b.goal || '').slice(0, 500); wantSpec = String(b.specialist || '').slice(0, 40); } catch {}
+        if (!goal) return send(res, 400, { error: 'body must be {"goal":"...", "specialist"?: "<key>"}' });
         if (m) addNonce('earn:' + m[1]);                       // burn the payment BEFORE work — no double-serve
         const earning = redeem || recordEarning('/v1/decide', req.headers['x-payer'], m[1]);
-        const sys = 'You are Bee, an autonomous chief-of-staff. Answer the client goal with ONLY JSON: {"summary":"<=20 words","moves":[{"action":"<concrete>","when":"now|today|this-week","why":"<=12 words"}]} — at most 4 moves, highest-leverage first.';
+        const spec = wantSpec ? loadSpecialists().find((s) => s.key === wantSpec) : pickSpecialist(goal);   // buyer picks a specialist, or Bee matches one
+        const sys = (spec ? spec.body + '\n\n' : '')
+          + 'You are Bee, an autonomous chief-of-staff. Answer the client goal with ONLY JSON: {"summary":"<=20 words","moves":[{"action":"<concrete>","when":"now|today|this-week","why":"<=12 words"}]} — at most 4 moves, highest-leverage first.';
         let plan = null;
         for (let tries = 0; tries < 2 && !plan; tries++) {       // paid call — one retry before we ever hand back a 503
           const out = brain(goal, { sys, max: 2400, big: true }); // strongest tier first (NIM 120b, ~10s); room to reason AND emit the JSON
@@ -802,7 +835,7 @@ async function serve(port = +(process.env.BEE_EARN_PORT || 8402)) {
         }
         if (!plan) return send(res, 503, { error: "brain offline — your payment is honored: retry with header 'X-PAYMENT: receipt:" + earning.id + "'", receipt: earning.id });
         const l = earnLedger(); const i = l.findIndex((e) => e.id === earning.id); if (i >= 0) { l[i].fulfilled = true; writeJSONAtomic(EARN_FILE, l); }
-        send(res, 200, { receipt: earning.id, price_usd: EARN_PRICE_USD, mode: 'sandbox', ...plan });
+        send(res, 200, { receipt: earning.id, price_usd: EARN_PRICE_USD, mode: 'sandbox', specialist: spec ? spec.key : null, ...plan });
       });
       return;
     }
@@ -1313,8 +1346,10 @@ function verifyWork(out, cwd, before) {
 function nimExecute(card, prompt) {
   if (!process.env.NVIDIA_API_KEY) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: no NVIDIA_API_KEY in ~/.bee/.env')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — no NIM key.`); return 'deferred'; }
   setStatus(card.id, 'in_progress');
-  console.log(`▶ nemotron (NIM ${NIM_REASONING_MODEL}) executing ${card.id}: ${card.title}`);
-  const sys = 'You are a Bee worker powered by NVIDIA NIM. Complete the research / analysis / writing task FULLY as text — concrete, specific, founder-ready. You cannot run code or change files; if the task strictly requires that, say so. End with exactly one line: "BEE_OUTCOME: done" if you produced the artifact, else "BEE_OUTCOME: blocked" and a "BEE_BLOCKER: <reason>" line.';
+  const spec = pickSpecialist(`${card.title} ${prompt}`);
+  console.log(`▶ nemotron (NIM ${NIM_REASONING_MODEL}) executing ${card.id}: ${card.title}${spec ? ` · as ${spec.name}` : ''}`);
+  const sys = (spec ? spec.body + '\n\n' : '')
+    + 'You are a Bee worker powered by NVIDIA NIM. Complete the research / analysis / writing task FULLY as text — concrete, specific, founder-ready. You cannot run code or change files; if the task strictly requires that, say so. End with exactly one line: "BEE_OUTCOME: done" if you produced the artifact, else "BEE_OUTCOME: blocked" and a "BEE_BLOCKER: <reason>" line.';
   const outText = nimBrain([{ role: 'system', content: sys }, { role: 'user', content: prompt }], 2000, NIM_REASONING_MODEL);
   try { writeFileSync(join(BEE_DIR, 'logs', `exec-${card.id}-nemotron.log`), outText || ''); } catch {}
   if (!outText) { setStatus(card.id, 'routed'); sql(`UPDATE tasks SET result='${esc('deferred: NIM unreachable')}',updated_at=${now()} WHERE id='${esc(card.id)}';`); console.log(`⏸ deferred ${card.id} — NIM unreachable.`); return 'deferred'; }
@@ -1784,6 +1819,7 @@ async function main() {
   case 'doctor': process.exitCode = doctor() ? 0 : 1; break;
   case 'serve': await serve(+arg || undefined); await new Promise(() => {}); break;   // earn mode — stays up
   case 'earnings': earningsReport(); break;
+  case 'specialists': specialists(); break;
   case 'point': {                                       // Clicky points at a screen coordinate. bee point <x> <y> [label] [seconds]
     const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10);
     const secs = parseInt(rest[rest.length - 1], 10); const hasSecs = !isNaN(secs) && rest.length > 3;
