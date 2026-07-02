@@ -1,0 +1,323 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  :root{
+    --bg:#0b0c0f; --surface:rgba(255,255,255,.035); --surface2:rgba(255,255,255,.055);
+    --line:rgba(255,255,255,.075); --t1:#f3f4f7; --t2:rgba(255,255,255,.56); --t3:rgba(255,255,255,.34);
+    --blue:#4f8cff; --blue2:#3a6ff0;
+    --idle:#ffc24a; --cocoon:#7cc6ff; --butterfly:#7fe3c4; --alert:#ff7a5c;
+    --a:var(--idle);
+  }
+  body.alert{--a:var(--alert)} body.cocoon{--a:var(--cocoon)} body.butterfly{--a:var(--butterfly)} body.idle{--a:var(--idle)}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none}
+  html,body{height:100%;background:var(--bg);color:var(--t1);overflow:hidden;
+    font-family:-apple-system,'SF Pro Display','SF Pro Text',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(900px 420px at 78% -8%, color-mix(in srgb,var(--a) 11%,transparent), transparent 70%)}
+  ::-webkit-scrollbar{width:9px} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:9px;border:2px solid transparent;background-clip:content-box}
+
+  /* titlebar */
+  #bar{height:46px;display:flex;align-items:center;gap:10px;padding:0 18px 0 84px;-webkit-app-region:drag;
+    border-bottom:1px solid var(--line);position:relative;z-index:2}
+  .logo{width:18px;height:18px} .wm{font-weight:800;font-size:14px;letter-spacing:0}
+  .sub{font-size:12px;color:var(--t3);font-weight:500}
+  #bar .sp{flex:1}
+  .toggle{-webkit-app-region:no-drag;display:flex;align-items:center;gap:9px;cursor:pointer;font-size:12px;color:var(--t2);font-weight:600}
+  .sw{width:38px;height:22px;border-radius:999px;background:rgba(255,255,255,.12);position:relative;transition:background .2s}
+  .sw::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  body.proactive .sw{background:linear-gradient(135deg,var(--blue),var(--blue2))} body.proactive .sw::after{transform:translateX(16px)}
+  #clock{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums;-webkit-app-region:no-drag;min-width:64px;text-align:right}
+  #x{-webkit-app-region:no-drag;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--t3);cursor:pointer;font-size:15px}
+  #x:hover{background:rgba(255,255,255,.08);color:var(--t1)}
+
+  #scroll{height:calc(100% - 46px);overflow-y:auto}
+  .wrap{padding:26px 28px 34px;max-width:980px;margin:0 auto}
+
+  /* hero */
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;font-size:11px;font-weight:700;
+    letter-spacing:.4px;text-transform:uppercase;color:var(--a);background:color-mix(in srgb,var(--a) 14%,transparent);
+    border:1px solid color-mix(in srgb,var(--a) 26%,transparent)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--a);box-shadow:0 0 8px var(--a);animation:pulse 1.8s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  h1{font-size:27px;font-weight:750;letter-spacing:0;margin:14px 0 4px;line-height:1.2}
+  .moves{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .move{font-size:12.5px;color:var(--t2);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 12px;display:flex;align-items:center;gap:7px}
+  .move b{color:var(--blue);font-weight:700}
+
+  /* stat row */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:24px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+  .stat .n{font-size:28px;font-weight:760;letter-spacing:0;font-variant-numeric:tabular-nums}
+  .stat .k{margin-top:5px;font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--t3)}
+  .stat.hot .n{color:var(--a)}
+
+  /* founder decision workspace */
+  .founder-workspace{display:grid;grid-template-columns:minmax(260px,.82fr) minmax(0,1.35fr);margin-top:18px;
+    min-height:300px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .queue-pane{padding:18px 18px 18px 0;border-right:1px solid var(--line);min-width:0}
+  .decision-pane{padding:22px 0 22px 26px;min-width:0;display:flex;flex-direction:column}
+  .queue-title{font-size:13px;font-weight:750;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .queue-count{font-size:10px;color:var(--alert);font-weight:700;text-transform:uppercase}
+  .approval-item{width:100%;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:12px 10px;
+    border:0;border-top:1px solid var(--line);background:transparent;color:inherit;text-align:left;cursor:pointer;transition:background .15s}
+  .approval-item:first-of-type{border-top:0}.approval-item:hover{background:rgba(255,255,255,.035)}
+  .approval-item.selected{background:rgba(79,140,255,.09);box-shadow:inset 2px 0 var(--blue)}
+  .approval-copy{min-width:0}.approval-title{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .approval-state{display:block;font-size:10px;color:var(--t3);margin-top:3px}.approval-state.ready{color:#7fe3c4}
+  .chev{font-size:16px;color:var(--t3)}
+  .decision-empty{margin:auto;color:var(--t2);font-size:13px}
+  .decision-eyebrow{font-size:10px;color:var(--blue);font-weight:750;text-transform:uppercase;letter-spacing:.6px}
+  .decision-title{font-size:21px;font-weight:750;line-height:1.25;margin-top:8px;max-width:680px}
+  .decision-summary{font-size:13px;line-height:1.55;color:var(--t2);margin-top:10px;max-width:680px}
+  .decision-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin-top:18px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .fact{padding:12px 14px 12px 0;min-width:0}.fact+.fact{padding-left:14px;border-left:1px solid var(--line)}
+  .fact-k{font-size:9px;color:var(--t3);text-transform:uppercase;font-weight:700;letter-spacing:.5px}
+  .fact-v{font-size:12px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prepared{margin-top:16px}.prepared-k{font-size:10px;color:var(--t3);text-transform:uppercase;font-weight:700;letter-spacing:.5px}
+  .prepared-v{font-size:12.5px;line-height:1.5;margin-top:6px;color:rgba(255,255,255,.75)}
+  .decision-actions{display:flex;gap:9px;align-items:center;margin-top:auto;padding-top:20px}
+  .decision-actions .primary{padding:9px 15px}.btn.danger{padding:8px 13px;font-size:12px;color:#ff9b87;background:rgba(255,122,92,.08);border:1px solid rgba(255,122,92,.22)}
+  .btn:disabled{opacity:.42;cursor:default;filter:none!important;transform:none!important}
+
+  .work-band{margin-top:18px;padding:16px 0 4px;border-bottom:1px solid var(--line)}
+  .ch{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .ct{font-size:13px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+  .ct .pip{font-size:11px;color:var(--t3);font-weight:600}
+  .btn{-webkit-app-region:no-drag;cursor:pointer;border:none;font-weight:700;border-radius:8px;transition:filter .15s,transform .1s,background .15s}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{padding:7px 13px;font-size:12px;color:#0a0c12;background:linear-gradient(135deg,var(--blue),var(--blue2));box-shadow:0 5px 16px rgba(79,140,255,.3)}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{padding:6px 11px;font-size:11.5px;color:var(--t2);background:rgba(255,255,255,.06);border:1px solid var(--line)}
+  .btn.ghost:hover{background:rgba(255,255,255,.1);color:var(--t1)}
+
+  .row{display:flex;align-items:center;gap:11px;padding:11px 2px;border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:none}
+  .lane{flex:none;font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--t2);
+    background:rgba(255,255,255,.08);padding:3px 7px;border-radius:6px}
+  .lane.fund{color:#ffb27a;background:rgba(255,140,80,.12)}
+  .rmid{flex:1;min-width:0}
+  .rtitle{font-size:13px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rsub{font-size:11.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .wchip{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);font-weight:600}
+  .wdot{width:7px;height:7px;border-radius:50%}
+  .mark{opacity:0;transition:opacity .15s}
+  .row:hover .mark{opacity:1}
+  .empty{padding:18px 2px 22px;color:var(--t2);font-size:13px;display:flex;align-items:center;gap:9px}
+  .empty .ok{color:var(--butterfly);font-weight:800}
+
+  @media(max-width:820px){
+    .founder-workspace{grid-template-columns:1fr}.queue-pane{border-right:0;border-bottom:1px solid var(--line);padding-right:0}.decision-pane{padding-left:0}.decision-facts{grid-template-columns:1fr}.fact+.fact{padding-left:0;border-left:0;border-top:1px solid var(--line)}
+  }
+
+  /* fund strip */
+  .lane-band{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px}
+  .lane-band .ct .lock{color:#ffb27a}
+  .lane-band .lines{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+  .fline{font-size:12px;color:var(--t2);font-family:'SF Mono',ui-monospace,monospace;display:flex;gap:8px}
+  .fline::before{content:'›';color:var(--t3)}
+
+  /* blueprints */
+  .seclabel{margin:26px 2px 12px;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:8px}
+  .bps{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .bp{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s,background .15s}
+  .bp:hover{border-color:rgba(79,140,255,.4);background:var(--surface2)}
+  .bp .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .bp .name{font-size:14px;font-weight:700}
+  .cad{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--blue);background:rgba(79,140,255,.13);padding:3px 8px;border-radius:6px}
+  .bp .desc{font-size:12.5px;color:var(--t2);line-height:1.45;flex:1}
+  .bp .when{font-size:11px;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .bp .when .gd{width:6px;height:6px;border-radius:50%;background:#76d28a;box-shadow:0 0 6px rgba(118,210,138,.7)}
+  .bprow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:2px}
+  .bp .run{flex:none}
+
+</style></head>
+<body class="idle">
+  <div id="bar">
+    <svg class="logo" viewBox="0 0 132 132"><g><path d="M66 52 C30 16, 4 36, 12 58 C18 78, 46 74, 66 60 Z" fill="#ffb02f"/><path d="M66 62 C44 74, 18 92, 26 106 C34 118, 56 98, 66 78 Z" fill="#ff7a2f"/><path d="M66 52 C102 16, 128 36, 120 58 C114 78, 86 74, 66 60 Z" fill="#ffb02f"/><path d="M66 62 C88 74, 114 92, 106 106 C98 118, 76 98, 66 78 Z" fill="#ff7a2f"/><ellipse cx="66" cy="62" rx="4.5" ry="24" fill="#2c1d0e"/><circle cx="66" cy="40" r="5.5" fill="#2c1d0e"/></g></svg>
+    <span class="wm">Bee</span><span class="sub">· founder control plane</span>
+    <span class="sp"></span>
+    <div class="toggle" id="toggle"><span>Proactive</span><span class="sw"></span></div>
+    <span id="clock"></span>
+    <div id="x">✕</div>
+  </div>
+  <div id="scroll"><div class="wrap">
+    <span class="chip"><span class="dot"></span><span id="statuslabel">Watching</span></span>
+    <h1 id="presence">All quiet — watching the fleet.</h1>
+    <div class="moves" id="moves"></div>
+
+    <div class="stats">
+      <div class="stat" id="s-inflight"><div class="n">0</div><div class="k">In flight</div></div>
+      <div class="stat" id="s-queued"><div class="n">0</div><div class="k">Queued</div></div>
+      <div class="stat" id="s-blocked"><div class="n">0</div><div class="k">Blocked</div></div>
+      <div class="stat" id="s-shipped"><div class="n">0</div><div class="k">Shipped</div></div>
+    </div>
+
+    <div class="founder-workspace" id="founder-workspace">
+      <div class="queue-pane">
+        <div class="queue-title"><span>Founder queue</span><span class="queue-count" id="needs-n"></span></div>
+        <div id="needs"></div>
+      </div>
+      <div class="decision-pane" id="decision"><div class="decision-empty">Nothing needs your decision.</div></div>
+    </div>
+
+    <div class="work-band">
+      <div class="ch"><div class="ct">Active work <span class="pip" id="active-n"></span></div>
+        <button class="btn ghost" id="dispatch-all" style="display:none">Dispatch all</button></div>
+      <div id="active"></div>
+    </div>
+
+    <div class="lane-band">
+      <div class="ch"><div class="ct">Fund lane <span class="pip">read-only · Bee never executes</span></div></div>
+      <div class="lines" id="fund-lines"></div>
+    </div>
+
+    <div class="lane-band" id="agencywrap" style="display:none">
+      <div class="ch"><div class="ct">Agency OS lane <span class="pip" id="agency-sync">Codex's company-building cells · read-only</span></div></div>
+      <div class="lines" id="agency-lines"></div>
+    </div>
+
+    <div id="feedwrap" style="display:none">
+      <div class="seclabel">What's new on AgentPay · <span style="text-transform:none;letter-spacing:0;color:var(--t3)">live tool &amp; upgrade feed</span></div>
+      <div class="bps" id="feed"></div>
+    </div>
+
+    <div class="seclabel">Automations · Bee runs these on its own</div>
+    <div class="bps" id="bps"></div>
+
+  </div></div>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const LABEL={idle:'Watching',cocoon:'Working',butterfly:'Shipped',alert:'Needs you'};
+  const STATES=['idle','cocoon','butterfly','alert'];
+  const WORKER={claude:'#e0a44a',codex:'#6ea0ff','hermes-lenovo':'#9b7bff',hermes:'#9b7bff',nemotron:'#76d28a',cua:'#6ee0d0','local-gemma':'#9aa0a6',rajiv:'#ff7a5c'};
+  let latestState={},selectedApproval='';
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+  function rel(secsFromNow){ const s=Math.abs(secsFromNow); if(s<90)return s<10?'now':`${Math.round(s)}s`; const m=s/60; if(m<90)return `${Math.round(m)}m`; const h=m/60; if(h<36)return `${Math.round(h)}h`; return `${Math.round(h/24)}d`; }
+  function bpWhen(b,proactive){
+    if(b.continuous) return `<span class="gd"></span> always on`;
+    if(!proactive)   return `paused`;
+    const nowS=Math.floor(Date.now()/1000);
+    if(b.nextDue){ const dt=b.nextDue-nowS; return `<span class="gd"></span> ${dt<=0?'due now':'next in '+rel(dt)}`; }
+    return `<span class="gd"></span> scheduled`;
+  }
+  function clock(){const d=new Date();let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'AM':'PM';h=h%12||12;$('clock').textContent=`${h}:${m} ${ap}`}
+  setInterval(clock,1000); clock();
+
+  window.bee.onDashData(render);
+  window.bee.onDashSelect((id)=>{ selectedApproval=String(id||''); if(latestState.approvals) renderApprovals(latestState.approvals); });
+  window.bee.onDashFeed((items)=>{ const wrap=$('feedwrap'), box=$('feed');
+    if(!items||!items.length){ wrap.style.display='none'; return; }
+    wrap.style.display='block';
+    box.innerHTML=items.map(e=>`
+      <div class="bp">
+        <div class="top"><span class="name">${esc(e.tool||'tool')}</span><span class="cad">${esc(e.category||'')}/${esc(e.action||'')}</span></div>
+        <div class="desc">${esc(e.desc||'')}</div>
+        ${e.install?`<div class="when"><span class="gd"></span> ${esc(e.install)}</div>`:''}
+      </div>`).join('');
+  });
+  function approvalState(x){
+    if(x.lane==='fund')return 'Founder-only';
+    if(x.approval_ready)return x.approval_status==='ready_to_settle'?'Receipt pending':'Ready';
+    return x.preparing?'Preparing':'Needs preparation';
+  }
+  function host(url){try{return new URL(url).hostname}catch{return 'Local action'}}
+  function fact(k,v){return `<div class="fact"><div class="fact-k">${esc(k)}</div><div class="fact-v" title="${esc(v)}">${esc(v||'—')}</div></div>`}
+  function renderDecision(x){
+    const box=$('decision'); if(!x){box.innerHTML='<div class="decision-empty">Nothing needs your decision.</div>';return}
+    const p=x.packet||{},kind=x.approval_kind==='mandate'?'Payment':x.approval_kind==='action'?'External action':x.lane==='fund'?'Fund request':x.approval_kind==='agency'?'Agency request':'Founder step';
+    const destination=p.merchant||(x.lane==='fund'?'Founder-controlled venue':x.approval_kind==='agency'?'Agency OS':host(p.url||''));
+    const scope=x.approval_kind==='mandate'?`${p.amount||''} ${p.currency||''} · ${p.rail||'auto'}`.trim():x.approval_kind==='action'?'One exact execution':x.lane==='fund'?'No Bee execution':x.approval_ready?'Final step only':'Preparation pending';
+    const prepared=x.approval_ready?(p.evidence||x.result||p.consequence||p.summary||x.rationale):(x.preparing?'Bee is completing every safe prerequisite now.':p.summary||x.rationale||'Preparation has not started.');
+    let actions='';
+    if(x.lane==='fund') actions=`<button class="btn danger" data-reject-final="${esc(x.action_id)}">Decline request</button>`;
+    else if(x.approval_kind==='agency') actions=`<button class="btn ghost" disabled>Agency review required</button>`;
+    else if(!x.approval_ready) actions=`<button class="btn primary" data-prepare="${esc(x.id)}" ${x.preparing?'disabled':''}>${x.preparing?'Bee is preparing':'Prepare everything'}</button><button class="btn danger" data-reject-final="${esc(x.id)}">Decline</button>`;
+    else if(x.approval_kind==='action'&&x.approval_status==='proposed') actions=`<button class="btn primary" data-approve-final="${esc(x.action_id)}">Approve &amp; run</button><button class="btn danger" data-reject-final="${esc(x.action_id)}">Reject</button>`;
+    else if(x.approval_kind==='mandate'&&x.approval_status==='proposed') actions=`<button class="btn primary" data-approve-final="${esc(x.action_id)}">Approve &amp; stage</button><button class="btn danger" data-reject-final="${esc(x.action_id)}">Reject</button>`;
+    else if(x.approval_kind==='mandate'&&x.approval_status==='approved') actions=`<button class="btn primary" data-stage-mandate="${esc(x.action_id)}">Stage rail</button><button class="btn danger" data-reject-final="${esc(x.action_id)}">Reject</button>`;
+    else if(x.approval_kind==='mandate') actions=`<button class="btn ghost" disabled>Provider receipt pending</button>`;
+    else if(x.approval_kind==='action') actions=`<button class="btn ghost" disabled>${x.automatable?'Execution started':'Manual completion required'}</button>`;
+    else actions=`${p.url?`<button class="btn primary" data-open-url="${esc(p.url)}">Open final step</button>`:''}<button class="btn ghost" data-complete-manual="${esc(x.id)}">Mark complete</button><button class="btn danger" data-reject-final="${esc(x.id)}">Decline</button>`;
+    box.innerHTML=`<div class="decision-eyebrow">${esc(kind)} · ${esc(approvalState(x))}</div>
+      <div class="decision-title">${esc(x.title)}</div>
+      <div class="decision-summary">${esc(p.final_step||x.rationale||'Your decision is the remaining step.')}</div>
+      <div class="decision-facts">${fact('Destination',destination)}${fact('Authority',scope)}${fact('Prepared by',p.prepared_by||x.assignee||'Bee')}</div>
+      <div class="prepared"><div class="prepared-k">Prepared work</div><div class="prepared-v">${esc(prepared)}</div></div>
+      <div class="decision-actions">${actions}</div>`;
+  }
+  function renderApprovals(ap){
+    if(!ap.length){$('needs-n').textContent='';$('needs').innerHTML='<div class="empty"><span class="ok">✓</span> Nothing waiting on you.</div>';renderDecision(null);return}
+    let selected=ap.find(x=>x.id===selectedApproval||x.action_id===selectedApproval);
+    if(!selected)selected=ap.find(x=>x.lane==='labs'&&x.approval_ready)||ap.find(x=>x.lane==='labs')||ap[0];
+    selectedApproval=selected.id;
+    $('needs-n').textContent=`${ap.length} waiting`;
+    $('needs').innerHTML=ap.map(x=>`<button class="approval-item ${x.id===selected.id?'selected':''}" data-select-approval="${esc(x.id)}">
+      <span class="lane ${x.lane==='fund'?'fund':''}">${esc(x.lane||'labs')}</span><span class="approval-copy"><span class="approval-title">${esc(x.title)}</span><span class="approval-state ${x.approval_ready?'ready':''}">${esc(approvalState(x))}</span></span><span class="chev">›</span></button>`).join('');
+    renderDecision(selected);
+  }
+  function render(d){
+    latestState=d||{};
+    STATES.forEach(s=>document.body.classList.remove(s)); document.body.classList.add(d.state||'idle');
+    document.body.classList.toggle('proactive', !!(d.autonomy&&d.autonomy.proactive));
+    $('statuslabel').textContent=LABEL[d.state]||'Watching';
+    $('presence').textContent=d.presence||'';
+    $('moves').innerHTML=(d.nextMoves||[]).map(m=>`<div class="move">▸ ${esc(m)}</div>`).join('');
+
+    const L=d.labs||{};
+    $('s-inflight').querySelector('.n').textContent=L.inProgress||0;
+    $('s-queued').querySelector('.n').textContent=L.routed||0;
+    $('s-blocked').querySelector('.n').textContent=L.blocked||0;
+    $('s-shipped').querySelector('.n').textContent=L.done||0;
+    $('s-inflight').classList.toggle('hot',(L.inProgress||0)>0);
+
+    renderApprovals(d.approvals||[]);
+
+    const act=(L.active||[]); $('active-n').textContent=act.length?`${act.length}`:'';
+    $('dispatch-all').style.display=(L.routed||0)>0?'inline-block':'none';
+    $('active').innerHTML = act.length ? act.map(t=>{
+      const col=WORKER[t.assignee]||'#9aa0a6';
+      return `<div class="row">
+        <span class="wchip"><span class="wdot" style="background:${col}"></span>${esc(t.assignee||'?')}</span>
+        <div class="rmid"><div class="rtitle">${esc(t.title)}</div><div class="rsub">${esc(t.status)} · ${esc(t.model_tier||'')}</div></div>
+      </div>`}).join('')
+      : `<div class="empty">No active work right now.</div>`;
+
+    const f=d.fund||{};
+    $('fund-lines').innerHTML=(f.status||[]).map(l=>`<div class="fline">${esc(l)}</div>`).join('');
+
+    const ag=d.agency||{};
+    if(ag.present){ $('agencywrap').style.display='block';
+      $('agency-sync').textContent=`gateway ${ag.gateway?'● live':'○ down'} · last sync ${ag.lastSync||'?'} · read-only`;
+      const boards=Object.entries(ag.boards||{}).filter(([,n])=>n>0).map(([k,n])=>`${k}: ${n}`);
+      const head=(ag.lines||[]).filter(l=>/active internal cells|critical blockers/i.test(l));
+      $('agency-lines').innerHTML=[...head, boards.length?('boards — '+boards.join(' · ')):'all boards empty'].map(l=>`<div class="fline">${esc(l)}</div>`).join('');
+    } else $('agencywrap').style.display='none';
+
+    const proactive=!!(d.autonomy&&d.autonomy.proactive);
+    $('bps').innerHTML=(d.blueprints||[]).map(b=>`
+      <div class="bp">
+        <div class="top"><span class="name">${esc(b.name)}</span><span class="cad">${esc(b.cadence)}</span></div>
+        <div class="desc">${esc(b.desc)}</div>
+        <div class="bprow">
+          <span class="when">${bpWhen(b,proactive)}</span>
+          <button class="btn primary run" data-run="${esc(b.key)}">Run now</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // actions (delegated)
+  document.addEventListener('click',(e)=>{
+    const select=e.target.closest('[data-select-approval]'); if(select){ selectedApproval=select.dataset.selectApproval; renderApprovals(latestState.approvals||[]); return; }
+    const approve=e.target.closest('[data-approve-final]'); if(approve){ window.bee.dashAction('approve-final',approve.dataset.approveFinal); approve.textContent='Approved'; approve.disabled=true; return; }
+    const reject=e.target.closest('[data-reject-final]'); if(reject){ window.bee.dashAction('reject-final',reject.dataset.rejectFinal); reject.textContent='Declined'; reject.disabled=true; return; }
+    const prepare=e.target.closest('[data-prepare]'); if(prepare){ window.bee.dashAction('prepare-approval',prepare.dataset.prepare); prepare.textContent='Preparing'; prepare.disabled=true; return; }
+    const open=e.target.closest('[data-open-url]'); if(open){ window.bee.dashAction('open-url',open.dataset.openUrl); return; }
+    const complete=e.target.closest('[data-complete-manual]'); if(complete){ window.bee.dashAction('complete-manual',complete.dataset.completeManual); complete.textContent='Completed'; complete.disabled=true; return; }
+    const stage=e.target.closest('[data-stage-mandate]'); if(stage){ window.bee.dashAction('stage-mandate',stage.dataset.stageMandate); stage.textContent='Staged'; return; }
+    const run=e.target.closest('[data-run]'); if(run){ window.bee.dashAction('run',run.dataset.run); run.textContent='Running…'; setTimeout(()=>run.textContent='Run now',2500); return; }
+  });
+  $('dispatch-all').addEventListener('click',()=>{ window.bee.dashAction('dispatch-all'); $('dispatch-all').textContent='Dispatched'; setTimeout(()=>$('dispatch-all').textContent='Dispatch all',2000); });
+  $('toggle').addEventListener('click',()=>{ const on=document.body.classList.contains('proactive'); window.bee.dashAction('autonomy', on?'off':'on'); document.body.classList.toggle('proactive'); });
+  $('x').addEventListener('click',()=>window.bee.dashClose());
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') window.bee.dashClose(); });
+</script>
+</body></html>

@@ -1,0 +1,247 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; cursor:default; }
+  html,body { width:100%; height:100%; overflow:hidden; background:transparent;
+    font-family:-apple-system,'SF Pro Display','SF Pro Text',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  /* life-stage → accent (--a, used on the dark card) + a always-WARM glow (--glow) that matches the amber creature,
+     so the halo never goes cool/blue under warm wings. Rich but not neon. */
+  body.egg    { --a:#e7cfa0; --glow:#f4c879; } body.larva { --a:#a7c6a0; --glow:#a9cf82; } body.cocoon { --a:#a3c0d6; --glow:#e6b766; }
+  body.flight { --a:#a6d4c6; --glow:#ffc25e; } body.landed{ --a:#e0a98e; --glow:#f2a85e; }
+  body.thriving{ --a:#ffce86; --glow:#ffc153; }   /* end stage: the imago — alive & earning */
+  body.thinking{ --a:#cdbdf0; --glow:#caa6ff; }    /* deep reasoning in progress — chrysalis pulsing */
+
+  /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
+  #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
+  #creature { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:140px; height:140px;
+    display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s; }
+  svg { overflow:visible; display:block; }
+  .stage { display:none; position:absolute; }
+  .wing { transform-box:fill-box; transform-origin:center; } .wL { transform-origin:right center; } .wR { transform-origin:left center; }
+
+  /* lifelike wingbeat: quick snap closed, slower open (real butterflies do this) */
+  @keyframes flapIdle { 0%,100%{transform:scaleX(1)} 42%{transform:scaleX(.76)} 58%{transform:scaleX(.78)} }
+  @keyframes flapFast { 0%{transform:scaleX(1)} 32%{transform:scaleX(.42)} 50%{transform:scaleX(.5)} 78%{transform:scaleX(.94)} 100%{transform:scaleX(1)} }
+  /* graceful figure-8 drift while in flight */
+  @keyframes flutter { 0%{transform:translate(-50%,-50%) rotate(0)} 22%{transform:translate(-54%,-57%) rotate(-3.5deg)} 46%{transform:translate(-48%,-44%) rotate(2deg)} 70%{transform:translate(-46%,-57%) rotate(3.5deg)} 100%{transform:translate(-50%,-50%) rotate(0)} }
+  @keyframes restBreathe { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-51%) scale(1.025)} }
+  @keyframes eggBreathe { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.04)} }
+  @keyframes inch { 0%,100%{transform:translate(-50%,-50%) scaleX(1)} 50%{transform:translate(-52%,-50%) scaleX(.92)} }
+  @keyframes cocoonSway { 0%,100%{transform:translate(-50%,-50%) rotate(-1.5deg)} 50%{transform:translate(-50%,-49%) rotate(1.5deg)} }
+  @keyframes shimmer { 0%,100%{opacity:.8} 50%{opacity:1} }
+  @keyframes sparkle { 0%,100%{opacity:0; transform:scale(.4)} 40%{opacity:1; transform:scale(1)} }
+  .spark{display:none}
+
+  /* EGG — dormant, the calmest presence */
+  body.egg #egg{display:block} body.egg #creature{animation:eggBreathe 5.5s ease-in-out infinite;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--glow) 60%,transparent)) drop-shadow(0 0 16px color-mix(in srgb,var(--glow) 30%,transparent))}
+  /* LARVA — queued, building potential */
+  body.larva #larva{display:block} body.larva #creature{animation:inch 3.4s ease-in-out infinite;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--glow) 55%,transparent)) drop-shadow(0 0 15px color-mix(in srgb,var(--glow) 28%,transparent))}
+  /* COCOON — DEEP WORK: recedes, dims, melts into the background (calm-tech) */
+  body.cocoon #cocoon{display:block} body.cocoon #cocoon .chr{animation:shimmer 3s ease-in-out infinite}
+  body.cocoon #creature{animation:cocoonSway 4.5s ease-in-out infinite; transform:translate(-50%,-50%) scale(.7); filter:saturate(.55) opacity(.42)}
+  /* THINKING — deep reasoning: the chrysalis pulses, present + alive (not receding). Bee is working a hard problem. */
+  @keyframes think { 0%,100%{transform:translate(-50%,-50%) scale(.93)} 50%{transform:translate(-50%,-50%) scale(1.02)} }
+  body.thinking #cocoon{display:block} body.thinking #cocoon .chr{animation:shimmer 1.05s ease-in-out infinite}
+  body.thinking #creature{animation:think 1.3s ease-in-out infinite; filter:drop-shadow(0 0 8px color-mix(in srgb,var(--glow) 68%,transparent)) drop-shadow(0 0 22px color-mix(in srgb,var(--glow) 40%,transparent))}
+  /* FLIGHT — just shipped: the emerged butterfly, bright & brief */
+  body.flight #butterfly{display:block} body.flight .wing{animation:flapFast .42s ease-in-out infinite}
+  body.flight #creature{animation:flutter 1.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 80%,transparent)) drop-shadow(0 0 20px color-mix(in srgb,var(--glow) 42%,transparent))}
+  body.flight .spark{display:block}
+  body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
+  /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
+  @keyframes aliveTilt { 0%,84%,100%{transform:rotate(0)} 88%{transform:rotate(-2.4deg)} 93%{transform:rotate(1.6deg)} }  /* an occasional lifelike stretch */
+  body.landed #butterfly{display:block;animation:aliveTilt 11s ease-in-out infinite} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
+  body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 72%,transparent)) drop-shadow(0 0 18px color-mix(in srgb,var(--glow) 38%,transparent))}
+  /* THRIVING — the END STAGE: imago, wings full open, a slow radiant bloom. The company is alive + earning. */
+  @keyframes bloom { 0%,100%{transform:translate(-50%,-50%) scale(1.05)} 50%{transform:translate(-50%,-53%) scale(1.13)} }
+  body.thriving #butterfly{display:block} body.thriving .wing{animation:flapIdle 3.2s ease-in-out infinite}
+  body.thriving #creature{animation:bloom 3.8s ease-in-out infinite; filter:drop-shadow(0 0 10px color-mix(in srgb,var(--glow) 85%,transparent)) drop-shadow(0 0 28px color-mix(in srgb,var(--glow) 50%,transparent)) saturate(1.06)}
+  body.thriving .spark{display:block}
+  body.thriving .s1{animation:sparkle 2.2s ease-in-out infinite} body.thriving .s2{animation:sparkle 2.2s .7s ease-in-out infinite} body.thriving .s3{animation:sparkle 2.2s 1.4s ease-in-out infinite}
+
+  /* glanceable, peripheral status line — the ambient signal that replaces the red badge */
+  #hint{ position:absolute; left:0; right:0; bottom:5px; text-align:center; font-size:10px; letter-spacing:.4px;
+    font-weight:600; color:color-mix(in srgb,var(--a) 78%,#ffffff); text-shadow:0 1px 3px rgba(0,0,0,.55);
+    opacity:.85; transition:opacity .4s; -webkit-app-region:no-drag; }
+  body.cocoon #hint{ opacity:0; }      /* deep work: even the label recedes */
+  body.card-open #hint{ opacity:0; }
+
+  /* ── CARD (status popover, unchanged behaviour) ── */
+  #card { position:fixed; right:18px; bottom:196px; width:308px; -webkit-app-region:no-drag; display:none;
+    transform-origin:bottom right; padding:16px 16px 15px; border-radius:8px; color:#f2f2f6;
+    background:linear-gradient(180deg, rgba(30,31,40,.90), rgba(18,18,25,.92));
+    backdrop-filter:blur(28px) saturate(1.4); -webkit-backdrop-filter:blur(28px) saturate(1.4);
+    border:1px solid rgba(255,255,255,.10);
+    box-shadow:0 20px 60px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.05) inset; }
+  #card::before { content:''; position:absolute; left:18px; right:18px; top:0; height:1.5px; border-radius:2px;
+    background:linear-gradient(90deg, transparent, var(--a), transparent); opacity:.7; }
+  #card.show{ display:block; animation:cardIn .26s cubic-bezier(.2,.85,.25,1.15); }
+  #card.closing{ animation:cardOut .16s ease-in forwards; }
+  @keyframes cardIn { from{opacity:0; transform:translateY(12px) scale(.95)} to{opacity:1; transform:none} }
+  @keyframes cardOut { to{opacity:0; transform:translateY(8px) scale(.97)} }
+  .ch { display:flex; align-items:center; justify-content:space-between; }
+  .brand { font-size:16px; font-weight:800; letter-spacing:0;
+    background:linear-gradient(135deg, #fff, var(--a)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px 4px 8px; border-radius:999px;
+    font-size:10px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--a);
+    background:color-mix(in srgb, var(--a) 16%, transparent); border:1px solid color-mix(in srgb, var(--a) 30%, transparent); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--a); box-shadow:0 0 8px var(--a); animation:pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+  .presence { margin-top:11px; font-size:13px; line-height:1.4; color:rgba(255,255,255,.72); font-weight:450; }
+  .tiles { margin-top:14px; display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .tile { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.07); border-radius:8px; padding:11px 6px; text-align:center; }
+  .tile .n { font-size:23px; font-weight:750; line-height:1; color:#fff; font-variant-numeric:tabular-nums; }
+  .tile.live .n { color:var(--a); }
+  .tile .k { margin-top:5px; font-size:9px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:rgba(255,255,255,.42); }
+  #needs { margin-top:14px; display:none; }
+  .needs-h { font-size:11px; font-weight:700; letter-spacing:.3px; color:var(--a); display:flex; align-items:center; gap:5px; }
+  .nrow { width:100%; margin-top:8px; display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px;
+    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); color:inherit; text-align:left; cursor:pointer; }
+  .nrow:hover{background:rgba(255,255,255,.08);border-color:color-mix(in srgb,var(--a) 30%,transparent)}
+  .lane { flex:none; font-size:8.5px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:rgba(255,255,255,.55);
+    background:rgba(255,255,255,.08); padding:3px 7px; border-radius:6px; }
+  .ntitle { flex:1; font-size:12px; color:rgba(255,255,255,.86); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .more { margin-top:7px; font-size:10.5px; color:rgba(255,255,255,.4); padding-left:2px; }
+  .actions { margin-top:16px; display:flex; align-items:center; gap:10px; }
+  #dash { -webkit-app-region:no-drag; cursor:pointer; flex:1; padding:10px 14px; border:none; border-radius:8px;
+    font-size:12.5px; font-weight:700; letter-spacing:.1px; color:#10121a;
+    background:linear-gradient(135deg, var(--a), color-mix(in srgb,var(--a) 55%, #6a4bff)); box-shadow:0 6px 18px color-mix(in srgb, var(--a) 35%, transparent);
+    transition:filter .15s, transform .1s; }
+  #dash:hover { filter:brightness(1.08); } #dash:active { transform:translateY(1px); }
+</style></head>
+<body class="egg">
+  <div id="card">
+    <div class="ch">
+      <span class="brand">Bee</span>
+      <span class="pill"><span class="dot"></span><span id="status">Idle</span></span>
+    </div>
+    <div class="presence" id="presence">All quiet — watching the fleet.</div>
+    <div class="tiles">
+      <div class="tile" id="tile-inflight"><div class="n" id="t-inflight">0</div><div class="k">In flight</div></div>
+      <div class="tile" id="tile-queued"><div class="n" id="t-queued">0</div><div class="k">Queued</div></div>
+      <div class="tile" id="tile-shipped"><div class="n" id="t-shipped">0</div><div class="k">Shipped</div></div>
+    </div>
+    <div id="needs"></div>
+    <div class="actions"><button id="dash">Open dashboard</button></div>
+  </div>
+
+  <div id="dock">
+    <div id="creature" title="Bee">
+      <!-- EGG -->
+      <svg id="egg" class="stage" width="96" height="108" viewBox="0 0 96 108">
+        <defs>
+          <radialGradient id="gEgg" cx=".4" cy=".32" r=".78"><stop offset="0%" stop-color="#fff5da"/><stop offset="55%" stop-color="#ffd98a"/><stop offset="100%" stop-color="#e3a548"/></radialGradient>
+          <linearGradient id="gLeaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#b2cb98"/><stop offset="100%" stop-color="#6f9a60"/></linearGradient>
+        </defs>
+        <path d="M14 84 C30 66, 66 66, 82 84 C66 95, 30 95, 14 84 Z" fill="url(#gLeaf)" opacity=".92"/>
+        <path d="M20 84 C40 79, 56 79, 76 84" stroke="#3f7a32" stroke-width="1.2" fill="none" opacity=".5"/>
+        <ellipse cx="48" cy="54" rx="21" ry="29" fill="url(#gEgg)" stroke="#c8893c" stroke-width="1"/>
+        <ellipse cx="40" cy="43" rx="6.5" ry="10" fill="#fff" opacity=".5"/>
+      </svg>
+      <!-- LARVA -->
+      <svg id="larva" class="stage" width="128" height="92" viewBox="0 0 128 92">
+        <defs><linearGradient id="gCat" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#bcd6a6"/><stop offset="100%" stop-color="#7ea568"/></linearGradient></defs>
+        <g stroke="#4f8a34" stroke-width="1">
+          <circle cx="28" cy="58" r="13" fill="url(#gCat)"/><circle cx="46" cy="60" r="14" fill="url(#gCat)"/>
+          <circle cx="65" cy="60" r="14" fill="url(#gCat)"/><circle cx="84" cy="58" r="13" fill="url(#gCat)"/>
+          <circle cx="100" cy="50" r="13.5" fill="url(#gCat)"/>
+        </g>
+        <g stroke="#4f8a34" stroke-width="2.6" stroke-linecap="round">
+          <line x1="28" y1="70" x2="28" y2="79"/><line x1="46" y1="73" x2="46" y2="82"/><line x1="65" y1="73" x2="65" y2="82"/><line x1="84" y1="70" x2="84" y2="79"/>
+        </g>
+        <circle cx="105" cy="47" r="2.5" fill="#2c3a1c"/>
+        <path d="M99 40 C101 33, 106 31, 109 32" stroke="#4f8a34" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+        <circle cx="109" cy="32" r="2.1" fill="#bcd6a6"/>
+      </svg>
+      <!-- COCOON -->
+      <svg id="cocoon" class="stage" width="96" height="124" viewBox="0 0 96 124">
+        <defs><linearGradient id="gChr" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e6c884"/><stop offset="100%" stop-color="#b88a44"/></linearGradient></defs>
+        <line x1="48" y1="2" x2="48" y2="26" stroke="#8a7448" stroke-width="3" stroke-linecap="round"/>
+        <path class="chr" d="M48 24 C18 30, 18 96, 48 118 C78 96, 78 30, 48 24 Z" fill="url(#gChr)" stroke="#9c7a40" stroke-width="1.5"/>
+        <path d="M48 34 C34 46, 44 64, 32 84 M48 44 C62 56, 52 76, 64 92" stroke="#8a6a34" stroke-width="2.5" fill="none" opacity=".6"/>
+        <ellipse cx="42" cy="50" rx="6" ry="10" fill="#fff" opacity=".18"/>
+      </svg>
+      <!-- BUTTERFLY (flight + landed) -->
+      <svg id="butterfly" class="stage" width="140" height="140" viewBox="0 0 132 132">
+        <defs>
+          <linearGradient id="gUp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffd778"/><stop offset="55%" stop-color="#f5a637"/><stop offset="100%" stop-color="#e87a1e"/></linearGradient>
+          <linearGradient id="gLo" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f8b848"/><stop offset="100%" stop-color="#e2762a"/></linearGradient>
+          <radialGradient id="gBody" cx="0.5" cy="0.3" r="0.8"><stop offset="0%" stop-color="#5a4022"/><stop offset="100%" stop-color="#2c1d0e"/></radialGradient>
+        </defs>
+        <g class="wing wL">
+          <path d="M66 52 C30 16, 4 36, 12 58 C18 78, 46 74, 66 60 Z" fill="url(#gUp)" stroke="#b07a44" stroke-width="1.2"/>
+          <path d="M66 62 C44 74, 18 92, 26 106 C34 118, 56 98, 66 78 Z" fill="url(#gLo)" stroke="#b07a44" stroke-width="1.2"/>
+          <circle cx="30" cy="46" r="5.5" fill="#3a2a14" opacity=".85"/><circle cx="40" cy="92" r="4" fill="#3a2a14" opacity=".8"/>
+        </g>
+        <g class="wing wR">
+          <path d="M66 52 C102 16, 128 36, 120 58 C114 78, 86 74, 66 60 Z" fill="url(#gUp)" stroke="#b07a44" stroke-width="1.2"/>
+          <path d="M66 62 C88 74, 114 92, 106 106 C98 118, 76 98, 66 78 Z" fill="url(#gLo)" stroke="#b07a44" stroke-width="1.2"/>
+          <circle cx="102" cy="46" r="5.5" fill="#3a2a14" opacity=".85"/><circle cx="92" cy="92" r="4" fill="#3a2a14" opacity=".8"/>
+        </g>
+        <ellipse cx="66" cy="62" rx="4.5" ry="24" fill="url(#gBody)"/>
+        <circle cx="66" cy="40" r="5.5" fill="url(#gBody)"/>
+        <path d="M66 37 C61 26, 55 22, 51 22" stroke="#2c1d0e" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M66 37 C71 26, 77 22, 81 22" stroke="#2c1d0e" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="51" cy="22" r="2.2" fill="#ffcf6a"/><circle cx="81" cy="22" r="2.2" fill="#ffcf6a"/>
+        <g class="spark s1"><path d="M20 30 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2 z" fill="#dCe9ee"/></g>
+        <g class="spark s2"><path d="M112 36 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5 z" fill="#fff"/></g>
+        <g class="spark s3"><path d="M100 100 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5 z" fill="#dCe9ee"/></g>
+      </svg>
+    </div>
+    <div id="hint">✦ Hey Bee</div>
+  </div>
+<script>
+  const body=document.body, card=document.getElementById('card'), creature=document.getElementById('creature'), hint=document.getElementById('hint');
+  const STATES=['egg','larva','cocoon','flight','landed','thriving','thinking'];
+  const LABEL={egg:'Idle',larva:'Queued',cocoon:'Working',flight:'Shipped',landed:'Needs you',thriving:'Thriving',thinking:'Thinking'};
+  const CARD_BOTTOM=196, CARD_TOPGAP=18;
+  let last={}, open=false;
+
+  window.bee.onState((d)=>{ last=d;
+    STATES.forEach(s=>body.classList.remove(s)); body.classList.add(d.state||'egg');
+    setHint(d); if(open){ render(); reflow(); }
+  });
+
+  function setHint(d){ const c=d.counts||{}, s=d.state, n=c.needsHuman||0;
+    hint.textContent = s==='landed' ? `${n} need you` : s==='thinking' ? 'thinking…' : s==='thriving' ? 'earning ✦' : s==='flight' ? 'shipped ✦' : s==='larva' ? 'queued' : s==='cocoon' ? '' : '✦ Hey Bee';
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function presence(){ const c=last.counts||{}, s=last.state, n=c.needsHuman||0;
+    if(s==='landed')   return `${n} ${n===1?'task needs':'tasks need'} your call.`;
+    if(s==='flight')   return 'Just shipped ✦ nicely done.';
+    if(s==='cocoon')   return `${c.inProgress||0} ${(c.inProgress||0)===1?'task':'tasks'} in flight — heads down.`;
+    if(s==='larva')    return `${c.routed||0} queued and ready.`;
+    if(s==='thriving') return 'The company is alive and earning.';
+    if(s==='thinking') return 'Thinking it through…';
+    return 'All quiet — watching the fleet.';
+  }
+  function render(){ const c=last.counts||{}, a=last.approvals||[], s=last.state;
+    document.getElementById('status').textContent=LABEL[s]||'';
+    document.getElementById('presence').textContent=presence();
+    document.getElementById('t-inflight').textContent=c.inProgress||0;
+    document.getElementById('t-queued').textContent=c.routed||0;
+    document.getElementById('t-shipped').textContent=c.done||0;
+    document.getElementById('tile-inflight').classList.toggle('live', s==='cocoon' && (c.inProgress||0)>0);
+    document.getElementById('tile-shipped').classList.toggle('live', s==='flight');
+    const needs=document.getElementById('needs');
+    if(a.length){ let h=`<div class="needs-h">▲ Needs your call</div>`;
+      a.slice(0,3).forEach(x=>{ h+=`<button class="nrow" data-approval-id="${esc(x.id)}"><span class="lane">${esc(x.lane)}</span><span class="ntitle">${esc(x.title)}</span></button>`; });
+      if(a.length>3) h+=`<div class="more">+${a.length-3} more waiting</div>`;
+      needs.innerHTML=h; needs.style.display='block';
+    } else needs.style.display='none';
+  }
+  function reflow(){ const prev=card.style.display; if(prev!=='block') card.style.display='block';
+    const ch=card.scrollHeight; if(prev!=='block') card.style.display='';
+    window.bee.resizePanel(true, Math.ceil(CARD_BOTTOM+ch+CARD_TOPGAP)); }
+  function openCard(){ if(open)return; open=true; body.classList.add('card-open');
+    render(); reflow(); requestAnimationFrame(()=>{ card.classList.remove('closing'); card.classList.add('show'); }); }
+  function closeCard(){ if(!open)return; open=false; body.classList.remove('card-open');
+    card.classList.add('closing'); setTimeout(()=>{ card.classList.remove('show','closing'); window.bee.resizePanel(false); }, 165); }
+
+  creature.addEventListener('click', e=>{ e.stopPropagation(); open?closeCard():openCard(); });
+  creature.addEventListener('dblclick', e=>{ e.stopPropagation(); window.bee.openDashboard(); });
+  document.getElementById('dash').addEventListener('click', e=>{ e.stopPropagation(); window.bee.openDashboard(); });
+  document.getElementById('needs').addEventListener('click', e=>{ const row=e.target.closest('[data-approval-id]'); if(row){ e.stopPropagation(); window.bee.openDashboard(row.dataset.approvalId); } });
+  card.addEventListener('click', e=>e.stopPropagation());
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeCard(); });
+</script>
+</body></html>
