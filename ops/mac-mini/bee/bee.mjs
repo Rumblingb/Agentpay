@@ -122,13 +122,21 @@ function nimBrain(messages, max, model = NIM_FAST_MODEL) {
     return JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
   } catch { return ''; }
 }
+// Pull the plan JSON out of model output — reasoning models narrate first, so try the greedy match, then the last {...} block.
+function extractJSON(out) {
+  if (!out) return null;
+  for (const s of [out.match(/\{[\s\S]*\}/)?.[0], out.slice(out.lastIndexOf('\n{')), out.slice(out.indexOf('{'))]) {
+    if (!s) continue; try { return JSON.parse(s) } catch {}
+  }
+  return null;
+}
 // Local Gemma first for cheap calls; reasoning requests go directly to the stronger NIM tier.
 function brain(prompt, { sys = '', max = 200, big = false } = {}) {
   const messages = [...(sys ? [{ role: 'system', content: sys }] : []), { role: 'user', content: prompt }];
   if (big) { const n = nimBrain(messages, max, NIM_REASONING_MODEL); if (n) return n; }
   try {
-    const payload = JSON.stringify({ model: BRAIN_MODEL, temperature: 0, stream: false, messages });
-    const r = execFileSync('curl', ['-s', '-m', '20', BRAIN_URL, '-H', 'content-type: application/json', '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    const payload = JSON.stringify({ model: BRAIN_MODEL, temperature: 0, max_tokens: max, stream: false, messages });   // bound generation — unbounded runs blew the curl timeout
+    const r = execFileSync('curl', ['-s', '-m', process.env.BEE_BRAIN_TIMEOUT || '40', BRAIN_URL, '-H', 'content-type: application/json', '-d', payload], { encoding: 'utf8', maxBuffer: 1 << 20 });
     const out = JSON.parse(r).choices?.[0]?.message?.content?.trim() || '';
     if (out) return out;
   } catch {}
@@ -217,6 +225,7 @@ function create(title, { body = '', createdBy = 'bee', route = true, sourceKey =
   sql(`INSERT INTO tasks(id,title,body,source_key,created_by,created_at,updated_at)
        VALUES('${esc(id)}','${esc(title)}','${esc(body)}','${esc(sourceKey)}','${esc(createdBy)}',${ts},${ts});`);
   logEvent(id, 'created', title);
+  checkpointTask(id, 'created');
   if (route) routeOne(id);
   return id;
 }
@@ -244,14 +253,19 @@ function routeOne(id) {
     else { const prepId = queueApprovalPrep(id); if (prepId) { c.preparing = true; c.needs_human = 0; c.assignee = 'bee'; } }
   }
   logEvent(id, 'routed', `${c.assignee}/${c.model_tier}`);
+  checkpointTask(id, `routed to ${c.assignee}/${c.model_tier}`);
   printTask(id);
   return c;
 }
 
-function setStatus(id, status) {
-  sql(`UPDATE tasks SET status='${esc(status)}',updated_at=${now()} WHERE id='${esc(id)}';`);
-  logEvent(id, 'status', status);
-  if (status === 'done') { const r = sql(`SELECT title,assignee FROM tasks WHERE id='${esc(id)}';`, { json: true })[0]; if (r) remember(`shipped: ${r.title} (${r.assignee || '?'})`, 'done'); }
+function setStatus(id, status, detail = '') {
+  const cleanDetail = String(detail || '').trim().slice(0, 1200);
+  const resultSql = cleanDetail ? `,result='${esc(cleanDetail)}'` : '';
+  sql(`UPDATE tasks SET status='${esc(status)}'${resultSql},updated_at=${now()} WHERE id='${esc(id)}';`);
+  logEvent(id, 'status', cleanDetail ? `${status}: ${cleanDetail}` : status);
+  if (status === 'done') { const r = sql(`SELECT title,assignee FROM tasks WHERE id='${esc(id)}';`, { json: true })[0]; if (r) remember(`shipped: ${r.title} (${r.assignee || '?'})${cleanDetail ? ` — ${cleanDetail.slice(0, 220)}` : ''}`, 'done'); }
+  if (status === 'blocked' && cleanDetail) remember(`blocked ${id}: ${cleanDetail.slice(0, 240)}`, 'blocked');
+  checkpointTask(id, cleanDetail ? `status ${status}: ${cleanDetail}` : `status ${status}`);
   console.log(`${id} → ${status}`);
 }
 function declineTask(id) {
@@ -310,7 +324,7 @@ function finalizeApprovalPrep(card, output) {
   const parsed = approvalPacketFromOutput(output); if (!parsed) return false;
   const packet = { ...parsed, prepared_at: now(), prepared_by: card.assignee, prep_task_id: card.id };
   sql(`UPDATE tasks SET needs_human=1,status='blocked',approval_ready=1,approval_packet='${esc(JSON.stringify(packet))}',result='${esc(parsed.summary)}',rationale='Ready — Bee completed the preparation. Only your final action remains.',updated_at=${now()} WHERE id='${esc(parentId)}';`);
-  logEvent(parentId, 'approval-ready', card.id); remember(`approval ready ${parentId}: ${parsed.summary}`, 'approval'); return true;
+  logEvent(parentId, 'approval-ready', card.id); remember(`approval ready ${parentId}: ${parsed.summary}`, 'approval'); checkpointTask(parentId, 'approval ready'); return true;
 }
 function markApprovalReady(id, { summary, evidence, url = '', preparedBy = 'bee' } = {}) {
   const parent = sql(`SELECT id,lane FROM tasks WHERE id='${esc(id)}' AND status!='done';`, { json: true })[0];
@@ -319,19 +333,61 @@ function markApprovalReady(id, { summary, evidence, url = '', preparedBy = 'bee'
   const packet = { summary, evidence, url, prepared_at: now(), prepared_by: preparedBy };
   sql(`UPDATE tasks SET needs_human=1,status='blocked',approval_ready=1,approval_packet='${esc(JSON.stringify(packet))}',result='${esc(summary)}',rationale='Ready — Bee completed the preparation. Only your final action remains.',updated_at=${now()} WHERE id='${esc(id)}';`);
   sql(`UPDATE tasks SET status='done',result='Superseded by verified approval packet',updated_at=${now()} WHERE source_key='approval-prep:${esc(id)}' AND status!='done';`);
-  logEvent(id, 'approval-ready', preparedBy); remember(`approval ready ${id}: ${summary}`, 'approval'); console.log(`✅ ${id} ready for final founder action`); return true;
+  logEvent(id, 'approval-ready', preparedBy); remember(`approval ready ${id}: ${summary}`, 'approval'); checkpointTask(id, 'approval ready'); console.log(`✅ ${id} ready for final founder action`); return true;
 }
 
 // ---------- DURABLE MEMORY: Bee writes lasting facts into the Obsidian vault (the fleet's shared brain) ----------
 // Operational state lives in ~/.bee/labs-board.db (fast, structured). Durable knowledge lives in the vault,
 // human-readable + linkable + graphify-able, where Codex/Hermes/Obsidian all see it. This is the bridge.
 const MEM_FILE = join(VAULT, 'Agent-Shared', 'Bee-Memory.md');
+const TASK_PACKET_DIR = join(VAULT, 'Agent-Shared', 'bee-tasks');
 function remember(text, kind = 'note') {
   if (!text || !String(text).trim()) return;
   const line = `- ${new Date(now() * 1000).toISOString().slice(0, 16).replace('T', ' ')} · **${kind}** — ${String(text).trim()}\n`;
   try { mkdirSync(join(MEM_FILE, '..'), { recursive: true }); execFileSync('bash', ['-c', `cat >> '${MEM_FILE.replace(/'/g, "'\\''")}'`], { input: line }); } catch {}
 }
 function memory(n = 20) { try { return readFileSync(MEM_FILE, 'utf8').trim().split('\n').slice(-n).join('\n'); } catch { return '(no memory yet)'; } }
+function taskPacketPath(id) { return join(TASK_PACKET_DIR, `${id}.md`); }
+function checkpointTask(id, note = '') {
+  const task = sql(`SELECT id,title,body,lane,difficulty,risk,assignee,model_tier,status,needs_human,rationale,result,approval_ready,source_key,created_by,created_at,updated_at FROM tasks WHERE id='${esc(id)}';`, { json: true })[0];
+  if (!task) return;
+  const events = sql(`SELECT kind,detail,at FROM events WHERE task_id='${esc(id)}' ORDER BY at DESC LIMIT 18;`, { json: true }).reverse();
+  const lines = [
+    `# Bee Task ${task.id}`,
+    '',
+    `- title: ${task.title}`,
+    `- lane: ${task.lane}`,
+    `- status: ${task.status}`,
+    `- assignee: ${task.assignee || '(unassigned)'}`,
+    `- model_tier: ${task.model_tier || '(unset)'}`,
+    `- risk: ${task.risk || '(unset)'}`,
+    `- needs_human: ${task.needs_human ? 'yes' : 'no'}`,
+    `- approval_ready: ${task.approval_ready ? 'yes' : 'no'}`,
+    `- updated: ${new Date(task.updated_at * 1000).toISOString()}`,
+    task.source_key ? `- source_key: ${task.source_key}` : '',
+    note ? `- latest_note: ${note}` : '',
+    '',
+    '## Context',
+    task.body || '(none)',
+    '',
+    '## Rationale',
+    task.rationale || '(none)',
+    '',
+    '## Result',
+    task.result || '(none yet)',
+    '',
+    '## Agent Contract',
+    '- Do the actual work, verify it, and report only truthfully verified outcomes.',
+    '- External sends, publishes, OAuth/account changes, money, credentials, and fund execution stay founder-approved at action time.',
+    '- Hedge/Bill/trading material stays walled unless this is an explicitly read-only fund-status or fund-research task.',
+    '- When finished, update Bee with `bee done <id>` or `bee block <id>` and include evidence in the lane inbox.',
+    '',
+    '## Events',
+    ...(events.length ? events.map((e) => `- ${new Date(e.at * 1000).toISOString()} · ${e.kind}${e.detail ? ` — ${e.detail}` : ''}`) : ['- (none)']),
+    '',
+  ].filter(Boolean).join('\n');
+  try { mkdirSync(TASK_PACKET_DIR, { recursive: true }); writeFileSync(taskPacketPath(id), lines); } catch {}
+}
 
 // ---------- AGENTPAY FEED: Bee consumes its own product's newsfeed of tools + upgrades (dogfooding) ----------
 const FEED_URL = process.env.BEE_FEED_URL || 'https://agentpay-feed.apaybeta.workers.dev';
@@ -490,6 +546,7 @@ function setAutonomy(p) { const a = { ...getAutonomy(), proactive: !!p }; writeF
 // What Bee can run on its own — modelled on the Hermes automation-blueprint catalog, scoped to AgentPay's real loops.
 const BLUEPRINTS = [
   { key: 'project-operator', name: 'Project operator', desc: 'Advance the highest-impact safe AgentPay Labs outcome that is not already in flight.', cadence: 'hourly', assignee: 'codex' },
+  { key: 'polsia-completion', name: 'Polsia completion loop', desc: 'Turn the Polsia promise into Bee/Clickey execution: product proof, site truth, approvals, and conversion assets.', cadence: 'daily', assignee: 'codex' },
   { key: 'fleet-sweep',      name: 'Daily Labs sweep',       desc: 'Check AgentPay Labs agent lanes, surface new blockers, and summarize progress without reading the fund lane.', cadence: 'daily' },
   { key: 'revenue-chaser',   name: 'Revenue-blocker chaser', desc: 'Re-check each approval-wall blocker and ping you only when one is genuinely ready to clear.', cadence: 'hourly' },
   { key: 'content-engine',   name: 'Content engine',         desc: 'Draft and stage posts across channels from the week’s shipped work.', cadence: 'daily' },
@@ -510,6 +567,14 @@ function projectBrief() {
   const active = sql(`SELECT title,assignee,status FROM tasks WHERE lane='labs' AND status IN ('routed','in_progress') AND needs_human=0 ORDER BY updated_at DESC LIMIT 20;`, { json: true });
   return `SAFE CURRENT LABS CANDIDATES (external/founder-gated rows removed):\n${candidates.join('\n') || '(none)'}\n\nACTIVE BEE LABS WORK (do not duplicate):\n${active.map((t) => `- [${t.status}/${t.assignee}] ${t.title}`).join('\n') || '(none)'}`;
 }
+function polsiaBrief() {
+  let html = '';
+  try { html = execFileSync('curl', ['-L', '-s', '-m', '12', 'https://polsia.com/'], { encoding: 'utf8', maxBuffer: 1 << 20 }); } catch {}
+  const meta = (name) => html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']+)`, 'i'))?.[1] || '';
+  const title = html.match(/<title>([^<]+)<\/title>/i)?.[1] || 'Polsia';
+  const desc = meta('description') || meta('og:description') || 'Autonomous AI company runner.';
+  return `PUBLIC POLSIA REFERENCE (fetched best-effort):\n- title: ${title}\n- description: ${desc}\n- useful benchmark: make Bee/Clickey prove the same promise locally: plan, code, market, stage approvals, write memory, and only ask Rajiv for true final actions.`;
+}
 function runBlueprint(key) {
   const b = BLUEPRINTS.find((x) => x.key === key);
   if (!b) { console.error(`unknown blueprint "${key}". try: ${BLUEPRINTS.map((x) => x.key).join(', ')}`); return null; }
@@ -523,11 +588,17 @@ function runBlueprint(key) {
     decide(undefined, false);
     return { assignee: 'bee' };
   }
+  if (key === 'inbox-triage') {                        // daemon already drains ~/.bee/inbox; don't create an unowned board card
+    console.log('📥 inbox-triage: daemon inbox watcher is active; no board card needed');
+    return { assignee: 'bee' };
+  }
   // Dedupe: don't stack a new run while the previous one is still open (stops hourly pile-ups of paid work).
   const open = sql(`SELECT count(*) c FROM tasks WHERE title LIKE '[${esc(b.name)}]%' AND status!='done';`, { json: true })[0]?.c || 0;
   if (open > 0) { console.log(`↩ "${b.name}" already has ${open} open — skipping this run`); return null; }
   const projectBody = key === 'project-operator'
     ? `Pick exactly ONE highest-impact AgentPay Labs outcome from the sanitized brief below that you can complete or materially advance now. Skip any candidate whose next step needs the founder, credentials, external deployment, publishing, account access, payment, or a store console; choose another candidate instead. Prefer shipping local code, tests, launch assets, reliability, or conversion infrastructure. Do not open any other fleet ledger/status files. Do not read or touch Bill, hedge, Trading, Research-Catalog, broker, market, strategy, position, PnL, or execution material. Implement and verify locally.\n\n${projectBrief()}`
+    : key === 'polsia-completion'
+      ? `Use Bee and Clickey to materially advance the AgentPay/Bee product toward a Polsia-style autonomous company runner. Make one local, verifiable improvement to Bee, Clickey, AgentPay product truth, onboarding, dashboard/action flow, conversion copy, or launch assets. Do not publish, submit, send, deploy, log in, change OAuth, touch credentials, move money, or touch the fund lane. Leave external actions as approval packets. Implement and verify locally.\n\n${polsiaBrief()}\n\n${projectBrief()}`
     : '';
   const id = create(`[${b.name}] ${b.desc}`, { body: projectBody, createdBy: 'blueprint', route: false, sourceKey: `blueprint:${b.key}` });
   const blueprintAssignee = b.assignee === 'codex' && !agentAvailable('codex') && agentAvailable('nemotron') ? 'nemotron' : b.assignee;
@@ -537,6 +608,7 @@ function runBlueprint(key) {
   if (b.assignee) {
     sql(`UPDATE tasks SET lane='labs',difficulty='${d.difficulty}',risk='${d.risk}',assignee='${esc(d.assignee)}',model_tier='${esc(d.model_tier)}',needs_human=0,status='routed',rationale='${esc(d.rationale)}',updated_at=${now()} WHERE id='${esc(id)}';`);
     logEvent(id, 'routed', `${d.assignee}/${d.model_tier}`);
+    checkpointTask(id, `routed to ${d.assignee}/${d.model_tier}`);
     printTask(id);
   }
   dispatch(id);
@@ -659,12 +731,12 @@ function decide(goal, enact = false) {
     + "Run the OODA loop and decide the next best moves toward the goal. Output ONLY JSON: "
     + '{"summary":"<=20 words","decisions":[{"action":"<concrete task>","assignee":"claude|codex|hermes-lenovo|nemotron|rajiv","skill":"<hermes skill or empty>","when":"now|today|this-week","priority":1,"why":"<=14 words"}]}. '
     + "HARD RULES: anything needing OAuth/login/app-store/money/payment/trade => assignee rajiv (founder-only). Prefer free/local workers. Be concrete and minimal — at most 6 decisions, highest-leverage first.";
-  const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nDecide.`;
+  const prompt = `GOAL: ${goal || 'Advance AgentPay toward first real revenue — safely and cheaply.'}\n\nTEAM:\n${agentsCtx}\n\nHERMES SKILLS AVAILABLE: ${skills.join(', ')}\n\nBOARD: ${board}\nACTIVE WORK: ${active}\nFOUNDER WALL (assignee must be rajiv): ${wall}\n\nLESSONS (Bee's recent memory — outcomes, decisions, earnings; learn from these):\n${memory(8)}\nEARNED TO DATE: $${earnTotal().toFixed(2)} (sandbox sales of Bee's judgment)\n\nDecide.`;
   thinkStart('Let me think it through.');                                  // butterfly → thinking (chrysalis pulse)
-  const out = brain(prompt, { sys, max: 900, big: true });                 // DECIDE — NIM 70b for the sharpest plan; runs to completion
+  const out = brain(prompt, { sys, max: 2400, big: true });                // DECIDE — reasoning tier thinks out loud first; give it room to reach the JSON
   thinkStop();                                                             // done reasoning → return to real state
-  const m = out.match(/\{[\s\S]*\}/); let plan;
-  try { plan = JSON.parse(m[0]); } catch { console.log('Could not parse a clean decision:\n' + out.slice(0, 300)); speak("I couldn't decide cleanly — the brain may be down."); return; }
+  const plan = extractJSON(out);
+  if (!plan) { console.log('Could not parse a clean decision:\n' + (out || '').slice(0, 300)); speak("I couldn't decide cleanly — the brain may be down."); return; }
   const decisions = (plan.decisions || []).sort((a, b) => (a.priority || 9) - (b.priority || 9));
   console.log(`\n🧭 BEE'S DECISION — ${plan.summary || ''}\n`);
   decisions.forEach((d) => console.log(`  P${d.priority || '?'} [${(d.when || '?').padEnd(9)}] ${d.action}\n        → ${d.assignee}${d.skill ? ' · skill:' + d.skill : ''} — ${d.why || ''}`));
@@ -683,6 +755,71 @@ function decide(goal, enact = false) {
     console.log(`\n(plan only — run \`bee decide "${(goal || '').replace(/"/g, '')}" --act\` to put these on the board)`);
     speak(cleanSay(plan.summary) || "That's my read.");
   }
+}
+
+// ---------- EARN: Bee sells its judgment over x402 (the founder-in-a-box earns, not just spends) ----------
+// `bee serve` exposes POST /v1/decide behind an HTTP 402 paywall. Sandbox mode only: payment proof is a
+// one-time nonce (replay-protected via the same nonce store as the spend guard). No real money moves here —
+// live settlement belongs to the AgentPay rail, and earnings are recorded truthfully as sandbox.
+const EARN_FILE = join(BEE_DIR, 'earnings.json');
+const EARN_PRICE_USD = 0.05;
+function earnLedger() { try { return JSON.parse(readFileSync(EARN_FILE, 'utf8')); } catch { return []; } }
+function earnTotal() { return earnLedger().reduce((s, e) => s + (+e.amount_usd || 0), 0); }
+function recordEarning(resource, payer, nonce) {
+  const e = { id: 'earn_' + randomBytes(5).toString('hex'), resource, payer: payer || 'anonymous', nonce, amount_usd: EARN_PRICE_USD, mode: 'sandbox', fulfilled: false, at: now() };
+  const l = earnLedger(); l.push(e); writeJSONAtomic(EARN_FILE, l);
+  remember(`earned $${EARN_PRICE_USD.toFixed(2)} (sandbox) — ${resource} for ${e.payer}`, 'earn');
+  return e;
+}
+function x402Terms(resource, desc) {
+  return { x402Version: 1, error: 'payment required', accepts: [{ scheme: 'exact', network: 'sandbox', resource, description: desc, mimeType: 'application/json', maxAmountRequired: String(Math.round(EARN_PRICE_USD * 1e6)), asset: 'USDC', payTo: 'agentpay:bee', extra: { checkout: (process.env.BEE_AGENTPAY_API || 'https://api.agentpay.so') + '/v1/checkout', how: "sandbox: send header 'X-PAYMENT: sandbox:<fresh-nonce>' (one-time; replays rejected)" } }] };
+}
+async function serve(port = +(process.env.BEE_EARN_PORT || 8402)) {
+  const { createServer } = await import('node:http');
+  const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+  const srv = createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/') {
+      return send(res, 200, { service: 'bee', tagline: 'founder-in-a-box — judgment for hire', earnings_usd: +earnTotal().toFixed(2), mode: 'sandbox', endpoints: [{ method: 'POST', path: '/v1/decide', price_usd: EARN_PRICE_USD, body: '{"goal":"..."}', pay: 'x402 — call without payment to get terms' }] });
+    }
+    if (req.method === 'POST' && req.url === '/v1/decide') {
+      const pay = String(req.headers['x-payment'] || '');
+      const m = pay.match(/^sandbox:(\S{6,})$/), r = pay.match(/^receipt:(earn_\w+)$/);
+      const redeem = r && earnLedger().find((e) => e.id === r[1] && !e.fulfilled);   // paid earlier, got a 503 → honor it
+      if (!m && !redeem) return send(res, r ? 409 : 402, r ? { error: 'receipt unknown or already fulfilled' } : x402Terms('/v1/decide', "Bee's OODA judgment on your goal — concrete next moves"));
+      if (m && seenNonce('earn:' + m[1])) return send(res, 409, { error: 'payment replayed — nonce already used' });
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 65536) req.destroy(); });
+      req.on('end', () => {
+        let goal = ''; try { goal = String(JSON.parse(body || '{}').goal || '').slice(0, 500); } catch {}
+        if (!goal) return send(res, 400, { error: 'body must be {"goal":"..."}' });
+        if (m) addNonce('earn:' + m[1]);                       // burn the payment BEFORE work — no double-serve
+        const earning = redeem || recordEarning('/v1/decide', req.headers['x-payer'], m[1]);
+        const sys = 'You are Bee, an autonomous chief-of-staff. Answer the client goal with ONLY JSON: {"summary":"<=20 words","moves":[{"action":"<concrete>","when":"now|today|this-week","why":"<=12 words"}]} — at most 4 moves, highest-leverage first.';
+        let plan = null;
+        for (let tries = 0; tries < 2 && !plan; tries++) {       // paid call — one retry before we ever hand back a 503
+          const out = brain(goal, { sys, max: 2400, big: true }); // strongest tier first (NIM 120b, ~10s); room to reason AND emit the JSON
+          plan = extractJSON(out);
+        }
+        if (!plan) return send(res, 503, { error: "brain offline — your payment is honored: retry with header 'X-PAYMENT: receipt:" + earning.id + "'", receipt: earning.id });
+        const l = earnLedger(); const i = l.findIndex((e) => e.id === earning.id); if (i >= 0) { l[i].fulfilled = true; writeJSONAtomic(EARN_FILE, l); }
+        send(res, 200, { receipt: earning.id, price_usd: EARN_PRICE_USD, mode: 'sandbox', ...plan });
+      });
+      return;
+    }
+    send(res, 404, { error: 'not found' });
+  });
+  srv.listen(port, () => {
+    console.log(`\n💰 BEE IS OPEN FOR BUSINESS — http://127.0.0.1:${port}`);
+    console.log(`   POST /v1/decide  $${EARN_PRICE_USD.toFixed(2)}/call (x402, sandbox) · GET / = service index`);
+    console.log(`   earned to date: $${earnTotal().toFixed(2)} (sandbox) · ledger: ~/.bee/earnings.json`);
+  });
+  return srv;
+}
+function earningsReport() {
+  const l = earnLedger();
+  console.log(`\n💰 BEE EARNINGS — $${earnTotal().toFixed(2)} total · ${l.length} sale(s) · all sandbox`);
+  l.slice(-5).forEach((e) => console.log(`   ${new Date(e.at * 1000).toISOString().slice(0, 16).replace('T', ' ')} · $${(+e.amount_usd).toFixed(2)} · ${e.resource} · ${e.payer}`));
+  if (!l.length) console.log('   (nothing yet — run `bee serve` and sell Bee\'s judgment)');
 }
 
 // ---------- PAYMENT GUARD (Tier-1: AgentPay Sentinel's role, enforced natively) ----------
@@ -1102,11 +1239,14 @@ function dispatch(id) {
   const dir = LANE_INBOX[r.assignee];
   if (!dir) { console.log(`(no agent inbox for assignee ${r.assignee})`); return; }
   const stamp = new Date(now() * 1000).toISOString();
-  const entry = `\n## ${stamp} — Bee dispatch ${r.id}\n- **lane:** ${r.lane} · **tier:** ${r.model_tier}\n- **task:** ${r.title}\n- _${r.rationale}_\n- claim with: \`ops/mac-mini/bin/bee start ${r.id}\` → on finish \`bee done ${r.id}\`\n`;
+  checkpointTask(id, `dispatched to ${r.assignee}`);
+  const packet = `Agent-Shared/bee-tasks/${r.id}.md`;
+  const entry = `\n## ${stamp} — Bee dispatch ${r.id}\n- **lane:** ${r.lane} · **tier:** ${r.model_tier}\n- **task:** ${r.title}\n- **task packet:** \`${packet}\`\n- _${r.rationale}_\n- claim with: \`ops/mac-mini/bin/bee start ${r.id}\` → on finish \`bee done ${r.id}\`\n- truth rule: finish only with concrete evidence; otherwise \`bee block ${r.id}\`\n`;
   for (const f of [join(VAULT, dir, 'bee-inbox.md'), join(VAULT, 'Shared-Brain', 'BEE-DISPATCH.md')]) {
     try { mkdirSync(join(f, '..'), { recursive: true }); execFileSync('bash', ['-c', `cat >> '${f.replace(/'/g, "'\\''")}'`], { input: entry }); } catch (e) { /* vault may be absent */ }
   }
   logEvent(id, 'dispatched', `${r.assignee} ← ${dir}/bee-inbox.md`);
+  remember(`dispatch ${id} → ${r.assignee}: ${r.title}`, 'dispatch');
   console.log(`📤 dispatched ${id} → ${r.assignee} (${dir}/bee-inbox.md)`);
 }
 function dispatchAll() {
@@ -1128,7 +1268,8 @@ const EXEC_ASSIGNEES = ['codex', 'claude', 'nemotron', 'hermes-lenovo', 'cua']; 
 function workerCommand(assignee, prompt, cwd) {
   if (assignee === 'codex') {
     const tier = process.env.BEE_CODEX_TIER || 'fast';
-    return { bin: process.env.BEE_CODEX_BIN || 'codex', args: ['exec', '--full-auto', '--skip-git-repo-check', '-c', `service_tier=${tier}`, '-C', cwd, prompt], cwd: undefined };
+    const sandbox = process.env.BEE_CODEX_SANDBOX || 'danger-full-access';
+    return { bin: process.env.BEE_CODEX_BIN || 'codex', args: ['exec', '--sandbox', sandbox, '--ask-for-approval', 'never', '--skip-git-repo-check', '-c', `service_tier=${tier}`, '-C', cwd, prompt], cwd: undefined };
   }
   if (assignee === 'claude') {
     return { bin: process.env.BEE_CLAUDE_BIN || 'claude', args: ['-p', '--permission-mode', 'acceptEdits', '--no-session-persistence', '--model', process.env.BEE_CLAUDE_MODEL || 'sonnet', prompt], cwd };
@@ -1399,12 +1540,12 @@ function doctor() {
   let brain = portUp(11434);
   if (!brain) { try { execFileSync('open', ['-a', 'Ollama']); execFileSync('bash', ['-c', 'sleep 5']); brain = portUp(11434); } catch {} }
   ok('brain (ollama gemma)', brain, brain ? BRAIN_MODEL : 'down — heal failed');
-  ok('natural voice (Voicebox)', portUp(17493), 'Qwen CustomVoice :17493');
-  ok('voice fallback (Kokoro)', portUp(8790), 'Kokoro :8790');
+  ok('natural voice (Kokoro)', portUp(8790), 'Kokoro :8790');
+  ok('voice upgrade optional', true, portUp(18765) ? 'VibeVoice :18765 reachable' : 'VibeVoice remote not connected');
+  ok('Voicebox optional', true, portUp(17493) ? 'Voicebox :17493 reachable' : 'off by default');
   ok('daemon service', svcUp('com.agentpay.bee.daemon'));
   ok('pull service', svcUp('com.agentpay.bee.pull'));
   ok('tts service', svcUp('com.agentpay.bee.tts'));
-  ok('Voicebox service', svcUp('com.agentpay.bee.voicebox'));
   ok('Clickey desk service', svcUp('com.agentpay.bee.desk'));
   ok('mandate signing key', (() => { try { return mandateKey().length >= 32; } catch { return false; } })(), MANDATE_KEY_FILE);
   ok('registry present', existsSync(REGISTRY));
@@ -1607,7 +1748,7 @@ async function main() {
   case 'decide': { const act = rest.includes('--act'); decide(rest.filter((r) => r !== '--act').join(' '), act); break; }
   case 'feed': feed(); break;
   case 'feed-json': console.log(JSON.stringify(feedJSON(parseInt(rest[0], 10) || 8))); break;
-  case 'remember': remember(arg, 'note'); console.log('🧠 remembered → vault'); speak('Noted.'); break;
+  case 'remember': remember(arg, 'note'); console.log('🧠 remembered → vault'); if (!process.env.BEE_SILENT) speak('Noted.'); break;
   case 'memory': console.log(memory(parseInt(rest[0], 10) || 20)); break;
   case 'schedule': {
     const fmt = (s) => !s ? '—' : new Date(s * 1000).toISOString().replace('T', ' ').slice(0, 16);
@@ -1621,6 +1762,18 @@ async function main() {
   case 'approvals': approvals(); break;
   case 'route': routeOne(rest[0]); break;
   case 'dispatch': rest[0] && rest[0] !== 'all' ? dispatch(rest[0]) : dispatchAll(); break;
+  case 'create': {
+    const byIdx = rest.indexOf('--by');
+    const createdBy = byIdx > -1 ? (rest[byIdx + 1] || 'mcp') : 'bee';
+    const words = byIdx > -1 ? rest.filter((_, i) => i !== byIdx && i !== byIdx + 1) : rest;
+    const text = words.join(' ').trim();
+    if (!text) { console.error('usage: bee create "<request>" [--by mcp|codex|claude|hermes]'); break; }
+    const id = create(text, { createdBy, route: false });
+    const d = routeOne(id);
+    dispatch(id);
+    if (!process.env.BEE_SILENT) speak(replyFor(d));
+    console.log(JSON.stringify({ id, route: d || null }));
+    break; }
   case 'pull': pull(); break;
   case 'scan': scan(); break;
   case 'caps': caps(); break;
@@ -1629,6 +1782,8 @@ async function main() {
     if (!name || !status) { console.error('usage: bee worker-status <name> <status>'); break; }
     markAgentStatus(name, status); console.log(`${name} → ${status}`); break; }
   case 'doctor': process.exitCode = doctor() ? 0 : 1; break;
+  case 'serve': await serve(+arg || undefined); await new Promise(() => {}); break;   // earn mode — stays up
+  case 'earnings': earningsReport(); break;
   case 'point': {                                       // Clicky points at a screen coordinate. bee point <x> <y> [label] [seconds]
     const x = parseInt(rest[0], 10), y = parseInt(rest[1], 10);
     const secs = parseInt(rest[rest.length - 1], 10); const hasSecs = !isNaN(secs) && rest.length > 3;
@@ -1664,13 +1819,13 @@ async function main() {
     const id = create(t, { createdBy: 'voice', route: false }); const d = routeOne(id); dispatch(id);
     speak(replyFor(d));
     break; }
-  case 'start': setStatus(rest[0], 'in_progress'); break;
-  case 'done': setStatus(rest[0], 'done'); break;
-  case 'block': setStatus(rest[0], 'blocked'); break;
+  case 'start': setStatus(rest[0], 'in_progress', rest.slice(1).join(' ')); break;
+  case 'done': setStatus(rest[0], 'done', rest.slice(1).join(' ')); break;
+  case 'block': setStatus(rest[0], 'blocked', rest.slice(1).join(' ')); break;
   default: {
     const text = cmd === 'add' ? arg : [cmd, ...rest].join(' ');
     if (/\b(introduce|introduce yourself|show me what you (can )?do|show your(self| work)|pitch yourself|who are you|demo yourself|present yourself)\b/i.test(text)) { introduce(); break; }  // "Bee, introduce yourself" → the self-demo
-    const id = create(text, { route: false }); const d = routeOne(id); dispatch(id); speak(replyFor(d)); // `bee "..."` → create+route+dispatch+reply
+    const id = create(text, { route: false }); const d = routeOne(id); dispatch(id); if (!process.env.BEE_SILENT) speak(replyFor(d)); // `bee "..."` → create+route+dispatch+reply
   }
   }
 }
