@@ -143,6 +143,15 @@ Every sale is written to memory, and `bee decide` reads recent memory + earnings
 its prompt — Bee learns from what it earned. Sandbox only: no real money moves here; live
 settlement stays on the AgentPay rail behind the founder wall.
 
+## Specialist bench
+
+Eight curated role cards in `specialists/` (adapted from
+[The Agency](https://github.com/msitarzewski/agency-agents), MIT — distilled, not imported: 8 not 232).
+Auto-attached to worker prompts by task keywords — an ASO task gets the ASO Specialist's system
+prompt, an outreach task gets the Outbound Strategist. `bee specialists` lists the bench. Buyers on
+the paid endpoint can pick one: `{"goal":"...", "specialist":"aso-specialist"}`. No safety change:
+the founder wall is rule-based and ignores whatever any specialist prompt says.
+
 ## Approvals and payment mandates
 
 ```bash
