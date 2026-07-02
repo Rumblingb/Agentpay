@@ -48,7 +48,8 @@
   body.flight .spark{display:block}
   body.flight .s1{animation:sparkle 1.6s ease-in-out infinite} body.flight .s2{animation:sparkle 1.6s .5s ease-in-out infinite} body.flight .s3{animation:sparkle 1.6s 1s ease-in-out infinite}
   /* LANDED — needs you: alights & rests, warm + patient. No alarm, no badge. */
-  body.landed #butterfly{display:block} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
+  @keyframes aliveTilt { 0%,84%,100%{transform:rotate(0)} 88%{transform:rotate(-2.4deg)} 93%{transform:rotate(1.6deg)} }  /* an occasional lifelike stretch */
+  body.landed #butterfly{display:block;animation:aliveTilt 11s ease-in-out infinite} body.landed .wing{animation:flapIdle 2.8s ease-in-out infinite}
   body.landed #creature{animation:restBreathe 2.6s ease-in-out infinite; filter:drop-shadow(0 0 7px color-mix(in srgb,var(--glow) 72%,transparent)) drop-shadow(0 0 18px color-mix(in srgb,var(--glow) 38%,transparent))}
   /* THRIVING — the END STAGE: imago, wings full open, a slow radiant bloom. The company is alive + earning. */
   @keyframes bloom { 0%,100%{transform:translate(-50%,-50%) scale(1.05)} 50%{transform:translate(-50%,-53%) scale(1.13)} }
