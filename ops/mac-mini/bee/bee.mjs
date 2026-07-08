@@ -393,7 +393,7 @@ function checkpointTask(id, note = '') {
 const FEED_URL = process.env.BEE_FEED_URL || 'https://agentpay-feed.apaybeta.workers.dev';
 function feedEvents(limit = 8) {
   try {
-    const r = execFileSync('curl', ['-s', '-m', '8', `${FEED_URL}/v1/feed/events?since_ms=0&limit=${limit}`], { encoding: 'utf8', maxBuffer: 1 << 20 });
+    const r = execFileSync('curl', ['-s', '-m', '8', `${FEED_URL}/v1/feed/events?since=0&limit=${limit}`], { encoding: 'utf8', maxBuffer: 1 << 20 });
     const j = JSON.parse(r); return Array.isArray(j.events) ? j.events : [];
   } catch { return []; }
 }
@@ -888,7 +888,7 @@ function guard(amount, merchant, opts = {}) {
 
 // ---------- MANDATE PRIMITIVE: the signed, provable-consent artifact (AP2/Agentic-Token shaped) ----------
 // Loop: Bee ISSUES (guarded, proposed) → founder APPROVES (the wall) → SETTLE re-guards + stages the
-// exact rail payload (x402/USDC or Stripe). Bee NEVER moves money autonomously — settlement is founder-triggered.
+// exact rail payload (x402/Casper/USDC or Stripe). Bee NEVER moves money autonomously — settlement is founder-triggered.
 const MANDATE_FILE = join(BEE_DIR, 'mandates.json');
 const loadMandates = () => { try { return JSON.parse(readFileSync(MANDATE_FILE, 'utf8')); } catch { return []; } };
 const saveMandates = (m) => writeJSONAtomic(MANDATE_FILE, m);
@@ -930,6 +930,21 @@ const MANDATE_TRANSITIONS = { proposed: ['approved', 'rejected', 'expired'], app
 const canMandateTransition = (from, to) => (MANDATE_TRANSITIONS[from] || []).includes(to);
 const findMandate = (id) => loadMandates().find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
 function settlementPayload(m) {
+  if (/casper|cspr/i.test(m.rail)) {
+    return {
+      protocol: 'x402-casper',
+      chain: 'casper',
+      asset: /usdc/i.test(m.rail) ? 'USDC' : 'CSPR',
+      amount: m.amount,
+      to: m.merchant,
+      memo: m.id,
+      nonce: m.nonce,
+      attestation: {
+        intent_hash: createHash('sha256').update(`${m.id}:${m.intent}:${m.amount}:${m.merchant}`).digest('hex'),
+        approval_sig: m.approval_sig || null,
+      },
+    };
+  }
   if (/x402|usdc/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
   if (/usdt/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDT', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
   // Fiat settles THROUGH AgentPay's own checkout rail (the one Codex repaired/deployed) — Bee never talks raw Stripe.
@@ -987,7 +1002,11 @@ function settleMandate(id, execute = false) {
   console.log(JSON.stringify(m.settlement, null, 2));
   if (execute) {
     if (m.mode !== 'sandbox') { console.log('⛔ --execute is sandbox-only. Run the staged live rail action, then use `bee confirm-settlement <id> <receipt>`.'); return false; }
-    const txn = /x402|usdc|usdt/i.test(m.rail) ? 'sol_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24) : 'pi_test_' + createHash('sha256').update(m.id).digest('hex').slice(0, 18);
+    const txn = /casper|cspr/i.test(m.rail)
+      ? 'casper_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24)
+      : /x402|usdc|usdt/i.test(m.rail)
+        ? 'sol_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24)
+        : 'pi_test_' + createHash('sha256').update(m.id).digest('hex').slice(0, 18);
     m.status = 'executed'; m.receipt = { mode: 'SANDBOX (test mode — no real funds moved)', txn, protocol: m.settlement.protocol, amount: m.amount, at: now() }; saveMandates(loadMandates().map((x) => x.id === m.id ? m : x));
     if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
     console.log(`✅ SANDBOX SETTLED ${m.id} — ${txn}  (test mode, no real money moved)`);
@@ -1749,7 +1768,7 @@ async function main() {
     break; }
   case 'mandate': {                                     // issue a payment mandate (guarded, proposed, on the wall)
     const amount = parseFloat(rest[0]); const merchant = rest[1] || '';
-    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent…] [--rail x402|usdc|usdt|stripe] [--sandbox]'); break; }
+    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent...] [--rail casper|cspr|x402|usdc|usdt|stripe] [--sandbox]'); break; }
     const railIdx = rest.indexOf('--rail'); const rail = railIdx > -1 ? rest[railIdx + 1] : undefined;
     const words = []; for (let i = 2; i < rest.length; i++) { if (rest[i] === '--rail') { i++; continue; } if (rest[i] !== '--sandbox') words.push(rest[i]); }
     issueMandate(amount, merchant, words.join(' ') || undefined, { rail, mode: rest.includes('--sandbox') ? 'sandbox' : 'live' });
@@ -1791,7 +1810,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  APPROVE: prepare-approval <id|all> | actions | act "<external goal>" | ask <id> | approve-action|reject-action <id> | decline <task-id>\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] | mandates | approve|reject <id> | settle <id> [--execute sandbox] | confirm-settlement <id> <receipt>\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (→ Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  APPROVE: prepare-approval <id|all> | actions | act "<external goal>" | ask <id> | approve-action|reject-action <id> | decline <task-id>\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] [--rail casper|x402|stripe] | mandates | approve|reject <id> | settle <id> [--execute sandbox] | confirm-settlement <id> <receipt>\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (-> Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
@@ -1868,4 +1887,4 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
 
-export { actStep, approvalPacketFromOutput, canMandateTransition, classify, isApprovableAction, mandatePayload, ruleClassify, safetyFloor, serviceHealthy, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome };
+export { actStep, approvalPacketFromOutput, canMandateTransition, classify, isApprovableAction, mandatePayload, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome };
