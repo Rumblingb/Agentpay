@@ -1,0 +1,8 @@
+node_modules/
+proofs/*.json
+proofs/*.md
+demo-artifacts/*.mp4
+demo-artifacts/*.txt
+demo-artifacts/*.svg
+demo-artifacts/*.png
+demo-artifacts/*.ffconcat

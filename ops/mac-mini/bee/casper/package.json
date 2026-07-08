@@ -1,0 +1,14 @@
+{
+  "name": "bee-casper-receipts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "proof": "node demo-proof.mjs",
+    "video": "node make-demo-video.mjs",
+    "receipt": "node send-receipt.mjs"
+  },
+  "dependencies": {
+    "casper-js-sdk": "5.0.12"
+  }
+}
