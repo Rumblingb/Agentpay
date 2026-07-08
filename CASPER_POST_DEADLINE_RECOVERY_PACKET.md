@@ -52,6 +52,7 @@ Local proof bundle:
 Local demo video:
 
 - `ops/mac-mini/bee/casper/demo-artifacts/bee-clickey-casper-local-demo.mp4`
+- Public URL: https://github.com/Rumblingb/Agentpay/releases/download/casper-buildathon-demo-2026-07-08/bee-clickey-casper-local-demo.mp4
 - Verified: 1920x1080, 38 seconds, 1140 frames.
 
 ## Verified Today
@@ -116,7 +117,7 @@ Project:
 
 - Bee + Clickey routes a real AI founder fleet, discovers capabilities through AgentPay Feed MCP, stages founder-approved agent payment mandates, and binds receipts to Casper Testnet proof.
 - Repository: https://github.com/Rumblingb/Agentpay
-- Demo video: <public-demo-url>
+- Demo video: https://github.com/Rumblingb/Agentpay/releases/download/casper-buildathon-demo-2026-07-08/bee-clickey-casper-local-demo.mp4
 - Casper Testnet deploy: <testnet-deploy-url>
 
 Casper message:

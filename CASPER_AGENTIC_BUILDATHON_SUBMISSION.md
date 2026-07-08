@@ -9,7 +9,7 @@ Bee + Clickey is a founder-in-a-box for agent-run businesses: a desktop companio
 - Repository: https://github.com/Rumblingb/Agentpay
 - Feed MCP: https://github.com/Rumblingb/agentpay-feed-mcp
 - Feed worker: https://github.com/Rumblingb/agentpay-feed-worker
-- Demo video: TODO add final public video URL before submission
+- Demo video: https://github.com/Rumblingb/Agentpay/releases/download/casper-buildathon-demo-2026-07-08/bee-clickey-casper-local-demo.mp4
 - Local demo artifact: `ops/mac-mini/bee/casper/demo-artifacts/bee-clickey-casper-local-demo.mp4`
 - Post-deadline recovery packet: `CASPER_POST_DEADLINE_RECOVERY_PACKET.md`
 
