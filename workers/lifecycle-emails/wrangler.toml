@@ -1,0 +1,13 @@
+name = "agentpay-lifecycle-emails"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Secrets (set via: npx wrangler secret put <NAME>)
+#   STRIPE_WEBHOOK_SECRET  — from Stripe webhook endpoint config
+#   RESEND_API_KEY         — resend.com, domain agentpay.so verified
+[vars]
+FROM_ADDRESS = "AgentPay <updates@agentpay.so>"
+
+[[routes]]
+pattern = "hooks.agentpay.so/stripe/lifecycle"
+zone_name = "agentpay.so"

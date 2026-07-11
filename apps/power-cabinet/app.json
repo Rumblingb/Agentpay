@@ -15,7 +15,8 @@
       "bundleIdentifier": "com.agentpay.powercabinet",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {

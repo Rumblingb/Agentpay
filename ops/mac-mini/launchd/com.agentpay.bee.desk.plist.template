@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.agentpay.bee.desk</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/brain/Agentpay/ops/mac-mini/bee/desk/node_modules/.bin/electron</string>
+    <string>/Users/brain/Agentpay/ops/mac-mini/bee/desk</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/brain/Agentpay/ops/mac-mini/bee/desk</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/brain</string>
+    <key>PATH</key><string>/Users/brain/.local/node/bin:/Users/brain/.npm-global/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/brain/.bee/logs/desk.log</string>
+  <key>StandardErrorPath</key><string>/Users/brain/.bee/logs/desk.err.log</string>
+</dict>
+</plist>

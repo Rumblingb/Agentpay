@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "galactic-politics-web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/Users/brain/.nvm/versions/node/v22.22.2/bin:$PATH && cd /Users/brain/Documents/apps/galatic-politics- && EXPO_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co EXPO_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key npx expo start --web --port 8082"
+      ],
+      "port": 8082
+    }
+  ]
+}

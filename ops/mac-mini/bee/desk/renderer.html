@@ -13,7 +13,8 @@
   /* ── DOCK: fixed 220×220 box that holds the creature; the card unfurls above it ── */
   #dock { position:fixed; right:0; bottom:0; width:220px; height:220px; -webkit-app-region:drag; }
   #creature { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); width:140px; height:140px;
-    display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s; }
+    display:flex; align-items:center; justify-content:center; -webkit-app-region:no-drag; cursor:pointer; transition:filter .5s, transform .6s;
+    background:transparent; border:0; box-shadow:none; }
   svg { overflow:visible; display:block; }
   .stage { display:none; position:absolute; }
   .wing { transform-box:fill-box; transform-origin:center; } .wL { transform-origin:right center; } .wR { transform-origin:left center; }
@@ -62,6 +63,7 @@
   #hint{ position:absolute; left:0; right:0; bottom:5px; text-align:center; font-size:10px; letter-spacing:.4px;
     font-weight:600; color:color-mix(in srgb,var(--a) 78%,#ffffff); text-shadow:0 1px 3px rgba(0,0,0,.55);
     opacity:.85; transition:opacity .4s; -webkit-app-region:no-drag; }
+  body.landed #hint{ color:#111318; text-shadow:0 1px 2px rgba(255,255,255,.75); font-weight:800; }
   body.cocoon #hint{ opacity:0; }      /* deep work: even the label recedes */
   body.card-open #hint{ opacity:0; }
 

@@ -8,15 +8,28 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, STATS, StatKey } from './src/theme';
 import { GameState, newGame, currentCard, applyChoice, touchedStats } from './src/engine';
+import { CARDS, DEATHS } from './src/cards';
 
 const BEST_KEY = 'pc_best_v1';
 
-const { width: W, height: H } = Dimensions.get('window');
-const SWIPE_OUT = W * 0.32;
+const _dim = Dimensions.get('window');
+const W = (Platform.OS === 'web' && typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : _dim.width;
+const H = (Platform.OS === 'web' && typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : _dim.height;
+const SWIPE_OUT = Math.min(W * 0.32, 150);
+
+// ── SCREENSHOT HARNESS (local only — set to 'off' before ship) ──
+const SHOT: 'off' | 'title' | 'game1' | 'game2' | 'over' = 'off';
+function _seed(idx: number, day: number, stats: any): GameState {
+  return { stats, day, deck: CARDS, deckIdx: idx, over: null };
+}
 
 function haptic(style: 'light' | 'heavy' = 'light') {
   if (Platform.OS === 'web') return;
-  Haptics.impactAsync(style === 'light' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+  try {
+    Haptics.impactAsync(style === 'light' ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+  } catch {
+    // some devices (e.g. iPad with no Taptic Engine) can throw synchronously — never let a haptic crash the app
+  }
 }
 
 // ───────────────────────── stat bar ─────────────────────────
@@ -57,11 +70,14 @@ function StatBar({ k, value, hot }: { k: (typeof STATS)[number]; value: number; 
 
 // ───────────────────────── card entrance ─────────────────────────
 function useCardEntrance(dep: number) {
-  const enter = useRef(new Animated.Value(0)).current;
+  const enter = useRef(new Animated.Value(Platform.OS === 'web' ? 1 : 0)).current;
   React.useEffect(() => {
     enter.setValue(0);
     Animated.spring(enter, { toValue: 1, useNativeDriver: true, friction: 7, tension: 60 }).start();
   }, [dep]);
+  if (Platform.OS === 'web') {
+    return { opacity: 1 as any, transform: [] as any };
+  }
   return {
     opacity: enter,
     transform: [
@@ -73,12 +89,34 @@ function useCardEntrance(dep: number) {
 
 // ───────────────────────── app ─────────────────────────
 export default function App() {
-  const [game, setGame] = useState<GameState>(newGame);
-  const [screen, setScreen] = useState<'title' | 'game' | 'over'>('title');
+  const [gameState, setGame] = useState<GameState>(newGame);
+  const [screenState, setScreen] = useState<'title' | 'game' | 'over'>('title');
   const [best, setBest] = useState(0);
+
+  // ── screenshot harness overrides (no-op when SHOT==='off') ──
+  const game: GameState =
+    SHOT === 'game1' ? _seed(0, 12, { treasury: 64, people: 47, military: 55, planet: 38 })
+    : SHOT === 'game2' ? _seed(1, 23, { treasury: 72, people: 34, military: 61, planet: 51 })
+    : SHOT === 'over' ? { stats: { treasury: 0, people: 30, military: 42, planet: 46 }, day: 48, deck: CARDS, deckIdx: 0, over: { dead: true, stat: 'treasury', line: DEATHS.treasury.low } }
+    : gameState;
+  const screen: 'title' | 'game' | 'over' =
+    SHOT === 'off' ? screenState : SHOT === 'title' ? 'title' : SHOT === 'over' ? 'over' : 'game';
 
   useEffect(() => {
     AsyncStorage.getItem(BEST_KEY).then(v => { if (v) setBest(parseInt(v, 10) || 0); }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.documentElement.style.backgroundColor = C.ink;
+      document.body.style.backgroundColor = C.ink;
+      document.body.style.margin = '0';
+      let vp = document.querySelector('meta[name=viewport]') as HTMLMetaElement | null;
+      if (!vp) { vp = document.createElement('meta'); vp.name = 'viewport'; document.head.appendChild(vp); }
+      vp.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1');
+      const root = document.getElementById('root');
+      if (root) { root.style.width = '100vw'; root.style.overflow = 'hidden'; }
+    }
   }, []);
 
   const pan = useRef(new Animated.ValueXY()).current;
@@ -198,7 +236,7 @@ export default function App() {
 
   // ───────── game ─────────
   return (
-    <View style={st.root}>
+    <View style={st.root} {...responder.panHandlers}>
       <StatusBar style="light" />
       <View style={st.hud}>
         <View style={st.statRow}>
@@ -209,7 +247,6 @@ export default function App() {
 
       <View style={st.cardZone}>
         <Animated.View
-          {...responder.panHandlers}
           style={[st.card, { opacity: entrance.opacity },
             { transform: [...entrance.transform, { translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}
         >
@@ -241,10 +278,10 @@ export default function App() {
 
 // ───────────────────────── styles ─────────────────────────
 const st = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.ink, paddingTop: Platform.OS === 'ios' ? 56 : 36 },
+  root: { flex: 1, width: '100%', maxWidth: '100%', backgroundColor: C.ink, paddingTop: Platform.OS === 'ios' ? 56 : 36 },
 
   // HUD
-  hud: { alignItems: 'center', gap: 10 },
+  hud: { width: '100%', alignItems: 'center', gap: 10 },
   statRow: { flexDirection: 'row', gap: 26 },
   statCol: { alignItems: 'center', width: 30 },
   statIcon: { fontSize: 13, marginBottom: 5 },
@@ -254,9 +291,9 @@ const st = StyleSheet.create({
   day: { color: C.dim, fontSize: 12, letterSpacing: 3, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 
   // card
-  cardZone: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 22 },
+  cardZone: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 22 },
   card: {
-    width: '100%', minHeight: H * 0.42, backgroundColor: C.inkRaised, borderRadius: 22,
+    alignSelf: 'stretch', minHeight: H * 0.42, backgroundColor: C.inkRaised, borderRadius: 22,
     padding: 26, borderWidth: 1, borderColor: C.line, justifyContent: 'flex-start',
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12,
   },
@@ -272,8 +309,8 @@ const st = StyleSheet.create({
   choiceRight: { right: 18, borderColor: C.people, transform: [{ rotate: '6deg' }] },
   choiceText: { color: C.bone, fontSize: 13, fontWeight: '900', letterSpacing: 1 },
 
-  hintRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, paddingBottom: 34 },
-  hint: { color: C.dim, fontSize: 12.5, maxWidth: W * 0.42 },
+  hintRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, paddingBottom: 34 },
+  hint: { color: C.dim, fontSize: 12.5, maxWidth: 150 },
 
   // title / over
   titleWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },

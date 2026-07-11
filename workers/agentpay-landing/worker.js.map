@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "worker.js",
+  "sources": ["worker.js"],
+  "names": ["handleRequest","url","isRankPath","parseRankAgent","renderRankPage","rankSnapshotFor","escapeHtml","escapeScriptJson","renderNotFoundPage"],
+  "mappings": "AAAA,SAASA,EAAG,CACH,GACI,KAAAA,CAMJ,OAAO,CACjBC,QAAS,CACTG,MAAO,CACb,IAAI,EAAEC,OAAM,CACVC,KAAM,CACT,IAAIC,EAAG,EAAGI,KAAG,CACPC,WAAY,CACT",
+  "sourcesContent": []
+}

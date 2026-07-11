@@ -929,12 +929,100 @@ const verifyApproval = (item) => verifyApprovalWithKey(item, mandateKey());
 const MANDATE_TRANSITIONS = { proposed: ['approved', 'rejected', 'expired'], approved: ['ready_to_settle', 'rejected', 'expired'], ready_to_settle: ['executed', 'rejected', 'expired'] };
 const canMandateTransition = (from, to) => (MANDATE_TRANSITIONS[from] || []).includes(to);
 const findMandate = (id) => loadMandates().find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+const MERCHANT_RE = /^[a-zA-Z0-9._:@/-]{2,160}$/;
+const RECEIPT_REF_RE = /^[a-zA-Z0-9._:@/-]{6,240}$/;
+const WALLET_ADAPTERS = {
+  coinbase: { env: ['BEE_COINBASE_API_KEY', 'BEE_COINBASE_API_SECRET'], receiptPrefix: /^(cb|coinbase)[._:-]/i, docs: 'Coinbase transfer id or tx hash' },
+  'coinbase-commerce': { env: ['BEE_COINBASE_COMMERCE_API_KEY'], receiptPrefix: /^(cc|coinbase-commerce|charge)[._:-]/i, docs: 'Coinbase Commerce charge/transfer id' },
+  fireblocks: { env: ['BEE_FIREBLOCKS_API_KEY', 'BEE_FIREBLOCKS_SECRET_KEY_PATH', 'BEE_FIREBLOCKS_VAULT_ACCOUNT'], receiptPrefix: /^(fb|fireblocks)[._:-]/i, docs: 'Fireblocks transaction id' },
+  bitgo: { env: ['BEE_BITGO_ACCESS_TOKEN', 'BEE_BITGO_WALLET_ID'], receiptPrefix: /^(bg|bitgo)[._:-]/i, docs: 'BitGo transfer id or tx hash' },
+  turnkey: { env: ['BEE_TURNKEY_API_PUBLIC_KEY', 'BEE_TURNKEY_API_PRIVATE_KEY', 'BEE_TURNKEY_ORG_ID'], receiptPrefix: /^(tk|turnkey)[._:-]/i, docs: 'Turnkey activity id or tx hash' },
+  privy: { env: ['BEE_PRIVY_APP_ID', 'BEE_PRIVY_APP_SECRET'], receiptPrefix: /^(pv|privy)[._:-]/i, docs: 'Privy transfer/session id' },
+  sequence: { env: ['BEE_SEQUENCE_PROJECT_ACCESS_KEY'], receiptPrefix: /^(sq|sequence)[._:-]/i, docs: 'Sequence transaction id' },
+};
+const walletAdapterNames = () => Object.keys(WALLET_ADAPTERS);
+function walletAdapter(provider) { return WALLET_ADAPTERS[provider] || null; }
+function walletAdapterReady(provider) {
+  const a = walletAdapter(provider); if (!a) return { ok: false, missing: ['unknown provider'] };
+  const missing = a.env.filter((key) => !process.env[key]);
+  return { ok: missing.length === 0, missing };
+}
+function walletReceiptLooksValid(provider, receipt) {
+  const ref = String(receipt || '').trim();
+  if (!RECEIPT_REF_RE.test(ref)) return false;
+  const a = walletAdapter(provider);
+  if (!a) return false;
+  // Allow either provider-prefixed ids or a generic tx hash.
+  return a.receiptPrefix.test(ref) || /^0x[a-fA-F0-9]{32,128}$/.test(ref);
+}
+function walletProviderStatusRows() {
+  return walletAdapterNames().map((provider) => {
+    const check = walletAdapterReady(provider);
+    return { provider, ready: check.ok, missing: check.missing };
+  });
+}
+function walletProviderStatus() {
+  console.log('institutional wallet adapters:');
+  walletProviderStatusRows().forEach((row) => {
+    const status = row.ready ? 'ready' : `missing ${row.missing.join(', ')}`;
+    console.log(`  - ${row.provider.padEnd(18)} ${status}`);
+  });
+}
+const RAIL_ALIASES = {
+  cb: 'coinbase',
+  cbw: 'coinbase',
+  coinbasewallet: 'coinbase',
+  coinbase_wallet: 'coinbase',
+  coinbasecommerce: 'coinbase-commerce',
+  coinbase_commerce: 'coinbase-commerce',
+  fireblock: 'fireblocks',
+  bitgoapi: 'bitgo',
+  turnkeywallet: 'turnkey',
+};
+function normalizeRail(raw) {
+  const cleaned = String(raw || 'auto').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  return RAIL_ALIASES[cleaned] || cleaned || 'auto';
+}
+function walletSettlementPayload(provider, m) {
+  const check = walletAdapterReady(provider);
+  return {
+    protocol: 'wallet-institutional',
+    provider,
+    amount: m.amount,
+    currency: (m.currency || 'USD').toUpperCase(),
+    merchant: m.merchant,
+    mandate_id: m.id,
+    nonce: m.nonce,
+    intent: m.intent,
+    execute_via: `${provider}.transfer.create`,
+    idempotency_key: `mnd:${m.id}:${m.nonce}`,
+    attestation: {
+      approval_sig: m.approval_sig || null,
+      mandate_sig: m.sig,
+      intent_hash: createHash('sha256').update(`${m.id}:${m.intent}:${m.amount}:${m.merchant}:${provider}`).digest('hex'),
+    },
+    // Provider adapters can map these fields to concrete API args without changing the signed mandate artifact.
+    provider_fields: {
+      asset: process.env.BEE_WALLET_ASSET || ((m.currency || 'USD').toUpperCase() === 'USD' ? 'USDC' : (m.currency || 'USD').toUpperCase()),
+      network: process.env.BEE_WALLET_NETWORK || 'base',
+      source_account: process.env.BEE_WALLET_SOURCE || 'agentpay-treasury',
+      destination: m.merchant,
+      memo: m.id,
+    },
+    adapter: {
+      ready: check.ok,
+      missing_env: check.missing,
+      required_env: walletAdapter(provider)?.env || [],
+    },
+  };
+}
 function settlementPayload(m) {
-  if (/casper|cspr/i.test(m.rail)) {
+  const rail = normalizeRail(m.rail);
+  if (/casper|cspr/.test(rail)) {
     return {
       protocol: 'x402-casper',
       chain: 'casper',
-      asset: /usdc/i.test(m.rail) ? 'USDC' : 'CSPR',
+      asset: /usdc/.test(rail) ? 'USDC' : 'CSPR',
       amount: m.amount,
       to: m.merchant,
       memo: m.id,
@@ -945,18 +1033,25 @@ function settlementPayload(m) {
       },
     };
   }
-  if (/x402|usdc/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
-  if (/usdt/i.test(m.rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDT', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
+  if (/x402|usdc/.test(rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDC', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
+  if (/usdt/.test(rail)) return { protocol: 'x402', chain: 'solana', asset: 'USDT', amount: m.amount, to: m.merchant, memo: m.id, nonce: m.nonce };
+  if (['coinbase', 'coinbase-commerce', 'fireblocks', 'bitgo', 'turnkey', 'privy', 'sequence'].includes(rail)) {
+    return walletSettlementPayload(rail, m);
+  }
   // Fiat settles THROUGH AgentPay's own checkout rail (the one Codex repaired/deployed) — Bee never talks raw Stripe.
   // client_reference_id = mandate id so AgentPay's webhook reconciles the payment back to this mandate.
   return { protocol: 'stripe-acp', via: 'agentpay', endpoint: (process.env.BEE_AGENTPAY_API || 'https://api.agentpay.so') + '/v1/checkout', client_reference_id: m.id, payment_intent: { amount: Math.round(m.amount * 100), currency: (m.currency || 'USD').toLowerCase(), description: m.intent, metadata: { mandate: m.id, agent: 'bee' } } };
 }
 function issueMandate(amount, merchant, intent, opts = {}) {
   amount = +amount || 0;
+  merchant = String(merchant || '').trim();
+  if (!MERCHANT_RE.test(merchant)) { console.log('⛔ invalid merchant format (use 2-160 chars: letters, numbers, ., _, :, @, /, -)'); return null; }
+  const currency = String(opts.currency || 'USD').trim().toUpperCase();
+  if (!/^[A-Z]{3,8}$/.test(currency)) { console.log('⛔ invalid currency code'); return null; }
   const mode = opts.mode === 'sandbox' ? 'sandbox' : 'live';
   const g = guard(amount, merchant, { intent, sandbox: mode === 'sandbox' }); // pre-flight BEFORE issuing
   if (!g.pass) { console.log(`⛔ guard blocked the mandate: ${g.blocker}`); g.checks.filter((c) => !c.pass).forEach((c) => console.log(`   ✗ ${c.name} — ${c.detail}`)); speak(`I can't issue that — ${g.blocker}.`); return null; }
-  const m = { sig_v: MANDATE_SIG_VERSION, id: rid('mnd'), intent: intent || `pay ${merchant} $${amount}`, amount, currency: opts.currency || 'USD', merchant, cap: +opts.cap || amount, rail: opts.rail || 'auto', mode, agent: 'bee', nonce: rid('n'), issued_at: now(), expires_at: now() + (opts.ttl || 3600), status: 'proposed', approved_by: null };
+  const m = { sig_v: MANDATE_SIG_VERSION, id: rid('mnd'), intent: intent || `pay ${merchant} $${amount}`, amount, currency, merchant, cap: +opts.cap || amount, rail: normalizeRail(opts.rail || 'auto'), mode, agent: 'bee', nonce: rid('n'), issued_at: now(), expires_at: now() + (opts.ttl || 3600), status: 'proposed', approved_by: null };
   const taskId = create(`[MANDATE ${m.id}] approve payment: ${m.intent}`, { body: `$${amount} ${m.currency} → ${merchant} · rail ${m.rail} · ${mode} · expires ${new Date(m.expires_at * 1000).toISOString().slice(0, 16)}`, route: false });
   sql(`UPDATE tasks SET lane='labs', assignee='rajiv', model_tier='human', needs_human=1, status='blocked', rationale='${esc('💳 Payment mandate — founder approval required. Bee never auto-pays.')}', updated_at=${now()} WHERE id='${esc(taskId)}';`);
   m.task_id = taskId;
@@ -1000,12 +1095,19 @@ function settleMandate(id, execute = false) {
   }
   console.log(`\n💸 ${m.id} GUARDED + READY — rail payload staged (${m.settlement.protocol}). Bee does not move real money; you trigger live settlement:`);
   console.log(JSON.stringify(m.settlement, null, 2));
+  if (m.settlement.protocol === 'wallet-institutional') {
+    const adapter = walletAdapterReady(m.settlement.provider);
+    if (!adapter.ok) console.log(`⚠ adapter ${m.settlement.provider} is not configured yet. Missing: ${adapter.missing.join(', ')}`);
+    console.log(`   provider receipt format: ${walletAdapter(m.settlement.provider)?.docs || 'provider transaction id'}`);
+  }
   if (execute) {
     if (m.mode !== 'sandbox') { console.log('⛔ --execute is sandbox-only. Run the staged live rail action, then use `bee confirm-settlement <id> <receipt>`.'); return false; }
     const txn = /casper|cspr/i.test(m.rail)
       ? 'casper_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24)
       : /x402|usdc|usdt/i.test(m.rail)
         ? 'sol_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24)
+        : /(coinbase|coinbase-commerce|fireblocks|bitgo|turnkey|privy|sequence)/i.test(m.rail)
+          ? 'wallet_test_' + createHash('sha256').update(m.id + m.nonce).digest('hex').slice(0, 24)
         : 'pi_test_' + createHash('sha256').update(m.id).digest('hex').slice(0, 18);
     m.status = 'executed'; m.receipt = { mode: 'SANDBOX (test mode — no real funds moved)', txn, protocol: m.settlement.protocol, amount: m.amount, at: now() }; saveMandates(loadMandates().map((x) => x.id === m.id ? m : x));
     if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
@@ -1021,9 +1123,15 @@ function settleMandate(id, execute = false) {
 function confirmSettlement(id, receiptRef) {
   const ms = loadMandates(); const m = ms.find((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
   if (!m || !receiptRef) { console.log('usage: bee confirm-settlement <mandate-id> <provider-receipt>'); return false; }
+  const ref = String(receiptRef).trim();
+  if (!RECEIPT_REF_RE.test(ref)) { console.log('⛔ invalid provider receipt format'); return false; }
+  if (m.settlement?.protocol === 'wallet-institutional' && !walletReceiptLooksValid(m.settlement.provider, ref)) {
+    console.log(`⛔ receipt does not match expected ${m.settlement.provider} format`);
+    return false;
+  }
   if (m.mode === 'sandbox' || m.status !== 'ready_to_settle' || !verifyMandate(m) || !verifyApproval(m) || !canMandateTransition(m.status, 'executed')) { console.log(`⛔ ${m.id} is not a verified live mandate ready to reconcile`); return false; }
   if (seenNonce(m.nonce)) { console.log(`⛔ ${m.id} nonce already recorded — refusing duplicate receipt`); return false; }
-  const receipt = { mode: 'FOUNDER_CONFIRMED', reference: String(receiptRef).slice(0, 240), protocol: m.settlement.protocol, amount: m.amount, at: now() };
+  const receipt = { mode: 'FOUNDER_CONFIRMED', reference: ref, protocol: m.settlement.protocol, amount: m.amount, at: now() };
   addNonce(m.nonce); recordSpend(m.amount, { mandate: m.id, ...receipt });
   m.status = 'executed'; m.receipt = receipt; m.executed_at = now(); saveMandates(ms);
   if (m.task_id) { try { setStatus(m.task_id, 'done'); } catch {} }
@@ -1768,11 +1876,12 @@ async function main() {
     break; }
   case 'mandate': {                                     // issue a payment mandate (guarded, proposed, on the wall)
     const amount = parseFloat(rest[0]); const merchant = rest[1] || '';
-    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent...] [--rail casper|cspr|x402|usdc|usdt|stripe] [--sandbox]'); break; }
+    if (isNaN(amount) || !merchant) { console.error('usage: bee mandate <amount> <merchant> [intent...] [--rail casper|cspr|x402|usdc|usdt|stripe|coinbase|coinbase-commerce|fireblocks|bitgo|turnkey|privy|sequence] [--sandbox]'); break; }
     const railIdx = rest.indexOf('--rail'); const rail = railIdx > -1 ? rest[railIdx + 1] : undefined;
     const words = []; for (let i = 2; i < rest.length; i++) { if (rest[i] === '--rail') { i++; continue; } if (rest[i] !== '--sandbox') words.push(rest[i]); }
     issueMandate(amount, merchant, words.join(' ') || undefined, { rail, mode: rest.includes('--sandbox') ? 'sandbox' : 'live' });
     break; }
+  case 'provider-adapters': walletProviderStatus(); break;
   case 'mandates': mandates(); break;
   case 'approve': { const methodAt = rest.indexOf('--method'); approveMandate(rest[0], methodAt > -1 ? rest[methodAt + 1] : 'cli'); break; }
   case 'reject': rejectMandate(rest[0]); break;
@@ -1810,7 +1919,7 @@ async function main() {
     BLUEPRINTS.forEach((b) => { const t = blueprintTiming(b);
       console.log(`  ${b.key.padEnd(16)} ${b.cadence.padEnd(11)} last: ${fmt(t.last).padEnd(16)} ${t.continuous ? '(always-on)' : 'next: ' + fmt(t.nextDue)}`); });
     break; }
-  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  APPROVE: prepare-approval <id|all> | actions | act "<external goal>" | ask <id> | approve-action|reject-action <id> | decline <task-id>\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] [--rail casper|x402|stripe] | mandates | approve|reject <id> | settle <id> [--execute sandbox] | confirm-settlement <id> <receipt>\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (-> Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
+  case 'help': console.log('bee "<request>" | dash board list approvals state | dispatch [id|all] | pull | scan caps doctor\n  AUTONOMY: autonomy on|off|status | blueprints | run <blueprint> | schedule | worker-status <name> <status>\n  KNOW: agents (team+harness) | decide "<goal>" [--act] (OODA) | feed | remember <text> | memory\n  APPROVE: prepare-approval <id|all> | actions | act "<external goal>" | ask <id> | approve-action|reject-action <id> | decline <task-id>\n  PAY: guard <amt> <merchant> | mandate <amt> <merchant> [intent] [--rail casper|x402|stripe|coinbase|coinbase-commerce|fireblocks|bitgo|turnkey|privy|sequence] | provider-adapters | mandates | approve|reject <id> | settle <id> [--execute sandbox] | confirm-settlement <id> <receipt>\n  SHOW: demo (end-to-end push) | fly <x> <y> [stage] (move the butterfly anywhere)\n  LANES: agency "<req>" (-> Codex Agency OS INBOX) · fund view read-only\n  SCREEN: screen | act "<goal>" | click <name|#> | fill <hint> <value> | type <text> | point <x> <y> [label] | see [q]\n  VOICE: speak <text> | listen | converse (bidirectional) | daemon · route/start/done/block <id>\n  SETUP: install (one-command, ~3 min)'); break;
   case 'list': list(); break;
   case 'board': board(); break;
   case 'approvals': approvals(); break;
@@ -1887,4 +1996,4 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
 
-export { actStep, approvalPacketFromOutput, canMandateTransition, classify, isApprovableAction, mandatePayload, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome };
+export { actStep, approvalPacketFromOutput, canMandateTransition, classify, isApprovableAction, mandatePayload, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, walletAdapterReady, walletReceiptLooksValid, workerCommand, workerOutcome };

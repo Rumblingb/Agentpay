@@ -64,6 +64,6 @@ Tagline: *"An AI cofounder that funds its own operations."*
 1. **Stripe Skills for Hermes** + Bee spend lane w/ `$BEE_SPEND_CAP_DAILY` (default 20) → above-cap to approval wall. *(linchpin)*
 2. **Nemotron-via-Hermes** = Bee's primary execution worker (new `nemotron` assignee; pull bridge calls Hermes gateway, not Codex).
 3. **NemoClaw** safety wrapper for autonomous actions.
-4. **Bee MCP server** (`bee-mcp.mjs`) → register as connector in Claude Desktop (`claude_desktop_config.json`), Codex (`config.toml [mcp_servers]`), Hermes (mcp config). Tools: inbox/claim/done/block/create/board/approvals/fund_status/spend/see.
+4. **Bee MCP server** (`bee-mcp.py`) → registered as connector in Claude Desktop (`claude_desktop_config.json`), Codex (`config.toml [mcp_servers]`), Hermes (mcp config) with `uv run --with mcp python ops/mac-mini/bee/bee-mcp.py`; restart/reload clients and verify discovery. Tools: state/tasks/task/create/claim/done/block/dispatch/approvals/prepare-approval/blueprints/memory/registry/policy.
 5. **Close the loop** end-to-end with one real earn→spend→operate example.
 6. **Demo + submit:** 90s video (the voice loop), writeup ("an AI cofounder that funds its own operations"), Discord + typeform.

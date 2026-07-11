@@ -163,12 +163,15 @@ bee mandate 8 vercel.com "pay hosting" --rail stripe
 bee ask <mandate-id>                             # founder approval
 bee settle <mandate-id>                          # stage exact signed rail payload
 bee confirm-settlement <mandate-id> <receipt>    # reconcile a founder-completed live payment
+bee provider-adapters                             # wallet adapter readiness (missing env keys)
 ```
 
 Mandates use a local HMAC key at `~/.bee/mandate.key` and bind the task, intent, merchant, amount,
 currency, cap, rail, nonce, mode, issue time, and expiry. Sandbox demos have isolated accounting and
 cannot alter the live spend or replay ledgers. Clickey approval uses a dedicated preload, validates
 the sending renderer and request token, and rejects ambiguous gestures.
+
+Supported wallet rails (`coinbase`, `coinbase-commerce`, `fireblocks`, `bitgo`, `turnkey`, `privy`, `sequence`) stage a deterministic `wallet-institutional` payload with idempotency key + signed attestation. Run `bee provider-adapters` before live use to see missing provider env keys.
 
 The dashboard's **Founder queue** only interrupts when an approval packet is ready. Human-gated Labs
 work first creates an internal preparation card; Bee checks artifacts, fixes safe prerequisites, and
@@ -212,10 +215,13 @@ There is no code path by which Bee autonomously executes a fund money action.
 ## Verification
 
 ```bash
+bash ops/mac-mini/security-posture.sh   # doctor + tests + adapters + landing smoke
 node --test ops/mac-mini/bee/bee.test.mjs
 BEE_ACT_DRY=1 ops/mac-mini/bin/bee act "open the settings panel"
 ops/mac-mini/bin/bee scan && ops/mac-mini/bin/bee doctor
 ```
+
+`bee install` also registers `com.agentpay.security-posture` (every 6h via launchd).
 
 
 ## Stripe Integration (added 2026-06-25)

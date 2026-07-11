@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import gestureApi from './desk/gesture-recognizer.js';
-import { approvalPacketFromOutput, canMandateTransition, isApprovableAction, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome } from './bee.mjs';
+import { approvalPacketFromOutput, canMandateTransition, isApprovableAction, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, walletAdapterReady, walletReceiptLooksValid, workerCommand, workerOutcome } from './bee.mjs';
 
 test('fund execution always reaches the founder approval wall', () => {
   const route = safetyFloor('Buy a futures position for Bill');
@@ -104,6 +104,67 @@ test('Casper rail stages a Casper-native x402 receipt payload', () => {
   assert.equal(payload.attestation.approval_sig, 'b'.repeat(64));
 });
 
+test('coinbase rail stages an institutional wallet payload', () => {
+  const payload = settlementPayload({
+    id: 'mnd_coinbase',
+    intent: 'top up agent treasury',
+    merchant: 'treasury-hot-wallet',
+    amount: 25,
+    rail: 'coinbase',
+    nonce: 'n_coinbase',
+    sig: 'c'.repeat(64),
+    approval_sig: 'd'.repeat(64),
+    currency: 'USD',
+  });
+  assert.equal(payload.protocol, 'wallet-institutional');
+  assert.equal(payload.provider, 'coinbase');
+  assert.equal(payload.idempotency_key, 'mnd:mnd_coinbase:n_coinbase');
+  assert.equal(payload.provider_fields.memo, 'mnd_coinbase');
+});
+
+test('coinbase alias normalizes into the same payload', () => {
+  const payload = settlementPayload({
+    id: 'mnd_cb_alias',
+    intent: 'pay vendor',
+    merchant: 'vendor-wallet',
+    amount: 4,
+    rail: 'cbw',
+    nonce: 'n_cb_alias',
+    sig: 'e'.repeat(64),
+    approval_sig: 'f'.repeat(64),
+    currency: 'USD',
+  });
+  assert.equal(payload.protocol, 'wallet-institutional');
+  assert.equal(payload.provider, 'coinbase');
+});
+
+test('fireblocks and bitgo rails stage wallet providers', () => {
+  const fireblocks = settlementPayload({
+    id: 'mnd_fireblocks',
+    intent: 'reserve gas wallet',
+    merchant: 'ops-wallet',
+    amount: 12,
+    rail: 'fireblocks',
+    nonce: 'n_fireblocks',
+    sig: 'a'.repeat(64),
+    approval_sig: 'b'.repeat(64),
+    currency: 'USD',
+  });
+  const bitgo = settlementPayload({
+    id: 'mnd_bitgo',
+    intent: 'pay settlement partner',
+    merchant: 'partner-wallet',
+    amount: 9,
+    rail: 'bitgo',
+    nonce: 'n_bitgo',
+    sig: 'a'.repeat(64),
+    approval_sig: 'b'.repeat(64),
+    currency: 'USD',
+  });
+  assert.equal(fireblocks.provider, 'fireblocks');
+  assert.equal(bitgo.provider, 'bitgo');
+});
+
 test('approval proof binds who approved, when, and how', () => {
   const key = Buffer.alloc(32, 9);
   const approval = { sig: 'a'.repeat(64), approved_by: 'rajiv', approved_at: 1234, approval_method: 'gesture' };
@@ -153,4 +214,27 @@ test('approval preparation cannot become ready without concrete evidence', () =>
   assert.deepEqual(approvalPacketFromOutput('BEE_APPROVAL_SUMMARY: Build is staged\nBEE_APPROVAL_EVIDENCE: app.aab exists, 57 MB\nBEE_APPROVAL_URL: https://play.google.com/console/'), {
     summary: 'Build is staged', evidence: 'app.aab exists, 57 MB', url: 'https://play.google.com/console/',
   });
+});
+
+test('merchant and receipt regexes block obvious control-character injection', () => {
+  const merchantRe = /^[a-zA-Z0-9._:@/-]{2,160}$/;
+  const receiptRe = /^[a-zA-Z0-9._:@/-]{6,240}$/;
+  assert.equal(merchantRe.test('vendor\nrm -rf /'), false);
+  assert.equal(merchantRe.test('valid-merchant_01'), true);
+  assert.equal(receiptRe.test('pi_1AbCdEFghiJKL-1234'), true);
+  assert.equal(receiptRe.test('rcpt\tbad'), false);
+});
+
+test('wallet adapters expose readiness and missing env keys deterministically', () => {
+  const coinbase = walletAdapterReady('coinbase');
+  assert.equal(Array.isArray(coinbase.missing), true);
+  assert.equal(typeof coinbase.ok, 'boolean');
+  const unknown = walletAdapterReady('unknown-wallet');
+  assert.equal(unknown.ok, false);
+});
+
+test('wallet receipt validation is provider-aware', () => {
+  assert.equal(walletReceiptLooksValid('coinbase', 'cb_txn_123456'), true);
+  assert.equal(walletReceiptLooksValid('coinbase', '0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd'), true);
+  assert.equal(walletReceiptLooksValid('coinbase', 'random receipt value'), false);
 });

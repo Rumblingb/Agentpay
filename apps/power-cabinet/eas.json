@@ -1,10 +1,31 @@
 {
-  "cli": { "version": ">= 18.0.0" },
+  "cli": {
+    "version": ">= 18.0.0"
+  },
   "build": {
-    "preview": { "distribution": "internal", "android": { "buildType": "apk" } },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
-      "env": { "EXPO_NO_DOTENV": "1", "NODE_OPTIONS": "--max-old-space-size=4096" }
+      "autoIncrement": true,
+      "env": {
+        "EXPO_NO_DOTENV": "1",
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "/Users/brain/Downloads/AuthKey_FD2QNX9295.p8",
+        "ascApiKeyId": "FD2QNX9295",
+        "ascApiKeyIssuerId": "85b78d91-ec95-44a0-9803-6b06ab686e47",
+        "ascAppId": "6766289130",
+        "appleTeamId": "F459JHN592"
+      }
+    }
+  }
 }

@@ -44,14 +44,14 @@ If it "feels unfinished," it isn't done. Quality is the feature.
 - ✅ **Voice — FIXED (2026-06-17).** Neural **Kokoro** via mlx-audio, always-on server `com.agentpay.bee.tts` :8790 (load-once, warm ~0.3s), `bee-say.sh` (Kokoro→`say` graceful fallback), pluggable via `BEE_TTS_*`. Natural, local, free, instant. **Higgs Audio v3** = premium/demo voice later on NVIDIA (Lenovo GPU/hosted; non-commercial license; not Mac-real-time). Voice venv: `~/.bee/voice-venv` (py3.11, mlx-audio+misaki[en]+uvicorn).
 - 🟡 **Butterfly polish** — functional but the SVG + states need art-direction to feel premium.
 - 🟡 **Earn→spend loop** — rails identified (Stripe Projects + HermesHub x402), not yet wired end-to-end (B3).
-- 🟡 **MCP connector** — Claude/Codex/Hermes don't yet plug into one Bee surface (B2).
+- 🟡 **MCP connector** — server implemented and registered in Claude Desktop, Codex, and Hermes; still needs client restart/reload + tool-discovery verification (B2 deploy/config).
 - 🟡 **Voice-in** — `bee listen` needs the one-time Mic grant; not yet wake-word ("Hey Bee").
 
 ## Path to perfect (prioritized — quality first)
 1. **Voice → top-notch** (Kokoro local now; Higgs-on-NVIDIA for the signature/demo voice). *In progress.*
 2. **Butterfly art pass** — premium mascot + state transitions that read instantly on camera.
 3. **B3 earn→spend** — wire HermesHub x402 (earn) + Stripe Projects capped spend (spend); one real on-camera example.
-4. **B2 Bee MCP connector** — Claude Desktop + Codex + Hermes plug into one work surface.
+4. **B2 Bee MCP connector deploy/config** — restart/reload Claude Desktop, Codex, and Hermes, then verify Bee tools are discovered.
 5. **Wake-word + screen-aware moment** — "Hey Bee", and a `see`→act beat for the demo.
 6. **Record 90s + writeup → submit.**
 

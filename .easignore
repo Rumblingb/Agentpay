@@ -1,0 +1,8 @@
+.store-upload/
+**/*.aab
+**/*.apk
+**/*.mp4
+**/*.ipa
+ios/
+android/
+.git/

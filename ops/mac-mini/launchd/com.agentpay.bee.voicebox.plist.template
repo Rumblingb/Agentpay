@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.agentpay.bee.voicebox</string>
+  <key>ProgramArguments</key><array>
+    <string>/Applications/Voicebox.app/Contents/MacOS/voicebox-server</string>
+    <string>--data-dir</string><string>/Users/brain/Library/Application Support/sh.voicebox.app</string>
+    <string>--port</string><string>17493</string>
+    <string>--parent-pid</string><string>1</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>HOME</key><string>/Users/brain</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/Users/brain/.bee/logs/voicebox.log</string>
+  <key>StandardErrorPath</key><string>/Users/brain/.bee/logs/voicebox.err.log</string>
+</dict></plist>

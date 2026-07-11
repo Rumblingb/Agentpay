@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "bee": {
+      "command": "/Users/brain/.local/bin/uv",
+      "args": [
+        "run",
+        "--with",
+        "mcp",
+        "python",
+        "/Users/brain/Agentpay/ops/mac-mini/bee/bee-mcp.py"
+      ]
+    }
+  }
+}

@@ -41,11 +41,20 @@ LAUNCHD_DST="$HOME/Library/LaunchAgents"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 NODE_BIN="$(command -v node)"
 mkdir -p "$LAUNCHD_DST"
-for label in com.agentpay.bee.daemon com.agentpay.bee.pull com.agentpay.bee.desk com.agentpay.bee.voicebox; do
+for label in com.agentpay.bee.daemon com.agentpay.bee.pull com.agentpay.bee.desk com.agentpay.bee.voicebox com.agentpay.security-posture; do
   src="$LAUNCHD_SRC/$label.plist.template"; dst="$LAUNCHD_DST/$label.plist"
   [ -f "$src" ] || continue
   if [ "$label" = com.agentpay.bee.voicebox ] && [ ! -x /Applications/Voicebox.app/Contents/MacOS/voicebox-server ]; then
     echo "  (Voicebox is not installed; Kokoro remains the voice backend)"
+    continue
+  fi
+  if [ "$label" = com.agentpay.security-posture ]; then
+    src="$LAUNCHD_SRC/$label.plist.template"
+    dst="$LAUNCHD_DST/$label.plist"
+    sed -e "s#/Users/brain/Agentpay#$REPO_ROOT#g" -e "s#/Users/brain#$HOME#g" "$src" > "$dst"
+    plutil -lint "$dst" >/dev/null
+    launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$UID" "$dst"
     continue
   fi
   sed -e "s#/Users/brain/Agentpay#$REPO_ROOT#g" -e "s#/Users/brain/.local/node/bin/node#$NODE_BIN#g" -e "s#/Users/brain#$HOME#g" "$src" > "$dst"
