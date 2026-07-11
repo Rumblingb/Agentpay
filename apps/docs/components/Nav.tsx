@@ -26,15 +26,16 @@ export default function Nav() {
         borderBottom: '1px solid #1f1f1f',
       }}
     >
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', height: 56 }}>
-        <Link href="/" style={{ fontWeight: 700, fontSize: '1rem', color: '#fff', textDecoration: 'none', marginRight: '1.5rem', letterSpacing: '-0.02em' }}>
+      <div className="site-nav-inner" style={{ maxWidth: 1100, margin: '0 auto', padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: 56 }}>
+        <Link href="/" style={{ fontWeight: 700, fontSize: '1rem', color: '#fff', textDecoration: 'none', marginRight: '1.5rem', letterSpacing: 0 }}>
           AgentPay<span style={{ color: '#10b981' }}> docs</span>
         </Link>
+        <div className="site-nav-links" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', minWidth: 0, overflowX: 'auto' as const }}>
         {links.map(({ href, label }) => {
           const active = href === '/' ? path === '/' : path.startsWith(href);
           return (
             <Link
-              key={href}
+              key={`nav:${href}`}
               href={href}
               style={{
                 fontSize: '0.875rem',
@@ -50,6 +51,7 @@ export default function Nav() {
             </Link>
           );
         })}
+        </div>
         <div style={{ flex: 1 }} />
         <a
           href="https://api.agentpay.so/api/merchants/register"

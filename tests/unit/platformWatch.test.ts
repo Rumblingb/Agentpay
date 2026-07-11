@@ -34,7 +34,7 @@ describe('runPlatformWatch', () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
   });
 
-  it('sends cancelled notifications with receipt action and transcript', async () => {
+  it('sends cancellation reroute notifications with journey action and transcript when an alternative exists', async () => {
     const sql = makeSql([
       [{
         id: 'job-cancelled',
@@ -61,8 +61,8 @@ describe('runPlatformWatch', () => {
     const pushBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(pushBody.data).toMatchObject({
       intentId: 'job-cancelled',
-      screen: 'receipt',
-      action: 'cancelled',
+      screen: 'journey',
+      action: 'proactive_reroute',
       destination: 'London Paddington',
       disruptionRoute: 'Bristol Temple Meads → London Paddington',
     });

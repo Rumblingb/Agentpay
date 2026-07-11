@@ -65,6 +65,10 @@ export async function scheduledHandler(
       ctx.waitUntil(runRcmDailyBriefing(env));
       break;
 
+    case '0 9 * * 1':
+      ctx.waitUntil(runMondayPattern(env));
+      break;
+
     default:
       console.warn('[cron] unknown cron expression:', event.cron);
   }

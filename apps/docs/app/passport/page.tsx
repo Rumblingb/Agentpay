@@ -7,9 +7,9 @@ export const metadata: Metadata = {
 };
 
 const S = {
-  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: '-0.03em', margin: '0 0 0.75rem' } as React.CSSProperties,
+  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: 0, margin: '0 0 0.75rem' } as React.CSSProperties,
   lead: { fontSize: '1.0625rem', color: '#9ca3af', lineHeight: 1.6, margin: '0 0 3rem', maxWidth: 640 } as React.CSSProperties,
-  h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '3rem 0 0.5rem', paddingTop: '2.5rem', borderTop: '1px solid #1a1a1a' } as React.CSSProperties,
+  h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: 0, margin: '3rem 0 0.5rem', paddingTop: '2.5rem', borderTop: '1px solid #1a1a1a' } as React.CSSProperties,
   h3: { fontSize: '1rem', fontWeight: 600, color: '#e5e7eb', margin: '1.75rem 0 0.5rem' } as React.CSSProperties,
   p: { color: '#9ca3af', lineHeight: 1.7, margin: '0 0 1rem' } as React.CSSProperties,
 };

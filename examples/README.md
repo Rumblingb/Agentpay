@@ -43,10 +43,19 @@ Integration examples for popular AI frameworks and demo scripts.
 
 | File | What it shows |
 |------|--------------|
+| `codex-agentpay-mcp-demo/` | Full Codex-native agent loop using AgentPay MCP: leak scan, governed API access, human-step resume |
 | `semiLiveDemo.ts` | Full `create → approve → execute` mandate flow against the live API — best first example |
 | `toolCallingAgentExample.ts` | OpenAI function calling + AgentPay payment gate |
 | `genericAgentExample.ts` | Framework-agnostic agent loop with AgentPay |
 | `internalEndToEndDemo.ts` | End-to-end test covering mandate, capability vault, and receipt |
+
+### Codex + AgentPay MCP demo
+
+```bash
+npm run demo:codex-agentpay-mcp
+```
+
+This runs a deterministic local demo against the real AgentPay MCP stdio server and a mock AgentPay API. It exercises `agentpay_scan_for_leaked_secrets`, `agentpay_buy_api`, and `agentpay_execute_with_resume_token` without spending money or exposing provider secrets.
 
 ### Quickest demo (no framework needed)
 

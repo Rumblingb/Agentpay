@@ -18,10 +18,30 @@ html {
   color: #f9fafb;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   margin: 0;
+}
+
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
+  gap: 2rem;
+  align-items: center;
+}
+
+.site-nav-links {
+  scrollbar-width: none;
+}
+
+.site-nav-links::-webkit-scrollbar {
+  display: none;
 }
 
 /* Code blocks */
@@ -33,6 +53,38 @@ pre {
   overflow-x: auto;
   font-size: 0.875rem;
   line-height: 1.7;
+}
+
+@media (max-width: 860px) {
+  .hero-grid,
+  .demo-video-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .site-nav-inner {
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+    height: auto !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+
+  .site-nav-links {
+    order: 3;
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  main {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  pre {
+    padding: 1rem;
+    font-size: 0.78rem;
+  }
 }
 
 code {

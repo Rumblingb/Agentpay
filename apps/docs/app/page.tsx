@@ -3,15 +3,22 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'AgentPay Docs',
-  description: 'Zero API key vaulting, governed mandates, and payment infrastructure for AI agents.',
+  description: 'Codex-native MCP for secret-safe capability access, governed spending, and exact-call resume for AI agents.',
 };
 
 const cards = [
   {
     href: '/mcp',
     title: 'MCP Server',
-    desc: 'Add AgentPay to Claude Desktop or any MCP host in 30 seconds. 30+ tools across mandates, credentials, and funded actions.',
+    desc: 'Give Codex, Claude, and other MCP hosts governed tools for Leak Guard, capability access, paid execution, and exact-call resume.',
     badge: 'npx -y @agentpayxyz/mcp-server',
+    primary: true,
+  },
+  {
+    href: '/examples#codex-agentpay-mcp-demo',
+    title: 'Codex MCP Demo',
+    desc: 'A complete agent loop: scan leaked secrets, buy market_data under a $5 limit, pause for approval, then resume the stored call.',
+    badge: 'npm run demo:codex-agentpay-mcp',
     primary: true,
   },
   {
@@ -24,7 +31,7 @@ const cards = [
   {
     href: '/examples',
     title: 'Examples',
-    desc: 'Runnable flows for paid research agents, capability-vault demos, and backend services.',
+    desc: 'Runnable flows for paid research agents, capability-vault demos, and Codex-native MCP proof.',
     badge: 'Working code',
     primary: false,
   },
@@ -56,34 +63,62 @@ const G = '#10b981';
 export default function Home() {
   return (
     <>
-      <div style={{ marginBottom: '4rem' }}>
-        <div style={{ display: 'inline-block', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: G, background: '#052e16', border: '1px solid #065f46', padding: '0.3rem 0.75rem', borderRadius: 20, marginBottom: '1.25rem' }}>
-          Developer Documentation
-        </div>
-        <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', fontWeight: 800, lineHeight: 1.15, letterSpacing: '-0.04em', margin: '0 0 1rem' }}>
-          The trust and payment layer
-          <br />
-          <span style={{ color: G }}>for AI agents.</span>
-        </h1>
-        <p style={{ fontSize: '1.125rem', color: '#9ca3af', maxWidth: 680, lineHeight: 1.7, margin: 0 }}>
-          AgentPay removes the three hard problems that keep agents from acting in the real world: upstream credential
-          access, payment authorisation, and settlement proof.
-        </p>
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.75rem', flexWrap: 'wrap' as const }}>
+      <section className="hero-grid" style={{ marginBottom: '3.5rem' }}>
+        <div>
+          <div style={{ display: 'inline-block', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: G, background: '#052e16', border: '1px solid #065f46', padding: '0.3rem 0.75rem', borderRadius: 20, marginBottom: '1.25rem' }}>
+            Codex-native MCP
+          </div>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.35rem)', fontWeight: 800, lineHeight: 1.06, letterSpacing: 0, margin: '0 0 1rem' }}>
+            Let agents buy APIs,
+            <br />
+            handle secrets,
+            <br />
+            <span style={{ color: G }}>and resume work safely.</span>
+          </h1>
+          <p style={{ fontSize: '1.125rem', color: '#9ca3af', maxWidth: 680, lineHeight: 1.7, margin: 0 }}>
+            AgentPay is the authority layer between AI agents and the real world: Leak Guard, capability vaulting,
+            governed spending, human approval, and exact-call resume through one MCP surface.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.75rem', flexWrap: 'wrap' as const }}>
           <Link href="/mcp" style={{ display: 'inline-block', background: G, color: '#000', fontWeight: 700, fontSize: '0.9375rem', padding: '0.75rem 1.5rem', borderRadius: 8, textDecoration: 'none' }}>
             MCP server {"->"}
+          </Link>
+          <Link href="/examples#codex-agentpay-mcp-demo" style={{ display: 'inline-block', background: 'transparent', color: '#e5e7eb', fontWeight: 600, fontSize: '0.9375rem', padding: '0.75rem 1.5rem', borderRadius: 8, textDecoration: 'none', border: '1px solid #1f1f1f' }}>
+            Watch demo
           </Link>
           <Link href="/quickstart" style={{ display: 'inline-block', background: 'transparent', color: '#e5e7eb', fontWeight: 600, fontSize: '0.9375rem', padding: '0.75rem 1.5rem', borderRadius: 8, textDecoration: 'none', border: '1px solid #1f1f1f' }}>
             Quickstart
           </Link>
-          <Link href="/examples" style={{ display: 'inline-block', background: 'transparent', color: '#e5e7eb', fontWeight: 600, fontSize: '0.9375rem', padding: '0.75rem 1.5rem', borderRadius: 8, textDecoration: 'none', border: '1px solid #1f1f1f' }}>
-            Examples
-          </Link>
           <a href="https://api.agentpay.so/api/merchants/register" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: 'transparent', color: '#6b7280', fontWeight: 600, fontSize: '0.9375rem', padding: '0.75rem 1.5rem', borderRadius: 8, textDecoration: 'none', border: '1px solid #1f1f1f' }}>
             Get API key
           </a>
+          </div>
         </div>
-      </div>
+
+        <div style={{ minWidth: 0 }}>
+          <video
+            src="/demo/agentpay-codex-mcp-agentic-clean-16x9.mp4"
+            controls
+            muted
+            playsInline
+            preload="none"
+            poster="/demo/agentpay-codex-mcp-agentic-poster.png"
+            style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', background: '#050505', border: '1px solid #1f1f1f', borderRadius: 8, display: 'block' }}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+            {[
+              ['Leak Guard', 'no raw secrets'],
+              ['Buy API', 'market_data < $5'],
+              ['Resume', 'exact-call token'],
+            ].map(([label, value]) => (
+              <div key={label} style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 8, padding: '0.85rem' }}>
+                <div style={{ color: '#6b7280', fontSize: '0.72rem', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 700 }}>{label}</div>
+                <div style={{ color: '#e5e7eb', fontSize: '0.82rem', marginTop: '0.35rem', fontFamily: 'monospace', overflowWrap: 'anywhere' as const }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <div style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1rem 1.25rem', marginBottom: '2.5rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' as const }}>
         <code style={{ color: G, fontSize: '0.9375rem', fontFamily: 'monospace' }}>npx -y @agentpayxyz/mcp-server</code>
@@ -91,10 +126,10 @@ export default function Home() {
         <code style={{ color: '#38bdf8', fontSize: '0.875rem', fontFamily: 'monospace' }}>https://api.agentpay.so/api/mcp</code>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '1rem' }}>
         {cards.map(({ href, title, desc, badge, primary }) => (
           <Link
-            key={href}
+            key={`home-card:${title}:${href}`}
             href={href}
             style={{
               display: 'block',

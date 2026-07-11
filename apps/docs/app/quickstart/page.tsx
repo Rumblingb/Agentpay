@@ -3,16 +3,16 @@ import Link from 'next/link';
 import Code from '../../components/Code';
 
 export const metadata: Metadata = {
-  title: 'Quickstart - AgentPay Docs',
+  title: 'Quickstart',
   description: 'Get AgentPay running in 2 minutes via MCP server, or 5 minutes via REST API.',
 };
 
 const G = '#10b981';
 
 const S = {
-  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: '-0.03em', margin: '0 0 0.75rem' } as React.CSSProperties,
+  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: 0, margin: '0 0 0.75rem' } as React.CSSProperties,
   lead: { fontSize: '1.0625rem', color: '#9ca3af', lineHeight: 1.6, margin: '0 0 2.5rem', maxWidth: 700 } as React.CSSProperties,
-  h2: { fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '2.5rem 0 0.75rem' } as React.CSSProperties,
+  h2: { fontSize: '1.25rem', fontWeight: 700, letterSpacing: 0, margin: '2.5rem 0 0.75rem' } as React.CSSProperties,
   h3: { fontSize: '1rem', fontWeight: 600, color: '#e5e7eb', margin: '1.75rem 0 0.5rem' } as React.CSSProperties,
   p: { color: '#9ca3af', lineHeight: 1.7, margin: '0 0 1rem' } as React.CSSProperties,
   step: { display: 'flex', gap: '1rem', margin: '2rem 0', paddingTop: '2rem', borderTop: '1px solid #1a1a1a' } as React.CSSProperties,
@@ -102,7 +102,7 @@ export default function Quickstart() {
 
         <p style={{ ...S.p, marginTop: '1.5rem' }}>
           <Link href="/mcp" style={{ color: G }}>Full MCP reference {"->"}</Link>
-          {' '}with all 30+ tools, parameters, and examples.
+          {' '}with all 50+ tools, parameters, and examples.
         </p>
       </div>
 
@@ -210,13 +210,13 @@ npx -y @agentpayxyz/mcp-server`}</Code>
 
       <div style={{ marginTop: '3.5rem', paddingTop: '2rem', borderTop: '1px solid #1a1a1a', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' }}>
         {[
-          { href: '/mcp', title: 'MCP tool reference', desc: 'All 30+ tools with parameters' },
+          { href: '/mcp', title: 'MCP tool reference', desc: 'All 50+ tools with parameters' },
           { href: '/examples', title: 'Runnable examples', desc: 'Start from working flows, not a blank page' },
           { href: '/adapters', title: 'Use the adapters', desc: 'OpenAI, LangChain, Vercel AI SDK' },
           { href: '/passport', title: 'AgentPassport', desc: 'Portable identity and trust' },
           { href: '/pricing', title: 'Pricing', desc: 'Launch free - Builder $39 - Growth $149' },
         ].map(({ href, title, desc }) => (
-          <Link key={href} href={href} style={{ display: 'block', background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1rem 1.25rem', textDecoration: 'none' }}>
+          <Link key={`quickstart-next:${title}:${href}`} href={href} style={{ display: 'block', background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1rem 1.25rem', textDecoration: 'none' }}>
             <div style={{ fontWeight: 600, color: '#fff', marginBottom: 4 }}>{title} {"->"}</div>
             <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>{desc}</div>
           </Link>

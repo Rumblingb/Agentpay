@@ -314,7 +314,7 @@ broInsightsRouter.get('/', async (c) => {
   <div class="section">
     <div class="toolbar">
       <div>
-        <h2 style="margin-bottom:6px">Recovery queue</h2>
+        <h2 style="margin-bottom:6px">Recovery Queue</h2>
         <div class="note">Failed and pending jobs from the last 7 days. Reset a job to re-queue it for the next cron run.</div>
       </div>
       <button class="btn-run" onclick="runAutoRecovery()">Run auto recovery</button>

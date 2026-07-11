@@ -110,6 +110,49 @@ Or:
 
 ---
 
+## Codex-native MCP demo
+
+For Codex local runs, register the repo launcher once:
+
+```bash
+codex mcp add agentpay -- node /Users/brain/agentpay-demo-qa/scripts/agentpay-codex-mcp.mjs
+```
+
+The launcher reads `~/.agentpay/config.json`, so the AgentPay API key does not need to be hardcoded into Codex MCP config.
+
+Set the key once:
+
+```bash
+cd /Users/brain/agentpay-demo-qa
+npx agentpay config --api-key apk_your_key_here --api-url https://api.agentpay.so
+```
+
+Then start a fresh Codex thread and try the product moment prompts:
+
+> "Use AgentPay MCP. Buy API access for market_data under a $5 limit, prefer reliability, notify my phone if approval is needed, and resume the exact call with the returned resume token."
+
+> "Use AgentPay MCP to scan this agent output for leaked secrets. Do not return raw secrets. Then tell me the rotation/vault action and whether the agent session should be killed."
+
+The leak scan demo should return redacted fingerprints only, for example `rk_liv...ijkl`, and should confirm that raw secrets were not returned.
+
+For a full local agentic run, use the deterministic Codex demo:
+
+```bash
+npm run demo:codex-agentpay-mcp
+```
+
+That script drives the real AgentPay MCP stdio server through leak scanning, governed `market_data` access, human-step resume tokens, and exact-call resume against a mock AgentPay API.
+
+Before a live recording, run the doctor:
+
+```bash
+npm run doctor:codex-agentpay-mcp
+```
+
+It checks the local AgentPay config, Codex MCP launcher, built MCP server, demo video artifacts, and required MCP tools.
+
+---
+
 ## Terminal-native control plane
 
 AgentPay should be operated through hosts and terminals, not a merchant dashboard.

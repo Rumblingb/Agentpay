@@ -3,16 +3,16 @@ import Link from 'next/link';
 import Code from '../../components/Code';
 
 export const metadata: Metadata = {
-  title: 'MCP Server — AgentPay Docs',
-  description: 'Full reference for the AgentPay MCP server. 30+ tools across mandates, credentials, payments, and identity.',
+  title: 'MCP Server',
+  description: 'Full reference for the AgentPay MCP server. 50+ tools across mandates, credentials, payments, identity, Leak Guard, and exact-call resume.',
 };
 
 const G = '#10b981';
 
 const S = {
-  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: '-0.03em', margin: '0 0 0.75rem' } as React.CSSProperties,
+  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: 0, margin: '0 0 0.75rem' } as React.CSSProperties,
   lead: { fontSize: '1.0625rem', color: '#9ca3af', lineHeight: 1.6, margin: '0 0 2.5rem', maxWidth: 620 } as React.CSSProperties,
-  h2: { fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '3rem 0 0.75rem', paddingTop: '3rem', borderTop: '2px solid #1a1a1a' } as React.CSSProperties,
+  h2: { fontSize: '1.25rem', fontWeight: 700, letterSpacing: 0, margin: '3rem 0 0.75rem', paddingTop: '3rem', borderTop: '2px solid #1a1a1a' } as React.CSSProperties,
   h3: { fontSize: '0.875rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, color: '#6b7280', margin: '2rem 0 0.75rem' } as React.CSSProperties,
   p: { color: '#9ca3af', lineHeight: 1.7, margin: '0 0 1rem' } as React.CSSProperties,
   badge: { display: 'inline-block', fontSize: '0.6875rem', fontWeight: 600, color: G, background: '#052e16', border: '1px solid #065f46', padding: '0.15rem 0.5rem', borderRadius: 4, fontFamily: 'monospace', marginLeft: '0.5rem', verticalAlign: 'middle' } as React.CSSProperties,
@@ -380,13 +380,26 @@ export default function McpPage() {
     <>
       <h1 style={S.h1}>MCP Server</h1>
       <p style={S.lead}>
-        Drop AgentPay into Claude Desktop or any MCP host in 30 seconds. 30+ tools across mandates, credentials, payments, and identity — no infrastructure to build.
+        Drop AgentPay into Codex, Claude Desktop, or any MCP host in 30 seconds. 50+ tools across mandates, credentials, payments, identity, Leak Guard, and exact-call resume — no infrastructure to build.
       </p>
 
       {/* Quick install */}
       <div style={{ background: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1.25rem 1.5rem', marginBottom: '2rem' }}>
         <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 600 }}>Install</div>
         <Code lang="bash">{`npx -y @agentpayxyz/mcp-server`}</Code>
+      </div>
+
+      <div style={{ marginBottom: '2.5rem' }}>
+        <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#e5e7eb', marginBottom: '0.75rem' }}>Codex local config</div>
+        <p style={{ ...S.p, fontSize: '0.875rem' }}>
+          For Codex workbenches, register the repo launcher once. It reads <code>~/.agentpay/config.json</code>, so the API key does not need to live in Codex MCP config.
+        </p>
+        <Code lang="bash">{`codex mcp add agentpay -- node /Users/brain/agentpay-demo-qa/scripts/agentpay-codex-mcp.mjs
+
+cd /Users/brain/agentpay-demo-qa
+npx agentpay config --api-key apk_your_key_here --api-url https://api.agentpay.so
+
+npm run demo:codex-agentpay-mcp`}</Code>
       </div>
 
       {/* Claude Desktop config */}
@@ -510,7 +523,7 @@ curl -X POST https://api.agentpay.so/api/mcp/tokens \\
           { href: '/passport', title: 'AgentPassport', desc: 'Portable identity and trust' },
           { href: '/pricing', title: 'Pricing', desc: 'Launch free · Builder $39 · Growth $149' },
         ].map(({ href, title, desc }) => (
-          <Link key={href} href={href} style={{ display: 'block', background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1rem 1.25rem', textDecoration: 'none' }}>
+          <Link key={`mcp-next:${title}:${href}`} href={href} style={{ display: 'block', background: '#111', border: '1px solid #1f1f1f', borderRadius: 8, padding: '1rem 1.25rem', textDecoration: 'none' }}>
             <div style={{ fontWeight: 600, color: '#fff', marginBottom: 4 }}>{title} →</div>
             <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>{desc}</div>
           </Link>

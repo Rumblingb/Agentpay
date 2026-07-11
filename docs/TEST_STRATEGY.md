@@ -1,7 +1,7 @@
 # Test Strategy - AgentPay
 
-> **Version:** 1.1
-> **Last Updated:** 2026-04-02
+> **Version:** 1.2
+> **Last Updated:** 2026-05-24
 > **Owner:** Engineering
 
 ---
@@ -64,13 +64,15 @@ Key unit test files:
 **DB mocking:** Mock DB for non-integration tests, use real DB for DB tests
 **Speed:** Medium, may require DB setup
 
-Key route test files:
-- `escrow-route.test.ts` - escrow lifecycle
-- `agent-network-routes.test.ts` - agent hire/complete flows
-- `agentrank-route.test.ts` - AgentRank CRUD and history
-- `integration.test.ts` - end-to-end payment flow with real DB
-- `api-status.test.ts` - health, version, and status endpoints
-- `trust-payment-flow.test.ts` - hire to complete to settle flow
+Current supported route files focus on the deployed Workers/MCP surface:
+- `tests/routes/capabilities.test.ts` - capability access and execution
+- `tests/routes/capabilities-vault-env.test.ts` - capability vault env behavior
+- `tests/routes/mcpRemote.test.ts` - remote MCP route behavior
+- `tests/routes/mcpOAuth.test.ts` - MCP OAuth/token behavior
+- `tests/routes/mandates-merchants.edge.test.ts` - mandates/merchant edge behavior
+- `tests/routes/hostedActions.test.ts` - hosted action flows
+
+Legacy root Express route tests remain in the repository for migration or retirement. They are intentionally excluded from `npm test` by `jest.current.config.js` until the root Express/ESM runtime is made compatible with Jest.
 
 ### Security Tests (`tests/security/`)
 
@@ -141,7 +143,26 @@ Tests that should not use a real DB:
 }
 ```
 
-`--forceExit` in `npm test` is a known limitation of `pg.Pool`, not a sign that tests are masking cleanup bugs.
+`npm test` uses `jest.current.config.js`, which extends the historical Jest config and excludes suites that currently require the legacy root Express app, the wrong runner, or an ESM-compatible Jest migration.
+
+`npm run test:all` preserves the historical full sweep. It is expected to fail today with root Express/ESM parsing errors such as:
+
+```text
+SyntaxError: Cannot use import statement outside a module
+```
+
+Representative legacy files include:
+- `tests/api-status.test.ts`
+- `tests/webhooks.api.test.ts`
+- `tests/agent-network-routes.test.ts`
+- `tests/agentrank-route.test.ts`
+- `tests/escrow-route.test.ts`
+- `tests/integration.test.ts`
+- `tests/protocols.test.ts`
+- `tests/reputation.test.ts`
+- `tests/stripe.test.ts`
+
+Do not use `test:all` as a release gate until those suites are migrated to an ESM-compatible Jest setup, ported to the current Workers/API surface, or formally retired.
 
 ### Mocking Rules
 
@@ -158,20 +179,31 @@ Tests that should not use a real DB:
 ## Running Tests
 
 ```bash
-# All tests
+# Current supported Jest gate
 npm test
 
-# Security tests only
-npm run test:security
+# Hosted/MCP smoke gate
+npm run test:smoke
 
-# Watch mode
-npm run test:watch
+# Workers/MCP critical gate
+npm run test:workers-critical
+
+# Historical full sweep, expected to fail until legacy Express/ESM tests migrate
+npm run test:all
 
 # With coverage
 npm test -- --coverage
 
 # Specific file
 npx jest tests/escrow-route.test.ts
+```
+
+For docs and demo verification, also run:
+
+```bash
+cd apps/docs && npm run build
+npm run doctor:codex-agentpay-mcp
+npm run demo:codex-agentpay-mcp -- --compact
 ```
 
 ---
@@ -190,11 +222,12 @@ Coverage is reported but not enforced as a hard gate currently. The goal is mean
 
 ## Gaps to Address
 
-1. **Property tests for financial invariants** - use `fast-check` for fee and score calculations
-2. **Concurrency tests** - verify double-release of escrow is prevented under concurrent requests
-3. **Migration smoke tests** - run create-db plus migrate on a fresh DB
-4. **Webhook retry tests** - verify failed webhook deliveries are retried correctly
-5. **Admin action tests** - ensure admin actions are properly logged to the audit log
+1. **Legacy Express/ESM decision** - migrate excluded root Express suites to an ESM-compatible Jest setup, port them to the current Workers/API surface, or retire them.
+2. **Property tests for financial invariants** - use `fast-check` for fee and score calculations.
+3. **Concurrency tests** - verify double-release of escrow is prevented under concurrent requests.
+4. **Migration smoke tests** - run create-db plus migrate on a fresh DB.
+5. **Webhook retry tests** - verify failed webhook deliveries are retried correctly.
+6. **Admin action tests** - ensure admin actions are properly logged to the audit log.
 
 ---
 

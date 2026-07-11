@@ -6,9 +6,9 @@ export const metadata: Metadata = {
 };
 
 const S = {
-  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: '-0.03em', margin: '0 0 0.75rem' } as React.CSSProperties,
+  h1: { fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 800, letterSpacing: 0, margin: '0 0 0.75rem' } as React.CSSProperties,
   lead: { fontSize: '1.0625rem', color: '#9ca3af', lineHeight: 1.6, margin: '0 0 3rem', maxWidth: 640 } as React.CSSProperties,
-  h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.02em', margin: '3rem 0 1rem', paddingTop: '2.5rem', borderTop: '1px solid #1a1a1a' } as React.CSSProperties,
+  h2: { fontSize: '1.375rem', fontWeight: 700, letterSpacing: 0, margin: '3rem 0 1rem', paddingTop: '2.5rem', borderTop: '1px solid #1a1a1a' } as React.CSSProperties,
   p: { color: '#9ca3af', lineHeight: 1.7, margin: '0 0 1rem' } as React.CSSProperties,
 };
 
@@ -76,7 +76,7 @@ export default function Pricing() {
                   fontWeight: 800,
                   fontSize: '1.5rem',
                   color,
-                  letterSpacing: '-0.03em',
+                  letterSpacing: 0,
                 }}
               >
                 {pct}
@@ -122,7 +122,7 @@ export default function Pricing() {
         ].map(({ label, value, color }) => (
           <div key={label}>
             <div style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: '1.75rem', fontWeight: 800, color, letterSpacing: '-0.03em' }}>{value}</div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 800, color, letterSpacing: 0 }}>{value}</div>
           </div>
         ))}
       </div>

@@ -96,3 +96,7 @@ dist/
 *.out
 tmp_*.html
 
+# Demo recording scratch outputs. Keep source captures locally; commit only
+# curated, compressed public assets or explicit manifests.
+demo-recordings/*.mov
+demo-recordings/latest-codex-agentpay-mcp-demo.*
