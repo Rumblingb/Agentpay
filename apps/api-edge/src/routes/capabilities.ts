@@ -2958,7 +2958,7 @@ router.post('/lease-execute', async (c) => {
     }
     return await executeCapabilityRequest({
       env: c.env,
-      executionCtx: c.executionCtx,
+      executionCtx: c.executionCtx as ExecutionContext,
       merchant,
       capabilityId: lease.capabilityId,
       body,
@@ -3004,7 +3004,7 @@ router.post('/:capabilityId/execute', async (c) => {
 
   return await executeCapabilityRequest({
     env: c.env,
-    executionCtx: c.executionCtx,
+    executionCtx: c.executionCtx as ExecutionContext,
     merchant,
     capabilityId: c.req.param('capabilityId'),
     body,

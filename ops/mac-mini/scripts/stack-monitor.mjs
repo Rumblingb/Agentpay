@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
-const root = '/Users/baskar_viji/.openclaw';
+const root = `${process.env.HOME}/.openclaw`;
 const billWorkspace = path.join(root, 'workspace-bill');
 const agencyWorkspace = path.join(root, 'workspace-agency-os');
 const laneIds = ['jack', 'bigb', 'digital-you'];
-const billHistory = '/Users/baskar_viji/hedge/.rumbling-hedge/logs/prediction-cycle-history.jsonl';
-const billResearchCatalog = '/Users/baskar_viji/hedge/.rumbling-hedge/research/catalog.json';
+const billHistory = '${HOME}/hedge/.rumbling-hedge/logs/prediction-cycle-history.jsonl';
+const billResearchCatalog = '${HOME}/hedge/.rumbling-hedge/research/catalog.json';
 const now = new Date();
 
 function fmtAge(ms) {

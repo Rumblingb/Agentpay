@@ -87,7 +87,7 @@ function buildLoopbackFetch(c: Context<{ Bindings: Env; Variables: Variables }>)
       requestUrl.pathname.startsWith('/api/') &&
       requestUrl.pathname !== '/api/mcp'
     ) {
-      return internalFetcher(request, c.env, c.executionCtx);
+      return internalFetcher(request, c.env, c.executionCtx as ExecutionContext);
     }
 
     return globalThis.fetch(request);

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 interval="${1:-10}"
-bill_outbox="/Users/baskar_viji/.openclaw/workspace-bill/OUTBOX.md"
+bill_outbox="${HOME}/.openclaw/workspace-bill/OUTBOX.md"
 agency_outbox="/Users/baskar_viji/.openclaw/workspace-agency-os/OUTBOX.md"
 summary_dir="/Users/baskar_viji/.openclaw/workspace-bill/memory"
 while true; do
