@@ -35,6 +35,43 @@ That one command gives any MCP-compatible host the ability to:
 
 ---
 
+## Casper Buildathon Entry
+
+**Bee + Clickey: Founder-in-a-Box with Casper-Verifiable Agent Payments**
+
+Bee is the operator brain. Clickey is the desktop companion. Together they route work across a real local AI fleet, discover tools through the AgentPay Feed MCP, and stage payment receipts through founder-approved rails. For the Casper Agentic Buildathon, the project adds a Casper-native receipt path: Bee can stage `x402-casper` payment payloads and bind a Bee mandate/receipt id to a Casper Testnet transfer.
+
+Start here:
+
+- [Submission packet](CASPER_AGENTIC_BUILDATHON_SUBMISSION.md)
+- [Post-deadline recovery packet](CASPER_POST_DEADLINE_RECOVERY_PACKET.md)
+- [Bee control plane](ops/mac-mini/bee/README.md)
+- [Casper receipt runner](ops/mac-mini/bee/casper/README.md)
+
+Judges can verify the local proof path:
+
+```bash
+node --test ops/mac-mini/bee/bee.test.mjs
+ops/mac-mini/bin/bee doctor
+ops/mac-mini/bin/bee caps
+ops/mac-mini/bin/bee feed
+npm --prefix ops/mac-mini/bee/casper run proof
+npm --prefix ops/mac-mini/bee/casper run video
+```
+
+Broadcasting a real testnet proof requires a dedicated funded Casper testnet key:
+
+```bash
+CASPER_PRIVATE_KEY_HEX=<testnet-private-key-hex> \
+CASPER_RECIPIENT_PUBLIC_KEY_HEX=<recipient-public-key-hex> \
+BEE_CASPER_RECEIPT_ID=<bee-mandate-id-or-demo-receipt-id> \
+npm --prefix ops/mac-mini/bee/casper run receipt
+```
+
+Bee can prepare and stage high-impact actions, but it does not autonomously publish, upload, change OAuth/account settings, move money, or bypass founder approval. Live settlement remains founder-triggered.
+
+---
+
 ## Why it exists
 
 Agents fail at the same place every time:

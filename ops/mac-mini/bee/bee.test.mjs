@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import gestureApi from './desk/gesture-recognizer.js';
-import { approvalPacketFromOutput, canMandateTransition, isApprovableAction, ruleClassify, safetyFloor, serviceHealthy, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome } from './bee.mjs';
+import { approvalPacketFromOutput, canMandateTransition, isApprovableAction, ruleClassify, safetyFloor, serviceHealthy, settlementPayload, signApprovalWithKey, signMandateWithKey, verifyApprovalWithKey, verifyMandateWithKey, workerCommand, workerOutcome } from './bee.mjs';
 
 test('fund execution always reaches the founder approval wall', () => {
   const route = safetyFloor('Buy a futures position for Bill');
@@ -42,6 +42,10 @@ test('launchd health accepts a running PID and clean idle jobs', () => {
 });
 
 test('headless worker commands use non-interactive modes', () => {
+  const codex = workerCommand('codex', 'task', '/repo');
+  assert.deepEqual(codex.args.slice(0, 5), ['exec', '--sandbox', 'danger-full-access', '--ask-for-approval', 'never']);
+  assert.equal(codex.args.includes('--full-auto'), false);
+
   const hermes = workerCommand('nemotron', 'task', '/repo');
   assert.deepEqual(hermes.args, ['-z', 'task', '--provider', 'nvidia', '-m', 'nvidia/nemotron-3-super-120b-a12b']);
   assert.equal(hermes.args.includes('--cli'), false);
@@ -79,6 +83,25 @@ test('mandate state machine does not reopen terminal decisions', () => {
   assert.equal(canMandateTransition('rejected', 'approved'), false);
   assert.equal(canMandateTransition('executed', 'rejected'), false);
   assert.equal(canMandateTransition('expired', 'approved'), false);
+});
+
+test('Casper rail stages a Casper-native x402 receipt payload', () => {
+  const payload = settlementPayload({
+    id: 'mnd_casper',
+    intent: 'buy verified MCP capability data',
+    merchant: 'casper-capability-feed',
+    amount: 3,
+    rail: 'casper',
+    nonce: 'n_casper',
+    approval_sig: 'b'.repeat(64),
+  });
+
+  assert.equal(payload.protocol, 'x402-casper');
+  assert.equal(payload.chain, 'casper');
+  assert.equal(payload.asset, 'CSPR');
+  assert.equal(payload.memo, 'mnd_casper');
+  assert.match(payload.attestation.intent_hash, /^[a-f0-9]{64}$/);
+  assert.equal(payload.attestation.approval_sig, 'b'.repeat(64));
 });
 
 test('approval proof binds who approved, when, and how', () => {
