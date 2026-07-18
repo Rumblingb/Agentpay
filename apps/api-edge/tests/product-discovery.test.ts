@@ -14,6 +14,7 @@ const product = (overrides: Record<string, unknown> = {}) => ({
   merchantId: 'merchant_a',
   merchantName: 'Northline Goods',
   title: 'Tidepack Commuter',
+  category: 'bags',
   priceMinor: 9_600,
   currency: 'GBP',
   availability: 'in_stock',
@@ -21,6 +22,7 @@ const product = (overrides: Record<string, unknown> = {}) => ({
   imageUrl: 'https://merchant.example/images/pack-a.png',
   deliveryDays: 2,
   returnWindowDays: 45,
+  refundable: true,
   catalogUpdatedAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
   truthScore: 98,
   qualityScore: 91,
@@ -31,11 +33,16 @@ const product = (overrides: Record<string, unknown> = {}) => ({
 
 const request = (products: unknown[]) => ({
   need: 'Rain ready commute',
-  budgetMinor: 15_000,
-  currency: 'GBP',
-  maxDeliveryDays: 3,
-  minReturnDays: 30,
-  maxEvidenceAgeMinutes: 60,
+  constitution: {
+    currency: 'GBP',
+    maxTotalMinor: 15_000,
+    allowedCategories: ['bags'],
+    requiresRefundable: true,
+    minimumReturnWindowDays: 30,
+    maximumDeliveryDays: 3,
+    maxEvidenceAgeMinutes: 60,
+    requireHumanApproval: true,
+  },
   products,
 });
 
@@ -55,6 +62,15 @@ describe('need-led product discovery', () => {
     expect(report.matches.map((match) => match.product.id)).toEqual(['pack_a', 'sponsored_b']);
     expect(report.matches[1].disclosure).toBe('sponsored');
     expect(report.rankingPolicy.paidPlacementChangesOrganicRank).toBe(false);
+    expect(report).toMatchObject({
+      schema: 'agentpay.product-discovery/1.1',
+      constitution: {
+        currency: 'GBP',
+        maxTotalMinor: 15_000,
+        allowedCategories: ['bags'],
+        requireHumanApproval: true,
+      },
+    });
     expect(report.matches[0].attributionDraft).toMatchObject({
       status: 'draft_only',
       successFeeBps: 800,
@@ -66,6 +82,42 @@ describe('need-led product discovery', () => {
       source: 'caller_supplied_candidates',
       merchantConnection: 'not_verified',
     });
+  });
+
+  it('enforces category, merchant, and refund rules before ranking', () => {
+    const policyRequest = {
+      ...request([
+        product({ id: 'wrong_category', category: 'clothing' }),
+        product({ id: 'wrong_merchant', merchantId: 'merchant_b' }),
+        product({ id: 'blocked_merchant', merchantId: 'merchant_blocked' }),
+        product({ id: 'not_refundable', refundable: false }),
+      ]),
+      constitution: {
+        ...request([]).constitution,
+        allowedMerchants: ['merchant_a', 'merchant_blocked'],
+        blockedMerchants: ['merchant_blocked'],
+      },
+    };
+
+    const report = discoverProducts(policyRequest, now);
+
+    expect(report.matches).toHaveLength(0);
+    expect(report.rejected).toEqual([
+      { productId: 'wrong_category', reasonCodes: ['CATEGORY_NOT_ALLOWED'] },
+      { productId: 'wrong_merchant', reasonCodes: ['MERCHANT_NOT_ALLOWED'] },
+      { productId: 'blocked_merchant', reasonCodes: ['MERCHANT_BLOCKED'] },
+      { productId: 'not_refundable', reasonCodes: ['NOT_REFUNDABLE'] },
+    ]);
+  });
+
+  it('requires an explicit category scope', () => {
+    const noCategories = request([product()]);
+    noCategories.constitution.allowedCategories = [];
+    expect(() => discoverProducts(noCategories, now)).toThrow('constitution.allowedCategories must contain at least one explicit category');
+
+    const malformedCategory = request([product()]);
+    malformedCategory.constitution.allowedCategories = ['bags & clothing'];
+    expect(() => discoverProducts(malformedCategory, now)).toThrow('constitution.allowedCategories[0] must contain lowercase words');
   });
 
   it('fails closed on budget, delivery, returns, freshness, stock, and weak need fit', () => {

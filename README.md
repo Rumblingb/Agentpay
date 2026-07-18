@@ -37,7 +37,7 @@ That one command gives any MCP-compatible host the ability to:
 
 ## AgentPay Commerce Network
 
-AgentPay now has a focused ecommerce surface: shoppers discover products by a concrete need, deterministic rules protect budget, delivery, returns, and catalog freshness, and approved matches continue to merchant checkout. Merchants get the other side of the demand graph through catalog truth, source-grounded product imagery, and signed attribution drafts.
+AgentPay now has a focused ecommerce surface: shoppers discover products by a concrete need, then set a visual Buyer Constitution for category scope, budget, delivery, returns, merchant policy, and human approval. AgentPay enforces that constitution before optional model ranking, and approved matches continue to merchant checkout. Merchants get the other side of the demand graph through catalog truth, source-grounded product imagery, and signed attribution drafts.
 
 - Shopper experience: `/commerce`
 - Seller growth workspace: `/commerce/studio`

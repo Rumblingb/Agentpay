@@ -1,3 +1,9 @@
+import {
+  normalizeBuyerConstitution,
+  type BuyerConstitution,
+  type PreferenceWeights,
+} from './commerceDecision';
+
 export type NeedSignal = {
   need: string;
   score: number;
@@ -8,6 +14,7 @@ export type DiscoveryProduct = {
   merchantId: string;
   merchantName: string;
   title: string;
+  category: string;
   priceMinor: number;
   currency: string;
   availability: 'in_stock' | 'out_of_stock' | 'preorder' | 'backorder';
@@ -15,6 +22,7 @@ export type DiscoveryProduct = {
   imageUrl: string;
   deliveryDays: number;
   returnWindowDays: number;
+  refundable: boolean;
   catalogUpdatedAt: string;
   truthScore: number;
   qualityScore: number;
@@ -47,9 +55,10 @@ export type DiscoveryMatch = {
 };
 
 export type DiscoveryReport = {
-  schema: 'agentpay.product-discovery/1.0';
+  schema: 'agentpay.product-discovery/1.1';
   need: string;
   evaluatedAt: string;
+  constitution: BuyerConstitution & { weights: PreferenceWeights };
   rankingPolicy: {
     paidPlacementChangesOrganicRank: false;
     hardFilters: string[];
@@ -110,6 +119,14 @@ function normalizeNeed(value: unknown, field: string): string {
   return need;
 }
 
+function normalizedIdentifier(value: unknown, field: string): string {
+  const identifier = requiredString(value, field, 120).toLowerCase();
+  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(identifier)) {
+    throw new ProductDiscoveryError(`${field} must contain lowercase words, numbers, hyphens, or underscores`);
+  }
+  return identifier;
+}
+
 function normalizeProduct(raw: unknown, index: number): DiscoveryProduct {
   if (!isRecord(raw)) throw new ProductDiscoveryError(`products[${index}] must be an object`);
   const availability = requiredString(raw.availability, `products[${index}].availability`, 20) as DiscoveryProduct['availability'];
@@ -140,11 +157,15 @@ function normalizeProduct(raw: unknown, index: number): DiscoveryProduct {
   if (raw.sponsored !== undefined && typeof raw.sponsored !== 'boolean') {
     throw new ProductDiscoveryError(`products[${index}].sponsored must be a boolean`);
   }
+  if (typeof raw.refundable !== 'boolean') {
+    throw new ProductDiscoveryError(`products[${index}].refundable must be a boolean`);
+  }
   return {
     id: requiredString(raw.id, `products[${index}].id`, 200),
     merchantId: requiredString(raw.merchantId, `products[${index}].merchantId`, 200),
     merchantName: requiredString(raw.merchantName, `products[${index}].merchantName`, 300),
     title: requiredString(raw.title, `products[${index}].title`, 500),
+    category: normalizedIdentifier(raw.category, `products[${index}].category`),
     priceMinor: integer(raw.priceMinor, `products[${index}].priceMinor`, 0, 100_000_000_000),
     currency,
     availability,
@@ -152,6 +173,7 @@ function normalizeProduct(raw: unknown, index: number): DiscoveryProduct {
     imageUrl: httpsUrl(raw.imageUrl, `products[${index}].imageUrl`),
     deliveryDays: integer(raw.deliveryDays, `products[${index}].deliveryDays`, 0, 3650),
     returnWindowDays: integer(raw.returnWindowDays, `products[${index}].returnWindowDays`, 0, 3650),
+    refundable: raw.refundable,
     catalogUpdatedAt: catalogUpdatedAt.toISOString(),
     truthScore: integer(raw.truthScore, `products[${index}].truthScore`, 0, 100),
     qualityScore: integer(raw.qualityScore, `products[${index}].qualityScore`, 0, 100),
@@ -167,14 +189,18 @@ function roundScore(value: number): number {
 export function discoverProducts(raw: unknown, now = new Date()): DiscoveryReport {
   if (!isRecord(raw)) throw new ProductDiscoveryError('Request body must be an object');
   const need = normalizeNeed(raw.need, 'need');
-  const currency = requiredString(raw.currency, 'currency', 3).toUpperCase();
-  if (!/^[A-Z]{3}$/.test(currency)) throw new ProductDiscoveryError('currency must be a three-letter code');
-  const budgetMinor = integer(raw.budgetMinor, 'budgetMinor', 1, 100_000_000_000);
-  const maxDeliveryDays = raw.maxDeliveryDays === undefined ? 30 : integer(raw.maxDeliveryDays, 'maxDeliveryDays', 0, 3650);
-  const minReturnDays = raw.minReturnDays === undefined ? 0 : integer(raw.minReturnDays, 'minReturnDays', 0, 3650);
-  const maxEvidenceAgeMinutes = raw.maxEvidenceAgeMinutes === undefined
-    ? 24 * 60
-    : integer(raw.maxEvidenceAgeMinutes, 'maxEvidenceAgeMinutes', 1, 525_600);
+  let constitution: BuyerConstitution & { weights: PreferenceWeights };
+  try {
+    constitution = normalizeBuyerConstitution(raw.constitution);
+  } catch (error) {
+    throw new ProductDiscoveryError(error instanceof Error ? error.message : 'constitution is invalid');
+  }
+  if (!constitution.allowedCategories?.length) {
+    throw new ProductDiscoveryError('constitution.allowedCategories must contain at least one explicit category');
+  }
+  constitution.allowedCategories.forEach((category, index) => {
+    normalizedIdentifier(category, `constitution.allowedCategories[${index}]`);
+  });
   const limit = raw.limit === undefined ? 5 : integer(raw.limit, 'limit', 1, 20);
   if (!Array.isArray(raw.products) || raw.products.length < 1 || raw.products.length > 200) {
     throw new ProductDiscoveryError('products must contain 1-200 candidates');
@@ -185,13 +211,18 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
 
   for (const product of products) {
     const reasonCodes: string[] = [];
+    const merchant = product.merchantId.toLowerCase();
     if (product.availability !== 'in_stock') reasonCodes.push('NOT_IN_STOCK');
-    if (product.currency !== currency) reasonCodes.push('CURRENCY_MISMATCH');
-    if (product.priceMinor > budgetMinor) reasonCodes.push('OVER_BUDGET');
-    if (product.deliveryDays > maxDeliveryDays) reasonCodes.push('DELIVERY_TOO_SLOW');
-    if (product.returnWindowDays < minReturnDays) reasonCodes.push('RETURN_WINDOW_TOO_SHORT');
+    if (product.currency !== constitution.currency) reasonCodes.push('CURRENCY_MISMATCH');
+    if (product.priceMinor > constitution.maxTotalMinor) reasonCodes.push('OVER_BUDGET');
+    if (!constitution.allowedCategories.includes(product.category)) reasonCodes.push('CATEGORY_NOT_ALLOWED');
+    if (constitution.allowedMerchants?.length && !constitution.allowedMerchants.includes(merchant)) reasonCodes.push('MERCHANT_NOT_ALLOWED');
+    if (constitution.blockedMerchants?.includes(merchant)) reasonCodes.push('MERCHANT_BLOCKED');
+    if (constitution.requiresRefundable && !product.refundable) reasonCodes.push('NOT_REFUNDABLE');
+    if (constitution.maximumDeliveryDays !== undefined && product.deliveryDays > constitution.maximumDeliveryDays) reasonCodes.push('DELIVERY_TOO_SLOW');
+    if (constitution.minimumReturnWindowDays !== undefined && product.returnWindowDays < constitution.minimumReturnWindowDays) reasonCodes.push('RETURN_WINDOW_TOO_SHORT');
     const ageMs = now.getTime() - Date.parse(product.catalogUpdatedAt);
-    if (ageMs < -5 * 60_000 || ageMs > maxEvidenceAgeMinutes * 60_000) reasonCodes.push('CATALOG_STALE');
+    if (ageMs < -5 * 60_000 || ageMs > (constitution.maxEvidenceAgeMinutes ?? 24 * 60) * 60_000) reasonCodes.push('CATALOG_STALE');
     const needScore = product.needSignals.find((signal) => signal.need === need)?.score;
     if (needScore === undefined || needScore < 50) reasonCodes.push('NEED_FIT_TOO_LOW');
     if (reasonCodes.length) {
@@ -200,8 +231,8 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
     }
 
     const resolvedNeedScore = needScore ?? 0;
-    const budgetScore = Math.max(0, 100 - Math.abs(product.priceMinor - budgetMinor * 0.75) / budgetMinor * 160);
-    const returnsScore = Math.min(100, product.returnWindowDays / Math.max(minReturnDays || 30, 30) * 100);
+    const budgetScore = Math.max(0, 100 - Math.abs(product.priceMinor - constitution.maxTotalMinor * 0.75) / constitution.maxTotalMinor * 160);
+    const returnsScore = Math.min(100, product.returnWindowDays / Math.max(constitution.minimumReturnWindowDays || 30, 30) * 100);
     const reasons: DiscoveryMatch['reasons'] = [
       { code: 'NEED_FIT', score: resolvedNeedScore },
       { code: 'CATALOG_TRUTH', score: product.truthScore },
@@ -243,12 +274,13 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
     .map((match, index) => ({ ...match, rank: index + 1 }));
 
   return {
-    schema: 'agentpay.product-discovery/1.0',
+    schema: 'agentpay.product-discovery/1.1',
     need,
     evaluatedAt: now.toISOString(),
+    constitution,
     rankingPolicy: {
       paidPlacementChangesOrganicRank: false,
-      hardFilters: ['availability', 'currency', 'budget', 'delivery', 'returns', 'catalog freshness', 'minimum need fit'],
+      hardFilters: ['availability', 'currency', 'budget', 'category scope', 'merchant policy', 'refundability', 'delivery', 'returns', 'catalog freshness', 'minimum need fit'],
       weights: { needFit: 50, catalogTruth: 20, quality: 15, budgetFit: 10, returns: 5 },
     },
     catalogProvenance: {

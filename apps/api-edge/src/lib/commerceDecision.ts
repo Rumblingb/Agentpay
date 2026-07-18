@@ -167,7 +167,7 @@ function normalizeWeights(value: unknown): PreferenceWeights {
   ) as PreferenceWeights;
 }
 
-function normalizeConstitution(raw: unknown): BuyerConstitution & { weights: PreferenceWeights } {
+export function normalizeBuyerConstitution(raw: unknown): BuyerConstitution & { weights: PreferenceWeights } {
   if (!isRecord(raw)) throw new CommerceDecisionError('INVALID_REQUEST', 'constitution must be an object');
   assertString(raw.currency, 'constitution.currency', 3);
   const currency = raw.currency.trim().toUpperCase();
@@ -357,7 +357,7 @@ export async function evaluateCommerceDecision(raw: unknown, now = new Date()): 
   if (!Array.isArray(raw.candidates) || raw.candidates.length === 0 || raw.candidates.length > MAX_CANDIDATES) {
     throw new CommerceDecisionError('INVALID_REQUEST', `candidates must contain 1-${MAX_CANDIDATES} entries`);
   }
-  const constitution = normalizeConstitution(raw.constitution);
+  const constitution = normalizeBuyerConstitution(raw.constitution);
   const candidates = raw.candidates.map(normalizeCandidate);
   if (new Set(candidates.map((candidate) => candidate.id)).size !== candidates.length) {
     throw new CommerceDecisionError('INVALID_REQUEST', 'Candidate IDs must be unique');

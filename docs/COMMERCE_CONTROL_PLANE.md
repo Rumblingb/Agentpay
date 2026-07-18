@@ -6,7 +6,7 @@ Status: founder thesis and locally implemented sandbox. It is not evidence of li
 
 AgentPay will be a demand-led ecommerce network.
 
-Shoppers start with a real-life need, not a category tree or a generic AI textbox. AgentPay applies explicit budget, delivery, return, availability, and evidence rules; ranks eligible products by fit; explains the result visually; and hands the approved item to the merchant's checkout.
+Shoppers start with a real-life need, not a category tree or a generic AI textbox. They set a compact visual Buyer Constitution covering the categories an agent may consider, budget, delivery, returns, merchant policy, and approval. AgentPay enforces it before model ranking, explains the eligible result visually, and hands only the human-approved item to the merchant's checkout.
 
 Merchants get the other side of the same graph: unmet needs, catalog matches, search and agent-channel readiness, source-grounded product imagery, attribution, and a success-fee ledger.
 
@@ -39,7 +39,7 @@ The consumer chooses a visual outcome such as:
 - a quieter evening
 - useful gift under a clear budget
 
-The interface then exposes only the constraints that affect the purchase: budget, arrival window, returns, size or compatibility, and optional values. There is no blank prompt as the primary experience.
+The interface then exposes only the constraints that affect the purchase: an icon-based agent scope, budget, arrival window, returns, size or compatibility, and optional values. There is no blank prompt as the primary experience.
 
 ### 2. Honest Match
 
@@ -178,7 +178,7 @@ Primary references:
 
 `POST /api/commerce/compile` turns AI into a bounded reasoning stage rather than a replacement for product truth:
 
-1. AgentPay first rejects products that fail stock, currency, budget, delivery, returns, freshness, or minimum-fit rules.
+1. AgentPay normalizes the Buyer Constitution and first rejects products that fail category scope, merchant policy, stock, currency, budget, refundability, delivery, returns, freshness, or minimum-fit rules.
 2. AgentPay replaces the surviving product IDs with opaque candidate references. GPT-5.6 receives only those references and structured numeric scores; product text, raw IDs, checkout URLs, merchant identity, sponsorship, private conversations, and payment data are omitted.
 3. The model must return every opaque candidate exactly once using an enumerated rationale vocabulary. AgentPay maps verified references back to products; the model cannot write product claims.
 4. AgentPay verifies the candidate set, order, alternate, confidence, and rationale codes.
@@ -186,6 +186,12 @@ Primary references:
 6. The complete discovery and compilation packet is signed. Human approval still precedes merchant checkout.
 
 This is meaningful AI work: comparing tradeoffs among policy-safe products. It is not permission to relax a hard constraint, invent a fact, or execute a purchase.
+
+### Commerce 1.1 Migration Gate
+
+The local `CommerceCompileRequest` 1.1 contract intentionally replaces the legacy top-level `budgetMinor`, `currency`, `maxDeliveryDays`, `minReturnDays`, and `maxEvidenceAgeMinutes` fields with a required `constitution`. Every candidate also requires `category` and `refundable`; signed discovery and compilation packets move to `agentpay.product-discovery/1.1` and `agentpay.commerce-compilation-packet/1.1`.
+
+This change is not deployed. Before release, inventory every external caller of `/api/commerce/compile`. If any 1.0 client exists, ship a separately approved versioned adapter or migration window; do not infer an all-category constitution from the old request. The dashboard BFF and MCP tools already emit 1.1 locally.
 
 AI may:
 

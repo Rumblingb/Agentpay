@@ -19,6 +19,7 @@ import {
   PackageCheck,
   Route,
   ShieldCheck,
+  Shirt,
   ShoppingBag,
   SlidersHorizontal,
   Sparkles,
@@ -31,7 +32,14 @@ import {
 import { useMemo, useState } from 'react';
 
 import styles from './commerce.module.css';
-import { NEEDS, PRODUCTS, type Need, type Product } from './commerceCatalog';
+import {
+  NEEDS,
+  PRODUCTS,
+  SCOPE_CATEGORIES,
+  type Need,
+  type Product,
+  type ScopeMode,
+} from './commerceCatalog';
 
 type Stage = 'review' | 'checkout' | 'receipt';
 
@@ -65,6 +73,13 @@ const NEED_ICON = {
   gift: Gift,
 } satisfies Record<Need, typeof Route>;
 
+const SCOPES: Array<{ id: ScopeMode; label: string; icon: typeof ShoppingBag }> = [
+  { id: 'all', label: 'Any', icon: ShoppingBag },
+  { id: 'wear', label: 'Wear', icon: Shirt },
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'audio', label: 'Audio', icon: Headphones },
+];
+
 function money(amountMinor: number) {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amountMinor / 100);
 }
@@ -78,6 +93,7 @@ export default function CommerceWorkspace() {
   const [budgetMinor, setBudgetMinor] = useState(15_000);
   const [maxDeliveryDays, setMaxDeliveryDays] = useState(3);
   const [easyReturns, setEasyReturns] = useState(true);
+  const [scopeMode, setScopeMode] = useState<ScopeMode>('all');
   const [selectedId, setSelectedId] = useState('tidepack-commuter');
   const [approved, setApproved] = useState(false);
   const [stage, setStage] = useState<Stage>('review');
@@ -85,12 +101,14 @@ export default function CommerceWorkspace() {
   const [compiler, setCompiler] = useState<CompilerState>({ status: 'idle' });
 
   const needConfig = NEEDS.find((item) => item.id === need) ?? NEEDS[0];
+  const allowedCategories = SCOPE_CATEGORIES[scopeMode];
   const baseRanked = useMemo(() => PRODUCTS
+    .filter((product) => allowedCategories.includes(product.category))
     .filter((product) => product.priceMinor <= budgetMinor)
     .filter((product) => product.deliveryDays <= maxDeliveryDays)
     .filter((product) => !easyReturns || product.returnDays >= 30)
     .filter((product) => product.needScores[need] >= 50)
-    .sort((a, b) => b.needScores[need] - a.needScores[need]), [budgetMinor, easyReturns, maxDeliveryDays, need]);
+    .sort((a, b) => b.needScores[need] - a.needScores[need]), [allowedCategories, budgetMinor, easyReturns, maxDeliveryDays, need]);
   const ranked = useMemo(() => {
     if (compiler.status !== 'success') return baseRanked;
     const positions = new Map(compiler.data.ranking.map((item, index) => [item.productId, index]));
@@ -118,7 +136,7 @@ export default function CommerceWorkspace() {
       const response = await fetch('/api/commerce/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ need, budgetMinor, maxDeliveryDays, easyReturns }),
+        body: JSON.stringify({ need, scopeMode, budgetMinor, maxDeliveryDays, easyReturns }),
       });
       if (!response.ok) throw new Error('compiler unavailable');
       const payload = await response.json() as { packet?: { compilation?: Compilation } };
@@ -161,6 +179,7 @@ export default function CommerceWorkspace() {
     setBudgetMinor(needConfig.budgetMinor);
     setMaxDeliveryDays(3);
     setEasyReturns(true);
+    setScopeMode('all');
     invalidateCompiler();
   }
 
@@ -225,6 +244,27 @@ export default function CommerceWorkspace() {
           </div>
 
           <div className={styles.briefControls}>
+            <div className={styles.scopeControl}>
+              <span><ShieldCheck aria-hidden="true" /> Agent scope</span>
+              <div>
+                {SCOPES.map((scope) => {
+                  const Icon = scope.icon;
+                  return (
+                    <button
+                      aria-label={`Limit agent to ${scope.label.toLowerCase()} products`}
+                      aria-pressed={scopeMode === scope.id}
+                      className={scopeMode === scope.id ? styles.scopeActive : undefined}
+                      key={scope.id}
+                      title={scope.label}
+                      type="button"
+                      onClick={() => { setScopeMode(scope.id); invalidateCompiler(); }}
+                    >
+                      <Icon aria-hidden="true" /><small>{scope.label}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <label className={styles.rangeControl}>
               <span><CircleDollarSign aria-hidden="true" /> Budget <strong>{money(budgetMinor)}</strong></span>
               <input
@@ -303,7 +343,15 @@ export default function CommerceWorkspace() {
             </div>
 
             <aside className={styles.choicePanel} aria-label="Selected product approval">
-              {stage === 'review' ? (
+              {!ranked.length ? (
+                <div className={styles.choiceUnavailable}>
+                  <ShieldCheck aria-hidden="true" />
+                  <p>Constitution held</p>
+                  <h3>No product passed every rule.</h3>
+                  <span>Change the scope or brief to continue.</span>
+                </div>
+              ) : null}
+              {ranked.length && stage === 'review' ? (
                 <>
                   <div className={styles.choiceTop}>
                     <span className={styles.choiceThumb}><Image src={selected.image} alt="" fill sizes="72px" style={{ objectFit: 'cover', objectPosition: selected.imagePosition }} /></span>
@@ -343,7 +391,7 @@ export default function CommerceWorkspace() {
                 </>
               ) : null}
 
-              {stage === 'checkout' ? (
+              {ranked.length && stage === 'checkout' ? (
                 <div className={styles.checkoutState}>
                   <div className={styles.checkoutBrand}><Store aria-hidden="true" /><span>{selected.merchant}</span><small>Sandbox checkout</small></div>
                   <span className={styles.checkoutProduct}><Image src={selected.image} alt="" fill sizes="96px" style={{ objectFit: 'cover', objectPosition: selected.imagePosition }} /></span>
@@ -356,7 +404,7 @@ export default function CommerceWorkspace() {
                 </div>
               ) : null}
 
-              {stage === 'receipt' ? (
+              {ranked.length && stage === 'receipt' ? (
                 <div className={styles.receiptState}>
                   <CheckCircle2 aria-hidden="true" />
                   <p>Sandbox complete</p>

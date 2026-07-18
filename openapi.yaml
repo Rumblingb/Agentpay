@@ -504,8 +504,9 @@ paths:
       tags: [Commerce]
       summary: Compile a governed product shortlist
       description: |
-        Applies deterministic stock, currency, budget, delivery, returns, catalog-freshness,
-        and minimum-fit constraints before optional GPT-5.6 ranking. The model receives only
+        Applies the human-owned Buyer Constitution's deterministic category, merchant, stock,
+        currency, budget, refundability, delivery, returns, catalog-freshness, and minimum-fit
+        constraints before optional GPT-5.6 ranking. The model receives only
         opaque candidate references and structured numeric evidence; product text, raw product
         IDs, checkout URLs, merchant identity, sponsorship, payment data, and free-form customer
         text are excluded.
@@ -1042,40 +1043,81 @@ components:
           items:
             type: string
 
+    BuyerConstitution:
+      type: object
+      additionalProperties: false
+      description: Human-owned hard limits enforced before any model ranking.
+      required: [currency, maxTotalMinor, allowedCategories]
+      properties:
+        currency:
+          type: string
+          pattern: '^[A-Za-z]{3}$'
+          example: GBP
+        maxTotalMinor:
+          type: integer
+          minimum: 1
+          maximum: 100000000000
+          example: 15000
+        allowedCategories:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 120
+          example: [bags, clothing]
+        allowedMerchants:
+          type: array
+          maxItems: 100
+          items: { type: string, maxLength: 120 }
+        blockedMerchants:
+          type: array
+          maxItems: 100
+          items: { type: string, maxLength: 120 }
+        requiresRefundable:
+          type: boolean
+          default: false
+        minimumReturnWindowDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        maximumDeliveryDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+        maxEvidenceAgeMinutes:
+          type: integer
+          minimum: 1
+          maximum: 525600
+          default: 1440
+        requireHumanApproval:
+          type: boolean
+          default: true
+        autoApproveBelowMinor:
+          type: integer
+          minimum: 1
+          maximum: 100000000000
+        weights:
+          type: object
+          additionalProperties: false
+          properties:
+            price: { type: number, minimum: 0, maximum: 100 }
+            quality: { type: number, minimum: 0, maximum: 100 }
+            delivery: { type: number, minimum: 0, maximum: 100 }
+            sustainability: { type: number, minimum: 0, maximum: 100 }
+
     CommerceCompileRequest:
       type: object
       additionalProperties: false
-      required: [need, budgetMinor, currency, products]
+      required: [need, constitution, products]
       properties:
         need:
           type: string
           maxLength: 80
           pattern: '^[a-zA-Z0-9]+(?:[ -][a-zA-Z0-9]+)*$'
           example: rain-ready-commute
-        budgetMinor:
-          type: integer
-          minimum: 1
-          maximum: 100000000000
-          example: 15000
-        currency:
-          type: string
-          pattern: '^[A-Za-z]{3}$'
-          example: GBP
-        maxDeliveryDays:
-          type: integer
-          minimum: 0
-          maximum: 3650
-          default: 30
-        minReturnDays:
-          type: integer
-          minimum: 0
-          maximum: 3650
-          default: 0
-        maxEvidenceAgeMinutes:
-          type: integer
-          minimum: 1
-          maximum: 525600
-          default: 1440
+        constitution:
+          $ref: '#/components/schemas/BuyerConstitution'
         limit:
           type: integer
           minimum: 1
@@ -1096,6 +1138,7 @@ components:
         - merchantId
         - merchantName
         - title
+        - category
         - priceMinor
         - currency
         - availability
@@ -1103,6 +1146,7 @@ components:
         - imageUrl
         - deliveryDays
         - returnWindowDays
+        - refundable
         - catalogUpdatedAt
         - truthScore
         - qualityScore
@@ -1112,6 +1156,10 @@ components:
         merchantId: { type: string, maxLength: 200 }
         merchantName: { type: string, maxLength: 300 }
         title: { type: string, maxLength: 500 }
+        category:
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9]+(?:[-_][a-z0-9]+)*$'
         priceMinor: { type: integer, minimum: 0, maximum: 100000000000 }
         currency: { type: string, pattern: '^[A-Za-z]{3}$' }
         availability:
@@ -1121,6 +1169,7 @@ components:
         imageUrl: { type: string, format: uri, pattern: '^https://' }
         deliveryDays: { type: integer, minimum: 0, maximum: 3650 }
         returnWindowDays: { type: integer, minimum: 0, maximum: 3650 }
+        refundable: { type: boolean }
         catalogUpdatedAt: { type: string, format: date-time }
         truthScore: { type: integer, minimum: 0, maximum: 100 }
         qualityScore: { type: integer, minimum: 0, maximum: 100 }
@@ -1151,7 +1200,7 @@ components:
           properties:
             schema:
               type: string
-              const: agentpay.commerce-compilation-packet/1.0
+              const: agentpay.commerce-compilation-packet/1.1
             discovery:
               $ref: '#/components/schemas/CommerceDiscoveryReport'
             compilation:
@@ -1161,12 +1210,14 @@ components:
 
     CommerceDiscoveryReport:
       type: object
-      description: Deterministic discovery result over caller-supplied candidates.
-      required: [schema, need, evaluatedAt, rankingPolicy, catalogProvenance, matches, rejected, retention]
+      description: Constitution-constrained deterministic discovery result over caller-supplied candidates.
+      required: [schema, need, evaluatedAt, constitution, rankingPolicy, catalogProvenance, matches, rejected, retention]
       properties:
-        schema: { type: string, const: agentpay.product-discovery/1.0 }
+        schema: { type: string, const: agentpay.product-discovery/1.1 }
         need: { type: string }
         evaluatedAt: { type: string, format: date-time }
+        constitution:
+          $ref: '#/components/schemas/BuyerConstitution'
         rankingPolicy:
           type: object
           properties:

@@ -60,13 +60,13 @@ router.post('/compile', async (c) => {
     const body = await c.req.json() as Record<string, unknown>;
     const discovery = discoverProducts(body);
     const compilation = await compileCommerceDecision(discovery, {
-      budgetMinor: Number(body.budgetMinor),
-      currency: String(body.currency).toUpperCase(),
-      maxDeliveryDays: body.maxDeliveryDays === undefined ? 30 : Number(body.maxDeliveryDays),
-      minReturnDays: body.minReturnDays === undefined ? 0 : Number(body.minReturnDays),
+      budgetMinor: discovery.constitution.maxTotalMinor,
+      currency: discovery.constitution.currency,
+      maxDeliveryDays: discovery.constitution.maximumDeliveryDays ?? 30,
+      minReturnDays: discovery.constitution.minimumReturnWindowDays ?? 0,
     }, c.env);
     const packet: CommerceCompilationPacket = {
-      schema: 'agentpay.commerce-compilation-packet/1.0',
+      schema: 'agentpay.commerce-compilation-packet/1.1',
       discovery,
       compilation,
     };

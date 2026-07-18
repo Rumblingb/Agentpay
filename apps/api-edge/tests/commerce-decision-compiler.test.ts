@@ -16,6 +16,7 @@ const product = (id: string, overrides: Record<string, unknown> = {}) => ({
   merchantId: `merchant_${id}`,
   merchantName: `Merchant ${id}`,
   title: `Product ${id}`,
+  category: 'bags',
   priceMinor: 7_500,
   currency: 'GBP',
   availability: 'in_stock',
@@ -23,6 +24,7 @@ const product = (id: string, overrides: Record<string, unknown> = {}) => ({
   imageUrl: `https://merchant.example/images/${id}.png`,
   deliveryDays: 2,
   returnWindowDays: 45,
+  refundable: true,
   catalogUpdatedAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
   truthScore: 95,
   qualityScore: 90,
@@ -33,11 +35,16 @@ const product = (id: string, overrides: Record<string, unknown> = {}) => ({
 
 const request = {
   need: 'rain-ready-commute',
-  budgetMinor: 15_000,
-  currency: 'GBP',
-  maxDeliveryDays: 3,
-  minReturnDays: 30,
-  maxEvidenceAgeMinutes: 60,
+  constitution: {
+    currency: 'GBP',
+    maxTotalMinor: 15_000,
+    allowedCategories: ['bags'],
+    requiresRefundable: true,
+    minimumReturnWindowDays: 30,
+    maximumDeliveryDays: 3,
+    maxEvidenceAgeMinutes: 60,
+    requireHumanApproval: true,
+  },
   products: [
     product('alpha'),
     product('beta', { needSignals: [{ need: 'rain-ready-commute', score: 84 }] }),
@@ -92,6 +99,7 @@ describe('GPT-5.6 commerce decision compiler', () => {
     expect(serialized).not.toContain('Product alpha');
     expect(serialized).not.toContain('merchant_alpha');
     expect(serialized).not.toContain('"alpha"');
+    expect(serialized).not.toContain('"bags"');
   });
 
   it('rejects invented products and falls back to deterministic order', async () => {
@@ -121,7 +129,10 @@ describe('GPT-5.6 commerce decision compiler', () => {
       source: 'deterministic',
       fallbackReason: 'not_configured',
     });
-    const empty = discoverProducts({ ...request, budgetMinor: 100 }, now);
+    const empty = discoverProducts({
+      ...request,
+      constitution: { ...request.constitution, maxTotalMinor: 100 },
+    }, now);
     await expect(compileCommerceDecision(empty, { ...context, budgetMinor: 100 }, {} as Env)).resolves.toMatchObject({
       selectedProductId: null,
       fallbackReason: 'no_eligible_products',
@@ -165,7 +176,7 @@ describe('GPT-5.6 commerce decision compiler', () => {
     const discovery = discoverProducts(request, now);
     const compilation = await compileCommerceDecision(discovery, context, {} as Env);
     const packet: CommerceCompilationPacket = {
-      schema: 'agentpay.commerce-compilation-packet/1.0',
+      schema: 'agentpay.commerce-compilation-packet/1.1',
       discovery,
       compilation,
     };
@@ -199,7 +210,10 @@ describe('GPT-5.6 commerce decision compiler', () => {
         Authorization: 'Bearer sk_test_sim',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ...request, maxEvidenceAgeMinutes: 24 * 60 }),
+      body: JSON.stringify({
+        ...request,
+        constitution: { ...request.constitution, maxEvidenceAgeMinutes: 24 * 60 },
+      }),
     }, routeEnv as Env);
 
     expect(response.status).toBe(200);
@@ -210,6 +224,13 @@ describe('GPT-5.6 commerce decision compiler', () => {
     expect(body.packet.compilation).toMatchObject({
       source: 'gpt-5.6-verified',
       selectedProductId: 'alpha',
+    });
+    expect(body.packet).toMatchObject({
+      schema: 'agentpay.commerce-compilation-packet/1.1',
+      discovery: {
+        schema: 'agentpay.product-discovery/1.1',
+        constitution: { allowedCategories: ['bags'], requireHumanApproval: true },
+      },
     });
     expect(body.signature.value).toMatch(/^[a-f0-9]{64}$/);
   });

@@ -39,7 +39,7 @@ export type CommerceCompilation = {
 };
 
 export type CommerceCompilationPacket = {
-  schema: 'agentpay.commerce-compilation-packet/1.0';
+  schema: 'agentpay.commerce-compilation-packet/1.1';
   discovery: DiscoveryReport;
   compilation: CommerceCompilation;
 };

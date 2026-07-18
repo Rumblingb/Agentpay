@@ -193,6 +193,42 @@ const arbitraryObjectArraySchema = (description: string) => ({
   description,
 });
 
+const buyerConstitutionSchema = {
+  type: 'object' as const,
+  additionalProperties: false,
+  description: 'Human-owned hard limits applied before any model ranking. allowedCategories must be explicit and non-empty.',
+  properties: {
+    currency: { type: 'string', description: 'Three-letter currency code.' },
+    maxTotalMinor: { type: 'integer', minimum: 1, description: 'Hard per-purchase ceiling in minor currency units.' },
+    allowedCategories: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string' },
+      description: 'Explicit category scope, for example ["books", "clothing"].',
+    },
+    allowedMerchants: { type: 'array', maxItems: 100, items: { type: 'string' } },
+    blockedMerchants: { type: 'array', maxItems: 100, items: { type: 'string' } },
+    requiresRefundable: { type: 'boolean', default: false },
+    minimumReturnWindowDays: { type: 'integer', minimum: 0, maximum: 3650 },
+    maximumDeliveryDays: { type: 'integer', minimum: 0, maximum: 3650 },
+    maxEvidenceAgeMinutes: { type: 'integer', minimum: 1, maximum: 525600 },
+    requireHumanApproval: { type: 'boolean', default: true },
+    autoApproveBelowMinor: { type: 'integer', minimum: 1 },
+    weights: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        price: { type: 'number', minimum: 0, maximum: 100 },
+        quality: { type: 'number', minimum: 0, maximum: 100 },
+        delivery: { type: 'number', minimum: 0, maximum: 100 },
+        sustainability: { type: 'number', minimum: 0, maximum: 100 },
+      },
+    },
+  },
+  required: ['currency', 'maxTotalMinor', 'allowedCategories'],
+};
+
 export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_intent_status',
   'agentpay_get_receipt',
@@ -298,9 +334,7 @@ const RAW_TOOLS: Tool[] = [
           type: 'string',
           description: 'What the human is trying to buy and why, in plain language.',
         },
-        constitution: arbitraryObjectSchema(
-          'Hard buyer rules: currency, maxTotalMinor, allowedCategories, allowedMerchants, blockedMerchants, requiresRefundable, minimumReturnWindowDays, maximumDeliveryDays, maxEvidenceAgeMinutes, requireHumanApproval, autoApproveBelowMinor, and preference weights.',
-        ),
+        constitution: buyerConstitutionSchema,
         candidates: arbitraryObjectArraySchema(
           'Structured candidates. Each needs id, name, merchantId, merchantName, category, priceMinor, currency, refundable, returnWindowDays, deliveryDays, optional qualityScore/sustainabilityScore, and HTTPS timestamped evidence.',
         ),
@@ -311,7 +345,7 @@ const RAW_TOOLS: Tool[] = [
   {
     name: 'agentpay_discover_products',
     description:
-      'Rank caller-supplied catalog candidates for a concrete human need using deterministic budget, delivery, returns, availability, and catalog-freshness filters. ' +
+      'Rank caller-supplied catalog candidates inside a human-owned Buyer Constitution using deterministic category, merchant, budget, delivery, returns, availability, and catalog-freshness filters. ' +
       'Returns transparent fit factors, explicit sponsorship disclosure, supplied checkout URLs, and a signed draft attribution record. ' +
       'It does not verify a merchant feed, inventory, checkout, or merchant agreement. ' +
       'Paid placement never changes organic rank. Use this when helping a human discover products by outcome instead of by category.',
@@ -319,23 +353,19 @@ const RAW_TOOLS: Tool[] = [
       type: 'object' as const,
       properties: {
         need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
-        budgetMinor: { type: 'integer', description: 'Maximum product price in minor currency units.' },
-        currency: { type: 'string', description: 'Three-letter currency code.' },
-        maxDeliveryDays: { type: 'integer', description: 'Maximum acceptable delivery time in whole days.' },
-        minReturnDays: { type: 'integer', description: 'Minimum acceptable return window in whole days.' },
-        maxEvidenceAgeMinutes: { type: 'integer', description: 'Maximum catalog evidence age. Defaults to 1440 minutes.' },
+        constitution: buyerConstitutionSchema,
         limit: { type: 'integer', description: 'Maximum matches to return, from 1 to 20.' },
         products: arbitraryObjectArraySchema(
-          'Caller-supplied catalog candidates with needSignals, price, stock, supplied checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. AgentPay does not verify their merchant connection or inventory.',
+          'Caller-supplied catalog candidates with category, refundable, needSignals, price, stock, supplied checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. AgentPay does not verify their merchant connection or inventory.',
         ),
       },
-      required: ['need', 'budgetMinor', 'currency', 'products'],
+      required: ['need', 'constitution', 'products'],
     },
   },
   {
     name: 'agentpay_compile_product_decision',
     description:
-      'Apply deterministic commerce filters, then ask GPT-5.6 to rank only the surviving caller-supplied products using enumerated evidence codes. ' +
+      'Apply a human-owned Buyer Constitution, then ask GPT-5.6 to rank only the surviving caller-supplied products using enumerated evidence codes. ' +
       'The model receives opaque candidate references and numeric scores, never product text, raw IDs, checkout data, merchant identity, or sponsorship. ' +
       'The server verifies that every eligible product appears exactly once and rejects invented products, facts, sponsorship influence, and freeform claims. ' +
       'Returns a signed packet and deterministic fallback when the model is unavailable or invalid. This tool never creates a mandate, checkout, or payment.',
@@ -343,17 +373,13 @@ const RAW_TOOLS: Tool[] = [
       type: 'object' as const,
       properties: {
         need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
-        budgetMinor: { type: 'integer', description: 'Maximum product price in minor currency units.' },
-        currency: { type: 'string', description: 'Three-letter currency code.' },
-        maxDeliveryDays: { type: 'integer', description: 'Maximum acceptable delivery time in whole days.' },
-        minReturnDays: { type: 'integer', description: 'Minimum acceptable return window in whole days.' },
-        maxEvidenceAgeMinutes: { type: 'integer', description: 'Maximum catalog evidence age. Defaults to 1440 minutes.' },
+        constitution: buyerConstitutionSchema,
         limit: { type: 'integer', description: 'Maximum eligible products passed to the compiler, from 1 to 20.' },
         products: arbitraryObjectArraySchema(
-          'Caller-supplied catalog candidates with needSignals, price, stock, checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. Checkout URLs and sponsorship are removed before the model call.',
+          'Caller-supplied catalog candidates with category, refundable, needSignals, price, stock, checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. Checkout URLs and sponsorship are removed before the model call.',
         ),
       },
-      required: ['need', 'budgetMinor', 'currency', 'products'],
+      required: ['need', 'constitution', 'products'],
     },
   },
   {
@@ -1546,11 +1572,7 @@ export async function handleTool(
         method: 'POST',
         body: JSON.stringify({
           need: args.need,
-          budgetMinor: args.budgetMinor,
-          currency: args.currency,
-          maxDeliveryDays: args.maxDeliveryDays,
-          minReturnDays: args.minReturnDays,
-          maxEvidenceAgeMinutes: args.maxEvidenceAgeMinutes,
+          constitution: args.constitution,
           limit: args.limit,
           products: args.products,
         }),
@@ -1563,11 +1585,7 @@ export async function handleTool(
         method: 'POST',
         body: JSON.stringify({
           need: args.need,
-          budgetMinor: args.budgetMinor,
-          currency: args.currency,
-          maxDeliveryDays: args.maxDeliveryDays,
-          minReturnDays: args.minReturnDays,
-          maxEvidenceAgeMinutes: args.maxEvidenceAgeMinutes,
+          constitution: args.constitution,
           limit: args.limit,
           products: args.products,
         }),
