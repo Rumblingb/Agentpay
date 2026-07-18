@@ -91,6 +91,11 @@ crons = [
 #   ADMIN_SECRET_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 [env.staging]
 name = "agentpay-api-staging"
+# CRITICAL: routes is inheritable. Without an empty override, staging steals
+# production custom domains (api.agentpay.so / agentpay.so) on every deploy.
+# See: https://github.com/cloudflare/workers-sdk/issues/13925
+routes = []
+workers_dev = true
 
 [env.staging.vars]
 CORS_ORIGIN = "http://localhost:3000,https://apay-staging.vercel.app"
