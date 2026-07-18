@@ -43,6 +43,7 @@ wrangler secret put ADMIN_EMAIL              # optional — Bro ops alert inbox
 wrangler secret put RAZORPAY_KEY_ID          # optional — India UPI payment links
 wrangler secret put RAZORPAY_KEY_SECRET      # optional — India UPI payment links
 wrangler secret put RAZORPAY_WEBHOOK_SECRET  # optional — /webhooks/razorpay verification
+wrangler secret put OPENAI_API_KEY            # optional — enables GPT commerce compilation
 ```
 
 | Secret | Description |
@@ -65,6 +66,7 @@ wrangler secret put RAZORPAY_WEBHOOK_SECRET  # optional — /webhooks/razorpay v
 | `RAZORPAY_KEY_ID` | Enables live India UPI payment links. |
 | `RAZORPAY_KEY_SECRET` | Paired secret for `RAZORPAY_KEY_ID`. |
 | `RAZORPAY_WEBHOOK_SECRET` | HMAC secret used to verify `/webhooks/razorpay`. |
+| `OPENAI_API_KEY` | Enables the closed-world commerce compiler. Compilation fails closed in every environment unless both committed Cloudflare quota bindings are present. |
 
 **Important:** `AGENTPAY_TEST_MODE` must be absent or `"false"` in production. The Workers API enforces this on startup — it will reject requests if test-mode bypass is active in a production environment.
 
@@ -78,6 +80,13 @@ These are non-sensitive and can be committed in `apps/api-edge/wrangler.toml`. O
 | `CORS_ORIGIN` | `"https://apay-delta.vercel.app,https://dashboard.agentpay.gg"` | Comma-separated list of allowed CORS origins. |
 | `API_BASE_URL` | `"https://api.agentpay.so"` | Public base URL of this Workers deployment. Used for absolute callback URLs. |
 | `FRONTEND_URL` | `"https://apay-delta.vercel.app"` | Dashboard URL for post-payment redirects. |
+| `OPENAI_COMMERCE_MODEL` | `"gpt-5.6"` | Optional allowlisted commerce model selector; unsupported values fall back to `gpt-5.6`. |
+
+### Commerce compiler quotas
+
+`wrangler.toml` declares separate Cloudflare Rate Limiting bindings for shopper fairness (6 calls per minute) and merchant budget containment (60 calls per minute). Production and staging use distinct namespace IDs because bindings are not inherited across Wrangler environments.
+
+[Cloudflare documents](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) these counters as location-local, permissive, and eventually consistent. They are an abuse-control layer, not a usage ledger or guaranteed global spending cap. Before adding `OPENAI_API_KEY`, set a hard provider-side project budget and verify both bindings on the target Worker. The API returns `503 COMMERCE_RATE_CONTROL_UNAVAILABLE` instead of calling the model if a binding is absent or errors.
 
 ### Hyperdrive
 

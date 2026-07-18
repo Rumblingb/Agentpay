@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
 
 import { API_BASE } from '@/lib/api';
@@ -15,12 +17,25 @@ function validInteger(value: unknown, min: number, max: number): value is number
   return Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
 }
 
+function shopperRateKey(request: NextRequest, secret: string): string {
+  const network = request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()
+    ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ?? request.headers.get('x-real-ip')
+    ?? 'unknown';
+  const utcDay = new Date().toISOString().slice(0, 10);
+  return createHmac('sha256', secret).update(`${utcDay}:${network}`).digest('hex');
+}
+
 export async function POST(request: NextRequest) {
   if (process.env.AGENTPAY_COMMERCE_DEMO_ENABLED !== 'true') {
     return noStoreJson({ error: 'Commerce compiler is not enabled' }, 503);
   }
   const apiKey = process.env.AGENTPAY_INTERNAL_API_KEY;
   if (!apiKey) return noStoreJson({ error: 'Commerce compiler is not configured' }, 503);
+  const rateKeySecret = process.env.AGENTPAY_COMMERCE_RATE_KEY_SECRET;
+  if (!rateKeySecret || rateKeySecret.length < 32) {
+    return noStoreJson({ error: 'Commerce compiler rate control is not configured' }, 503);
+  }
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
     return noStoreJson({ error: 'JSON content type required' }, 415);
   }
@@ -56,6 +71,7 @@ export async function POST(request: NextRequest) {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'X-AgentPay-Consumer-Key': shopperRateKey(request, rateKeySecret),
         },
         cache: 'no-store',
         signal: controller.signal,

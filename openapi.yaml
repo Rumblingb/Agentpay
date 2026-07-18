@@ -536,18 +536,20 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '429':
-          description: Compiler request limit exceeded; retry after the response header interval
+          description: Isolate, shopper, or merchant compiler capacity exceeded; retry after the response header interval
           headers:
             Retry-After:
               schema: { type: integer }
             X-RateLimit-Limit:
               schema: { type: integer, const: 6 }
+            X-AgentPay-Rate-Scope:
+              schema: { type: string, enum: [shopper, merchant] }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
-          description: Packet signing is not configured
+          description: Packet signing or model-funded compiler rate control is not configured
 
   /api/marketplace/discover:
     get:

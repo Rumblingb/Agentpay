@@ -14,6 +14,7 @@ import {
   signDiscoveryReport,
 } from '../lib/productDiscovery';
 import { authenticateApiKey } from '../middleware/auth';
+import { commerceCompilerBudgetMiddleware } from '../middleware/commerceCompilerBudget';
 import { auditCatalogTruth, CatalogTruthError } from '../lib/catalogTruth';
 import {
   compileCommerceDecision,
@@ -52,6 +53,7 @@ router.use('/evaluate', authenticateApiKey);
 router.use('/catalog/audit', authenticateApiKey);
 router.use('/discover', authenticateApiKey);
 router.use('/compile', authenticateApiKey);
+router.use('/compile', commerceCompilerBudgetMiddleware);
 
 router.post('/compile', async (c) => {
   try {

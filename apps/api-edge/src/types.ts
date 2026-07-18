@@ -269,6 +269,10 @@ export interface Env {
   OPENAI_CODE_MODEL?: string;
   /** GPT-5.6 family model used by the closed-world commerce decision compiler. */
   OPENAI_COMMERCE_MODEL?: string;
+  /** Cloudflare per-shopper commerce compiler quota (6 calls per minute). */
+  COMMERCE_COMPILER_SHOPPER_LIMITER?: RateLimitBinding;
+  /** Cloudflare per-merchant commerce compiler budget (60 calls per minute). */
+  COMMERCE_COMPILER_MERCHANT_LIMITER?: RateLimitBinding;
   /** "cheap-first" uses configured local inference before hosted providers. */
   MODEL_ROUTER_POLICY?: string;
   /** OpenAI-compatible local inference base URL, such as an Ollama /v1 endpoint. */
@@ -489,6 +493,11 @@ export interface Env {
    * npx wrangler secret put ADMIN_WHATSAPP_NUMBER
    */
   ADMIN_WHATSAPP_NUMBER?: string;
+}
+
+/** Structural subset of Cloudflare's RateLimit binding used by the Worker. */
+export interface RateLimitBinding {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
 // ---------------------------------------------------------------------------

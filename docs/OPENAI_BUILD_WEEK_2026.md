@@ -47,9 +47,9 @@ OPENAI_API_KEY=<server-side secret>
 OPENAI_COMMERCE_MODEL=gpt-5.6
 ```
 
-The OpenAI key stays in the Worker. The browser calls a Next.js BFF route, which is disabled unless `AGENTPAY_COMMERCE_DEMO_ENABLED=true` and a server-side `AGENTPAY_INTERNAL_API_KEY` are configured.
+The OpenAI key stays in the Worker. The browser calls a Next.js BFF route, which is disabled unless `AGENTPAY_COMMERCE_DEMO_ENABLED=true`, a server-side `AGENTPAY_INTERNAL_API_KEY`, and a separate `AGENTPAY_COMMERCE_RATE_KEY_SECRET` are configured. The BFF HMACs the [Vercel-provided client network address](https://vercel.com/docs/headers/request-headers) with a daily UTC epoch and sends only the resulting opaque key upstream; it does not log or forward the address.
 
-The Worker gives compilation a fixed six-request-per-minute IP bucket that API tiers cannot multiply. This isolate-local limit is a safety backstop, not the production authority; the public demo still requires a matching Cloudflare zone-level rule or equivalent hard upstream budget before enablement.
+The Worker now layers three controls before a model call: the original fixed six-request-per-minute network bucket, a Cloudflare six-per-minute shopper binding, and a Cloudflare 60-per-minute merchant budget. API tiers cannot multiply them. Any Worker with an OpenAI key fails closed if either binding is missing or errors. [Cloudflare documents](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) these counters as location-local, permissive, and eventually consistent, so they contain abuse but are not authoritative accounting; the public demo still requires a hard OpenAI project budget before enablement.
 
 ## Submission-Period Work
 
@@ -61,6 +61,7 @@ AgentPay existed before the July 13 submission period. The entry is the meaningf
 | `d1235c00` | Governed commerce decisions, provider intent controls, signed receipts, replay and cap safety |
 | `2523412c` | Need-led shopper experience, seller studio, discovery API, catalog truth, MCP discovery, SEO and visual system |
 | this follow-on commit | GPT-5.6 decision compiler, BFF integration, MCP compiler, OpenAPI contract, adversarial tests, and this evidence packet |
+| rate-control follow-on | Privacy-safe shopper pseudonym, Cloudflare shopper/merchant quotas, production fail-closed guard, and abuse tests |
 
 The dated commit history and primary Codex task are the build evidence. Pre-existing AgentPay surfaces should be described as the foundation, not claimed as Build Week work.
 
@@ -92,6 +93,7 @@ For the interactive local demo, run the Worker with test-mode authentication and
 AGENTPAY_API_BASE_URL=http://127.0.0.1:8787
 AGENTPAY_INTERNAL_API_KEY=<local-test-merchant-key>
 AGENTPAY_COMMERCE_DEMO_ENABLED=true
+AGENTPAY_COMMERCE_RATE_KEY_SECRET=<at-least-32-random-characters>
 ```
 
 No live payment provider is required. The checkout and receipt are explicitly sandbox-only.
@@ -135,7 +137,7 @@ The final video must be public on YouTube, include English audio, contain no cre
 
 - Obtain the `/feedback` Session ID from the primary Codex task where the majority of this extension was built.
 - Push the reviewed submission-period commits to `Rumblingb/Agentpay` and make the judging branch publicly accessible.
-- Configure a bounded demo Worker and dashboard with server-side secrets, a six-request-per-minute Cloudflare zone-level rule (or stricter equivalent), a hard OpenAI project budget, and public edge verification that matches the video.
+- Configure the bounded demo Worker and dashboard with server-side secrets, verify both committed Cloudflare rate-limit bindings at the edge, set a hard OpenAI project budget, and capture public edge evidence that matches the video.
 - Record and upload the narrated public YouTube demo.
 - Verify the Devpost account, eligibility, project fields, repository URL, category, and video immediately before submission.
 - Founder must perform or explicitly authorize the final Devpost submission because submitting accepts the official rules as a contract.

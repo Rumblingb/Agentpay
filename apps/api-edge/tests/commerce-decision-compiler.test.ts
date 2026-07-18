@@ -185,6 +185,13 @@ describe('GPT-5.6 commerce decision compiler', () => {
     })));
     const app = new Hono<{ Bindings: Env; Variables: Variables }>();
     app.route('/api/commerce', commerceRouter);
+    const routeEnv: Partial<Env> = {
+      AGENTPAY_TEST_MODE: 'true',
+      OPENAI_API_KEY: 'test-openai-key',
+      AGENTPAY_SIGNING_SECRET: 'commerce-route-signing-secret-long-enough',
+      COMMERCE_COMPILER_SHOPPER_LIMITER: { limit: async () => ({ success: true }) },
+      COMMERCE_COMPILER_MERCHANT_LIMITER: { limit: async () => ({ success: true }) },
+    };
 
     const response = await app.request('/api/commerce/compile', {
       method: 'POST',
@@ -193,11 +200,7 @@ describe('GPT-5.6 commerce decision compiler', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ ...request, maxEvidenceAgeMinutes: 24 * 60 }),
-    }, {
-      AGENTPAY_TEST_MODE: 'true',
-      OPENAI_API_KEY: 'test-openai-key',
-      AGENTPAY_SIGNING_SECRET: 'commerce-route-signing-secret-long-enough',
-    } as Env);
+    }, routeEnv as Env);
 
     expect(response.status).toBe(200);
     const body = await response.json() as {
