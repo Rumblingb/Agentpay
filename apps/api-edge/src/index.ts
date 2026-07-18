@@ -60,6 +60,9 @@ import { mcpRouter } from './routes/mcp';
 import { mcpOAuthRouter } from './routes/mcpOAuth';
 import { capabilitiesRouter } from './routes/capabilities';
 import { actionsRouter } from './routes/actions';
+import { paymentProvidersRouter } from './routes/paymentProviders';
+import { paymentProviderWebhooksRouter } from './routes/paymentProviderWebhooks';
+import { commerceRouter } from './routes/commerce';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -209,6 +212,11 @@ app.route('/api/approvals', approvalsRouter);
 
 // Payment method setup (Stripe Setup Intent + saved cards) — /api/payments/*
 app.route('/api/payments', paymentsSetupRouter);
+// Provider-neutral payment status + governed intent creation.
+app.route('/api/payments', paymentProvidersRouter);
+
+// Evidence-backed buyer decisions and signed portable choice receipts.
+app.route('/api/commerce', commerceRouter);
 
 // Hosted remote MCP — /api/mcp and /api/mcp/info
 app.route('/api/mcp', mcpRouter);
@@ -247,6 +255,8 @@ app.route('/webhooks/razorpay', paymentsUpiRouter);
 
 // Airwallex webhook — POST /webhooks/airwallex (HMAC-SHA256 verified)
 app.route('/webhooks/airwallex', airwallexWebhooksRouter);
+// Dedicated, fast provider-state webhooks for the governed payment API.
+app.route('/webhooks/payment-providers', paymentProviderWebhooksRouter);
 
 // Stubs for non-migrated endpoints (returns 501 instead of 404)
 app.route('/', stubsRouter);

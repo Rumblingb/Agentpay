@@ -26,4 +26,40 @@ RTT_PASSWORD="your_rtt_password"
 STRIPE_SECRET_KEY="sk_test_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
 
+# ── Provider-neutral payments (deny-by-default sandbox) ──────────────────────
+# Keep live disabled until each provider account, webhook, and compliance review is complete.
+AGENTPAY_PAYMENT_MODE="sandbox"
+AGENTPAY_LIVE_PAYMENTS_ENABLED="false"
+AGENTPAY_PAYMENTS_ENABLED="false"
+AGENTPAY_ALLOWED_PAYMENT_PROVIDERS="stripe,airwallex,x402"
+AGENTPAY_ALLOWED_PAYMENT_CURRENCIES="USD,GBP,EUR"
+AGENTPAY_ALLOWED_PAYMENT_AGENTS=""
+AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS="agentpay.so,app.agentpay.so"
+# Generate and store a distinct base64url-encoded 32-byte AES-GCM key outside source control.
+# Required before Stripe or Airwallex provider intents become configured.
+AGENTPAY_PAYMENT_RESPONSE_ENCRYPTION_KEY=""
+AGENTPAY_MAX_PAYMENT_MINOR="10000"
+AGENTPAY_MAX_DAILY_PAYMENT_MINOR="50000"
+
+# Dedicated webhook endpoints keep this provider flow isolated from legacy handlers.
+STRIPE_PROVIDER_WEBHOOK_SECRET=""
+AIRWALLEX_PROVIDER_WEBHOOK_SECRET=""
+
+# Airwallex demo credentials and webhook subscription secret.
+AIRWALLEX_CLIENT_ID=""
+AIRWALLEX_API_KEY=""
+AIRWALLEX_WEBHOOK_SECRET=""
+AIRWALLEX_SANDBOX="true"
+
+# x402 is non-custodial: allowlist canonical network/asset IDs and recipient addresses.
+# No wallet seed phrase or raw private key belongs in this file or Worker.
+AGENTPAY_ALLOWED_CRYPTO_NETWORKS=""
+AGENTPAY_ALLOWED_CRYPTO_ASSETS=""
+AGENTPAY_ALLOWED_CRYPTO_RECIPIENTS=""
+
+# Visa remains disabled until Visa Acceptance/Cybersource enables a concrete product.
+VISA_CYBERSOURCE_MERCHANT_ID=""
+VISA_CYBERSOURCE_KEY_ID=""
+VISA_CYBERSOURCE_SHARED_SECRET=""
+
 RESEND_API_KEY="re_..."
