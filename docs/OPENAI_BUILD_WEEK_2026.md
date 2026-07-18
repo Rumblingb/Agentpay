@@ -49,6 +49,8 @@ OPENAI_COMMERCE_MODEL=gpt-5.6
 
 The OpenAI key stays in the Worker. The browser calls a Next.js BFF route, which is disabled unless `AGENTPAY_COMMERCE_DEMO_ENABLED=true` and a server-side `AGENTPAY_INTERNAL_API_KEY` are configured.
 
+The Worker gives compilation a fixed six-request-per-minute IP bucket that API tiers cannot multiply. This isolate-local limit is a safety backstop, not the production authority; the public demo still requires a matching Cloudflare zone-level rule or equivalent hard upstream budget before enablement.
+
 ## Submission-Period Work
 
 AgentPay existed before the July 13 submission period. The entry is the meaningful commerce extension built afterward:
@@ -133,7 +135,7 @@ The final video must be public on YouTube, include English audio, contain no cre
 
 - Obtain the `/feedback` Session ID from the primary Codex task where the majority of this extension was built.
 - Push the reviewed submission-period commits to `Rumblingb/Agentpay` and make the judging branch publicly accessible.
-- Configure a bounded demo Worker and dashboard with server-side secrets and abuse controls; verify the public route matches the video.
+- Configure a bounded demo Worker and dashboard with server-side secrets, a six-request-per-minute Cloudflare zone-level rule (or stricter equivalent), a hard OpenAI project budget, and public edge verification that matches the video.
 - Record and upload the narrated public YouTube demo.
 - Verify the Devpost account, eligibility, project fields, repository URL, category, and video immediately before submission.
 - Founder must perform or explicitly authorize the final Devpost submission because submitting accepts the official rules as a contract.

@@ -535,6 +535,17 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          description: Compiler request limit exceeded; retry after the response header interval
+          headers:
+            Retry-After:
+              schema: { type: integer }
+            X-RateLimit-Limit:
+              schema: { type: integer, const: 6 }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '503':
           description: Packet signing is not configured
 
