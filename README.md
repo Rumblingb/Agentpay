@@ -47,6 +47,7 @@ AgentPay now has a focused ecommerce surface: shoppers discover products by a co
 - MCP tools: `agentpay_discover_products`, `agentpay_compile_product_decision`, and `agentpay_audit_catalog_truth`
 - Founder and SEO specification: [docs/COMMERCE_CONTROL_PLANE.md](./docs/COMMERCE_CONTROL_PLANE.md)
 - OpenAI Build Week evidence and judge runbook: [docs/OPENAI_BUILD_WEEK_2026.md](./docs/OPENAI_BUILD_WEEK_2026.md)
+- Dated hackathon reuse decisions and event-specific build boundaries: [docs/HACKATHON_REUSE_2026-07-18.md](./docs/HACKATHON_REUSE_2026-07-18.md)
 
 The included inventory and demand indexes are sandbox fixtures. They do not represent live merchants, customers, orders, or revenue. Merchant connections, public inventory, conversion webhooks, fee collection, and deployment remain separate approval and validation gates.
 
