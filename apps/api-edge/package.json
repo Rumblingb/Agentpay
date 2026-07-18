@@ -22,7 +22,7 @@
     "@types/node": "^20.19.43",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2",
-    "wrangler": "^4.97.0"
+    "wrangler": "^4.112.0"
   },
   "overrides": {
     "undici": "7.24.1"
