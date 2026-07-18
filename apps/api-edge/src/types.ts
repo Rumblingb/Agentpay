@@ -79,6 +79,44 @@ export interface Env {
   /** Airwallex webhook signing secret — for verifying /webhooks/airwallex. */
   AIRWALLEX_WEBHOOK_SECRET?: string;
 
+  /** Dedicated Stripe signature secret for /webhooks/payment-providers/stripe. */
+  STRIPE_PROVIDER_WEBHOOK_SECRET?: string;
+  /** Dedicated Airwallex signature secret for /webhooks/payment-providers/airwallex. */
+  AIRWALLEX_PROVIDER_WEBHOOK_SECRET?: string;
+
+  // ── Unified payment policy (deny-by-default) ─────────────────────────────
+  /** "sandbox" by default. "live" also requires AGENTPAY_LIVE_PAYMENTS_ENABLED=true. */
+  AGENTPAY_PAYMENT_MODE?: string;
+  /** Explicit production kill-switch. Never set true until provider onboarding is complete. */
+  AGENTPAY_LIVE_PAYMENTS_ENABLED?: string;
+  /** Master policy switch. Payments remain disabled unless exactly "true". */
+  AGENTPAY_PAYMENTS_ENABLED?: string;
+  /** Comma-separated provider allowlist: stripe,airwallex,visa_cybersource,x402. */
+  AGENTPAY_ALLOWED_PAYMENT_PROVIDERS?: string;
+  /** Comma-separated uppercase ISO 4217 currency allowlist. */
+  AGENTPAY_ALLOWED_PAYMENT_CURRENCIES?: string;
+  /** Optional comma-separated agent ID allowlist. */
+  AGENTPAY_ALLOWED_PAYMENT_AGENTS?: string;
+  /** Comma-separated HTTPS redirect hosts allowed for hosted provider checkout. */
+  AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS?: string;
+  /** Base64url-encoded 32-byte AES-GCM key for short-lived provider action data at rest. */
+  AGENTPAY_PAYMENT_RESPONSE_ENCRYPTION_KEY?: string;
+  /** Maximum integer amount in the currency's smallest unit per payment. */
+  AGENTPAY_MAX_PAYMENT_MINOR?: string;
+  /** Maximum integer amount in smallest units per merchant/day. */
+  AGENTPAY_MAX_DAILY_PAYMENT_MINOR?: string;
+  /** x402 network allowlist (for example eip155:8453,solana:mainnet). */
+  AGENTPAY_ALLOWED_CRYPTO_NETWORKS?: string;
+  /** x402 asset allowlist. Use canonical CAIP-19 identifiers or verified mint addresses. */
+  AGENTPAY_ALLOWED_CRYPTO_ASSETS?: string;
+  /** x402 recipient allowlist. AgentPay never stores or accepts private keys. */
+  AGENTPAY_ALLOWED_CRYPTO_RECIPIENTS?: string;
+
+  // Visa is intentionally status-only until the account has a concrete approved product.
+  VISA_CYBERSOURCE_MERCHANT_ID?: string;
+  VISA_CYBERSOURCE_KEY_ID?: string;
+  VISA_CYBERSOURCE_SHARED_SECRET?: string;
+
   // ── URLs & CORS ───────────────────────────────────────────────────────────
   /**
    * Comma-separated list of allowed CORS origins.
@@ -223,8 +261,28 @@ export interface Env {
   AI?: Ai;
   /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
+  /** Anthropic model for high-stakes reasoning routes. */
+  ANTHROPIC_REASON_MODEL?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** OpenAI model for code-generation routes. */
+  OPENAI_CODE_MODEL?: string;
+  /** GPT-5.6 family model used by the closed-world commerce decision compiler. */
+  OPENAI_COMMERCE_MODEL?: string;
+  /** Cloudflare per-shopper commerce compiler quota (6 calls per minute). */
+  COMMERCE_COMPILER_SHOPPER_LIMITER?: RateLimitBinding;
+  /** Cloudflare per-merchant commerce compiler budget (60 calls per minute). */
+  COMMERCE_COMPILER_MERCHANT_LIMITER?: RateLimitBinding;
+  /** "cheap-first" uses configured local inference before hosted providers. */
+  MODEL_ROUTER_POLICY?: string;
+  /** OpenAI-compatible local inference base URL, such as an Ollama /v1 endpoint. */
+  OLLAMA_BASE_URL?: string;
+  /** Local model used for extraction. */
+  OLLAMA_EXTRACT_MODEL?: string;
+  /** Local model used for reasoning before hosted fallback. */
+  OLLAMA_REASON_MODEL?: string;
+  /** In-memory cache TTL in seconds for deterministic local extraction calls. */
+  LLM_CACHE_TTL_SECONDS?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. Fallback when Cartesia is unavailable. */
   ELEVENLABS_API_KEY?: string;
   /** Cartesia API key — primary TTS provider (Sonic-3). npx wrangler secret put CARTESIA_API_KEY */
@@ -435,6 +493,11 @@ export interface Env {
    * npx wrangler secret put ADMIN_WHATSAPP_NUMBER
    */
   ADMIN_WHATSAPP_NUMBER?: string;
+}
+
+/** Structural subset of Cloudflare's RateLimit binding used by the Worker. */
+export interface RateLimitBinding {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
 // ---------------------------------------------------------------------------

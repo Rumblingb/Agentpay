@@ -17,6 +17,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/registry' ||
     pathname === '/trust' ||
     pathname === '/build' ||
+    pathname.startsWith('/commerce') ||
     pathname === '/for-billing' ||
     pathname === '/rcm-signup' ||
     pathname === '/rcm-onboard';

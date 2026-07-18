@@ -73,6 +73,10 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 | `agentpay_create_payment_intent` | Create a USDC payment intent and return a Solana Pay URI |
 | `agentpay_get_intent_status` | Check whether a payment has been confirmed on-chain |
 | `agentpay_get_receipt` | Get the full settlement receipt for a payment |
+| `agentpay_evaluate_purchase` | Apply a Buyer Constitution to researched candidates and return a signed portable Choice Receipt before any mandate or payment |
+| `agentpay_discover_products` | Enforce an explicit Buyer Constitution, then rank caller-supplied catalog candidates with transparent fit factors, sponsorship disclosure, provenance warnings, and a signed draft attribution record |
+| `agentpay_compile_product_decision` | Enforce category, merchant, budget, refund, delivery, and approval rules before GPT-5.6; verify its closed-world ranking and return a signed packet or deterministic fallback without exposing product identity, checkout, or sponsorship data to the model |
+| `agentpay_audit_catalog_truth` | Detect product-data drift across search, agent, protocol, and checkout channel snapshots |
 | `agentpay_parse_upi_payment_request` | Parse and normalize a raw `upi://pay` URI or decoded QR payload through `/api/payments/upi/parse` |
 | `agentpay_get_passport` | Look up an agent's trust score and interaction history |
 | `agentpay_get_identity_bundle` | Fetch the portable identity bundle through `/api/foundation-agents/identity` |
@@ -108,6 +112,18 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 ## Example Claude Prompt
 
 Once configured, you can ask Claude:
+
+> "Given these catalog candidates, rank bags and clothing for a rain-ready commute under GBP 150 that arrive within three days and allow at least 30-day returns. Put those rules in my Buyer Constitution, require my approval, disclose sponsorship, and do not relax any limit."
+
+Claude will call `agentpay_discover_products`, return only eligible supplied candidates, show the fit factors and provenance warning, and preserve the supplied checkout plus draft attribution evidence. It will not treat the report as proof of live inventory, a merchant connection, or a fee agreement.
+
+> "Compile the safest shortlist under that Buyer Constitution. Do not add a category, merchant, or product that did not pass it."
+
+Claude will call `agentpay_compile_product_decision`. AgentPay runs the hard filters first, replaces product IDs with opaque references, sends GPT-5.6 only structured numeric evidence, verifies the returned references and rationale codes, and falls back to deterministic rank if the model invents or omits anything. The tool does not create a mandate or payment.
+
+> "Audit this product across its landing page, Google Merchant, OpenAI feed, UCP, and checkout before recommending it."
+
+Claude will call `agentpay_audit_catalog_truth` and return exact drift, freshness, shipping, returns, and identifier issues.
 
 > "Create a governed mandate to book a train from London to Manchester, and show me the current mandate state."
 

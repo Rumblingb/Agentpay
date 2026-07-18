@@ -193,9 +193,49 @@ const arbitraryObjectArraySchema = (description: string) => ({
   description,
 });
 
+const buyerConstitutionSchema = {
+  type: 'object' as const,
+  additionalProperties: false,
+  description: 'Human-owned hard limits applied before any model ranking. allowedCategories must be explicit and non-empty.',
+  properties: {
+    currency: { type: 'string', description: 'Three-letter currency code.' },
+    maxTotalMinor: { type: 'integer', minimum: 1, description: 'Hard per-purchase ceiling in minor currency units.' },
+    allowedCategories: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string' },
+      description: 'Explicit category scope, for example ["books", "clothing"].',
+    },
+    allowedMerchants: { type: 'array', maxItems: 100, items: { type: 'string' } },
+    blockedMerchants: { type: 'array', maxItems: 100, items: { type: 'string' } },
+    requiresRefundable: { type: 'boolean', default: false },
+    minimumReturnWindowDays: { type: 'integer', minimum: 0, maximum: 3650 },
+    maximumDeliveryDays: { type: 'integer', minimum: 0, maximum: 3650 },
+    maxEvidenceAgeMinutes: { type: 'integer', minimum: 1, maximum: 525600 },
+    requireHumanApproval: { type: 'boolean', default: true },
+    autoApproveBelowMinor: { type: 'integer', minimum: 1 },
+    weights: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        price: { type: 'number', minimum: 0, maximum: 100 },
+        quality: { type: 'number', minimum: 0, maximum: 100 },
+        delivery: { type: 'number', minimum: 0, maximum: 100 },
+        sustainability: { type: 'number', minimum: 0, maximum: 100 },
+      },
+    },
+  },
+  required: ['currency', 'maxTotalMinor', 'allowedCategories'],
+};
+
 export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_intent_status',
   'agentpay_get_receipt',
+  'agentpay_evaluate_purchase',
+  'agentpay_discover_products',
+  'agentpay_compile_product_decision',
+  'agentpay_audit_catalog_truth',
   'agentpay_parse_upi_payment_request',
   'agentpay_get_passport',
   'agentpay_get_identity_bundle',
@@ -278,6 +318,86 @@ const RAW_TOOLS: Tool[] = [
         },
       },
       required: ['intentId'],
+    },
+  },
+  {
+    name: 'agentpay_evaluate_purchase',
+    description:
+      'Evaluate product or service candidates against a human-owned Buyer Constitution. ' +
+      'AgentPay applies deterministic budget, merchant, category, delivery, returns, evidence-freshness, and approval rules; ' +
+      'then returns a ranked recommendation, rejected options, explicit tradeoffs, a proposed one-time mandate, and a signed portable Choice Receipt. ' +
+      'Use this after research and before creating or approving a purchase mandate.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        intent: {
+          type: 'string',
+          description: 'What the human is trying to buy and why, in plain language.',
+        },
+        constitution: buyerConstitutionSchema,
+        candidates: arbitraryObjectArraySchema(
+          'Structured candidates. Each needs id, name, merchantId, merchantName, category, priceMinor, currency, refundable, returnWindowDays, deliveryDays, optional qualityScore/sustainabilityScore, and HTTPS timestamped evidence.',
+        ),
+      },
+      required: ['intent', 'constitution', 'candidates'],
+    },
+  },
+  {
+    name: 'agentpay_discover_products',
+    description:
+      'Rank caller-supplied catalog candidates inside a human-owned Buyer Constitution using deterministic category, merchant, budget, delivery, returns, availability, and catalog-freshness filters. ' +
+      'Returns transparent fit factors, explicit sponsorship disclosure, supplied checkout URLs, and a signed draft attribution record. ' +
+      'It does not verify a merchant feed, inventory, checkout, or merchant agreement. ' +
+      'Paid placement never changes organic rank. Use this when helping a human discover products by outcome instead of by category.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
+        constitution: buyerConstitutionSchema,
+        limit: { type: 'integer', description: 'Maximum matches to return, from 1 to 20.' },
+        products: arbitraryObjectArraySchema(
+          'Caller-supplied catalog candidates with category, refundable, needSignals, price, stock, supplied checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. AgentPay does not verify their merchant connection or inventory.',
+        ),
+      },
+      required: ['need', 'constitution', 'products'],
+    },
+  },
+  {
+    name: 'agentpay_compile_product_decision',
+    description:
+      'Apply a human-owned Buyer Constitution, then ask GPT-5.6 to rank only the surviving caller-supplied products using enumerated evidence codes. ' +
+      'The model receives opaque candidate references and numeric scores, never product text, raw IDs, checkout data, merchant identity, or sponsorship. ' +
+      'The server verifies that every eligible product appears exactly once and rejects invented products, facts, sponsorship influence, and freeform claims. ' +
+      'Returns a signed packet and deterministic fallback when the model is unavailable or invalid. This tool never creates a mandate, checkout, or payment.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
+        constitution: buyerConstitutionSchema,
+        limit: { type: 'integer', description: 'Maximum eligible products passed to the compiler, from 1 to 20.' },
+        products: arbitraryObjectArraySchema(
+          'Caller-supplied catalog candidates with category, refundable, needSignals, price, stock, checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. Checkout URLs and sponsorship are removed before the model call.',
+        ),
+      },
+      required: ['need', 'constitution', 'products'],
+    },
+  },
+  {
+    name: 'agentpay_audit_catalog_truth',
+    description:
+      'Audit one ecommerce product across landing-page, Schema.org, Google Merchant, OpenAI feed, UCP, and checkout snapshots. ' +
+      'Returns deterministic price, currency, availability, freshness, shipping, returns, identifier, URL, and AI-disclosure issues. ' +
+      'Use this before claiming a product is search-ready, agent-ready, or checkout-ready.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        productId: { type: 'string', description: 'Stable merchant product or variant identifier.' },
+        maxAgeMinutes: { type: 'integer', description: 'Maximum acceptable snapshot age. Defaults to 1440 minutes.' },
+        snapshots: arbitraryObjectArraySchema(
+          'Two or more channel snapshots. Supported channels: landing_page, schema_org, google_merchant, openai_feed, ucp, checkout.',
+        ),
+      },
+      required: ['productId', 'snapshots'],
     },
   },
   {
@@ -1435,6 +1555,56 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'agentpay_evaluate_purchase': {
+      const data = await apiFetch('/api/commerce/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({
+          intent: args.intent,
+          constitution: args.constitution,
+          candidates: args.candidates,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_discover_products': {
+      const data = await apiFetch('/api/commerce/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          need: args.need,
+          constitution: args.constitution,
+          limit: args.limit,
+          products: args.products,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_compile_product_decision': {
+      const data = await apiFetch('/api/commerce/compile', {
+        method: 'POST',
+        body: JSON.stringify({
+          need: args.need,
+          constitution: args.constitution,
+          limit: args.limit,
+          products: args.products,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_audit_catalog_truth': {
+      const data = await apiFetch('/api/commerce/catalog/audit', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: args.productId,
+          maxAgeMinutes: args.maxAgeMinutes,
+          snapshots: args.snapshots,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
     case 'agentpay_parse_upi_payment_request': {
       if (!args.upiUrl && !args.qrText) {
         throw new Error('Provide either upiUrl or qrText');
@@ -1630,6 +1800,3 @@ export function createAgentPayMcpServer(
 
   return server;
 }
-
-
-

@@ -17,6 +17,7 @@
  *   'oauth_email_link'  5  req / 60s  — email-link delivery / anti-spam
  *   'oauth_email_confirm' 20 req / 60s — signed email-link confirmation
  *   'oauth_token'       30 req / 60s  — auth-code token exchange
+ *   'commerce_compile'   6  req / 60s  — server-funded GPT commerce compilation
  *   'default'           120 req / 60s — everything else
  */
 
@@ -70,6 +71,7 @@ const BASE_LIMITS: Record<string, { max: number; windowMs: number }> = {
   oauth_email_link:{ max: 5,  windowMs: 60_000 },
   oauth_email_confirm:{ max: 20, windowMs: 60_000 },
   oauth_token:    { max: 30,  windowMs: 60_000 },
+  commerce_compile:{ max: 6,  windowMs: 60_000 },
   default:        { max: 120, windowMs: 60_000 },
 };
 
@@ -86,6 +88,7 @@ function getBucket(path: string, method: string): string {
   if (method === 'POST' && /\/v1\/payment-intents$/.test(path))    return 'intent_create';
   if (method === 'POST' && path.includes('/verify'))               return 'intent_verify';
   if (method === 'POST' && path.includes('/v1/agents/register'))   return 'agent_register';
+  if (method === 'POST' && path === '/api/commerce/compile')       return 'commerce_compile';
   if (method === 'GET'  && path.startsWith('/api/passport'))       return 'passport_read';
   if (method === 'GET'  && path.includes('/agentrank'))            return 'agentrank_read';
   return 'default';
@@ -107,8 +110,9 @@ export const rateLimitMiddleware: MiddlewareHandler<{ Bindings: Env; Variables: 
   const tier   = getApiTier(c.req.raw);
   const bucket = getBucket(c.req.path, c.req.method);
   const base   = BASE_LIMITS[bucket];
-  // passport_read stays the same across tiers (free product)
-  const multiplier = bucket === 'passport_read' || bucket.startsWith('oauth_') ? 1 : TIER_MULTIPLIER[tier];
+  // Free/auth routes and server-funded model routes keep fixed limits across tiers.
+  const fixedLimit = bucket === 'passport_read' || bucket === 'commerce_compile' || bucket.startsWith('oauth_');
+  const multiplier = fixedLimit ? 1 : TIER_MULTIPLIER[tier];
   const max        = base.max * multiplier;
   const { windowMs } = base;
 

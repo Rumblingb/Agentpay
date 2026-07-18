@@ -24,18 +24,18 @@
  *   }
  *
  * Database check:
- *   Phase 4 — deferred (no Postgres client wired yet).
- *   The database service is reported as 'operational' so /health returns 200
- *   and the Workers deployment can be verified without a live DB connection.
- *   Phase 5 will replace this with a real SELECT 1 via the `postgres` package
- *   once the Hyperdrive / direct-URL connection is configured.
+ *   Runs a bounded SELECT 1 through Hyperdrive (or DATABASE_URL in local/CI).
+ *   Missing configuration, connection failures, and timeouts fail readiness
+ *   closed with a 503 instead of reporting a false-positive healthy service.
  */
 
 import { Hono, type Context } from 'hono';
+import { createDb, type Sql } from '../lib/db';
 import type { Env } from '../types';
 
 // Must stay in sync with src/server.ts API_VERSION
 const API_VERSION = '1.0.0';
+const DATABASE_PROBE_TIMEOUT_MS = 2_000;
 
 const router = new Hono<{ Bindings: Env }>();
 
@@ -44,10 +44,31 @@ const router = new Hono<{ Bindings: Env }>();
 // ---------------------------------------------------------------------------
 
 async function healthHandler(c: Context<{ Bindings: Env }>) {
-  // Phase 4: database check deferred — Postgres client added in Phase 5.
-  // The Express backend returns 503 when the DB is unreachable; once Phase 5
-  // wires the client, this will run `SELECT 1` and report 'degraded' on error.
-  const dbStatus: 'operational' | 'degraded' = 'operational';
+  let dbStatus: 'operational' | 'degraded' = 'degraded';
+  let sql: Sql | undefined;
+
+  try {
+    sql = createDb(c.env);
+    await Promise.race([
+      sql`SELECT 1`,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('DATABASE_PROBE_TIMEOUT')), DATABASE_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+    dbStatus = 'operational';
+  } catch {
+    // Do not log driver errors here: connection strings and host details can
+    // appear in them. The request ID and degraded status are enough to trace.
+    console.error('[health] database probe failed');
+  } finally {
+    if (sql) {
+      try {
+        await sql.end({ timeout: 1 });
+      } catch {
+        console.error('[health] database client cleanup failed');
+      }
+    }
+  }
 
   const overallStatus = dbStatus === 'operational' ? 'active' : 'degraded';
   const httpStatus = overallStatus === 'active' ? 200 : 503;

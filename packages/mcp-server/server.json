@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Rumblingb/agentpay",
   "title": "AgentPay",
-  "description": "Agent payments, API key vaulting, and governed mandates. Agents spend within user-defined limits.",
+  "description": "Need-led product discovery, catalog truth, governed checkout, agent payments, API key vaulting, and user-owned mandates.",
   "repository": {
     "url": "https://github.com/Rumblingb/Agentpay",
     "source": "github"
@@ -15,6 +15,22 @@
     }
   ],
   "tools": [
+    {
+      "name": "agentpay_discover_products",
+      "description": "Rank caller-supplied catalog candidates for a human need using hard budget, delivery, return, stock, and freshness rules with explicit sponsorship disclosure. It does not verify merchant inventory, checkout, or a merchant agreement."
+    },
+    {
+      "name": "agentpay_compile_product_decision",
+      "description": "Filter products deterministically, let GPT-5.6 reason only over eligible evidence, verify the closed candidate set, and return a signed decision packet with a safe fallback."
+    },
+    {
+      "name": "agentpay_audit_catalog_truth",
+      "description": "Audit product truth across landing page, structured data, feeds, UCP, and checkout before an agent recommends or buys it."
+    },
+    {
+      "name": "agentpay_evaluate_purchase",
+      "description": "Apply deterministic buyer rules to researched candidates and return a ranked recommendation, rejected options, tradeoffs, and a signed portable Choice Receipt."
+    },
     {
       "name": "agentpay_create_mandate",
       "description": "Create a governed mandate — a user-approved authorisation for an agent to spend money or call external services within a defined budget and policy."
