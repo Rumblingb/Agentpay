@@ -267,6 +267,8 @@ export interface Env {
   OPENAI_API_KEY?: string;
   /** OpenAI model for code-generation routes. */
   OPENAI_CODE_MODEL?: string;
+  /** GPT-5.6 family model used by the closed-world commerce decision compiler. */
+  OPENAI_COMMERCE_MODEL?: string;
   /** "cheap-first" uses configured local inference before hosted providers. */
   MODEL_ROUTER_POLICY?: string;
   /** OpenAI-compatible local inference base URL, such as an Ollama /v1 endpoint. */

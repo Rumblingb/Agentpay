@@ -174,6 +174,19 @@ Primary references:
 
 ## AI Policy
 
+### Closed-World Decision Compiler
+
+`POST /api/commerce/compile` turns AI into a bounded reasoning stage rather than a replacement for product truth:
+
+1. AgentPay first rejects products that fail stock, currency, budget, delivery, returns, freshness, or minimum-fit rules.
+2. AgentPay replaces the surviving product IDs with opaque candidate references. GPT-5.6 receives only those references and structured numeric scores; product text, raw IDs, checkout URLs, merchant identity, sponsorship, private conversations, and payment data are omitted.
+3. The model must return every opaque candidate exactly once using an enumerated rationale vocabulary. AgentPay maps verified references back to products; the model cannot write product claims.
+4. AgentPay verifies the candidate set, order, alternate, confidence, and rationale codes.
+5. Invalid, refused, timed-out, or unavailable model output falls back to the deterministic order.
+6. The complete discovery and compilation packet is signed. Human approval still precedes merchant checkout.
+
+This is meaningful AI work: comparing tradeoffs among policy-safe products. It is not permission to relax a hard constraint, invent a fact, or execute a purchase.
+
 AI may:
 
 - map structured product attributes to a shopper need

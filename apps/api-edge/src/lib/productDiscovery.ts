@@ -33,6 +33,7 @@ export type DiscoveryMatch = {
   disclosure: 'organic' | 'sponsored';
   attributionDraft: {
     schema: 'agentpay.attribution-draft/1.0';
+    status: 'draft_only';
     productId: string;
     merchantId: string;
     successFeeBps: 800;
@@ -40,6 +41,8 @@ export type DiscoveryMatch = {
     settlement: 'after_return_window';
     returnWindowDays: number;
     expiresAt: string;
+    requiresMerchantAgreement: true;
+    requiresVerifiedConversionWebhook: true;
   };
 };
 
@@ -51,6 +54,11 @@ export type DiscoveryReport = {
     paidPlacementChangesOrganicRank: false;
     hardFilters: string[];
     weights: Record<string, number>;
+  };
+  catalogProvenance: {
+    source: 'caller_supplied_candidates';
+    merchantConnection: 'not_verified';
+    warning: string;
   };
   matches: DiscoveryMatch[];
   rejected: Array<{ productId: string; reasonCodes: string[] }>;
@@ -215,6 +223,7 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
       disclosure: product.sponsored ? 'sponsored' : 'organic',
       attributionDraft: {
         schema: 'agentpay.attribution-draft/1.0',
+        status: 'draft_only',
         productId: product.id,
         merchantId: product.merchantId,
         successFeeBps: 800,
@@ -222,6 +231,8 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
         settlement: 'after_return_window',
         returnWindowDays: product.returnWindowDays,
         expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(),
+        requiresMerchantAgreement: true,
+        requiresVerifiedConversionWebhook: true,
       },
     });
   }
@@ -239,6 +250,11 @@ export function discoverProducts(raw: unknown, now = new Date()): DiscoveryRepor
       paidPlacementChangesOrganicRank: false,
       hardFilters: ['availability', 'currency', 'budget', 'delivery', 'returns', 'catalog freshness', 'minimum need fit'],
       weights: { needFit: 50, catalogTruth: 20, quality: 15, budgetFit: 10, returns: 5 },
+    },
+    catalogProvenance: {
+      source: 'caller_supplied_candidates',
+      merchantConnection: 'not_verified',
+      warning: 'AgentPay has not verified a merchant feed, checkout, inventory, or catalog ownership for these candidates.',
     },
     matches,
     rejected,

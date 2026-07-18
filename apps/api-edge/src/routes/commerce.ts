@@ -15,6 +15,11 @@ import {
 } from '../lib/productDiscovery';
 import { authenticateApiKey } from '../middleware/auth';
 import { auditCatalogTruth, CatalogTruthError } from '../lib/catalogTruth';
+import {
+  compileCommerceDecision,
+  signCommerceCompilation,
+  type CommerceCompilationPacket,
+} from '../lib/commerceDecisionCompiler';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -38,6 +43,7 @@ router.get('/capabilities', (c) => c.json({
     ranking: 'need fit, catalog truth, quality, budget fit, and returns',
     sponsorship: 'always disclosed and never changes organic rank',
     revenueDraft: '8% of net merchandise after the merchant return window; requires a merchant agreement before activation',
+    catalogSource: 'caller-supplied candidates only; no merchant feed, checkout, or inventory connection is verified',
   },
   retention: 'Evaluation requests and choice receipts are not stored by this endpoint.',
 }));
@@ -45,6 +51,46 @@ router.get('/capabilities', (c) => c.json({
 router.use('/evaluate', authenticateApiKey);
 router.use('/catalog/audit', authenticateApiKey);
 router.use('/discover', authenticateApiKey);
+router.use('/compile', authenticateApiKey);
+
+router.post('/compile', async (c) => {
+  try {
+    const body = await c.req.json() as Record<string, unknown>;
+    const discovery = discoverProducts(body);
+    const compilation = await compileCommerceDecision(discovery, {
+      budgetMinor: Number(body.budgetMinor),
+      currency: String(body.currency).toUpperCase(),
+      maxDeliveryDays: body.maxDeliveryDays === undefined ? 30 : Number(body.maxDeliveryDays),
+      minReturnDays: body.minReturnDays === undefined ? 0 : Number(body.minReturnDays),
+    }, c.env);
+    const packet: CommerceCompilationPacket = {
+      schema: 'agentpay.commerce-compilation-packet/1.0',
+      discovery,
+      compilation,
+    };
+    const value = await signCommerceCompilation(packet, c.env.AGENTPAY_SIGNING_SECRET);
+    return c.json({
+      packet,
+      signature: {
+        algorithm: 'HMAC-SHA256',
+        keyId: 'agentpay-commerce-compiler-v1',
+        value,
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProductDiscoveryError || error instanceof SyntaxError) {
+      return c.json({
+        error: 'INVALID_REQUEST',
+        message: error instanceof ProductDiscoveryError ? error.message : 'A JSON body is required',
+      }, 400);
+    }
+    if (error instanceof Error && error.message === 'Commerce compilation signing is not configured') {
+      return c.json({ error: 'SIGNING_UNAVAILABLE', message: error.message }, 503);
+    }
+    console.error('[commerce] decision compilation failed');
+    return c.json({ error: 'INTERNAL_ERROR', message: 'Could not compile the product decision' }, 500);
+  }
+});
 
 router.post('/discover', async (c) => {
   try {

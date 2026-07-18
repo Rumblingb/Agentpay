@@ -430,6 +430,42 @@
   color: var(--cobalt);
 }
 
+.resultsTools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.compileAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.compileAction:hover:not(:disabled) {
+  background: var(--cobalt);
+}
+
+.compileAction:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.compileAction svg {
+  width: 16px;
+  height: 16px;
+  color: var(--green);
+}
+
 .resultsGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 354px;
@@ -705,6 +741,62 @@
   width: 15px;
   height: 15px;
   color: #17854c;
+}
+
+.compilerVerified,
+.compilerFallback {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 9px;
+  align-items: center;
+  margin: 8px 16px 12px;
+  padding: 10px;
+  border: 1px solid #a8d9b6;
+  background: #effbf2;
+}
+
+.compilerFallback {
+  border-color: #d8d1a0;
+  background: #fffbea;
+}
+
+.compilerVerified > svg,
+.compilerFallback > svg {
+  width: 17px;
+  height: 17px;
+  color: #177b47;
+}
+
+.compilerVerified > svg:last-child,
+.compilerFallback > svg:last-child {
+  color: var(--cobalt);
+}
+
+.compilerVerified div,
+.compilerFallback div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.compilerVerified strong,
+.compilerFallback strong {
+  font-size: 11px;
+}
+
+.compilerVerified span,
+.compilerFallback span {
+  overflow: hidden;
+  color: #65706a;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compilerError {
+  margin: 8px 16px 12px;
+  color: #a54131;
+  font-size: 10px;
 }
 
 .approval {
@@ -1273,6 +1365,15 @@
 
   .resultsHeader {
     display: grid;
+  }
+
+  .resultsTools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compileAction {
+    width: 100%;
   }
 
   .resultsHeader h2 {

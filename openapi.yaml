@@ -55,6 +55,8 @@ tags:
     description: Agent Payment Protocol v2 endpoints
   - name: Marketplace
     description: Agent discovery marketplace and checkout
+  - name: Commerce
+    description: Need-led product discovery and closed-world AI decision compilation
 
 paths:
   /health:
@@ -496,6 +498,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LeaderboardResponse'
+
+  /api/commerce/compile:
+    post:
+      tags: [Commerce]
+      summary: Compile a governed product shortlist
+      description: |
+        Applies deterministic stock, currency, budget, delivery, returns, catalog-freshness,
+        and minimum-fit constraints before optional GPT-5.6 ranking. The model receives only
+        opaque candidate references and structured numeric evidence; product text, raw product
+        IDs, checkout URLs, merchant identity, sponsorship, payment data, and free-form customer
+        text are excluded.
+
+        Model output must rank every eligible product exactly once using enumerated rationale
+        codes. Invalid, missing, duplicated, invented, timed-out, or unavailable model output
+        falls back to deterministic rank. The complete discovery and compilation packet is
+        returned with an HMAC-SHA256 signature. This endpoint does not execute checkout,
+        verify merchant feeds, or collect attribution fees.
+      operationId: compileCommerceDecision
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommerceCompileRequest'
+      responses:
+        '200':
+          description: Signed, policy-constrained commerce compilation packet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommerceCompileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '503':
+          description: Packet signing is not configured
 
   /api/marketplace/discover:
     get:
@@ -987,6 +1028,234 @@ components:
           type: array
           items:
             type: string
+
+    CommerceCompileRequest:
+      type: object
+      additionalProperties: false
+      required: [need, budgetMinor, currency, products]
+      properties:
+        need:
+          type: string
+          maxLength: 80
+          pattern: '^[a-zA-Z0-9]+(?:[ -][a-zA-Z0-9]+)*$'
+          example: rain-ready-commute
+        budgetMinor:
+          type: integer
+          minimum: 1
+          maximum: 100000000000
+          example: 15000
+        currency:
+          type: string
+          pattern: '^[A-Za-z]{3}$'
+          example: GBP
+        maxDeliveryDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+          default: 30
+        minReturnDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+          default: 0
+        maxEvidenceAgeMinutes:
+          type: integer
+          minimum: 1
+          maximum: 525600
+          default: 1440
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+        products:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/CommerceProductCandidate'
+
+    CommerceProductCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - merchantId
+        - merchantName
+        - title
+        - priceMinor
+        - currency
+        - availability
+        - checkoutUrl
+        - imageUrl
+        - deliveryDays
+        - returnWindowDays
+        - catalogUpdatedAt
+        - truthScore
+        - qualityScore
+        - needSignals
+      properties:
+        id: { type: string, maxLength: 200 }
+        merchantId: { type: string, maxLength: 200 }
+        merchantName: { type: string, maxLength: 300 }
+        title: { type: string, maxLength: 500 }
+        priceMinor: { type: integer, minimum: 0, maximum: 100000000000 }
+        currency: { type: string, pattern: '^[A-Za-z]{3}$' }
+        availability:
+          type: string
+          enum: [in_stock, out_of_stock, preorder, backorder]
+        checkoutUrl: { type: string, format: uri, pattern: '^https://' }
+        imageUrl: { type: string, format: uri, pattern: '^https://' }
+        deliveryDays: { type: integer, minimum: 0, maximum: 3650 }
+        returnWindowDays: { type: integer, minimum: 0, maximum: 3650 }
+        catalogUpdatedAt: { type: string, format: date-time }
+        truthScore: { type: integer, minimum: 0, maximum: 100 }
+        qualityScore: { type: integer, minimum: 0, maximum: 100 }
+        needSignals:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            additionalProperties: false
+            required: [need, score]
+            properties:
+              need: { type: string, maxLength: 80 }
+              score: { type: integer, minimum: 0, maximum: 100 }
+        sponsored:
+          type: boolean
+          default: false
+
+    CommerceCompileResponse:
+      type: object
+      additionalProperties: false
+      required: [packet, signature]
+      properties:
+        packet:
+          type: object
+          additionalProperties: false
+          required: [schema, discovery, compilation]
+          properties:
+            schema:
+              type: string
+              const: agentpay.commerce-compilation-packet/1.0
+            discovery:
+              $ref: '#/components/schemas/CommerceDiscoveryReport'
+            compilation:
+              $ref: '#/components/schemas/CommerceCompilation'
+        signature:
+          $ref: '#/components/schemas/SignedPacketSignature'
+
+    CommerceDiscoveryReport:
+      type: object
+      description: Deterministic discovery result over caller-supplied candidates.
+      required: [schema, need, evaluatedAt, rankingPolicy, catalogProvenance, matches, rejected, retention]
+      properties:
+        schema: { type: string, const: agentpay.product-discovery/1.0 }
+        need: { type: string }
+        evaluatedAt: { type: string, format: date-time }
+        rankingPolicy:
+          type: object
+          properties:
+            paidPlacementChangesOrganicRank: { type: boolean, const: false }
+            hardFilters: { type: array, items: { type: string } }
+            weights: { type: object, additionalProperties: { type: number } }
+        catalogProvenance:
+          type: object
+          required: [source, merchantConnection, warning]
+          properties:
+            source: { type: string, const: caller_supplied_candidates }
+            merchantConnection: { type: string, const: not_verified }
+            warning: { type: string }
+        matches:
+          type: array
+          items:
+            type: object
+            required: [product, fitScore, rank, reasons, disclosure, attributionDraft]
+            properties:
+              product: { $ref: '#/components/schemas/CommerceProductCandidate' }
+              fitScore: { type: integer, minimum: 0, maximum: 100 }
+              rank: { type: integer, minimum: 1 }
+              reasons:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code: { type: string, enum: [NEED_FIT, CATALOG_TRUTH, QUALITY, BUDGET_FIT, RETURNS] }
+                    score: { type: integer, minimum: 0, maximum: 100 }
+              disclosure: { type: string, enum: [organic, sponsored] }
+              attributionDraft:
+                type: object
+                description: Non-binding draft; merchant agreement and verified conversion webhook are required.
+                additionalProperties: true
+        rejected:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: { type: string }
+              reasonCodes: { type: array, items: { type: string } }
+        retention: { type: string, const: not-stored }
+
+    CommerceCompilation:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - source
+        - model
+        - selectedProductId
+        - alternateProductId
+        - confidence
+        - ranking
+        - verification
+        - fallbackReason
+        - retention
+      properties:
+        schema: { type: string, const: agentpay.commerce-compilation/1.0 }
+        source: { type: string, enum: [gpt-5.6-verified, deterministic] }
+        model: { type: [string, 'null'] }
+        selectedProductId: { type: [string, 'null'] }
+        alternateProductId: { type: [string, 'null'] }
+        confidence: { type: string, enum: [high, medium, low] }
+        ranking:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [productId, rationaleCodes]
+            properties:
+              productId: { type: string }
+              rationaleCodes:
+                type: array
+                minItems: 1
+                maxItems: 3
+                items:
+                  type: string
+                  enum: [strongest_need_fit, catalog_truth_leader, quality_leader, budget_fit, returns_strength, balanced_choice]
+        verification:
+          type: object
+          additionalProperties: false
+          required: [hardConstraintsAppliedBeforeModel, candidateSetPreserved, checkoutDataSharedWithModel, sponsorshipSharedWithModel, freeformClaimsAllowed]
+          properties:
+            hardConstraintsAppliedBeforeModel: { type: boolean, const: true }
+            candidateSetPreserved: { type: boolean, const: true }
+            checkoutDataSharedWithModel: { type: boolean, const: false }
+            sponsorshipSharedWithModel: { type: boolean, const: false }
+            freeformClaimsAllowed: { type: boolean, const: false }
+        fallbackReason:
+          type: [string, 'null']
+          enum: [not_configured, no_eligible_products, provider_error, timeout, invalid_model_output, null]
+        retention: { type: string, const: not-stored }
+
+    SignedPacketSignature:
+      type: object
+      additionalProperties: false
+      required: [algorithm, keyId, value]
+      properties:
+        algorithm: { type: string, const: HMAC-SHA256 }
+        keyId: { type: string, const: agentpay-commerce-compiler-v1 }
+        value: { type: string, pattern: '^[a-f0-9]{64}$' }
 
     HealthResponse:
       type: object

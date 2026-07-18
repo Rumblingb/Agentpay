@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   SlidersHorizontal,
+  Sparkles,
   Store,
   Tag,
   Truck,
@@ -30,126 +31,32 @@ import {
 import { useMemo, useState } from 'react';
 
 import styles from './commerce.module.css';
+import { NEEDS, PRODUCTS, type Need, type Product } from './commerceCatalog';
 
-type Need = 'commute' | 'small-space' | 'unplug' | 'gift';
 type Stage = 'review' | 'checkout' | 'receipt';
 
-type Product = {
-  id: string;
-  name: string;
-  maker: string;
-  merchant: string;
-  priceMinor: number;
-  deliveryDays: number;
-  returnDays: number;
-  truthScore: number;
-  image: string;
-  imagePosition: string;
-  proof: [string, string];
-  needScores: Record<Need, number>;
+type Compilation = {
+  source: 'gpt-5.6-verified' | 'deterministic';
+  model: string | null;
+  selectedProductId: string | null;
+  ranking: Array<{ productId: string; rationaleCodes: string[] }>;
 };
 
-const NEEDS: Array<{
-  id: Need;
-  label: string;
-  heading: string;
-  budgetMinor: number;
-  heroImage: string;
-  heroAlt: string;
-  heroPosition: string;
-}> = [
-  { id: 'commute', label: 'Rain-ready commute', heading: 'Ready before the weather changes.', budgetMinor: 15_000, heroImage: '/commerce/commute-hero.webp', heroAlt: 'A commuter in a waterproof shell carrying a cobalt backpack through London after rain', heroPosition: 'center' },
-  { id: 'small-space', label: 'Small-space reset', heading: 'More room without moving house.', budgetMinor: 8_000, heroImage: '/commerce/home-hero.webp', heroAlt: 'A compact apartment with an organized desk and space-saving products', heroPosition: 'center' },
-  { id: 'unplug', label: 'A quieter evening', heading: 'Switch off without disappearing.', budgetMinor: 13_000, heroImage: '/commerce/home-hero.webp', heroAlt: 'A calm compact apartment prepared for a quieter evening', heroPosition: 'center' },
-  { id: 'gift', label: 'Gift under £75', heading: 'Useful enough to keep.', budgetMinor: 7_500, heroImage: '/commerce/home-hero.webp', heroAlt: 'Colorful useful home products in a compact apartment', heroPosition: 'center' },
-];
+type CompilerState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: Compilation }
+  | { status: 'error' };
 
-const PRODUCTS: Product[] = [
-  {
-    id: 'tidepack-commuter',
-    name: 'Tidepack Commuter',
-    maker: 'Recycled waterproof shell',
-    merchant: 'Northline Goods',
-    priceMinor: 9600,
-    deliveryDays: 2,
-    returnDays: 45,
-    truthScore: 98,
-    image: '/commerce/commute-products.webp',
-    imagePosition: '0% 50%',
-    proof: ['16-inch laptop stays dry', 'Reflective after dark'],
-    needScores: { commute: 97, 'small-space': 55, unplug: 48, gift: 77 },
-  },
-  {
-    id: 'hush-45',
-    name: 'Hush 45',
-    maker: 'Adaptive over-ear headphones',
-    merchant: 'Aster Audio',
-    priceMinor: 12900,
-    deliveryDays: 2,
-    returnDays: 30,
-    truthScore: 96,
-    image: '/commerce/commute-products.webp',
-    imagePosition: '50% 50%',
-    proof: ['Quiet mode in one tap', '32-hour battery'],
-    needScores: { commute: 91, 'small-space': 62, unplug: 96, gift: 74 },
-  },
-  {
-    id: 'mossline-shell',
-    name: 'Mossline Shell',
-    maker: 'Recycled three-layer weave',
-    merchant: 'Field & Form',
-    priceMinor: 8900,
-    deliveryDays: 2,
-    returnDays: 60,
-    truthScore: 99,
-    image: '/commerce/commute-products.webp',
-    imagePosition: '100% 50%',
-    proof: ['Sealed seams', 'Packs into its hood'],
-    needScores: { commute: 95, 'small-space': 43, unplug: 57, gift: 69 },
-  },
-  {
-    id: 'beam-mini',
-    name: 'Beam Mini',
-    maker: 'Warm dimmable task light',
-    merchant: 'Common Object',
-    priceMinor: 4600,
-    deliveryDays: 3,
-    returnDays: 30,
-    truthScore: 94,
-    image: '/commerce/home-products.webp',
-    imagePosition: '0% 50%',
-    proof: ['17 cm footprint', 'Warm focus light'],
-    needScores: { commute: 34, 'small-space': 96, unplug: 83, gift: 94 },
-  },
-  {
-    id: 'stack-system',
-    name: 'Stack System',
-    maker: 'Modular recycled composite',
-    merchant: 'Room Made',
-    priceMinor: 6200,
-    deliveryDays: 3,
-    returnDays: 45,
-    truthScore: 97,
-    image: '/commerce/home-products.webp',
-    imagePosition: '50% 50%',
-    proof: ['Builds upward', 'Tools not required'],
-    needScores: { commute: 28, 'small-space': 98, unplug: 68, gift: 82 },
-  },
-  {
-    id: 'dawn-halo',
-    name: 'Dawn Halo',
-    maker: 'Low-glare sunrise light',
-    merchant: 'Good Morning Co.',
-    priceMinor: 5400,
-    deliveryDays: 2,
-    returnDays: 30,
-    truthScore: 95,
-    image: '/commerce/home-products.webp',
-    imagePosition: '100% 50%',
-    proof: ['Phone-free controls', 'Soft evening mode'],
-    needScores: { commute: 31, 'small-space': 86, unplug: 93, gift: 91 },
-  },
-];
+const RATIONALE_LABELS: Record<string, string> = {
+  strongest_need_fit: 'Need fit',
+  catalog_truth_leader: 'Catalog truth',
+  quality_leader: 'Quality',
+  budget_fit: 'Budget fit',
+  returns_strength: 'Returns',
+  balanced_choice: 'Balanced choice',
+};
+const RATIONALE_CODES = new Set(Object.keys(RATIONALE_LABELS));
 
 const NEED_ICON = {
   commute: Route,
@@ -175,19 +82,70 @@ export default function CommerceWorkspace() {
   const [approved, setApproved] = useState(false);
   const [stage, setStage] = useState<Stage>('review');
   const [apiOpen, setApiOpen] = useState(false);
+  const [compiler, setCompiler] = useState<CompilerState>({ status: 'idle' });
 
   const needConfig = NEEDS.find((item) => item.id === need) ?? NEEDS[0];
-  const ranked = useMemo(() => PRODUCTS
+  const baseRanked = useMemo(() => PRODUCTS
     .filter((product) => product.priceMinor <= budgetMinor)
     .filter((product) => product.deliveryDays <= maxDeliveryDays)
     .filter((product) => !easyReturns || product.returnDays >= 30)
     .filter((product) => product.needScores[need] >= 50)
     .sort((a, b) => b.needScores[need] - a.needScores[need]), [budgetMinor, easyReturns, maxDeliveryDays, need]);
+  const ranked = useMemo(() => {
+    if (compiler.status !== 'success') return baseRanked;
+    const positions = new Map(compiler.data.ranking.map((item, index) => [item.productId, index]));
+    return baseRanked.slice().sort((a, b) => (positions.get(a.id) ?? 999) - (positions.get(b.id) ?? 999));
+  }, [baseRanked, compiler]);
   const selected = ranked.find((product) => product.id === selectedId) ?? ranked[0] ?? PRODUCTS[0];
+  const selectedRationale = compiler.status === 'success'
+    ? compiler.data.ranking.find((item) => item.productId === selected.id)?.rationaleCodes ?? []
+    : [];
 
   function resetApproval() {
     setApproved(false);
     setStage('review');
+  }
+
+  function invalidateCompiler() {
+    setCompiler({ status: 'idle' });
+    resetApproval();
+  }
+
+  async function compileShortlist() {
+    setCompiler({ status: 'loading' });
+    resetApproval();
+    try {
+      const response = await fetch('/api/commerce/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ need, budgetMinor, maxDeliveryDays, easyReturns }),
+      });
+      if (!response.ok) throw new Error('compiler unavailable');
+      const payload = await response.json() as { packet?: { compilation?: Compilation } };
+      const compilation = payload.packet?.compilation;
+      if (!compilation
+        || !['gpt-5.6-verified', 'deterministic'].includes(compilation.source)
+        || !Array.isArray(compilation.ranking)
+        || compilation.ranking.some((item) => !item
+          || typeof item.productId !== 'string'
+          || !Array.isArray(item.rationaleCodes)
+          || item.rationaleCodes.length < 1
+          || item.rationaleCodes.some((code) => !RATIONALE_CODES.has(code)))) {
+        throw new Error('invalid compiler response');
+      }
+      const eligibleIds = new Set(baseRanked.map((product) => product.id));
+      const compiledIds = compilation.ranking.map((item) => item.productId);
+      if (compiledIds.length !== eligibleIds.size
+        || new Set(compiledIds).size !== eligibleIds.size
+        || compiledIds.some((productId) => !eligibleIds.has(productId))
+        || compilation.selectedProductId !== compiledIds[0]) {
+        throw new Error('compiler changed candidate set');
+      }
+      setCompiler({ status: 'success', data: compilation });
+      if (compilation.selectedProductId && eligibleIds.has(compilation.selectedProductId)) setSelectedId(compilation.selectedProductId);
+    } catch {
+      setCompiler({ status: 'error' });
+    }
   }
 
   function chooseNeed(nextNeed: Need) {
@@ -196,14 +154,14 @@ export default function CommerceWorkspace() {
     setNeed(nextNeed);
     setBudgetMinor(nextConfig.budgetMinor);
     setSelectedId(nextProduct.id);
-    resetApproval();
+    invalidateCompiler();
   }
 
   function resetBrief() {
     setBudgetMinor(needConfig.budgetMinor);
     setMaxDeliveryDays(3);
     setEasyReturns(true);
-    resetApproval();
+    invalidateCompiler();
   }
 
   return (
@@ -276,20 +234,20 @@ export default function CommerceWorkspace() {
                 max="20000"
                 step="500"
                 value={budgetMinor}
-                onChange={(event) => { setBudgetMinor(Number(event.target.value)); resetApproval(); }}
+                onChange={(event) => { setBudgetMinor(Number(event.target.value)); invalidateCompiler(); }}
               />
             </label>
             <div className={styles.segmentControl}>
               <span><Truck aria-hidden="true" /> Arrives</span>
               <div>
                 {[2, 3, 5].map((days) => (
-                  <button className={maxDeliveryDays === days ? styles.segmentActive : undefined} key={days} type="button" onClick={() => { setMaxDeliveryDays(days); resetApproval(); }}>{days}d</button>
+                  <button className={maxDeliveryDays === days ? styles.segmentActive : undefined} key={days} type="button" onClick={() => { setMaxDeliveryDays(days); invalidateCompiler(); }}>{days}d</button>
                 ))}
               </div>
             </div>
             <label className={styles.toggleControl}>
               <span><PackageCheck aria-hidden="true" /> 30+ day returns</span>
-              <input type="checkbox" checked={easyReturns} onChange={(event) => { setEasyReturns(event.target.checked); resetApproval(); }} />
+              <input type="checkbox" checked={easyReturns} onChange={(event) => { setEasyReturns(event.target.checked); invalidateCompiler(); }} />
               <i aria-hidden="true"><b /></i>
             </label>
           </div>
@@ -297,8 +255,14 @@ export default function CommerceWorkspace() {
 
         <section className={styles.results} aria-labelledby="results-heading">
           <div className={styles.resultsHeader}>
-            <div><p>{ranked.length} verified matches</p><h2 id="results-heading">Best fit first</h2></div>
-            <div className={styles.rankingKey}><BadgeCheck aria-hidden="true" /><span>Sponsored never changes fit score</span></div>
+            <div><p>{ranked.length} eligible matches</p><h2 id="results-heading">Best fit first</h2></div>
+            <div className={styles.resultsTools}>
+              <div className={styles.rankingKey}><BadgeCheck aria-hidden="true" /><span>Sponsored never changes fit score</span></div>
+              <button className={styles.compileAction} type="button" disabled={!baseRanked.length || compiler.status === 'loading'} onClick={compileShortlist}>
+                <Sparkles aria-hidden="true" />
+                <span>{compiler.status === 'loading' ? 'Compiling…' : 'Compile shortlist'}</span>
+              </button>
+            </div>
           </div>
 
           <div className={styles.resultsGrid}>
@@ -356,6 +320,17 @@ export default function CommerceWorkspace() {
                     <p>Why it fits</p>
                     {selected.proof.map((item) => <span key={item}><CheckCircle2 aria-hidden="true" />{item}</span>)}
                   </div>
+                  {compiler.status === 'success' ? (
+                    <div className={compiler.data.source === 'gpt-5.6-verified' ? styles.compilerVerified : styles.compilerFallback}>
+                      <Sparkles aria-hidden="true" />
+                      <div>
+                        <strong>{compiler.data.source === 'gpt-5.6-verified' ? 'GPT-5.6 output verified' : 'Policy-safe fallback'}</strong>
+                        <span>{selectedRationale.map((code) => RATIONALE_LABELS[code] ?? code).join(' · ')}</span>
+                      </div>
+                      <BadgeCheck aria-label="Candidate set preserved" />
+                    </div>
+                  ) : null}
+                  {compiler.status === 'error' ? <p className={styles.compilerError}>Compiler unavailable. Deterministic rank remains active.</p> : null}
                   <label className={styles.approval}>
                     <input type="checkbox" checked={approved} onChange={(event) => setApproved(event.target.checked)} />
                     <i aria-hidden="true"><Check /></i>
@@ -415,7 +390,7 @@ export default function CommerceWorkspace() {
               <div><p>AgentPay API + MCP</p><h2 id="api-heading">Discover by need</h2></div>
               <button type="button" onClick={() => setApiOpen(false)} aria-label="Close API preview"><X aria-hidden="true" /></button>
             </div>
-            <code>POST /api/commerce/discover</code>
+            <code>POST /api/commerce/compile</code>
             <pre>{`{
   "need": "rain-ready-commute",
   "budgetMinor": 15000,
@@ -425,6 +400,7 @@ export default function CommerceWorkspace() {
 }`}</pre>
             <div className={styles.apiFacts}>
               <span><ShieldCheck aria-hidden="true" /> Hard constraints stay deterministic</span>
+              <span><Sparkles aria-hidden="true" /> GPT-5.6 sees opaque refs + scores only</span>
               <span><BadgeCheck aria-hidden="true" /> Sponsorship is disclosed, never blended</span>
               <span><CalendarCheck aria-hidden="true" /> Catalog evidence expires</span>
             </div>

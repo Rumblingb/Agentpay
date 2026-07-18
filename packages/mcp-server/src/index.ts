@@ -198,6 +198,7 @@ export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_receipt',
   'agentpay_evaluate_purchase',
   'agentpay_discover_products',
+  'agentpay_compile_product_decision',
   'agentpay_audit_catalog_truth',
   'agentpay_parse_upi_payment_request',
   'agentpay_get_passport',
@@ -310,8 +311,9 @@ const RAW_TOOLS: Tool[] = [
   {
     name: 'agentpay_discover_products',
     description:
-      'Rank current merchant products for a concrete human need using deterministic budget, delivery, returns, availability, and catalog-freshness filters. ' +
-      'Returns transparent fit factors, explicit sponsorship disclosure, merchant checkout URLs, and a signed attribution draft. ' +
+      'Rank caller-supplied catalog candidates for a concrete human need using deterministic budget, delivery, returns, availability, and catalog-freshness filters. ' +
+      'Returns transparent fit factors, explicit sponsorship disclosure, supplied checkout URLs, and a signed draft attribution record. ' +
+      'It does not verify a merchant feed, inventory, checkout, or merchant agreement. ' +
       'Paid placement never changes organic rank. Use this when helping a human discover products by outcome instead of by category.',
     inputSchema: {
       type: 'object' as const,
@@ -324,7 +326,31 @@ const RAW_TOOLS: Tool[] = [
         maxEvidenceAgeMinutes: { type: 'integer', description: 'Maximum catalog evidence age. Defaults to 1440 minutes.' },
         limit: { type: 'integer', description: 'Maximum matches to return, from 1 to 20.' },
         products: arbitraryObjectArraySchema(
-          'Current merchant candidates with needSignals, price, stock, merchant checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag.',
+          'Caller-supplied catalog candidates with needSignals, price, stock, supplied checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. AgentPay does not verify their merchant connection or inventory.',
+        ),
+      },
+      required: ['need', 'budgetMinor', 'currency', 'products'],
+    },
+  },
+  {
+    name: 'agentpay_compile_product_decision',
+    description:
+      'Apply deterministic commerce filters, then ask GPT-5.6 to rank only the surviving caller-supplied products using enumerated evidence codes. ' +
+      'The model receives opaque candidate references and numeric scores, never product text, raw IDs, checkout data, merchant identity, or sponsorship. ' +
+      'The server verifies that every eligible product appears exactly once and rejects invented products, facts, sponsorship influence, and freeform claims. ' +
+      'Returns a signed packet and deterministic fallback when the model is unavailable or invalid. This tool never creates a mandate, checkout, or payment.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
+        budgetMinor: { type: 'integer', description: 'Maximum product price in minor currency units.' },
+        currency: { type: 'string', description: 'Three-letter currency code.' },
+        maxDeliveryDays: { type: 'integer', description: 'Maximum acceptable delivery time in whole days.' },
+        minReturnDays: { type: 'integer', description: 'Minimum acceptable return window in whole days.' },
+        maxEvidenceAgeMinutes: { type: 'integer', description: 'Maximum catalog evidence age. Defaults to 1440 minutes.' },
+        limit: { type: 'integer', description: 'Maximum eligible products passed to the compiler, from 1 to 20.' },
+        products: arbitraryObjectArraySchema(
+          'Caller-supplied catalog candidates with needSignals, price, stock, checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag. Checkout URLs and sponsorship are removed before the model call.',
         ),
       },
       required: ['need', 'budgetMinor', 'currency', 'products'],
@@ -1517,6 +1543,23 @@ export async function handleTool(
 
     case 'agentpay_discover_products': {
       const data = await apiFetch('/api/commerce/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          need: args.need,
+          budgetMinor: args.budgetMinor,
+          currency: args.currency,
+          maxDeliveryDays: args.maxDeliveryDays,
+          minReturnDays: args.minReturnDays,
+          maxEvidenceAgeMinutes: args.maxEvidenceAgeMinutes,
+          limit: args.limit,
+          products: args.products,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_compile_product_decision': {
+      const data = await apiFetch('/api/commerce/compile', {
         method: 'POST',
         body: JSON.stringify({
           need: args.need,

@@ -17,7 +17,11 @@
   "tools": [
     {
       "name": "agentpay_discover_products",
-      "description": "Rank current merchant products for a human need using hard budget, delivery, return, stock, and freshness rules with explicit sponsorship disclosure."
+      "description": "Rank caller-supplied catalog candidates for a human need using hard budget, delivery, return, stock, and freshness rules with explicit sponsorship disclosure. It does not verify merchant inventory, checkout, or a merchant agreement."
+    },
+    {
+      "name": "agentpay_compile_product_decision",
+      "description": "Filter products deterministically, let GPT-5.6 reason only over eligible evidence, verify the closed candidate set, and return a signed decision packet with a safe fallback."
     },
     {
       "name": "agentpay_audit_catalog_truth",

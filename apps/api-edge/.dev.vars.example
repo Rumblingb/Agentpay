@@ -14,6 +14,8 @@ ANTHROPIC_API_KEY="sk-ant-..."
 # OpenAI: https://platform.openai.com → API Keys
 # Powers Whisper STT and TTS-1 in the voice proxy
 OPENAI_API_KEY="sk-..."
+# Closed-world commerce reasoning. Allowed: gpt-5.6, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna.
+OPENAI_COMMERCE_MODEL="gpt-5.6"
 
 # ── RTT (Realtime Trains) — required for live train schedules ─────────────────
 # Register FREE at: https://api.rtt.io (click "Register" → Developer / Free plan)

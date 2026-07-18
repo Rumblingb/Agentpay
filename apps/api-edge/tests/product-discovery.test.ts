@@ -56,8 +56,15 @@ describe('need-led product discovery', () => {
     expect(report.matches[1].disclosure).toBe('sponsored');
     expect(report.rankingPolicy.paidPlacementChangesOrganicRank).toBe(false);
     expect(report.matches[0].attributionDraft).toMatchObject({
+      status: 'draft_only',
       successFeeBps: 800,
       settlement: 'after_return_window',
+      requiresMerchantAgreement: true,
+      requiresVerifiedConversionWebhook: true,
+    });
+    expect(report.catalogProvenance).toMatchObject({
+      source: 'caller_supplied_candidates',
+      merchantConnection: 'not_verified',
     });
   });
 
