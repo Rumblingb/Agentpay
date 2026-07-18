@@ -53,6 +53,7 @@ describe('health routes', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -91,12 +92,49 @@ describe('health routes', () => {
   });
 
   it('returns 503 degraded when no database connection is configured', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await makeApp().request('/health', undefined, {} as Env);
     const body = (await res.json()) as HealthResponse;
 
     expect(res.status).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.services.database.status).toBe('degraded');
-    expect(createDb).not.toHaveBeenCalled();
+    expect(createDb).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledWith('[health] database probe failed');
+  });
+
+  it('returns 503 instead of hanging when the database probe times out', async () => {
+    vi.useFakeTimers();
+    const sql = makeSqlProbe();
+    sql.mockReturnValue(new Promise(() => {}));
+    vi.mocked(createDb).mockReturnValue(sql as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const responsePromise = makeApp().request('/health', undefined, {
+      DATABASE_URL: 'postgres://db.example/agentpay',
+    } as Env);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const res = await responsePromise;
+    const body = (await res.json()) as HealthResponse;
+
+    expect(res.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(sql.end).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledWith('[health] database probe failed');
+  });
+
+  it('stays healthy when client cleanup fails after a successful probe', async () => {
+    const sql = makeSqlProbe({ endError: new Error('cleanup failed') });
+    vi.mocked(createDb).mockReturnValue(sql as never);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await makeApp().request('/health', undefined, {
+      DATABASE_URL: 'postgres://db.example/agentpay',
+    } as Env);
+    const body = (await res.json()) as HealthResponse;
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('active');
+    expect(errorSpy).toHaveBeenCalledWith('[health] database client cleanup failed');
   });
 });

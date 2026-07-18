@@ -223,8 +223,22 @@ export interface Env {
   AI?: Ai;
   /** Anthropic API key — powers the concierge orchestration layer. */
   ANTHROPIC_API_KEY?: string;
+  /** Anthropic model for high-stakes reasoning routes. */
+  ANTHROPIC_REASON_MODEL?: string;
   /** OpenAI API key — Whisper STT fallback if CF Workers AI is unavailable. */
   OPENAI_API_KEY?: string;
+  /** OpenAI model for code-generation routes. */
+  OPENAI_CODE_MODEL?: string;
+  /** "cheap-first" uses configured local inference before hosted providers. */
+  MODEL_ROUTER_POLICY?: string;
+  /** OpenAI-compatible local inference base URL, such as an Ollama /v1 endpoint. */
+  OLLAMA_BASE_URL?: string;
+  /** Local model used for extraction. */
+  OLLAMA_EXTRACT_MODEL?: string;
+  /** Local model used for reasoning before hosted fallback. */
+  OLLAMA_REASON_MODEL?: string;
+  /** In-memory cache TTL in seconds for deterministic local extraction calls. */
+  LLM_CACHE_TTL_SECONDS?: string;
   /** ElevenLabs API key — premium server-side TTS for Ace voice replies. Fallback when Cartesia is unavailable. */
   ELEVENLABS_API_KEY?: string;
   /** Cartesia API key — primary TTS provider (Sonic-3). npx wrangler secret put CARTESIA_API_KEY */

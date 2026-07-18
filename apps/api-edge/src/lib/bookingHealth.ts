@@ -31,6 +31,7 @@ export function deriveBookingHealth(intentStatus: string, metadata?: BookingMeta
   const paymentConfirmedMins = minutesSince((metadata?.paymentConfirmedAt as string | undefined) ?? null);
   const dispatchedMins = minutesSince((metadata?.openclawDispatchedAt as string | undefined) ?? null);
   const fulfilmentFailed = metadata?.fulfilmentFailed === true;
+  const dispatchStatus = typeof metadata?.dispatchStatus === 'string' ? metadata.dispatchStatus : null;
 
   if (bookingState === 'issued') {
     return { bookingState, recoveryBucket: 'issued', shouldEscalate: false, summary: 'Booking issued.' };
@@ -46,6 +47,12 @@ export function deriveBookingHealth(intentStatus: string, metadata?: BookingMeta
   }
   if (bookingState === 'payment_pending') {
     return { bookingState, recoveryBucket: 'awaiting_payment', shouldEscalate: false, summary: 'Awaiting payment confirmation.' };
+  }
+  if (dispatchStatus === 'failed') {
+    return { bookingState, recoveryBucket: 'failed', shouldEscalate: true, summary: 'Dispatch failed and needs manual recovery.' };
+  }
+  if (dispatchStatus === 'retry_pending') {
+    return { bookingState, recoveryBucket: 'ready_for_dispatch', shouldEscalate: true, summary: 'Dispatch retry is pending.' };
   }
   if (bookingState === 'payment_confirmed') {
     const stale = paymentConfirmedMins != null && paymentConfirmedMins >= 10;
