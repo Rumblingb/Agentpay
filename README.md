@@ -35,6 +35,21 @@ That one command gives any MCP-compatible host the ability to:
 
 ---
 
+## AgentPay Commerce Network
+
+AgentPay now has a focused ecommerce surface: shoppers discover products by a concrete need, deterministic rules protect budget, delivery, returns, and catalog freshness, and approved matches continue to merchant checkout. Merchants get the other side of the demand graph through catalog truth, source-grounded product imagery, and signed attribution drafts.
+
+- Shopper experience: `/commerce`
+- Seller growth workspace: `/commerce/studio`
+- Need-led API: `POST /api/commerce/discover`
+- Catalog audit API: `POST /api/commerce/catalog/audit`
+- MCP tools: `agentpay_discover_products` and `agentpay_audit_catalog_truth`
+- Founder and SEO specification: [docs/COMMERCE_CONTROL_PLANE.md](./docs/COMMERCE_CONTROL_PLANE.md)
+
+The included inventory and demand indexes are sandbox fixtures. They do not represent live merchants, customers, orders, or revenue. Merchant connections, public inventory, conversion webhooks, fee collection, and deployment remain separate approval and validation gates.
+
+---
+
 ## Casper Buildathon Entry
 
 **Bee + Clickey: Founder-in-a-Box with Casper-Verifiable Agent Payments**
@@ -226,6 +241,8 @@ then the product is still unfinished.
 | Terminal-native control plane | [docs/TERMINAL_NATIVE_CONTROL_PLANE_20260419.md](./docs/TERMINAL_NATIVE_CONTROL_PLANE_20260419.md) |
 | Examples | [examples/README.md](./examples/README.md) |
 | Security model | [docs/SECURITY_MODEL.md](./docs/SECURITY_MODEL.md) |
+| Secure payment providers | [docs/PAYMENT_PROVIDERS.md](./docs/PAYMENT_PROVIDERS.md) |
+| Commerce network | [docs/COMMERCE_CONTROL_PLANE.md](./docs/COMMERCE_CONTROL_PLANE.md) |
 
 ## Repository layout
 

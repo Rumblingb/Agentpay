@@ -196,6 +196,9 @@ const arbitraryObjectArraySchema = (description: string) => ({
 export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_intent_status',
   'agentpay_get_receipt',
+  'agentpay_evaluate_purchase',
+  'agentpay_discover_products',
+  'agentpay_audit_catalog_truth',
   'agentpay_parse_upi_payment_request',
   'agentpay_get_passport',
   'agentpay_get_identity_bundle',
@@ -278,6 +281,71 @@ const RAW_TOOLS: Tool[] = [
         },
       },
       required: ['intentId'],
+    },
+  },
+  {
+    name: 'agentpay_evaluate_purchase',
+    description:
+      'Evaluate product or service candidates against a human-owned Buyer Constitution. ' +
+      'AgentPay applies deterministic budget, merchant, category, delivery, returns, evidence-freshness, and approval rules; ' +
+      'then returns a ranked recommendation, rejected options, explicit tradeoffs, a proposed one-time mandate, and a signed portable Choice Receipt. ' +
+      'Use this after research and before creating or approving a purchase mandate.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        intent: {
+          type: 'string',
+          description: 'What the human is trying to buy and why, in plain language.',
+        },
+        constitution: arbitraryObjectSchema(
+          'Hard buyer rules: currency, maxTotalMinor, allowedCategories, allowedMerchants, blockedMerchants, requiresRefundable, minimumReturnWindowDays, maximumDeliveryDays, maxEvidenceAgeMinutes, requireHumanApproval, autoApproveBelowMinor, and preference weights.',
+        ),
+        candidates: arbitraryObjectArraySchema(
+          'Structured candidates. Each needs id, name, merchantId, merchantName, category, priceMinor, currency, refundable, returnWindowDays, deliveryDays, optional qualityScore/sustainabilityScore, and HTTPS timestamped evidence.',
+        ),
+      },
+      required: ['intent', 'constitution', 'candidates'],
+    },
+  },
+  {
+    name: 'agentpay_discover_products',
+    description:
+      'Rank current merchant products for a concrete human need using deterministic budget, delivery, returns, availability, and catalog-freshness filters. ' +
+      'Returns transparent fit factors, explicit sponsorship disclosure, merchant checkout URLs, and a signed attribution draft. ' +
+      'Paid placement never changes organic rank. Use this when helping a human discover products by outcome instead of by category.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        need: { type: 'string', description: 'A stable need slug or short phrase, such as rain-ready-commute.' },
+        budgetMinor: { type: 'integer', description: 'Maximum product price in minor currency units.' },
+        currency: { type: 'string', description: 'Three-letter currency code.' },
+        maxDeliveryDays: { type: 'integer', description: 'Maximum acceptable delivery time in whole days.' },
+        minReturnDays: { type: 'integer', description: 'Minimum acceptable return window in whole days.' },
+        maxEvidenceAgeMinutes: { type: 'integer', description: 'Maximum catalog evidence age. Defaults to 1440 minutes.' },
+        limit: { type: 'integer', description: 'Maximum matches to return, from 1 to 20.' },
+        products: arbitraryObjectArraySchema(
+          'Current merchant candidates with needSignals, price, stock, merchant checkout URL, image, delivery, returns, catalog timestamp, truth score, quality score, and sponsorship flag.',
+        ),
+      },
+      required: ['need', 'budgetMinor', 'currency', 'products'],
+    },
+  },
+  {
+    name: 'agentpay_audit_catalog_truth',
+    description:
+      'Audit one ecommerce product across landing-page, Schema.org, Google Merchant, OpenAI feed, UCP, and checkout snapshots. ' +
+      'Returns deterministic price, currency, availability, freshness, shipping, returns, identifier, URL, and AI-disclosure issues. ' +
+      'Use this before claiming a product is search-ready, agent-ready, or checkout-ready.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        productId: { type: 'string', description: 'Stable merchant product or variant identifier.' },
+        maxAgeMinutes: { type: 'integer', description: 'Maximum acceptable snapshot age. Defaults to 1440 minutes.' },
+        snapshots: arbitraryObjectArraySchema(
+          'Two or more channel snapshots. Supported channels: landing_page, schema_org, google_merchant, openai_feed, ucp, checkout.',
+        ),
+      },
+      required: ['productId', 'snapshots'],
     },
   },
   {
@@ -1435,6 +1503,47 @@ export async function handleTool(
       return finalizeToolResult(name, data, resolved);
     }
 
+    case 'agentpay_evaluate_purchase': {
+      const data = await apiFetch('/api/commerce/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({
+          intent: args.intent,
+          constitution: args.constitution,
+          candidates: args.candidates,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_discover_products': {
+      const data = await apiFetch('/api/commerce/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          need: args.need,
+          budgetMinor: args.budgetMinor,
+          currency: args.currency,
+          maxDeliveryDays: args.maxDeliveryDays,
+          minReturnDays: args.minReturnDays,
+          maxEvidenceAgeMinutes: args.maxEvidenceAgeMinutes,
+          limit: args.limit,
+          products: args.products,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_audit_catalog_truth': {
+      const data = await apiFetch('/api/commerce/catalog/audit', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: args.productId,
+          maxAgeMinutes: args.maxAgeMinutes,
+          snapshots: args.snapshots,
+        }),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
     case 'agentpay_parse_upi_payment_request': {
       if (!args.upiUrl && !args.qrText) {
         throw new Error('Provide either upiUrl or qrText');
@@ -1630,6 +1739,3 @@ export function createAgentPayMcpServer(
 
   return server;
 }
-
-
-

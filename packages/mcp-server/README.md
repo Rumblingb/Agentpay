@@ -73,6 +73,9 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 | `agentpay_create_payment_intent` | Create a USDC payment intent and return a Solana Pay URI |
 | `agentpay_get_intent_status` | Check whether a payment has been confirmed on-chain |
 | `agentpay_get_receipt` | Get the full settlement receipt for a payment |
+| `agentpay_evaluate_purchase` | Apply a Buyer Constitution to researched candidates and return a signed portable Choice Receipt before any mandate or payment |
+| `agentpay_discover_products` | Rank current merchant products for a human need with hard shopper constraints, transparent fit factors, sponsorship disclosure, and a signed attribution draft |
+| `agentpay_audit_catalog_truth` | Detect product-data drift across search, agent, protocol, and checkout channel snapshots |
 | `agentpay_parse_upi_payment_request` | Parse and normalize a raw `upi://pay` URI or decoded QR payload through `/api/payments/upi/parse` |
 | `agentpay_get_passport` | Look up an agent's trust score and interaction history |
 | `agentpay_get_identity_bundle` | Fetch the portable identity bundle through `/api/foundation-agents/identity` |
@@ -108,6 +111,14 @@ Get your API key: register at `https://api.agentpay.so/api/merchants/register`
 ## Example Claude Prompt
 
 Once configured, you can ask Claude:
+
+> "Find products for a rain-ready commute under GBP 150 that arrive within three days and allow at least 30-day returns. Keep sponsored products disclosed and do not relax my limits."
+
+Claude will call `agentpay_discover_products`, return only eligible current products, show the fit factors, and preserve the merchant checkout and attribution evidence.
+
+> "Audit this product across its landing page, Google Merchant, OpenAI feed, UCP, and checkout before recommending it."
+
+Claude will call `agentpay_audit_catalog_truth` and return exact drift, freshness, shipping, returns, and identifier issues.
 
 > "Create a governed mandate to book a train from London to Manchester, and show me the current mandate state."
 

@@ -1,201 +1,248 @@
-# AgentPay Commerce Kit
+# AgentPay Commerce Network
 
-## Founder Decision
+Status: founder thesis and locally implemented sandbox. It is not evidence of live merchants, customers, orders, or revenue.
 
-AgentPay will focus on one product:
+## The Decision
 
-> A customizable, provider-neutral checkout and approval kit for applications with AI agents.
+AgentPay will be a demand-led ecommerce network.
 
-It is the platform-side experience between an agent's recommendation and the merchant's existing checkout. A developer should be able to add safe ecommerce to a web, mobile, chat, or MCP agent without building bespoke approval UX, payment-provider logic, protocol adapters, or receipts.
+Shoppers start with a real-life need, not a category tree or a generic AI textbox. AgentPay applies explicit budget, delivery, return, availability, and evidence rules; ranks eligible products by fit; explains the result visually; and hands the approved item to the merchant's checkout.
 
-The memorable developer promise is:
+Merchants get the other side of the same graph: unmet needs, catalog matches, search and agent-channel readiness, source-grounded product imagery, attribution, and a success-fee ledger.
 
-> Give your agent a checkout, not a card.
+The promise is:
 
-## Buyer
+> Products that fit the moment. Merchants paid for the sale. AgentPay paid for the result.
 
-The first buyer is not a frontier lab and not a consumer.
+## First Principles
 
-The first buyer is a small or mid-sized team building:
+Catalog access is becoming abundant. Shopify exposes catalog, cart, checkout, order tracking, MCP, and UCP surfaces. Google distributes high-quality merchant data through free listings. OpenAI can rank merchant products from direct and third-party feeds. Another generic catalog gateway is not a durable company.
 
-- a vertical shopping agent
-- an AI concierge with purchasable products
-- a marketplace or recommendation app
-- a branded merchant agent on a custom commerce stack
-- an internal procurement agent that needs an approval surface
+The scarce things are:
 
-They pay because checkout is consequential, category-specific, visually sensitive, and expensive to rebuild across agents, providers, and devices.
+1. A precise statement of what the shopper is trying to accomplish.
+2. Current product truth across every place a shopper or agent can discover it.
+3. Trust that constraints, sponsorship, price, delivery, and returns were not quietly changed.
+4. A low-friction path from discovery to a merchant-owned sale.
+5. Evidence that AgentPay caused a completed, non-refunded order.
 
-## Product
+AgentPay should own those five things.
+
+## The Product Loop
+
+### 1. Need Deck
+
+The consumer chooses a visual outcome such as:
+
+- rain-ready commute
+- small-space reset
+- a quieter evening
+- useful gift under a clear budget
+
+The interface then exposes only the constraints that affect the purchase: budget, arrival window, returns, size or compatibility, and optional values. There is no blank prompt as the primary experience.
+
+### 2. Honest Match
+
+The discovery engine fails closed on:
+
+- stock
+- currency
+- budget
+- delivery deadline
+- return window
+- catalog freshness
+- minimum need fit
+
+Eligible products are ranked by need fit, catalog truth, product quality, budget fit, and returns. Paid placement is disclosed and never changes the organic fit score.
+
+### 3. Choice Receipt
+
+Before checkout, the shopper approves the exact item and total. AgentPay returns a signed decision and attribution draft with no private chat transcript.
+
+### 4. Merchant Checkout
+
+The merchant remains the seller of record in the initial model. The merchant owns checkout, tax, fulfillment, support, returns, fraud, and product claims. AgentPay provides the discovery, approval, evidence, and attribution layer.
+
+### 5. Verified Outcome
+
+AgentPay earns only on an attributed net merchandise sale that survives the merchant's return window.
+
+## Merchant Product
+
+### Demand Radar
+
+Aggregate privacy-conscious need signals into demand indexes. Do not expose an individual's brief or invent demand counts. A merchant sees which needs are rising, how many of its products qualify, and which catalog gaps block a match.
 
 ### Catalog Truth
 
-AgentPay audits whether a product tells the same truth everywhere an agent or search engine can encounter it:
+Audit one variant across:
 
-- merchant landing page
-- Schema.org `Product` and `Offer` data
-- Google Merchant feed
-- OpenAI or other direct product feed
-- UCP catalog and checkout
-- final merchant checkout
+- product landing page
+- Schema.org structured data
+- Google Merchant
+- OpenAI product feed
+- UCP
+- checkout
 
-The audit detects price, currency, availability, title, identifier, shipping, return, image, freshness, and required AI-content disclosure problems. This is the SEO and AI-discovery foundation: accurate structured data and channel consistency, not generated keyword pages or ranking promises.
+Price, currency, stock, title, identifiers, image, shipping, returns, and freshness must agree. The API returns exact blocking and warning codes rather than an AI-written health summary.
 
-The merchant view should answer three questions for every product: Can search understand it? Can an agent recommend it with current evidence? Will checkout honor what was shown?
+### Visual Catalog
 
-### Commerce Surface
+Merchants often have strong lifestyle photography but weak channel-ready product assets. AgentPay can reconstruct source-faithful standalone product imagery for merchant review:
 
-A React and React Native component kit renders a complete flow from structured commerce state:
+1. identify the product from source evidence
+2. preserve supported silhouette, material, colour, construction, and visible marks
+3. omit uncertain branding and hidden details instead of inventing them
+4. generate one inspectable catalog asset per item
+5. require human approval before feed publication
 
-1. request and constraints
-2. product comparison
-3. exact approval ledger
-4. merchant-owned checkout handoff
-5. signed return receipt
+This workflow improves customer inspection and feed quality. It must never fabricate a product, certification, feature, logo, or variant.
 
-It is schema-driven but not model-generated HTML. The developer chooses safe components and configuration; AgentPay controls invariant money and approval states.
+### Distribution Console
 
-### Customization
+One current product record should drive:
 
-Customization is the wedge, not an afterthought:
+- AgentPay Discover
+- Google Merchant and free listings
+- server-rendered product structured data
+- OpenAI product feeds
+- UCP and MCP discovery
+- the merchant checkout handoff
 
-- merchant logo, typography, color tokens, density, and light/dark modes
-- category schemas for size, fit, format, delivery, returns, subscriptions, and warranties
-- fields that must appear before approval
-- approval rules and copy
-- native, embedded, drawer, modal, or chat-card presentation
-- localization, currency, tax, shipping, and accessibility settings
-- slots for merchant content without allowing scripts or arbitrary checkout logic
-- lifecycle event hooks and analytics adapters that exclude payment credentials
+The console shows freshness, rejection reasons, clicks, approved handoffs, completed orders, returns, and settled fees by channel.
 
-The same books and clothing fixture must visibly prove category customization while preserving one commerce contract.
+## Revenue Model
 
-### Commerce Gateway
+Initial proposal: 8% success fee on net merchandise value after the return window.
 
-The backend translates one AgentPay contract into the merchant's existing path:
+The fee base excludes tax, shipping, tips, gift-card value, cancelled items, and refunded items. A fully refunded order earns AgentPay zero. Partial refunds reduce the fee base.
 
-- UCP checkout and order flows
-- ACP-compatible merchant checkout
-- AP2-compatible mandate and receipt evidence
-- direct merchant checkout URLs
-- Stripe, Airwallex, and future provider adapters
+Example for a GBP 100 merchandise order:
 
-AgentPay is not merchant of record and does not require a merchant to replace its processor.
+- merchant gross merchandise value: GBP 100
+- AgentPay success fee: GBP 8 after the return window
+- merchant remainder: GBP 92 before processor fees, tax obligations, fulfillment, and other merchant costs
 
-### Choice Receipt
+Activation requires a signed merchant agreement, attribution rules, refund webhooks, reconciliation, and an approved payment configuration.
 
-Before checkout, AgentPay applies deterministic buyer rules to structured candidates and signs the result. AI can research and explain, but code enforces:
+### Payment Architecture
 
-- amount and currency
-- category and merchant policy
-- delivery and return requirements
-- evidence freshness
-- approval mode and expiry
-- one-time mandate binding
+Phase 1 uses merchant-owned checkout plus a signed referral token and verified conversion webhook. This is operationally lighter and keeps the merchant as seller of record.
 
-The Choice Receipt is useful because the agent developer can prove what was shown and approved without storing a private chat transcript.
+Phase 2 may use Stripe Connect direct charges with an application fee when the merchant, account configuration, countries, contracts, refunds, disputes, and tax treatment have been reviewed. Destination charges must not be enabled casually because charge type affects merchant-of-record and loss responsibility.
 
-### Commerce Lab
+## SEO And Agent Discovery
 
-Every integration gets a local sandbox and conformance harness:
+SEO is product infrastructure, not a copywriting pass.
 
-- product fixtures and failure fixtures
-- UCP/MCP capability negotiation
-- schema validation
-- signature and idempotency tests
-- checkout return and webhook simulation
-- visual regression across desktop and mobile
-- a shareable trace for support
+### Product Pages
 
-This is part of the product because a checkout SDK that cannot be tested safely will not be adopted.
+- Render useful product content and JSON-LD in initial HTML.
+- Use `Product` plus `Offer` only on a page where the visitor can purchase from the seller represented on that page.
+- Use product-snippet markup on editorial or referral comparison pages that do not sell the item directly.
+- Give each important variant and currency a stable canonical URL.
+- Use `ProductGroup`, `hasVariant`, `variesBy`, and `productGroupID` for real variants.
+- Include price, availability, brand, GTIN or MPN, condition, shipping, returns, colour, size, material, and high-resolution images when applicable.
+- Keep feed, landing-page, structured-data, and checkout values synchronized.
+- Never index sandbox fixtures or fabricate reviews, ratings, scarcity, discounts, or product claims.
 
-## Why Not A Generic UCP Gateway
+### Discovery Feeds
 
-Shopify now provides self-serve UCP and catalog infrastructure. UCPhub already provides UCP core, WooCommerce connectors, reference agents, observability, and additional platform connectors. WooCommerce is building native MCP and agentic checkout support.
+- Submit complete, current product data to Google Merchant for free listings.
+- Use canonical links, strong product identifiers, multiple inspectable images, and intraday updates where stock changes quickly.
+- Provide direct OpenAI feeds when eligible; Shopify merchants can rely on Shopify Catalog integration while still using AgentPay for matching and attribution.
+- Expose need-led discovery and catalog audit through MCP for Codex, Claude, Hermes, and other assistants.
+- Support UCP merchant handoff without building another generic UCP gateway.
 
-Competing as another protocol connector would be late and weak. AgentPay should consume those systems and own the customizable agent-app experience they feed.
+### Search Architecture
 
-## Competitive Position
+- Index real product detail and useful need pages, not every filter combination.
+- Canonicalize or block low-value faceted URLs to prevent crawl waste.
+- Generate sitemaps from live approved inventory only.
+- Use descriptive image filenames and alt text grounded in the actual product.
+- Measure impression to product view, product view to approved handoff, handoff to order, return rate, settled fee, and truth-related rejection by channel.
 
-- Shopify owns Shopify merchant supply.
-- UCPhub connects non-Shopify merchant systems to UCP.
-- Stripe owns payment credentials, fraud tooling, and processor-integrated checkout.
-- AgentPay gives agent applications a polished, white-label commerce UI and deterministic approval contract across merchant systems and payment providers.
+Primary references:
 
-The moat, if earned, is the component contract, category templates, cross-provider reliability, integration telemetry, and developer distribution through MCP and SDKs. The current codebase alone is not a moat.
+- [Google merchant listing structured data](https://developers.google.com/search/docs/appearance/structured-data/merchant-listing)
+- [Google product structured data](https://developers.google.com/search/docs/appearance/structured-data/product)
+- [Google free listings](https://support.google.com/merchants/answer/13889434)
+- [OpenAI shopping product selection](https://help.openai.com/en/articles/11128490-shopping-with-chatgpt-search)
+- [Shopify agent and UCP surfaces](https://shopify.dev/docs/agents)
+- [Stripe platforms and marketplaces](https://docs.stripe.com/connect/saas-platforms-and-marketplaces)
+- [Stripe direct-charge merchant responsibility](https://docs.stripe.com/connect/payment-links)
 
-## Validation Before Expansion
+## AI Policy
 
-This idea is not validated yet. Books and clothing are test fixtures, not market proof.
+AI may:
 
-### Riskiest Assumptions
+- map structured product attributes to a shopper need
+- improve a merchant draft title or description with disclosure and approval
+- identify likely feed gaps
+- reconstruct a source-grounded product image for merchant review
+- explain tradeoffs after deterministic ranking
 
-1. Agent-app teams want an external checkout UI kit instead of building a narrow flow themselves.
-2. Provider neutrality and customization matter enough to beat Stripe-hosted or merchant-hosted checkout.
-3. UCP/ACP adoption creates platform-side UI work faster than commerce platforms absorb it.
-4. Teams will pay for the kit before agent-originated order volume is large.
+AI may not:
 
-### Validation Artifact
+- invent product facts, reviews, ratings, certifications, stock, delivery, returns, or demand
+- change a hard shopper rule
+- blend sponsored and organic ranking
+- decide that a payment was successful
+- publish generated feed content without merchant approval
+- infer a fee or refund from an unverified event
 
-Ship one excellent public sandbox with:
+## Network Flywheel
 
-- a five-minute MCP/API quickstart
-- a theme and category configurator
-- books and clothing using the same contract
-- explicit approval and merchant handoff
-- a signed receipt inspector
-- failure simulation for stale price, changed total, expired mandate, duplicate retry, and unsigned webhook
-- copy-paste React integration code
+1. Need Deck interactions create privacy-conscious demand signals.
+2. Demand Radar tells merchants what qualified shoppers cannot yet find.
+3. Catalog Truth and Visual Catalog improve merchant supply.
+4. Better supply improves Google, agent, and AgentPay discovery.
+5. Better matches improve approved handoff and completed-order rates.
+6. Verified orders fund AgentPay through success fees.
+7. Outcome evidence improves future ranking without selling rank.
 
-### Pass Gates
+## Validation Gates
 
-Continue investing only after all of these occur:
+This is not validated yet. Continue only when all of these occur:
 
-- 10 external developers start the sandbox
-- 5 complete the full integration without founder help
-- median time to first rendered checkout is under 30 minutes
-- 3 connect a real or realistic merchant checkout
-- 2 agree in writing to pay at least GBP 79 per month or an equivalent usage price
-- at least 60% say customization or provider neutrality is a top-three reason to choose AgentPay
+- 30 qualified shoppers complete a need brief
+- at least 40% open a merchant checkout from a match
+- 10 merchants provide real catalog access
+- 5 merchants pass Catalog Truth on at least 20 live variants
+- 3 merchants sign the 8% post-return-window success-fee agreement
+- 10 attributed test orders reconcile correctly through refunds and returns
+- at least 60% of interviewed shoppers prefer need-led discovery to category search for the tested purchase
 
-### Failure Gates
+Change or stop the model when:
 
-Change or stop the wedge when any of these remain true after 20 qualified conversations:
+- merchants will not grant conversion and refund evidence
+- customers prefer a normal category or search experience for the chosen wedge
+- the take rate cannot cover acquisition, support, disputes, and feed operations
+- merchants attribute no incremental conversion to AgentPay
+- truth and visual operations require unscalable manual work
 
-- developers prefer redirecting to merchant checkout and do not need an agent-native surface
-- teams will use it only for free hackathon demos
-- UCP reference components satisfy the need
-- customization adds implementation cost without improving conversion or trust
-- no team accepts a paid design-partner offer
+## Launch Sequence
 
-## Initial Pricing Test
-
-- Sandbox: free, local fixtures, one theme, community support
-- Builder: GBP 79/month, production sessions, five themes, receipts, webhooks, and 10,000 evaluations
-- Platform: GBP 399/month, multiple merchants, custom category schemas, environment controls, and support
-- Enterprise: negotiated SSO, regional retention, audit exports, and SLOs
-
-Do not add a transaction percentage until AgentPay demonstrably improves conversion or reduces loss. Do not claim customers or revenue without direct source evidence.
-
-## Build Order
-
-1. Finish the polished web sandbox and visual configurator.
-2. Publish the stable commerce schema and Choice Receipt test vectors locally.
-3. Add the React package inside the existing monorepo.
-4. Bind the component to the existing provider-neutral intent API.
-5. Add MCP setup and one end-to-end example for Codex and Claude.
-6. Run the external validation gates before React Native, more categories, or more commerce connectors.
+1. Ship the local Discover, Seller, Catalog Truth, and Visual Catalog sandbox.
+2. Test the discovery API, signed reports, MCP tools, provider adapters, and responsive flows.
+3. Recruit ten design merchants in one narrow wedge: independent UK commute and small-space products.
+4. Import real inventory read-only and audit it before any public listing.
+5. Run a concierge cohort with merchant checkout and manual post-return reconciliation.
+6. Sign the first three success-fee agreements before enabling automated fee collection.
+7. Publish real product and need pages only after inventory, claims, canonical URLs, and merchant consent are verified.
+8. Expand categories only when the first wedge has repeat purchase intent, positive unit economics, and reliable support.
 
 ## Kill List
 
-Do not add:
+Do not build:
 
-- consumer subscriptions
-- a general AI shopping assistant
-- another product catalog or marketplace
-- custody, wallets, trading, or merchant-of-record complexity
-- broad multi-agent orchestration
-- category-specific apps
-- affiliate-ranked recommendations
+- a general AI shopping chatbot
+- a category marketplace with no demand advantage
+- undisclosed affiliate ranking
+- AgentPay custody or merchant-of-record complexity before legal and operational proof
+- fake social proof or unverified demand counters
+- autonomous catalog publishing
+- a second payment processor
+- broad consumer personalization that requires private conversation storage
 
-Every primary feature must make agent checkout easier to integrate, more customizable, safer to approve, or easier to verify.
+Every feature must improve need capture, product truth, customer confidence, merchant conversion, or verified attribution.

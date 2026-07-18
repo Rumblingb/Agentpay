@@ -8,6 +8,11 @@ import {
   verifyCommerceDecisionSignature,
   type CommerceDecision,
 } from '../lib/commerceDecision';
+import {
+  discoverProducts,
+  ProductDiscoveryError,
+  signDiscoveryReport,
+} from '../lib/productDiscovery';
 import { authenticateApiKey } from '../middleware/auth';
 import { auditCatalogTruth, CatalogTruthError } from '../lib/catalogTruth';
 
@@ -15,8 +20,8 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 router.get('/capabilities', (c) => c.json({
   schema: 'agentpay.commerce-capabilities/1.0',
-  product: 'AgentPay Choice Receipt',
-  role: 'neutral buyer trust and execution control plane',
+  product: 'AgentPay Commerce Network',
+  role: 'need-led product discovery, catalog truth, and governed merchant checkout',
   protocols: ['MCP', 'AP2', 'ACP', 'UCP-ready merchant handoff'],
   hardControls: [
     'currency',
@@ -29,11 +34,42 @@ router.get('/capabilities', (c) => c.json({
     'evidence freshness',
     'human approval',
   ],
+  discovery: {
+    ranking: 'need fit, catalog truth, quality, budget fit, and returns',
+    sponsorship: 'always disclosed and never changes organic rank',
+    revenueDraft: '8% of net merchandise after the merchant return window; requires a merchant agreement before activation',
+  },
   retention: 'Evaluation requests and choice receipts are not stored by this endpoint.',
 }));
 
 router.use('/evaluate', authenticateApiKey);
 router.use('/catalog/audit', authenticateApiKey);
+router.use('/discover', authenticateApiKey);
+
+router.post('/discover', async (c) => {
+  try {
+    const report = discoverProducts(await c.req.json());
+    const value = await signDiscoveryReport(report, c.env.AGENTPAY_SIGNING_SECRET);
+    return c.json({
+      report,
+      signature: {
+        algorithm: 'HMAC-SHA256',
+        keyId: 'agentpay-discovery-v1',
+        value,
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProductDiscoveryError || error instanceof SyntaxError) {
+      const signingUnavailable = error instanceof ProductDiscoveryError && error.message === 'Discovery signing is not configured';
+      return c.json({
+        error: signingUnavailable ? 'SIGNING_UNAVAILABLE' : 'INVALID_REQUEST',
+        message: error instanceof ProductDiscoveryError ? error.message : 'A JSON body is required',
+      }, signingUnavailable ? 503 : 400);
+    }
+    console.error('[commerce] product discovery failed');
+    return c.json({ error: 'INTERNAL_ERROR', message: 'Could not discover products' }, 500);
+  }
+});
 
 router.post('/catalog/audit', async (c) => {
   try {
