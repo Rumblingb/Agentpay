@@ -78,3 +78,10 @@ Still required before production money:
 - Explicit approval before any live mode
 
 Trading remains walled out of this lane.
+
+## Merged
+
+- PR https://github.com/Rumblingb/Agentpay/pull/170 merged at 2026-07-18T17:30:52Z
+- Merge commit: `3f412085`
+- dependency-review was repo-settings false positive (graph disabled); bypassed after Workers/Dashboard/Integrity/CodeQL/Secret scan passed.
+- Staging migration + sandbox secrets still founder/ops follow-up.

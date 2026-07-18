@@ -17,6 +17,16 @@ NODE_ENV = "production"
 # Set the secret separately: npx wrangler secret put CARTESIA_API_KEY
 CARTESIA_DEFAULT_VOICE_ID = "694f9389-aac1-45b6-b726-9d9369183238"
 
+# Provider-neutral payments — deny-by-default. Live stays off until explicit enablement.
+AGENTPAY_PAYMENT_MODE = "sandbox"
+AGENTPAY_LIVE_PAYMENTS_ENABLED = "false"
+AGENTPAY_PAYMENTS_ENABLED = "false"
+AGENTPAY_ALLOWED_PAYMENT_PROVIDERS = "stripe,airwallex,x402"
+AGENTPAY_ALLOWED_PAYMENT_CURRENCIES = "USD,GBP,EUR"
+AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS = "agentpay.so,app.agentpay.so,dashboard.agentpay.gg"
+AGENTPAY_MAX_PAYMENT_MINOR = "10000"
+AGENTPAY_MAX_DAILY_PAYMENT_MINOR = "50000"
+
 # Custom domain — api.agentpay.so
 [[routes]]
 pattern = "api.agentpay.so"
@@ -87,6 +97,16 @@ CORS_ORIGIN = "http://localhost:3000,https://apay-staging.vercel.app"
 API_BASE_URL = "https://agentpay-api-staging.apaybeta.workers.dev"
 FRONTEND_URL = "https://apay-staging.vercel.app"
 NODE_ENV = "staging"
+CARTESIA_DEFAULT_VOICE_ID = "694f9389-aac1-45b6-b726-9d9369183238"
+# Provider-neutral payments — sandbox only on staging.
+AGENTPAY_PAYMENT_MODE = "sandbox"
+AGENTPAY_LIVE_PAYMENTS_ENABLED = "false"
+AGENTPAY_PAYMENTS_ENABLED = "false"
+AGENTPAY_ALLOWED_PAYMENT_PROVIDERS = "stripe,airwallex,x402"
+AGENTPAY_ALLOWED_PAYMENT_CURRENCIES = "USD,GBP,EUR"
+AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS = "agentpay.so,app.agentpay.so,apay-staging.vercel.app,localhost"
+AGENTPAY_MAX_PAYMENT_MINOR = "10000"
+AGENTPAY_MAX_DAILY_PAYMENT_MINOR = "50000"
 # AGENTPAY_TEST_MODE = "true"   # Uncomment to enable test-key bypass in staging
 
 [[env.staging.ratelimits]]
