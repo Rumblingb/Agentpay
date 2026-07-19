@@ -20,6 +20,7 @@
     "growth:research": "node scripts/growth/research-patterns.mjs",
     "growth:report": "node scripts/growth/weekly-report.mjs",
     "growth:run": "node scripts/growth/run-all.mjs",
+    "migrations:verify": "node scripts/verify-migration-checksums.mjs",
     "typecheck": "pnpm -r -w --parallel run typecheck || (tsc -b --verbose)",
     "clean": "rm -rf dist",
     "prisma:generate": "prisma generate --schema=infra/prisma/schema.prisma",

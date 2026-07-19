@@ -552,6 +552,174 @@ paths:
         '503':
           description: Packet signing or model-funded compiler rate control is not configured
 
+  /api/commerce/ledger/organizations:
+    post:
+      tags: [Commerce]
+      summary: Create a buyer organization
+      operationId: createCommerceOrganization
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug, defaultCurrency]
+              properties:
+                name: { type: string, maxLength: 200 }
+                slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+                defaultCurrency: { type: string, pattern: '^[A-Z]{3}$' }
+      responses:
+        '201':
+          description: Buyer organization created
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: Organization slug is already in use
+
+  /api/commerce/ledger/requests:
+    post:
+      tags: [Commerce]
+      summary: Create an idempotent procurement request
+      operationId: createCommerceProcurementRequest
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - organizationId
+                - requesterType
+                - requesterId
+                - idempotencyKey
+                - intent
+                - constitution
+              properties:
+                organizationId: { type: string, format: uuid }
+                costCenterId: { type: [string, 'null'], format: uuid }
+                requesterType: { type: string, enum: [user, agent, service] }
+                requesterId: { type: string, maxLength: 255 }
+                agentId: { type: [string, 'null'], maxLength: 255 }
+                idempotencyKey:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'
+                intent: { type: string, maxLength: 2000 }
+                constitution:
+                  $ref: '#/components/schemas/BuyerConstitution'
+                expiresAt: { type: [string, 'null'], format: date-time }
+      responses:
+        '201':
+          description: Procurement request created or idempotently replayed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: Idempotency key conflicts with different request evidence
+
+  /api/commerce/ledger/requests/{requestId}:
+    get:
+      tags: [Commerce]
+      summary: Read a procurement request audit trail
+      operationId: getCommerceProcurementRequest
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Request with immutable decisions and approvals
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Procurement request not found
+
+  /api/commerce/ledger/requests/{requestId}/decisions:
+    post:
+      tags: [Commerce]
+      summary: Persist a signed commerce decision
+      description: Verifies the AgentPay HMAC signature and binds the immutable decision to the evaluated policy.
+      operationId: persistCommerceDecision
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, signature]
+              properties:
+                decision: { type: object, additionalProperties: true }
+                signature: { type: string }
+                signingKeyId: { type: string, default: agentpay-commerce-v1 }
+      responses:
+        '201':
+          description: Signed decision persisted or idempotently replayed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Decision signature is invalid
+        '409':
+          description: Decision expired, drifted, or conflicts with existing evidence
+
+  /api/commerce/ledger/requests/{requestId}/approvals:
+    post:
+      tags: [Commerce]
+      summary: Append a policy-bound approval decision
+      operationId: appendCommerceApproval
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - decisionId
+                - action
+                - approverType
+                - approverId
+                - idempotencyKey
+                - policySnapshot
+              properties:
+                decisionId: { type: string }
+                action: { type: string, enum: [approved, rejected, revoked] }
+                approverType: { type: string, enum: [user, agent, service, policy] }
+                approverId: { type: string, maxLength: 255 }
+                idempotencyKey:
+                  type: string
+                  pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'
+                policySnapshot: { type: object, additionalProperties: true }
+                reason: { type: [string, 'null'], maxLength: 1000 }
+      responses:
+        '201':
+          description: Approval appended or idempotently replayed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Policy drift, expired decision, or idempotency conflict
+
   /api/marketplace/discover:
     get:
       tags: [Marketplace]

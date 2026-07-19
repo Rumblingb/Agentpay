@@ -46,6 +46,11 @@ router.get('/capabilities', (c) => c.json({
     revenueDraft: '8% of net merchandise after the merchant return window; requires a merchant agreement before activation',
     catalogSource: 'caller-supplied candidates only; no merchant feed, checkout, or inventory connection is verified',
   },
+  durableLedger: {
+    basePath: '/api/commerce/ledger',
+    records: ['procurement requests', 'signed decisions', 'policy-bound approvals'],
+    checkout: 'merchant-owned checkout handoffs require a separately connected and verified catalog',
+  },
   retention: 'Evaluation requests and choice receipts are not stored by this endpoint.',
 }));
 

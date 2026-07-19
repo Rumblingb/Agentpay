@@ -1,0 +1,13 @@
+{
+  "algorithm": "sha256",
+  "migrations": [
+    {
+      "file": "20260718_secure_payment_providers.sql",
+      "sha256": "1921f298399211afcf20924432c23bbd4e4b0177257c630a962883bf51cbe399"
+    },
+    {
+      "file": "20260719_commerce_ledger.sql",
+      "sha256": "8404cc90dada5c3789f714035b3d4b1726998eef5ed6c43cc88732983da7d8d1"
+    }
+  ]
+}

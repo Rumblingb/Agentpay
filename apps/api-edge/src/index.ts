@@ -63,6 +63,7 @@ import { actionsRouter } from './routes/actions';
 import { paymentProvidersRouter } from './routes/paymentProviders';
 import { paymentProviderWebhooksRouter } from './routes/paymentProviderWebhooks';
 import { commerceRouter } from './routes/commerce';
+import { commerceLedgerRouter } from './routes/commerceLedger';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -217,6 +218,8 @@ app.route('/api/payments', paymentProvidersRouter);
 
 // Evidence-backed buyer decisions and signed portable choice receipts.
 app.route('/api/commerce', commerceRouter);
+// Durable procurement requests, signed decisions, and append-only approvals.
+app.route('/api/commerce/ledger', commerceLedgerRouter);
 
 // Hosted remote MCP — /api/mcp and /api/mcp/info
 app.route('/api/mcp', mcpRouter);

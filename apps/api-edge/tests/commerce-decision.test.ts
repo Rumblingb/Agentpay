@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CommerceDecisionError,
   evaluateCommerceDecision,
+  hashCommerceValue,
   signCommerceDecision,
   verifyCommerceDecisionSignature,
 } from '../src/lib/commerceDecision';
@@ -102,5 +103,24 @@ describe('commerce choice receipts', () => {
     await expect(evaluateCommerceDecision(request([
       candidate({ evidence: [{ ...evidence()[0], source: 'http://merchant.example/item' }] }),
     ]), now)).rejects.toBeInstanceOf(CommerceDecisionError);
+  });
+
+  it('hashes policy snapshots canonically for durable approval binding', async () => {
+    const first = await hashCommerceValue({
+      currency: 'GBP',
+      nested: { maximum: 9_000, approval: true },
+    });
+    const reordered = await hashCommerceValue({
+      nested: { approval: true, maximum: 9_000 },
+      currency: 'GBP',
+    });
+    const changed = await hashCommerceValue({
+      nested: { approval: true, maximum: 9_001 },
+      currency: 'GBP',
+    });
+
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(reordered).toBe(first);
+    expect(changed).not.toBe(first);
   });
 });
