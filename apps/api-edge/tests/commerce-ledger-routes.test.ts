@@ -8,6 +8,7 @@ import {
   signCommerceDecision,
 } from '../src/lib/commerceDecision';
 import { pbkdf2Hex } from '../src/lib/pbkdf2';
+import { timingSafeDigestEqual } from '../src/middleware/commercePrincipalAuth';
 import { commerceLedgerRouter } from '../src/routes/commerceLedger';
 import type { Env, Variables } from '../src/types';
 
@@ -56,6 +57,7 @@ let policyHash: string;
 function makeSql(
   handler: QueryHandler,
   role: 'owner' | 'admin' | 'requester' | 'approver' | 'auditor' = 'owner',
+  lifecycle?: string[],
 ): FakeSql {
   const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
@@ -71,11 +73,16 @@ function makeSql(
         role,
       }];
     }
-    if (text.includes('UPDATE commerce_organization_credentials')) return [];
+    if (text.includes('UPDATE commerce_organization_credentials')) {
+      lifecycle?.push('last-used');
+      return [];
+    }
     return handler(text, values);
   }) as FakeSql;
   sql.begin = async <T>(callback: (transaction: FakeSql) => Promise<T>) => callback(sql);
-  sql.end = async () => {};
+  sql.end = async () => {
+    lifecycle?.push('end');
+  };
   return sql;
 }
 
@@ -101,9 +108,11 @@ function requestRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function executionContext(): ExecutionContext {
+function executionContext(pending: Promise<unknown>[]): ExecutionContext {
   return {
-    waitUntil: () => {},
+    waitUntil: (promise: Promise<unknown>) => {
+      pending.push(promise);
+    },
     passThroughOnException: () => {},
     props: {},
   } as unknown as ExecutionContext;
@@ -116,7 +125,8 @@ function app() {
 }
 
 async function call(path: string, init?: RequestInit) {
-  return app().request(
+  const pending: Promise<unknown>[] = [];
+  const response = await app().request(
     `https://api.agentpay.test${path}`,
     {
       ...init,
@@ -127,8 +137,10 @@ async function call(path: string, init?: RequestInit) {
       },
     },
     { DATABASE_URL: 'postgres://unused', AGENTPAY_SIGNING_SECRET: SIGNING_SECRET } as Env,
-    executionContext(),
+    executionContext(pending),
   );
+  await Promise.all(pending);
+  return response;
 }
 
 async function signedDecision(
@@ -178,6 +190,91 @@ beforeEach(() => {
 });
 
 describe('commerce ledger route boundaries', () => {
+  it('rejects unauthenticated buyer organization creation', async () => {
+    const response = await call('/api/commerce/ledger/organizations', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Untrusted Organization',
+        slug: 'untrusted-organization',
+        defaultCurrency: 'GBP',
+        ownerPrincipalType: 'user',
+        ownerPrincipalId: 'forged-owner',
+      }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('derives the organization creator from the authenticated platform principal', async () => {
+    const organizationId = '20000000-0000-4000-8000-000000000010';
+    const memberId = '20000000-0000-4000-8000-000000000011';
+    let creatorValues: unknown[] = [];
+    activeSql = makeSql((text, values) => {
+      if (text.includes('INSERT INTO commerce_organizations')) {
+        creatorValues = values;
+        return [{
+          id: organizationId,
+          name: 'Authenticated Organization',
+          slug: 'authenticated-organization',
+          defaultCurrency: 'GBP',
+        }];
+      }
+      if (text.includes('INSERT INTO commerce_organization_members')) return [{ id: memberId }];
+      return [];
+    });
+    const response = await app().request(
+      'https://api.agentpay.test/api/commerce/ledger/organizations',
+      {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer sk_test_sim',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Authenticated Organization',
+          slug: 'authenticated-organization',
+          defaultCurrency: 'GBP',
+          ownerPrincipalType: 'user',
+          ownerPrincipalId: 'forged-owner',
+        }),
+      },
+      {
+        DATABASE_URL: 'postgres://unused',
+        AGENTPAY_TEST_MODE: 'true',
+        AGENTPAY_SIGNING_SECRET: SIGNING_SECRET,
+      } as Env,
+      executionContext([]),
+    );
+    expect(response.status).toBe(201);
+    expect(creatorValues.slice(0, 2)).toEqual([
+      'service',
+      '26e7ac4f-017e-4316-bf4f-9a1b37112510',
+    ]);
+  });
+
+  it('rejects an invalid organization key with timing-safe digest comparison', async () => {
+    let routeQueried = false;
+    activeSql = makeSql(() => {
+      routeQueried = true;
+      return [];
+    });
+    expect(timingSafeDigestEqual('a'.repeat(64), 'a'.repeat(64))).toBe(true);
+    expect(timingSafeDigestEqual('a'.repeat(64), 'b'.repeat(64))).toBe(false);
+
+    const response = await call(`/api/commerce/ledger/requests/${REQUEST_ID}`, {
+      headers: { 'x-organization-key': `org_${KEY_PREFIX}_${'f'.repeat(64)}` },
+    });
+    expect(response.status).toBe(401);
+    expect(routeQueried).toBe(false);
+    await expect(response.json()).resolves.toMatchObject({ code: 'COMMERCE_AUTH_INVALID' });
+  });
+
+  it('records credential use before closing its database client', async () => {
+    const lifecycle: string[] = [];
+    activeSql = makeSql(() => [], 'owner', lifecycle);
+    await call(`/api/commerce/ledger/requests/${REQUEST_ID}`);
+    expect(lifecycle.slice(-2)).toEqual(['last-used', 'end']);
+  });
+
   it('hides procurement requests belonging to another organization', async () => {
     activeSql = makeSql((text, values) => {
       if (text.includes('FROM commerce_procurement_requests request')) {

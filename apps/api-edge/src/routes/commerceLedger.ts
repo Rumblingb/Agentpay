@@ -12,6 +12,7 @@ import {
   authenticateCommercePrincipal,
   createCommerceOrganizationKey,
 } from '../middleware/commercePrincipalAuth';
+import { authenticateApiKey } from '../middleware/auth';
 import type { CommercePrincipalContext, Env, Variables } from '../types';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -228,13 +229,15 @@ function isExpired(expiresAt: string | null): boolean {
 
 router.use('/requests', authenticateCommercePrincipal);
 router.use('/requests/*', authenticateCommercePrincipal);
+router.use('/organizations', authenticateApiKey);
 
 router.post('/organizations', async (c) => {
   try {
     const body = await c.req.json() as unknown;
     if (!isRecord(body)) throw new CommerceLedgerError('INVALID_REQUEST', 'A JSON object is required');
-    const ownerPrincipalType = enumValue(body.ownerPrincipalType, 'ownerPrincipalType', PRINCIPAL_TYPES);
-    const ownerPrincipalId = requiredString(body.ownerPrincipalId, 'ownerPrincipalId', 255);
+    const creator = c.get('merchant');
+    const ownerPrincipalType = 'service';
+    const ownerPrincipalId = creator.id;
     const name = requiredString(body.name, 'name', 200);
     const slug = requiredString(body.slug, 'slug', 64).toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug)) {

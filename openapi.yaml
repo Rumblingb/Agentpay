@@ -557,17 +557,16 @@ paths:
       tags: [Commerce]
       summary: Create a buyer organization
       operationId: createCommerceOrganization
-      security: []
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [ownerPrincipalType, ownerPrincipalId, name, slug, defaultCurrency]
+              required: [name, slug, defaultCurrency]
               properties:
-                ownerPrincipalType: { type: string, enum: [user, agent, service] }
-                ownerPrincipalId: { type: string, maxLength: 255 }
                 name: { type: string, maxLength: 200 }
                 slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
                 defaultCurrency: { type: string, pattern: '^[A-Z]{3}$' }

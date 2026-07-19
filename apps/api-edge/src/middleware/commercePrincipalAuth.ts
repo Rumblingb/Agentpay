@@ -13,6 +13,15 @@ function randomHex(byteLength: number): string {
   ).join('');
 }
 
+export function timingSafeDigestEqual(left: string, right: string): boolean {
+  const length = Math.max(left.length, right.length);
+  let difference = left.length ^ right.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return difference === 0;
+}
+
 export async function createCommerceOrganizationKey(): Promise<{
   presentedKey: string;
   keyPrefix: string;
@@ -54,6 +63,7 @@ export async function authenticateCommercePrincipal(
 
   const [, keyPrefix, rawKey] = match;
   const sql = createDb(c.env);
+  let authenticatedCredentialId: string | null = null;
   try {
     const rows = await sql<Array<CommercePrincipalContext & {
       credentialId: string;
@@ -83,9 +93,13 @@ export async function authenticateCommercePrincipal(
       LIMIT 1
     `;
     const credential = rows[0];
-    if (!credential || await pbkdf2Hex(rawKey, credential.keySalt) !== credential.keyHash) {
+    const derivedHash = credential
+      ? await pbkdf2Hex(rawKey, credential.keySalt)
+      : null;
+    if (!credential || !derivedHash || !timingSafeDigestEqual(derivedHash, credential.keyHash)) {
       return c.json({ code: 'COMMERCE_AUTH_INVALID', message: 'Invalid organization key.' }, 401);
     }
+    authenticatedCredentialId = credential.credentialId;
 
     c.set('commercePrincipal', {
       organizationId: credential.organizationId,
@@ -94,13 +108,21 @@ export async function authenticateCommercePrincipal(
       principalId: credential.principalId,
       role: credential.role,
     });
-    c.executionCtx.waitUntil(sql`
-      UPDATE commerce_organization_credentials
-      SET last_used_at = now()
-      WHERE id = ${credential.credentialId}
-    `.then(() => undefined));
     await next();
   } finally {
-    c.executionCtx.waitUntil(sql.end().catch(() => {}));
+    const finalize = authenticatedCredentialId
+      ? (async () => {
+          try {
+            await sql`
+              UPDATE commerce_organization_credentials
+              SET last_used_at = now()
+              WHERE id = ${authenticatedCredentialId}
+            `;
+          } finally {
+            await sql.end();
+          }
+        })()
+      : sql.end();
+    c.executionCtx.waitUntil(finalize.catch(() => {}));
   }
 }
