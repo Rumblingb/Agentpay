@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260310.1",
+    "@electric-sql/pglite": "^0.5.4",
     "@types/node": "^20.19.43",
     "typescript": "^5.9.3",
     "vitest": "^4.1.2",

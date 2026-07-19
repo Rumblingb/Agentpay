@@ -38,11 +38,31 @@ CREATE TABLE IF NOT EXISTS commerce_organization_members (
                         CHECK (jsonb_typeof(attributes) = 'object'),
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, principal_type, principal_id)
+  UNIQUE (organization_id, principal_type, principal_id),
+  UNIQUE (organization_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_commerce_members_principal
   ON commerce_organization_members (principal_type, principal_id, status);
+
+CREATE TABLE IF NOT EXISTS commerce_organization_credentials (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id     uuid NOT NULL REFERENCES commerce_organizations(id) ON DELETE CASCADE,
+  member_id           uuid NOT NULL,
+  key_prefix          text NOT NULL UNIQUE CHECK (key_prefix ~ '^[0-9a-f]{12}$'),
+  key_hash            text NOT NULL CHECK (key_hash ~ '^[0-9a-f]{64}$'),
+  key_salt            text NOT NULL CHECK (char_length(key_salt) >= 32),
+  status              text NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'revoked', 'expired')),
+  expires_at          timestamptz,
+  last_used_at        timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (organization_id, member_id)
+    REFERENCES commerce_organization_members (organization_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_commerce_org_credentials_active
+  ON commerce_organization_credentials (key_prefix, status);
 
 CREATE TABLE IF NOT EXISTS commerce_cost_centers (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -116,6 +136,8 @@ CREATE TABLE IF NOT EXISTS commerce_decisions (
   schema_version      text NOT NULL,
   decision_payload    jsonb NOT NULL CHECK (jsonb_typeof(decision_payload) = 'object'),
   payload_hash        text NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
+  policy_hash         text NOT NULL CHECK (policy_hash ~ '^[0-9a-f]{64}$'),
+  request_intent_hash text NOT NULL CHECK (request_intent_hash ~ '^[0-9a-f]{64}$'),
   signature           text NOT NULL,
   signing_key_id      text NOT NULL,
   recommended_product_reference text,
@@ -135,7 +157,7 @@ CREATE TABLE IF NOT EXISTS commerce_approvals (
   procurement_request_id uuid NOT NULL REFERENCES commerce_procurement_requests(id),
   decision_id         uuid NOT NULL REFERENCES commerce_decisions(id),
   organization_id     uuid NOT NULL REFERENCES commerce_organizations(id),
-  approver_type       text NOT NULL CHECK (approver_type IN ('user', 'agent', 'service', 'policy')),
+  approver_type       text NOT NULL CHECK (approver_type IN ('user', 'agent', 'service')),
   approver_id         text NOT NULL CHECK (char_length(approver_id) BETWEEN 1 AND 255),
   action              text NOT NULL CHECK (action IN ('approved', 'rejected', 'revoked')),
   idempotency_key     text NOT NULL CHECK (idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'),
@@ -291,6 +313,75 @@ CREATE TABLE IF NOT EXISTS commerce_fee_accruals (
 
 CREATE INDEX IF NOT EXISTS idx_commerce_fee_accruals_queue
   ON commerce_fee_accruals (state, return_window_ends_at);
+
+CREATE OR REPLACE FUNCTION enforce_commerce_request_state_transition()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.state = OLD.state THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT (
+    (OLD.state = 'draft' AND NEW.state IN ('evaluating', 'cancelled', 'expired'))
+    OR (OLD.state = 'evaluating' AND NEW.state IN ('approval_required', 'approved', 'rejected', 'cancelled', 'expired'))
+    OR (OLD.state = 'approval_required' AND NEW.state IN ('approved', 'rejected', 'cancelled', 'expired'))
+    OR (OLD.state = 'approved' AND NEW.state IN ('handed_off', 'cancelled', 'expired'))
+    OR (OLD.state = 'handed_off' AND NEW.state IN ('ordered', 'cancelled', 'expired'))
+  ) THEN
+    RAISE EXCEPTION 'illegal commerce request state transition: % -> %', OLD.state, NEW.state;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS commerce_requests_state_guard ON commerce_procurement_requests;
+CREATE TRIGGER commerce_requests_state_guard
+BEFORE UPDATE OF state ON commerce_procurement_requests
+FOR EACH ROW EXECUTE FUNCTION enforce_commerce_request_state_transition();
+
+CREATE OR REPLACE FUNCTION enforce_commerce_approval_membership()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  requester_type_value text;
+  requester_id_value text;
+BEGIN
+  SELECT requester_type, requester_id
+  INTO requester_type_value, requester_id_value
+  FROM commerce_procurement_requests
+  WHERE id = NEW.procurement_request_id
+    AND organization_id = NEW.organization_id;
+
+  IF requester_type_value IS NULL THEN
+    RAISE EXCEPTION 'approval request does not belong to organization';
+  END IF;
+
+  IF requester_type_value = NEW.approver_type AND requester_id_value = NEW.approver_id THEN
+    RAISE EXCEPTION 'requester cannot approve their own procurement request';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM commerce_organization_members
+    WHERE organization_id = NEW.organization_id
+      AND principal_type = NEW.approver_type
+      AND principal_id = NEW.approver_id
+      AND role IN ('owner', 'admin', 'approver')
+      AND status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'approver is not an active organization approver';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS commerce_approvals_membership_guard ON commerce_approvals;
+CREATE TRIGGER commerce_approvals_membership_guard
+BEFORE INSERT ON commerce_approvals
+FOR EACH ROW EXECUTE FUNCTION enforce_commerce_approval_membership();
 
 CREATE OR REPLACE FUNCTION reject_commerce_evidence_mutation()
 RETURNS trigger

@@ -520,8 +520,18 @@ export interface MerchantContext {
   parentMerchantId?: string | null;
 }
 
+/** Independent buyer-organization principal authenticated by an organization key. */
+export interface CommercePrincipalContext {
+  organizationId: string;
+  memberId: string;
+  principalType: 'user' | 'agent' | 'service';
+  principalId: string;
+  role: 'owner' | 'admin' | 'requester' | 'approver' | 'auditor';
+}
+
 /** Hono Variables type — passed as the second generic to Hono<{...}>. */
 export interface Variables {
   merchant: MerchantContext;
+  commercePrincipal?: CommercePrincipalContext;
   mcpAudience?: 'openai' | 'anthropic' | 'generic';
 }

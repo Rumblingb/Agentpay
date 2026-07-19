@@ -44,6 +44,7 @@ export type CommerceCandidate = {
 };
 
 export type CommerceDecisionInput = {
+  procurementRequestId?: string;
   intent: string;
   constitution: BuyerConstitution;
   candidates: CommerceCandidate[];
@@ -63,6 +64,7 @@ type EvaluatedCandidate = CommerceCandidate & {
 export type CommerceDecision = {
   schema: 'agentpay.commerce-choice-receipt/1.0';
   decisionId: string;
+  procurementRequestId?: string;
   generatedAt: string;
   expiresAt: string;
   intent: string;
@@ -278,11 +280,17 @@ function normalizeCandidate(raw: unknown, index: number): CommerceCandidate {
 }
 
 function canonicalize(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(',')}}`;
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => item === undefined ? 'null' : canonicalize(item)).join(',')}]`;
   }
-  return JSON.stringify(value);
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 async function sha256(value: string): Promise<string> {
@@ -358,6 +366,9 @@ function buildTradeoffs(eligible: EvaluatedCandidate[]): string[] {
 export async function evaluateCommerceDecision(raw: unknown, now = new Date()): Promise<CommerceDecision> {
   if (!isRecord(raw)) throw new CommerceDecisionError('INVALID_REQUEST', 'Request body must be an object');
   assertString(raw.intent, 'intent', 1000);
+  if (raw.procurementRequestId !== undefined) {
+    assertString(raw.procurementRequestId, 'procurementRequestId', 128);
+  }
   if (!Array.isArray(raw.candidates) || raw.candidates.length === 0 || raw.candidates.length > MAX_CANDIDATES) {
     throw new CommerceDecisionError('INVALID_REQUEST', `candidates must contain 1-${MAX_CANDIDATES} entries`);
   }
@@ -381,7 +392,8 @@ export async function evaluateCommerceDecision(raw: unknown, now = new Date()): 
   }
   eligible.sort((a, b) => b.score - a.score || a.priceMinor - b.priceMinor || a.id.localeCompare(b.id));
 
-  const normalizedInput = { intent: raw.intent.trim(), constitution, candidates };
+  const procurementRequestId = raw.procurementRequestId?.trim();
+  const normalizedInput = { procurementRequestId, intent: raw.intent.trim(), constitution, candidates };
   const decisionId = `decision_${(await sha256(canonicalize(normalizedInput))).slice(0, 32)}`;
   const expiresAt = new Date(now.getTime() + 15 * 60_000).toISOString();
   const recommendation = eligible[0] ?? null;
@@ -394,6 +406,7 @@ export async function evaluateCommerceDecision(raw: unknown, now = new Date()): 
   return {
     schema: 'agentpay.commerce-choice-receipt/1.0',
     decisionId,
+    ...(procurementRequestId ? { procurementRequestId } : {}),
     generatedAt: now.toISOString(),
     expiresAt,
     intent: raw.intent.trim(),

@@ -94,6 +94,8 @@ describe('commerce choice receipts', () => {
     const secret = 'commerce-signing-secret-that-is-long-enough';
     const signature = await signCommerceDecision(first, secret);
     await expect(verifyCommerceDecisionSignature(first, signature, secret)).resolves.toBe(true);
+    const wireRoundTrip = JSON.parse(JSON.stringify(first));
+    await expect(verifyCommerceDecisionSignature(wireRoundTrip, signature, secret)).resolves.toBe(true);
     await expect(verifyCommerceDecisionSignature(
       { ...first, intent: 'tampered' },
       signature,

@@ -557,16 +557,17 @@ paths:
       tags: [Commerce]
       summary: Create a buyer organization
       operationId: createCommerceOrganization
-      security:
-        - ApiKeyAuth: []
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name, slug, defaultCurrency]
+              required: [ownerPrincipalType, ownerPrincipalId, name, slug, defaultCurrency]
               properties:
+                ownerPrincipalType: { type: string, enum: [user, agent, service] }
+                ownerPrincipalId: { type: string, maxLength: 255 }
                 name: { type: string, maxLength: 200 }
                 slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
                 defaultCurrency: { type: string, pattern: '^[A-Z]{3}$' }
@@ -586,7 +587,7 @@ paths:
       summary: Create an idempotent procurement request
       operationId: createCommerceProcurementRequest
       security:
-        - ApiKeyAuth: []
+        - OrganizationKeyAuth: []
       requestBody:
         required: true
         content:
@@ -595,17 +596,12 @@ paths:
               type: object
               required:
                 - organizationId
-                - requesterType
-                - requesterId
                 - idempotencyKey
                 - intent
                 - constitution
               properties:
                 organizationId: { type: string, format: uuid }
                 costCenterId: { type: [string, 'null'], format: uuid }
-                requesterType: { type: string, enum: [user, agent, service] }
-                requesterId: { type: string, maxLength: 255 }
-                agentId: { type: [string, 'null'], maxLength: 255 }
                 idempotencyKey:
                   type: string
                   pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'
@@ -629,7 +625,7 @@ paths:
       summary: Read a procurement request audit trail
       operationId: getCommerceProcurementRequest
       security:
-        - ApiKeyAuth: []
+        - OrganizationKeyAuth: []
       parameters:
         - name: requestId
           in: path
@@ -650,7 +646,7 @@ paths:
       description: Verifies the AgentPay HMAC signature and binds the immutable decision to the evaluated policy.
       operationId: persistCommerceDecision
       security:
-        - ApiKeyAuth: []
+        - OrganizationKeyAuth: []
       parameters:
         - name: requestId
           in: path
@@ -683,7 +679,7 @@ paths:
       summary: Append a policy-bound approval decision
       operationId: appendCommerceApproval
       security:
-        - ApiKeyAuth: []
+        - OrganizationKeyAuth: []
       parameters:
         - name: requestId
           in: path
@@ -698,19 +694,16 @@ paths:
               required:
                 - decisionId
                 - action
-                - approverType
-                - approverId
                 - idempotencyKey
                 - policySnapshot
               properties:
                 decisionId: { type: string }
-                action: { type: string, enum: [approved, rejected, revoked] }
-                approverType: { type: string, enum: [user, agent, service, policy] }
-                approverId: { type: string, maxLength: 255 }
+                action: { type: string, enum: [approved, rejected] }
                 idempotencyKey:
                   type: string
                   pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'
-                policySnapshot: { type: object, additionalProperties: true }
+                policySnapshot:
+                  $ref: '#/components/schemas/BuyerConstitution'
                 reason: { type: [string, 'null'], maxLength: 1000 }
       responses:
         '201':
@@ -1165,6 +1158,11 @@ components:
       in: header
       name: Authorization
       description: "Format: 'Bearer <api_key>' or just '<api_key>'"
+    OrganizationKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Organization-Key
+      description: Independent buyer-organization credential returned once at organization creation.
 
   responses:
     ValidationError:
