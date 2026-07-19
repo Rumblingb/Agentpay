@@ -114,17 +114,57 @@ function requestResponse(row: ProcurementRequestRow) {
   };
 }
 
-async function ownedOrganization(
+function durableDecisionEvidence(decision: CommerceDecision): Record<string, unknown> {
+  const recommendation = decision.recommendation;
+  return {
+    schema: 'agentpay.commerce-decision-evidence/1.0',
+    decisionId: decision.decisionId,
+    generatedAt: decision.generatedAt,
+    expiresAt: decision.expiresAt,
+    intent: decision.intent,
+    constitution: decision.constitution,
+    selectedOffer: recommendation ? {
+      id: recommendation.id,
+      name: recommendation.name,
+      sellerId: recommendation.merchantId,
+      sellerName: recommendation.merchantName,
+      category: recommendation.category,
+      priceMinor: recommendation.priceMinor,
+      currency: recommendation.currency,
+      refundable: recommendation.refundable,
+      returnWindowDays: recommendation.returnWindowDays,
+      deliveryDays: recommendation.deliveryDays,
+      score: recommendation.score,
+      factors: recommendation.factors,
+      evidence: recommendation.evidence,
+      evidenceFreshAt: recommendation.evidenceFreshAt,
+    } : null,
+    rejected: decision.rejected.map((entry) => ({
+      candidateId: entry.candidate.id,
+      reasonCodes: entry.reasons.map((reason) => reason.code),
+    })),
+    tradeoffs: decision.tradeoffs,
+    approval: decision.approval,
+    proposedMandate: decision.proposedMandate,
+    sourceRetention: 'selected-offer-and-reason-codes-only',
+  };
+}
+
+async function authorizedOrganization(
   sql: Sql,
   organizationId: string,
-  merchantId: string,
+  principalId: string,
 ): Promise<{ id: string; defaultCurrency: string }> {
   const rows = await sql<Array<{ id: string; defaultCurrency: string }>>`
-    SELECT id, default_currency AS "defaultCurrency"
-    FROM commerce_organizations
-    WHERE id = ${organizationId}
-      AND owner_merchant_id = ${merchantId}
-      AND status = 'active'
+    SELECT organization.id, organization.default_currency AS "defaultCurrency"
+    FROM commerce_organizations organization
+    JOIN commerce_organization_members member
+      ON member.organization_id = organization.id
+    WHERE organization.id = ${organizationId}
+      AND organization.status = 'active'
+      AND member.principal_type = 'service'
+      AND member.principal_id = ${principalId}
+      AND member.status = 'active'
     LIMIT 1
   `;
   if (!rows.length) {
@@ -157,9 +197,12 @@ async function procurementRequest(
       request.created_at AS "createdAt",
       request.updated_at AS "updatedAt"
     FROM commerce_procurement_requests request
-    JOIN commerce_organizations organization ON organization.id = request.organization_id
+    JOIN commerce_organization_members member
+      ON member.organization_id = request.organization_id
     WHERE request.id = ${requestId}
-      AND organization.owner_merchant_id = ${merchantId}
+      AND member.principal_type = 'service'
+      AND member.principal_id = ${merchantId}
+      AND member.status = 'active'
     LIMIT 1
   `;
   if (!rows.length) {
@@ -190,8 +233,10 @@ router.post('/organizations', async (c) => {
       const organization = await sql.begin(async (transaction) => {
         const tx = transaction as unknown as Sql;
         const rows = await tx<Array<{ id: string; name: string; slug: string; defaultCurrency: string }>>`
-          INSERT INTO commerce_organizations (owner_merchant_id, name, slug, default_currency)
-          VALUES (${merchant.id}, ${name}, ${slug}, ${currency})
+          INSERT INTO commerce_organizations (
+            created_by_principal_type, created_by_principal_id, name, slug, default_currency
+          )
+          VALUES ('service', ${merchant.id}, ${name}, ${slug}, ${currency})
           ON CONFLICT (slug) DO NOTHING
           RETURNING id, name, slug, default_currency AS "defaultCurrency"
         `;
@@ -232,7 +277,7 @@ router.post('/requests', async (c) => {
 
     const sql = createDb(c.env);
     try {
-      const organization = await ownedOrganization(sql, organizationId, merchant.id);
+      const organization = await authorizedOrganization(sql, organizationId, merchant.id);
       if (organization.defaultCurrency !== constitution.currency) {
         throw new CommerceLedgerError('CURRENCY_MISMATCH', 'Constitution currency must match the organization currency');
       }
@@ -308,6 +353,7 @@ router.post('/requests/:requestId/decisions', async (c) => {
 
     const payloadHash = await hashCommerceValue(decision);
     const decisionPolicyHash = await hashCommerceValue(decision.constitution);
+    const evidence = durableDecisionEvidence(decision);
     const merchant = c.get('merchant');
     const sql = createDb(c.env);
     try {
@@ -328,10 +374,12 @@ router.post('/requests/:requestId/decisions', async (c) => {
         await tx`
           INSERT INTO commerce_decisions (
             procurement_request_id, decision_id, schema_version, decision_payload,
-            payload_hash, signature, signing_key_id, amount_minor, currency, expires_at
+            payload_hash, signature, signing_key_id, recommended_variant_reference,
+            amount_minor, currency, expires_at
           ) VALUES (
             ${requestId}, ${decision.decisionId}, ${decision.schema},
-            ${JSON.stringify(decision)}::jsonb, ${payloadHash}, ${signature}, ${signingKeyId},
+            ${JSON.stringify(evidence)}::jsonb, ${payloadHash}, ${signature}, ${signingKeyId},
+            ${recommendation?.id ?? null},
             ${recommendation?.priceMinor ?? null}, ${recommendation?.currency ?? null},
             ${decision.expiresAt}
           )

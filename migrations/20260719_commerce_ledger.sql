@@ -8,7 +8,10 @@
 
 CREATE TABLE IF NOT EXISTS commerce_organizations (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_merchant_id   uuid NOT NULL REFERENCES merchants(id),
+  created_by_principal_type text NOT NULL
+                        CHECK (created_by_principal_type IN ('user', 'agent', 'service')),
+  created_by_principal_id text NOT NULL
+                        CHECK (char_length(created_by_principal_id) BETWEEN 1 AND 255),
   name                text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 200),
   slug                text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$'),
   status              text NOT NULL DEFAULT 'active'
@@ -20,8 +23,8 @@ CREATE TABLE IF NOT EXISTS commerce_organizations (
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_commerce_organizations_owner
-  ON commerce_organizations (owner_merchant_id, status);
+CREATE INDEX IF NOT EXISTS idx_commerce_organizations_creator
+  ON commerce_organizations (created_by_principal_type, created_by_principal_id, status);
 
 CREATE TABLE IF NOT EXISTS commerce_organization_members (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -58,70 +61,29 @@ CREATE TABLE IF NOT EXISTS commerce_cost_centers (
   UNIQUE (organization_id, code)
 );
 
-CREATE TABLE IF NOT EXISTS commerce_vendor_connections (
+-- Sellers are independent from buyer organizations and need not be onboarded
+-- AgentPay merchants. UCP catalog responses are never cached; only the seller
+-- identity needed for a selected checkout handoff is persisted.
+CREATE TABLE IF NOT EXISTS commerce_sellers (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  merchant_id         uuid NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
-  provider            text NOT NULL CHECK (provider IN ('shopify', 'woocommerce', 'feed', 'direct')),
-  external_account_id text NOT NULL CHECK (char_length(external_account_id) BETWEEN 1 AND 255),
-  status              text NOT NULL DEFAULT 'pending'
-                        CHECK (status IN ('pending', 'active', 'degraded', 'revoked')),
-  scopes              text[] NOT NULL DEFAULT ARRAY[]::text[],
-  credentials_ref     text,
-  sync_cursor         text,
-  last_synced_at      timestamptz,
-  last_error_code     text,
+  merchant_id         uuid REFERENCES merchants(id) ON DELETE SET NULL,
+  platform            text NOT NULL CHECK (platform IN ('shopify_ucp', 'ucp', 'direct')),
+  external_seller_id  text NOT NULL CHECK (char_length(external_seller_id) BETWEEN 1 AND 255),
+  domain              text NOT NULL CHECK (domain ~ '^[a-z0-9.-]+$'),
+  display_name        text NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 255),
+  status              text NOT NULL DEFAULT 'observed'
+                        CHECK (status IN ('observed', 'verified', 'contracted', 'suspended')),
   metadata            jsonb NOT NULL DEFAULT '{}'::jsonb
                         CHECK (jsonb_typeof(metadata) = 'object'),
+  first_observed_at   timestamptz NOT NULL DEFAULT now(),
+  last_observed_at    timestamptz NOT NULL DEFAULT now(),
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (provider, external_account_id)
+  UNIQUE (platform, external_seller_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_commerce_vendor_connections_merchant
-  ON commerce_vendor_connections (merchant_id, status);
-
-CREATE TABLE IF NOT EXISTS commerce_products (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  vendor_connection_id uuid NOT NULL REFERENCES commerce_vendor_connections(id) ON DELETE CASCADE,
-  merchant_id         uuid NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
-  external_product_id text NOT NULL CHECK (char_length(external_product_id) BETWEEN 1 AND 255),
-  title               text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 500),
-  category            text,
-  status              text NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active', 'draft', 'archived', 'quarantined')),
-  source_payload_hash text NOT NULL CHECK (source_payload_hash ~ '^[0-9a-f]{64}$'),
-  attributes          jsonb NOT NULL DEFAULT '{}'::jsonb
-                        CHECK (jsonb_typeof(attributes) = 'object'),
-  observed_at         timestamptz NOT NULL,
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (vendor_connection_id, external_product_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_commerce_products_discovery
-  ON commerce_products (merchant_id, status, category, observed_at DESC);
-
-CREATE TABLE IF NOT EXISTS commerce_product_variants (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id          uuid NOT NULL REFERENCES commerce_products(id) ON DELETE CASCADE,
-  external_variant_id text NOT NULL CHECK (char_length(external_variant_id) BETWEEN 1 AND 255),
-  sku                 text,
-  title               text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 500),
-  currency            char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
-  price_minor         bigint NOT NULL CHECK (price_minor >= 0),
-  stock_quantity      bigint CHECK (stock_quantity IS NULL OR stock_quantity >= 0),
-  available           boolean NOT NULL DEFAULT false,
-  checkout_url        text NOT NULL CHECK (checkout_url ~ '^https://'),
-  evidence            jsonb NOT NULL DEFAULT '{}'::jsonb
-                        CHECK (jsonb_typeof(evidence) = 'object'),
-  observed_at         timestamptz NOT NULL,
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (product_id, external_variant_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_commerce_variants_available
-  ON commerce_product_variants (product_id, available, currency, price_minor);
+CREATE INDEX IF NOT EXISTS idx_commerce_sellers_contracting
+  ON commerce_sellers (status, platform, last_observed_at DESC);
 
 CREATE TABLE IF NOT EXISTS commerce_procurement_requests (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,7 +118,8 @@ CREATE TABLE IF NOT EXISTS commerce_decisions (
   payload_hash        text NOT NULL CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
   signature           text NOT NULL,
   signing_key_id      text NOT NULL,
-  recommended_variant_id uuid REFERENCES commerce_product_variants(id),
+  recommended_product_reference text,
+  recommended_variant_reference text,
   amount_minor        bigint CHECK (amount_minor IS NULL OR amount_minor >= 0),
   currency            char(3) CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$'),
   expires_at          timestamptz NOT NULL,
@@ -191,8 +154,9 @@ CREATE TABLE IF NOT EXISTS commerce_checkout_handoffs (
   procurement_request_id uuid NOT NULL REFERENCES commerce_procurement_requests(id),
   decision_id         uuid NOT NULL REFERENCES commerce_decisions(id),
   organization_id     uuid NOT NULL REFERENCES commerce_organizations(id),
-  merchant_id         uuid NOT NULL REFERENCES merchants(id),
-  variant_id          uuid NOT NULL REFERENCES commerce_product_variants(id),
+  seller_id           uuid NOT NULL REFERENCES commerce_sellers(id),
+  product_reference   text NOT NULL CHECK (char_length(product_reference) BETWEEN 1 AND 255),
+  variant_reference   text NOT NULL CHECK (char_length(variant_reference) BETWEEN 1 AND 255),
   idempotency_key     text NOT NULL CHECK (idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$'),
   nonce_hash          text NOT NULL UNIQUE CHECK (nonce_hash ~ '^[0-9a-f]{64}$'),
   token_hash          text NOT NULL UNIQUE CHECK (token_hash ~ '^[0-9a-f]{64}$'),
@@ -211,13 +175,13 @@ CREATE TABLE IF NOT EXISTS commerce_checkout_handoffs (
   UNIQUE (organization_id, idempotency_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_commerce_handoffs_merchant
-  ON commerce_checkout_handoffs (merchant_id, state, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_commerce_handoffs_seller
+  ON commerce_checkout_handoffs (seller_id, state, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS commerce_orders (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   checkout_handoff_id uuid NOT NULL REFERENCES commerce_checkout_handoffs(id),
-  merchant_id         uuid NOT NULL REFERENCES merchants(id),
+  seller_id           uuid NOT NULL REFERENCES commerce_sellers(id),
   source              text NOT NULL CHECK (source IN ('shopify', 'woocommerce', 'direct', 'stripe', 'airwallex')),
   external_order_id   text NOT NULL CHECK (char_length(external_order_id) BETWEEN 1 AND 255),
   state               text NOT NULL CHECK (state IN ('created', 'paid', 'fulfilled', 'cancelled', 'partially_refunded', 'refunded', 'disputed')),
@@ -235,12 +199,12 @@ CREATE TABLE IF NOT EXISTS commerce_orders (
   updated_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (total_minor = subtotal_minor + tax_minor + shipping_minor),
   CHECK (refunded_minor <= total_minor),
-  UNIQUE (source, merchant_id, external_order_id),
+  UNIQUE (source, seller_id, external_order_id),
   UNIQUE (checkout_handoff_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_commerce_orders_reconciliation
-  ON commerce_orders (merchant_id, state, ordered_at DESC);
+  ON commerce_orders (seller_id, state, ordered_at DESC);
 
 CREATE TABLE IF NOT EXISTS commerce_refunds (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -263,7 +227,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_refunds_order
 CREATE TABLE IF NOT EXISTS commerce_attribution_events (
   sequence_id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   organization_id     uuid REFERENCES commerce_organizations(id),
-  merchant_id         uuid NOT NULL REFERENCES merchants(id),
+  seller_id           uuid NOT NULL REFERENCES commerce_sellers(id),
   procurement_request_id uuid REFERENCES commerce_procurement_requests(id),
   checkout_handoff_id uuid REFERENCES commerce_checkout_handoffs(id),
   order_id            uuid REFERENCES commerce_orders(id),
@@ -281,11 +245,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_commerce_attribution_external_event
   WHERE external_event_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_commerce_attribution_reconciliation
-  ON commerce_attribution_events (merchant_id, event_type, occurred_at DESC);
+  ON commerce_attribution_events (seller_id, event_type, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS commerce_fee_contracts (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  merchant_id         uuid NOT NULL REFERENCES merchants(id),
+  seller_id           uuid NOT NULL REFERENCES commerce_sellers(id),
   version             integer NOT NULL CHECK (version > 0),
   fee_basis           text NOT NULL DEFAULT 'net_attributed_merchandise'
                         CHECK (fee_basis = 'net_attributed_merchandise'),
@@ -296,11 +260,11 @@ CREATE TABLE IF NOT EXISTS commerce_fee_contracts (
   contract_reference  text NOT NULL,
   created_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (effective_until IS NULL OR effective_until > effective_from),
-  UNIQUE (merchant_id, version)
+  UNIQUE (seller_id, version)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_commerce_fee_contracts_active
-  ON commerce_fee_contracts (merchant_id)
+  ON commerce_fee_contracts (seller_id)
   WHERE effective_until IS NULL;
 
 CREATE TABLE IF NOT EXISTS commerce_fee_accruals (
