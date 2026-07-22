@@ -1232,21 +1232,29 @@ model PrincipalPaymentMethod {
 }
 
 model ApprovalEvent {
-  id                String    @id @default(uuid()) @db.Uuid
-  intentId          String?   @map("intent_id") @db.Uuid
-  principalId       String    @map("principal_id")
-  method            String
-  approvalTokenHash String?   @map("approval_token_hash")
-  deviceHash        String?   @map("device_hash")
-  amountPence       Int       @map("amount_pence")
-  currency          String    @default("GBP")
-  policyVersion     String?   @map("policy_version")
-  approvedAt        DateTime? @map("approved_at") @db.Timestamptz(6)
-  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String    @id @default(uuid()) @db.Uuid
+  intentId            String?   @map("intent_id") @db.Uuid
+  principalId         String    @map("principal_id")
+  method              String
+  approvalTokenHash   String?   @map("approval_token_hash")
+  deviceHash          String?   @map("device_hash")
+  amountPence         Int?      @map("amount_pence")
+  currency            String    @default("GBP")
+  policyVersion       String?   @map("policy_version")
+  actionKind          String?   @map("action_kind")
+  actionPayloadHash   String?   @map("action_payload_hash")
+  actionPayloadJson   Json?     @map("action_payload_json")
+  executionStatus     String    @default("pending") @map("execution_status")
+  executionResultJson Json?     @map("execution_result_json")
+  consumedAt          DateTime? @map("consumed_at") @db.Timestamptz(6)
+  approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([principalId])
   @@index([intentId])
+  @@index([executionStatus, expiresAt])
+  @@index([actionPayloadHash])
   @@map("approval_events")
 }
 

@@ -12,6 +12,7 @@ const BRO_KEY = BRO_CLIENT_KEY;
 function requiresBroKey(path: string): boolean {
   return (
     path.startsWith('/api/concierge/') ||
+    path.startsWith('/api/approvals/') ||
     path.startsWith('/api/shared-travel/') ||
     path.startsWith('/api/trip-rooms/') ||
     path.startsWith('/api/support/')
@@ -404,6 +405,8 @@ export interface ConciergePlanItem {
     city: string;
     checkIn: string;
     checkOut: string;
+    /** True until the traveller explicitly chooses one of allOptions. */
+    requiresSelection?: boolean;
     bestOption: {
       name: string;
       stars: number;
@@ -413,6 +416,8 @@ export interface ConciergePlanItem {
       area: string;
       isLive: boolean;
       bookingUrl?: string;
+      imageUrl?: string;
+      imageAttributions?: Array<{ displayName: string; uri?: string }>;
     };
     allOptions?: Array<{
       name: string;
@@ -423,6 +428,8 @@ export interface ConciergePlanItem {
       area: string;
       isLive: boolean;
       bookingUrl?: string;
+      imageUrl?: string;
+      imageAttributions?: Array<{ displayName: string; uri?: string }>;
     }>;
   };
   tripContext?: TripContext;
@@ -439,6 +446,10 @@ export interface ConciergeResponse {
   needsBiometric?: boolean;
   /** Plan returned in phase 1 — pass back in phase 2 with confirmed: true */
   plan?: ConciergePlanItem[];
+  approvalSessionId?: string;
+  approvalToken?: string;
+  planDigest?: string;
+  approvalExpiresAt?: string;
   estimatedPriceUsdc?: number;
   /** Fiat display amount — shown to user, never USDC */
   fiatAmount?: number;
@@ -475,24 +486,39 @@ export async function conciergeConfirm(params: {
   hirerId: string;
   travelProfile?: BroTravelProfile;
   plan: ConciergePlanItem[];
+  approvalSessionId: string;
+  approvalToken: string;
 }): Promise<ConciergeResponse> {
   if (isAsyncEligibleConciergePlan(params.plan)) {
-    try {
-      return await apiFetch('/api/concierge/confirm', {
-        method: 'POST',
-        body: JSON.stringify(params),
-      });
-    } catch (e: any) {
-      const msg = String(e?.message ?? '');
-      if (!msg.includes('ASYNC_CONFIRM_UNAVAILABLE') && !msg.includes('API error 404')) {
-        throw e;
-      }
-    }
+    return apiFetch('/api/concierge/confirm', {
+      method: 'POST',
+      body: JSON.stringify({
+        travelProfile: params.travelProfile,
+        approvalSessionId: params.approvalSessionId,
+        approvalToken: params.approvalToken,
+      }),
+    });
   }
 
   return apiFetch('/api/concierge/intent', {
     method: 'POST',
-    body: JSON.stringify({ ...params, confirmed: true }),
+    body: JSON.stringify({
+      confirmed: true,
+      travelProfile: params.travelProfile,
+      approvalSessionId: params.approvalSessionId,
+      approvalToken: params.approvalToken,
+    }),
+  });
+}
+
+export async function confirmExecutionApproval(params: {
+  sessionId: string;
+  approvalToken: string;
+  method: 'biometric_ios' | 'biometric_android';
+}): Promise<{ sessionId: string; approved: true; approvedAt: string }> {
+  return apiFetch(`/api/approvals/${encodeURIComponent(params.sessionId)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ approvalToken: params.approvalToken, method: params.method }),
   });
 }
 

@@ -192,6 +192,14 @@ export function toExecutingTripContext(
   return applyBookingStateToTrip(trip, 'securing', patch);
 }
 
+export function toPaymentPendingTripContext(
+  trip: TripContext | undefined,
+  patch?: Partial<TripContext>,
+): TripContext | undefined {
+  if (!trip) return undefined;
+  return applyBookingStateToTrip(trip, 'payment_pending', patch);
+}
+
 export function toPaymentConfirmedTripContext(
   trip: TripContext | undefined,
   patch?: Partial<TripContext>,

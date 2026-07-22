@@ -11,12 +11,14 @@
 import {
   conciergeIntent,
   conciergeConfirm,
+  confirmExecutionApproval,
   type ConciergeResponse,
   type ConciergePlanItem,
   type BroTravelProfile,
 } from './api';
 
 export type { ConciergeResponse, ConciergePlanItem, BroTravelProfile };
+export { confirmExecutionApproval };
 
 // Phase 1: plan
 
@@ -37,6 +39,8 @@ export async function executeIntent(params: {
   hirerId: string;
   travelProfile?: BroTravelProfile;
   plan: ConciergePlanItem[];
+  approvalSessionId: string;
+  approvalToken: string;
 }): Promise<ConciergeResponse> {
   return conciergeConfirm(params);
 }

@@ -21,6 +21,7 @@ import { MARKETPLACE_TAKE_RATE_BPS } from '../lib/feeLedger';
 import { recordFloatAccrual } from '../lib/floatYield';
 import { createHostedUpiPayment, selectFiatProvider } from '../lib/fiatPayments';
 import { withBookingState } from '../lib/bookingState';
+import { shouldDispatchPaidAction } from '../lib/paymentDispatchPolicy';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -219,7 +220,15 @@ router.post('/hire', async (c) => {
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
-  const { hirerId, agentId, jobDescription, agreedPriceUsdc, callbackUrl, stripePaymentIntentId } = body;
+  const {
+    hirerId,
+    agentId,
+    jobDescription,
+    agreedPriceUsdc,
+    callbackUrl,
+    stripePaymentIntentId,
+    deferDispatchUntilPayment = false,
+  } = body;
   if (!hirerId || !agentId || !jobDescription || !agreedPriceUsdc) {
     return c.json({ error: 'hirerId, agentId, jobDescription, agreedPriceUsdc required' }, 400);
   }
@@ -269,6 +278,7 @@ router.post('/hire', async (c) => {
            stripePaymentIntentId: stripePaymentIntentId ?? null,
            stripePaymentConfirmed: false,
            razorpayPaymentConfirmed: false,
+           deferDispatchUntilPayment: deferDispatchUntilPayment === true,
            ...withBookingState('payment_pending'),
          })}::jsonb)
     `.catch(() => {});
@@ -293,8 +303,12 @@ router.post('/hire', async (c) => {
   // Look up the agent's webhookUrl from agent_identities and POST the job payload.
   // After dispatch (success or failure) we write dispatch_status back to the DB so
   // operators can observe what happened without tailing logs.
-  const dispatchSql = createDb(c.env);
-  c.executionCtx.waitUntil((async () => {
+  if (shouldDispatchPaidAction({
+    requiresPayment: deferDispatchUntilPayment === true,
+    paymentConfirmed: false,
+  })) {
+    const dispatchSql = createDb(c.env);
+    c.executionCtx.waitUntil((async () => {
     let dispatchStatus = 'no_webhook';
     let dispatchError: string | null = null;
     try {
@@ -346,7 +360,8 @@ router.post('/hire', async (c) => {
       await updateSql.end().catch(() => {});
       await dispatchSql.end().catch(() => {});
     }
-  })());
+    })());
+  }
 
   return c.json({
     success: true,
@@ -361,6 +376,7 @@ router.post('/hire', async (c) => {
       agentPayout,
     },
     status: 'escrow_pending',
+    dispatchStatus: deferDispatchUntilPayment === true ? 'payment_required' : 'queued',
     expiresAt,
     nextStep: `POST /api/marketplace/hire/${jobId}/complete once the agent delivers`,
     _schema: 'MarketplaceHire/1.0',

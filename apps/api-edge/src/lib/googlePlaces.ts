@@ -33,6 +33,17 @@ export interface PlaceResult {
   lon?: number;
   placeId?: string;
 }
+export interface PlacePhotoAttribution {
+  displayName: string;
+  uri?: string;
+}
+
+export interface PlacePhotoResult {
+  /** Short-lived Google-hosted media URL. Do not persist or cache. */
+  imageUrl: string;
+  authorAttributions: PlacePhotoAttribution[];
+}
+
 
 export interface AutocompletePrediction {
   placeId: string;
@@ -234,6 +245,67 @@ export async function searchNearbyText(
     return [];
   }
 }
+/**
+ * Resolve one current Places photo for a named hotel.
+ *
+ * Google photo resource names expire, so callers must request these at planning
+ * time and must not persist the returned URL. The API key is used only on the
+ * server; the mobile client receives Google's short-lived media URL plus the
+ * attribution that must be displayed with the image.
+ */
+export async function findPlacePhoto(
+  query: string,
+  apiKey: string
+): Promise<PlacePhotoResult | null> {
+  if (!apiKey || !query.trim()) return null;
+
+  try {
+    const searchRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.photos',
+      },
+      body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
+    });
+    if (!searchRes.ok) return null;
+
+    const searchData = (await searchRes.json()) as {
+      places?: Array<{
+        photos?: Array<{
+          name?: string;
+          authorAttributions?: Array<{ displayName?: string; uri?: string }>;
+        }>;
+      }>;
+    };
+    const photo = searchData.places?.[0]?.photos?.[0];
+    if (!photo?.name) return null;
+
+    const params = new URLSearchParams({
+      key: apiKey,
+      maxWidthPx: '1200',
+      skipHttpRedirect: 'true',
+    });
+    const mediaRes = await fetch(
+      'https://places.googleapis.com/v1/' + photo.name + '/media?' + params
+    );
+    if (!mediaRes.ok) return null;
+
+    const media = (await mediaRes.json()) as { photoUri?: string };
+    if (!media.photoUri) return null;
+
+    return {
+      imageUrl: media.photoUri,
+      authorAttributions: (photo.authorAttributions ?? [])
+        .filter((item) => !!item.displayName)
+        .map((item) => ({ displayName: item.displayName!, uri: item.uri })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 
 // ── Places API (New) — Autocomplete ───────────────────────────────────────
 
