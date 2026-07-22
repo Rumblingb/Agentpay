@@ -37,17 +37,26 @@ import {
   searchNearby,
   searchNearbyText,
   formatPlacesForClaude,
+  findPlacePhoto,
 } from '../lib/googlePlaces';
 import { computeRoute, formatRouteForClaude } from '../lib/googleRoutes';
 import { searchRestaurants, formatRestaurantsForClaude } from '../lib/openTable';
 import { searchFlights, formatFlightsForClaude, createFlightOrder, type DuffelPassenger } from '../lib/duffel';
 import { searchHotels, formatHotelOptionsForClaude } from '../lib/xotelo';
 import { askSonar, formatSonarForClaude } from '../lib/perplexity';
-import { buildPlanTripContext, toCompletedTripContext, toExecutingTripContext, toPaymentConfirmedTripContext } from '../lib/broTrip';
+import { buildPlanTripContext, toCompletedTripContext, toPaymentPendingTripContext } from '../lib/broTrip';
 import { withBookingState } from '../lib/bookingState';
 import { recordMobileTelemetry, shouldAlertOnMobileTelemetry } from '../lib/mobileTelemetry';
 import { createSignedWalletPassUrl } from '../lib/walletPass';
 import { buildConciergeExecutionSnapshot } from '../lib/conciergeExecution';
+import { shouldDispatchPaidAction } from '../lib/paymentDispatchPolicy';
+import {
+  claimExecutionApproval,
+  completeExecutionApproval,
+  createExecutionApproval,
+  executionApprovalHttpStatus,
+  failExecutionApproval,
+} from '../lib/executionApprovals';
 import type { NearbyPlace, RouteData, TripContext } from '../../../../packages/bro-trip/index';
 
 export const conciergeRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -498,11 +507,13 @@ conciergeRouter.post('/intent', async (c) => {
   }
 
   let body: {
-    transcript: string;
-    hirerId: string;
+    transcript?: string;
+    hirerId?: string;
     travelProfile?: Record<string, unknown>;
     confirmed?: boolean;
     plan?: PlanItem[];
+    approvalSessionId?: string;
+    approvalToken?: string;
   };
   try {
     body = await c.req.json();
@@ -510,7 +521,38 @@ conciergeRouter.post('/intent', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { transcript, hirerId, travelProfile, confirmed = false, plan } = body;
+  let {
+    transcript,
+    hirerId,
+    travelProfile,
+    confirmed = false,
+    plan,
+    approvalSessionId,
+    approvalToken,
+  } = body;
+  let claimedApprovalSessionId: string | null = null;
+
+  if (confirmed) {
+    if (!approvalSessionId || !approvalToken) {
+      return c.json({ error: 'A confirmed execution approval is required' }, 403);
+    }
+    try {
+      const claim = await claimExecutionApproval(c.env, {
+        sessionId: approvalSessionId,
+        approvalToken,
+        expectedActionKind: 'ace_travel',
+      });
+      if (claim.state === 'completed') return c.json(claim.result);
+      claimedApprovalSessionId = claim.sessionId;
+      transcript = claim.payload.transcript;
+      hirerId = claim.payload.principalId;
+      plan = claim.payload.plan as PlanItem[];
+    } catch (error) {
+      const status = executionApprovalHttpStatus(error);
+      return c.json({ error: error instanceof Error ? error.message : 'EXECUTION_APPROVAL_INVALID' }, status);
+    }
+  }
+
   if (!transcript || !hirerId) {
     return c.json({ error: 'transcript and hirerId required' }, 400);
   }
@@ -701,9 +743,9 @@ PHASE 1 RESPONSE FORMAT:
 - If you cannot help, say so in one sentence and suggest what you can do instead
 
 PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
-- Exactly one sentence. State the booking reference and that the ticket is being secured. Nothing else.
-- Format: "[Ref] — securing your ticket. Details by email."
-- Example: "ACE-A1B2C3 — securing your ticket. Details by email."
+- Exactly one sentence. State that approval is captured and payment is next. Nothing else.
+- Format: "[Ref] — approved. Payment is next."
+- Example: "ACE-A1B2C3 — approved. Payment is next."
 - Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
@@ -756,7 +798,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               throw firstErr;
             }
           }
-          const executingTripContext = toExecutingTripContext(item.tripContext, {
+          const paymentPendingTripContext = toPaymentPendingTripContext(item.tripContext, {
             watchState: {
               ...item.tripContext?.watchState,
               bookingConfirmed: false,
@@ -764,7 +806,13 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           });
 
           // ── Duffel flight booking ─────────────────────────────────────────
-          if (item.flightDetails && c.env.DUFFEL_API_KEY) {
+          // The hire creates a payment-pending intent. Supplier mutation must not
+          // run until a verified payment webhook resumes fulfilment.
+          const paymentConfirmedBeforeDispatch = shouldDispatchPaidAction({
+            requiresPayment: true,
+            paymentConfirmed: false,
+          });
+          if (item.flightDetails && c.env.DUFFEL_API_KEY && paymentConfirmedBeforeDispatch) {
             const fd = item.flightDetails;
             const walletPassUrl = await createSignedWalletPassUrl({
               apiBaseUrl: c.env.API_BASE_URL,
@@ -854,7 +902,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   bookingReference:  order.bookingReference,
                   pendingFulfilment: false,
                   walletPassUrl,
-                  tripContext: toCompletedTripContext(executingTripContext, {
+                  tripContext: toCompletedTripContext(paymentPendingTripContext, {
                     bookingRef: order.bookingReference,
                     origin: order.origin,
                     destination: order.destination,
@@ -885,9 +933,27 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             }
           }
 
+          if (item.flightDetails && !paymentConfirmedBeforeDispatch) {
+            await sql`
+              UPDATE payment_intents
+              SET metadata = metadata || ${JSON.stringify({
+                flightDetails: item.flightDetails,
+                pendingFulfilment: true,
+                bookingDeferredUntilPayment: true,
+                tripContext: paymentPendingTripContext,
+              })}::jsonb
+              WHERE id = ${hireResult.jobId}
+            `.catch(() => null);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: item.toolUseId,
+              content: 'Flight selected. Supplier booking is paused until payment is confirmed.',
+            });
+          }
+
           if (item.hotelDetails) {
             const hotelRef = `HOT-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-            const hotelTripContext = toPaymentConfirmedTripContext(executingTripContext, {
+            const hotelTripContext = toPaymentPendingTripContext(paymentPendingTripContext, {
               bookingRef: hotelRef,
               destination: item.hotelDetails.city,
               departureTime: item.hotelDetails.checkIn,
@@ -902,7 +968,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                 hotelReference: hotelRef,
                 bookingReference: hotelRef,
                 partnerCheckoutUrl: item.hotelDetails.bestOption.bookingUrl ?? null,
-                pendingFulfilment: false,
+                pendingFulfilment: true,
+                bookingDeferredUntilPayment: true,
                 tripContext: hotelTripContext,
               })}::jsonb
               WHERE id = ${hireResult.jobId}
@@ -985,10 +1052,11 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
                   userName:          userName  ?? null,
                   userPhone:         userPhone ?? null,
                   pendingFulfilment: true,
+                  bookingDeferredUntilPayment: true,
                   walletPassUrl,
                   serviceFee:        isIndia ? SERVICE_FEE_INR : SERVICE_FEE_GBP,
                   serviceFeeCurrency: isIndia ? 'INR' : 'GBP',
-                  tripContext:       executingTripContext,
+                  tripContext:       paymentPendingTripContext,
                   journeyId:         (item as any).journeyId ?? null,
                   legIndex:          plan.indexOf(item),
                   totalLegs:         plan.length,
@@ -1000,7 +1068,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             }
 
             // Fire-and-forget: request email + admin alert + WhatsApp + ops webhook
-            c.executionCtx.waitUntil(
+            if (paymentConfirmedBeforeDispatch) c.executionCtx.waitUntil(
               Promise.all([
                 sendBookingRequestEmail(c.env.RESEND_API_KEY, {
                   to:           userEmail,
@@ -1051,8 +1119,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               ? ` Then: ${item.trainDetails.finalLegSummary}.`
               : '';
             const confirmLine = isIndia
-              ? `Request in. Reference ${broRef}. Securing your ${item.trainDetails.trainName} at ${item.trainDetails.departureTime}. Ticket details within 15 minutes.`
-              : `Request in. Reference ${broRef}. Securing your ${item.trainDetails.departureTime} ${item.trainDetails.operator}. Ticket details within 15 minutes.`;
+              ? `Approved. Reference ${broRef}. Payment is next before we request your ${item.trainDetails.trainName}.`
+              : `Approved. Reference ${broRef}. Payment is next before we request the ${item.trainDetails.departureTime} ${item.trainDetails.operator}.`;
 
             toolResults.push({
               type:        'tool_result',
@@ -1063,7 +1131,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             await sql`
               UPDATE payment_intents
               SET metadata = metadata || ${JSON.stringify({
-                tripContext: executingTripContext ?? null,
+                tripContext: paymentPendingTripContext ?? null,
                 journeyId:   (item as any).journeyId ?? null,
                 legIndex:    plan.indexOf(item),
                 totalLegs:   plan.length,
@@ -1073,7 +1141,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             toolResults.push({
               type:        'tool_result',
               tool_use_id: item.toolUseId,
-              content:     `${skill.displayName} hired. Job ID: ${hireResult.jobId}. Price: $${hireResult.agreedPriceUsdc.toFixed(2)}. Agent will execute and confirm shortly.`,
+              content:     `${skill.displayName} selected. Job ID: ${hireResult.jobId}. Price: $${hireResult.agreedPriceUsdc.toFixed(2)}. Payment is required before execution.`,
             });
           }
 
@@ -1097,7 +1165,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
             status:          'hired',
             trainDetails:    item.trainDetails,
             flightDetails:   item.flightDetails,
-            tripContext:     executingTripContext,
+            tripContext:     paymentPendingTripContext,
             journeyId:       (item as any).journeyId ?? undefined,
             legIndex:        plan.indexOf(item),
           });
@@ -1130,10 +1198,14 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               );
               c.executionCtx.waitUntil(Promise.all(cancelPromises));
             }
-            return c.json({
+            const rollbackResponse = {
               narration: "One leg of your journey couldn't be secured. I've cancelled the other legs and notified our team. Please try again or ask for alternatives.",
               actions:   [],
-            });
+            };
+            if (claimedApprovalSessionId) {
+              await completeExecutionApproval(c.env, claimedApprovalSessionId, rollbackResponse);
+            }
+            return c.json(rollbackResponse);
           }
 
           toolResults.push({
@@ -1155,7 +1227,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       input: p.input,
     }));
 
-    let narration = 'Request in — securing your ticket now. Details within 15 minutes.';
+    let narration = 'Plan approved — payment is next. I will continue after it clears.';
     try {
       const narrationResponse = await callClaude(anthropicKey, {
         system: systemPrompt,
@@ -1199,12 +1271,16 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
       }
     }
 
-    return c.json({
+    const executionResponse = {
       narration,
       actions,
       tripContext: actions[0]?.tripContext,
       proactiveCards: actions[0]?.tripContext?.proactiveCards ?? [],
-    });
+    };
+    if (claimedApprovalSessionId) {
+      await completeExecutionApproval(c.env, claimedApprovalSessionId, executionResponse);
+    }
+    return c.json(executionResponse);
   }
 
   // ── Phase 1: Plan — find agents, fetch real data, return without hiring ───
@@ -1566,8 +1642,34 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           rooms,
           stars,
         }).catch(() => []);
+        const displayedHotels = hotels.slice(0, 3);
+        const hotelOptions = await Promise.all(displayedHotels.map(async (hotel) => {
+          const photo = c.env.GOOGLE_MAPS_API_KEY
+            ? await findPlacePhoto(hotel.name + ', ' + city, c.env.GOOGLE_MAPS_API_KEY)
+            : null;
+          return {
+            ...hotel,
+            imageUrl: photo?.imageUrl,
+            imageAttributions: photo?.authorAttributions,
+          };
+        }));
+        const requestedSelection = String(input.selected_hotel ?? '').trim().toLowerCase();
+        const normalizedSelection = requestedSelection.replace(/[^a-z0-9]+/g, ' ').trim();
+        let selectedHotelIndex = hotelOptions.findIndex((hotel) => {
+          const normalizedName = hotel.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          return normalizedSelection === normalizedName
+            || (normalizedSelection.length > 3 && normalizedName.includes(normalizedSelection));
+        });
+        if (selectedHotelIndex < 0) {
+          if (/\b(first|1st|option 1)\b/.test(normalizedSelection)) selectedHotelIndex = 0;
+          else if (/\b(second|2nd|option 2)\b/.test(normalizedSelection)) selectedHotelIndex = 1;
+          else if (/\b(third|3rd|option 3)\b/.test(normalizedSelection)) selectedHotelIndex = 2;
+        }
+        if (selectedHotelIndex >= hotelOptions.length) selectedHotelIndex = -1;
+        const requiresSelection = hotelOptions.length > 1 && selectedHotelIndex < 0;
+        const selectedHotel = hotelOptions[selectedHotelIndex >= 0 ? selectedHotelIndex : 0];
 
-        toolResultContent = formatHotelOptionsForClaude(hotels.map((hotel) => ({
+        toolResultContent = formatHotelOptionsForClaude(hotelOptions.map((hotel) => ({
           name: hotel.name,
           city,
           checkIn: checkIn ?? '',
@@ -1578,22 +1680,25 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
           hotelId: hotel.xoteloKey,
         })));
 
-        if (hotels[0]) {
+        if (selectedHotel) {
           (toolCall as any)._hotelDetails = {
             city,
             checkIn: checkIn ?? '',
             checkOut: checkOut ?? '',
+            requiresSelection,
             bestOption: {
-              name: hotels[0].name,
-              stars: hotels[0].stars,
-              ratePerNight: hotels[0].ratePerNight,
-              totalCost: hotels[0].totalCost,
-              currency: hotels[0].currency,
-              area: hotels[0].area,
-              isLive: hotels[0].isLive,
-              bookingUrl: hotels[0].bookingUrl,
+              name: selectedHotel.name,
+              stars: selectedHotel.stars,
+              ratePerNight: selectedHotel.ratePerNight,
+              totalCost: selectedHotel.totalCost,
+              currency: selectedHotel.currency,
+              area: selectedHotel.area,
+              isLive: selectedHotel.isLive,
+              bookingUrl: selectedHotel.bookingUrl,
+              imageUrl: selectedHotel.imageUrl,
+              imageAttributions: selectedHotel.imageAttributions,
             },
-            allOptions: hotels.slice(0, 3).map((hotel) => ({
+            allOptions: hotelOptions.map((hotel) => ({
               name: hotel.name,
               stars: hotel.stars,
               ratePerNight: hotel.ratePerNight,
@@ -1602,6 +1707,8 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
               area: hotel.area,
               isLive: hotel.isLive,
               bookingUrl: hotel.bookingUrl,
+              imageUrl: hotel.imageUrl,
+              imageAttributions: hotel.imageAttributions,
             })),
           };
         }
@@ -1957,8 +2064,15 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 
   // ── Second Claude call with real data → natural narration ─────────────────
 
-  let narration = buildFallbackNarration(planItems, toolResultsForClaude);
-  try {
+  const hotelSelectionItem = planItems.find((item) => item.hotelDetails?.requiresSelection);
+  const hotelSelectionOptions = hotelSelectionItem?.hotelDetails?.allOptions?.slice(0, 3) ?? [];
+  const hotelSelectionSummary = hotelSelectionOptions
+    .map((hotel, index) => (index + 1) + '. ' + hotel.name + ', ' + hotel.currency + ' ' + hotel.totalCost + ' total')
+    .join('; ');
+  let narration = hotelSelectionItem
+    ? 'I found three strong options in ' + hotelSelectionItem.hotelDetails!.city + ': ' + hotelSelectionSummary + '. Which one should I hold?'
+    : buildFallbackNarration(planItems, toolResultsForClaude);
+  if (!hotelSelectionItem) { try {
     const narrationCall = await callClaude(anthropicKey, {
       system: systemPrompt,
       messages: [
@@ -1976,9 +2090,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   } catch {
     // Narration timeout — use fallback, still return the plan
   }
+  }
 
   // Append flight offer expiry warning once if any leg has a flight offer
-  if (planItems.some(p => p.flightDetails)) {
+  if (!hotelSelectionItem && planItems.some(p => p.flightDetails)) {
     narration += ' Prices are held for ~15 minutes.';
   }
 
@@ -1992,6 +2107,21 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
         : convertFromGbp(SERVICE_FEE_GBP, currency.code)),
     0) * 100,
   ) / 100;
+
+  if (hotelSelectionItem) {
+    return c.json({
+      narration,
+      needsBiometric: false,
+      plan: planItems,
+      actions: [],
+      estimatedPriceUsdc: totalUsdc,
+      fiatAmount: Math.round(totalFiat * 100) / 100,
+      currencySymbol: currency.symbol,
+      currencyCode: currency.code,
+      tripContext: hotelSelectionItem.tripContext,
+      proactiveCards: hotelSelectionItem.tripContext?.proactiveCards ?? [],
+    });
+  }
 
   // Assign a shared journeyId when multiple legs are booked together
   const journeyId = planItems.length > 1
@@ -2015,6 +2145,29 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     });
   }
 
+  let executionApproval: Awaited<ReturnType<typeof createExecutionApproval>>;
+  try {
+    executionApproval = await createExecutionApproval(c.env, {
+      principalId: hirerId,
+      actionKind: 'ace_travel',
+      transcript,
+      plan: planItems,
+      amountMinor: Math.max(0, Math.round(totalFiat * 100)),
+      currency: currency.code,
+    });
+  } catch (error) {
+    broLog('execution_approval_create_failed', {
+      traceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({
+      narration: 'I could not secure the approval handoff. Please ask me to refresh the options.',
+      actions: [],
+      needsBiometric: false,
+      error: 'EXECUTION_APPROVAL_UNAVAILABLE',
+    }, 503);
+  }
+
   return c.json({
     narration,
     needsBiometric: true,
@@ -2028,6 +2181,10 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     journeyId,
     tripContext:    primaryTripContext,
     proactiveCards: primaryTripContext?.proactiveCards ?? [],
+    approvalSessionId: executionApproval.sessionId,
+    approvalToken: executionApproval.approvalToken,
+    planDigest: executionApproval.planDigest,
+    approvalExpiresAt: executionApproval.expiresAt,
   });
 });
 
@@ -2044,10 +2201,9 @@ conciergeRouter.post('/confirm', async (c) => {
   }
 
   let body: {
-    transcript: string;
-    hirerId: string;
     travelProfile?: Record<string, unknown>;
-    plan?: PlanItem[];
+    approvalSessionId?: string;
+    approvalToken?: string;
   };
   try {
     body = await c.req.json();
@@ -2055,17 +2211,36 @@ conciergeRouter.post('/confirm', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
 
-  const { transcript, hirerId, travelProfile, plan } = body;
-  if (!transcript || !hirerId || !plan?.length) {
-    return c.json({ error: 'transcript, hirerId, and plan are required' }, 400);
+  const { travelProfile, approvalSessionId, approvalToken } = body;
+  if (!approvalSessionId || !approvalToken) {
+    return c.json({ error: 'A confirmed execution approval is required' }, 403);
   }
+
+  let claim: Awaited<ReturnType<typeof claimExecutionApproval>>;
+  try {
+    claim = await claimExecutionApproval(c.env, {
+      sessionId: approvalSessionId,
+      approvalToken,
+      expectedActionKind: 'ace_travel',
+    });
+  } catch (error) {
+    const status = executionApprovalHttpStatus(error);
+    return c.json({ error: error instanceof Error ? error.message : 'EXECUTION_APPROVAL_INVALID' }, status);
+  }
+  if (claim.state === 'completed') return c.json(claim.result);
+
+  const transcript = claim.payload.transcript;
+  const hirerId = claim.payload.principalId;
+  const plan = claim.payload.plan as PlanItem[];
   if (!isAsyncConfirmEligible(plan)) {
+    await failExecutionApproval(c.env, approvalSessionId, 'ASYNC_CONFIRM_UNAVAILABLE');
     return c.json({ error: 'ASYNC_CONFIRM_UNAVAILABLE' }, 409);
   }
 
   const item = plan[0];
   const skill = SKILL_MAP[item.toolName];
   if (!skill || !item.trainDetails) {
+    await failExecutionApproval(c.env, approvalSessionId, 'ASYNC_CONFIRM_UNAVAILABLE');
     return c.json({ error: 'ASYNC_CONFIRM_UNAVAILABLE' }, 409);
   }
 
@@ -2113,7 +2288,8 @@ conciergeRouter.post('/confirm', async (c) => {
       hirerId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return c.json({ error: 'Could not hand the trip over right now. Please try again.' }, 502);
+    await failExecutionApproval(c.env, approvalSessionId, error instanceof Error ? error.message : String(error));
+    return c.json({ error: 'Could not hand the trip over right now. Please refresh the options.' }, 502);
   }
 
   const sql = createDb(c.env);
@@ -2125,7 +2301,7 @@ conciergeRouter.post('/confirm', async (c) => {
     const userPhone = travelProfile?.phone as string | undefined;
     const userWhatsapp = travelProfile?.whatsappNumber as string | undefined;
     const userIrctcUser = travelProfile?.irctcUsername as string | undefined;
-    const executingTripContext = toExecutingTripContext(item.tripContext, {
+    const paymentPendingTripContext = toPaymentPendingTripContext(item.tripContext, {
       watchState: {
         ...item.tripContext?.watchState,
         bookingConfirmed: false,
@@ -2177,11 +2353,12 @@ conciergeRouter.post('/confirm', async (c) => {
         userName: userName ?? null,
         userPhone: userPhone ?? null,
         pendingFulfilment: true,
+        bookingDeferredUntilPayment: true,
         bookingInProgress: false,
         walletPassUrl: walletPassUrl2 ?? null,
         serviceFee: isIndia ? SERVICE_FEE_INR : SERVICE_FEE_GBP,
         serviceFeeCurrency: isIndia ? 'INR' : 'GBP',
-        tripContext: executingTripContext,
+        tripContext: paymentPendingTripContext,
         journeyId: (item as any).journeyId ?? null,
         legIndex: 0,
         totalLegs: 1,
@@ -2211,7 +2388,11 @@ conciergeRouter.post('/confirm', async (c) => {
       WHERE id = ${hireResult.jobId}
     `.catch(() => null);
 
-    c.executionCtx.waitUntil(
+    const paymentConfirmedBeforeDispatch = shouldDispatchPaidAction({
+      requiresPayment: true,
+      paymentConfirmed: false,
+    });
+    if (paymentConfirmedBeforeDispatch) c.executionCtx.waitUntil(
       Promise.all([
         sendBookingRequestEmail(c.env.RESEND_API_KEY, {
           to: userEmail,
@@ -2264,8 +2445,8 @@ conciergeRouter.post('/confirm', async (c) => {
       country: item.trainDetails.country ?? 'uk',
     });
 
-    return c.json({
-      narration: `Under way. Ref ${broRef}. I'll keep this moving and bring the details through here.`,
+    const executionResponse = {
+      narration: `Approved. Ref ${broRef}. Payment is next, then I will continue.`,
       actions: [{
         toolName: skill.toolName,
         displayName: skill.displayName,
@@ -2276,15 +2457,17 @@ conciergeRouter.post('/confirm', async (c) => {
         input: item.input,
         status: 'hired',
         trainDetails: item.trainDetails,
-        tripContext: executingTripContext,
+        tripContext: paymentPendingTripContext,
         shareToken,
         journeyId: (item as any).journeyId ?? undefined,
         legIndex: 0,
       }],
       shareToken,
       journeyId: (item as any).journeyId ?? undefined,
-      tripContext: executingTripContext,
-    });
+      tripContext: paymentPendingTripContext,
+    };
+    await completeExecutionApproval(c.env, approvalSessionId, executionResponse);
+    return c.json(executionResponse);
   } finally {
     await sql.end().catch(() => {});
   }
@@ -2489,7 +2672,13 @@ async function hireAgent(
   const res = await fetch(`${apiBase}/api/marketplace/hire`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hirerId, agentId, jobDescription, agreedPriceUsdc }),
+    body: JSON.stringify({
+      hirerId,
+      agentId,
+      jobDescription,
+      agreedPriceUsdc,
+      deferDispatchUntilPayment: true,
+    }),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -3202,6 +3391,7 @@ interface PlanItem {
     city: string;
     checkIn: string;
     checkOut: string;
+    requiresSelection?: boolean;
     bestOption: {
       name: string;
       stars: number;
@@ -3211,6 +3401,8 @@ interface PlanItem {
       area: string;
       isLive: boolean;
       bookingUrl?: string;
+      imageUrl?: string;
+      imageAttributions?: Array<{ displayName: string; uri?: string }>;
     };
     allOptions?: Array<{
       name: string;
@@ -3221,6 +3413,8 @@ interface PlanItem {
       area: string;
       isLive: boolean;
       bookingUrl?: string;
+      imageUrl?: string;
+      imageAttributions?: Array<{ displayName: string; uri?: string }>;
     }>;
   };
   tripContext?:       TripContext;

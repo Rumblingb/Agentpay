@@ -10,11 +10,11 @@
  *   POST /api/approvals/:sessionId/confirm — mark approved (device sends token)
  *   GET  /api/approvals/:sessionId      — poll status
  *
- * Auth: all routes require a valid merchant API key (authenticateApiKey).
+ * Auth: merchant API key or the first-party AgentPay mobile client key.
  *
  * GDPR compliance:
  *   - Biometric templates are NEVER sent to the server. expo-local-authentication
- *     returns a boolean; the device sends only an ephemeral approvalToken (UUID).
+ *     returns a boolean; the device sends only an ephemeral approval token.
  *   - device_hash is SHA-256(rawDeviceId + APPROVAL_SALT). The raw device ID
  *     is never stored. APPROVAL_SALT is a Workers secret. This satisfies
  *     GDPR Article 9 (special category data) and CCPA obligations.
@@ -43,6 +43,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context, Next } from 'hono';
 import type { Env, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
@@ -52,6 +53,7 @@ import { createDb } from '../lib/db';
 // ---------------------------------------------------------------------------
 
 export type ApprovalMethod =
+  | 'device_confirmation'
   | 'biometric_ios'
   | 'biometric_android'
   | 'apple_pay'
@@ -71,6 +73,8 @@ interface ApprovalEventRow {
   currency: string;
   policy_version: string | null;
   approved_at: Date | null;
+  execution_status: string | null;
+  consumed_at: Date | null;
   expires_at: Date;
   created_at: Date;
 }
@@ -89,6 +93,7 @@ async function sha256Hex(input: string): Promise<string> {
 }
 
 const VALID_METHODS: ApprovalMethod[] = [
+  'device_confirmation',
   'biometric_ios',
   'biometric_android',
   'apple_pay',
@@ -118,7 +123,20 @@ const SESSION_TTL_MS = 5 * 60 * 1_000;
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-router.use('*', authenticateApiKey);
+async function authenticateApprovalCaller(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  next: Next,
+): Promise<void | Response> {
+  const expectedClientKey = c.env.AGENTPAY_CLIENT_KEY ?? c.env.BRO_CLIENT_KEY;
+  const presentedClientKey = c.req.header('x-agentpay-client-key') ?? c.req.header('x-bro-key');
+  if (expectedClientKey && presentedClientKey === expectedClientKey) {
+    await next();
+    return;
+  }
+  return authenticateApiKey(c, next);
+}
+
+router.use('*', authenticateApprovalCaller);
 
 // ---------------------------------------------------------------------------
 // POST / — Create a pending approval session
@@ -205,14 +223,14 @@ router.post('/', async (c) => {
 router.post('/:sessionId/confirm', async (c) => {
   const sessionId = c.req.param('sessionId');
 
-  let body: { approvalToken?: unknown; deviceId?: unknown };
+  let body: { approvalToken?: unknown; deviceId?: unknown; method?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { approvalToken, deviceId } = body;
+  const { approvalToken, deviceId, method } = body;
   if (typeof approvalToken !== 'string' || !approvalToken.trim()) {
     return c.json({ error: 'approvalToken is required' }, 400);
   }
@@ -246,9 +264,6 @@ router.post('/:sessionId/confirm', async (c) => {
     const session = rows[0];
     const providedApprovalTokenHash = await sha256Hex(approvalToken.trim());
 
-    if (session.approved_at) {
-      return c.json({ error: 'Approval session already confirmed' }, 409);
-    }
     if (new Date(session.expires_at) < new Date()) {
       return c.json({ error: 'Approval session has expired' }, 410);
     }
@@ -258,17 +273,34 @@ router.post('/:sessionId/confirm', async (c) => {
     if (session.approval_token_hash !== providedApprovalTokenHash) {
       return c.json({ error: 'Approval token is invalid' }, 403);
     }
+    if (session.approved_at) {
+      return c.json({
+        sessionId: session.id,
+        approved: true,
+        approvedAt: session.approved_at,
+        replayed: true,
+      });
+    }
 
+    const resolvedMethod = isValidMethod(method) ? method : session.method;
     const updated = await sql<Array<{ id: string; approved_at: Date }>>`
       UPDATE approval_events
       SET
         approved_at = now(),
-        device_hash = ${deviceHash}
+        device_hash = ${deviceHash},
+        method = ${resolvedMethod},
+        execution_status = CASE
+          WHEN action_payload_hash IS NOT NULL THEN 'approved'
+          ELSE execution_status
+        END
       WHERE id = ${sessionId}
+        AND approved_at IS NULL
+        AND approval_token_hash = ${providedApprovalTokenHash}
       RETURNING id, approved_at
     `;
 
     const row = updated[0];
+    if (!row) return c.json({ error: 'Approval session was already confirmed' }, 409);
     return c.json({
       sessionId: row.id,
       approved: true,
@@ -314,6 +346,8 @@ router.get('/:sessionId', async (c) => {
       amountPence: session.amount_pence,
       currency: session.currency,
       status: session.approved_at ? 'approved' : expired ? 'expired' : 'pending',
+      executionStatus: session.execution_status,
+      consumedAt: session.consumed_at,
       approvedAt: session.approved_at,
       expiresAt: session.expires_at,
       createdAt: session.created_at,

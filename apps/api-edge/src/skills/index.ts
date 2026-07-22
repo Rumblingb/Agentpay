@@ -312,6 +312,7 @@ const hotelSkill: SkillDefinition = {
       stars:      { type: 'number', description: 'Preferred star rating (3, 4, or 5). Omit to return budget/mid/luxury spread.' },
       guests:     { type: 'number', description: 'Number of guests (default 1) — informational only' },
       preference: { type: 'string', description: 'Optional preferences: "central", "near station", "quiet", "with breakfast", "near airport"' },
+      selected_hotel: { type: 'string', description: 'Exact hotel name selected from the immediately previous three options. Omit on the first search; set only after the user chooses.' },
     },
   },
   skillDoc: `# HotelAgent
@@ -361,6 +362,12 @@ Dubai (AED), Bali (IDR), Berlin (EUR), Istanbul (EUR), Prague (CZK).
 
 **No rooms specified**:
 → Default rooms=1.
+
+**No hotel selected yet**:
+? Return exactly 3 options and ask the user to choose. Do not select or book one on their behalf.
+
+**User selects an option** ("second one", hotel name):
+? Set selected_hotel to the exact hotel name from the previous options. Only that option may proceed to payment confirmation.
 
 ## Output
 Returns 3 options: hotel name, area, star rating, nightly rate (local currency), total for the stay.

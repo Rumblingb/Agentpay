@@ -25,6 +25,7 @@ import {
   TextInput,
   Keyboard,
   Animated,
+  Platform,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,10 +40,10 @@ import { useStore } from '../../lib/store';
 import { startRecording, stopRecording, transcribeAudio } from '../../lib/speech';
 import { speakBro, cancelSpeech, preloadAudio } from '../../lib/tts';
 import { appendHistory, deriveProactiveRouteMemory, loadActiveTrip, loadCurrentJourneySession, loadRouteMemories, saveJourneySession, type ActiveTrip, type RouteMemory } from '../../lib/storage';
-import { planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
+import { confirmExecutionApproval, planIntent, executeIntent, type ConciergePlanItem } from '../../lib/concierge';
 import { shouldPreferJourney, shouldTreatTripAsLive } from '../../lib/journeyRouting';
 import { loadProfileRaw, loadProfileAuthenticated, hasProfile, type TravelProfile } from '../../lib/profile';
-import { authenticateWithBiometrics } from '../../lib/biometric';
+import { authenticateWithBiometrics, getBiometricLabel } from '../../lib/biometric';
 import { getLocationContext } from '../../lib/location';
 import type { StationGeo } from '../../lib/stationGeo';
 import { fetchRate } from '../../lib/currency';
@@ -156,6 +157,10 @@ function shouldUseFollowUpContext(text: string, context: FollowUpContext | null)
   if (!normalized) return false;
   if (looksLikeOptionSelection(normalized)) return true;
   if (looksLikeFreshIntent(normalized)) return false;
+  if (
+    context.plan.some((item) => item.hotelDetails?.requiresSelection)
+    && normalized.split(/\s+/).length <= 8
+  ) return true;
   if (context.plan.length > 0) return false;
   return normalized.split(/\s+/).length <= 6;
 }
@@ -182,8 +187,14 @@ function describeFollowUpOption(option: ConciergePlanItem, index: number): strin
     return `${index + 1}. ${option.flightDetails.departureAt} ${option.flightDetails.origin} to ${option.flightDetails.destination} on ${option.flightDetails.carrier} ${option.flightDetails.flightNumber}, ${option.flightDetails.currency} ${option.flightDetails.totalAmount}`;
   }
   if (option.hotelDetails?.bestOption) {
+    const choices = option.hotelDetails.allOptions?.slice(0, 3) ?? [];
+    if (choices.length > 1) {
+      return choices
+        .map((hotel, hotelIndex) => (hotelIndex + 1) + '. ' + hotel.name + ' in ' + option.hotelDetails!.city + ', ' + hotel.currency + ' ' + hotel.totalCost + ' total')
+        .join('\n');
+    }
     const best = option.hotelDetails.bestOption;
-    return `${index + 1}. ${best.name} in ${option.hotelDetails.city}, ${best.currency} ${best.totalCost} total`;
+    return (index + 1) + '. ' + best.name + ' in ' + option.hotelDetails.city + ', ' + best.currency + ' ' + best.totalCost + ' total';
   }
   return `${index + 1}. ${option.displayName}`;
 }
@@ -750,8 +761,14 @@ export default function ConverseScreen() {
     fiatSymbol: string;
     fiatCode: string;
     assumptionNote?: string | null;
+    approvalSessionId: string;
+    approvalToken: string;
+    planDigest: string;
+    approvalExpiresAt: string;
   } | null>(null);
   const followUpContextRef = useRef<FollowUpContext | null>(null);
+  const [hotelChoicePlan, setHotelChoicePlan] = useState<ConciergePlanItem | null>(null);
+  const [biometricLabel, setBiometricLabel] = useState('Device security');
 
   const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const prefillFiredRef = useRef(false);
@@ -788,6 +805,14 @@ export default function ConverseScreen() {
   const [travelModePromptDismissed, setTravelModePromptDismissed] = useState(false);
   const presencePulse = useRef(new Animated.Value(0.84)).current;
   const liveVoiceConfigured = hasBroClientKey();
+
+  useEffect(() => {
+    let mounted = true;
+    void getBiometricLabel()
+      .then((label) => { if (mounted) setBiometricLabel(label); })
+      .catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
 
   const logConverseEvent = useCallback((params: {
     event: string;
@@ -1167,6 +1192,10 @@ export default function ConverseScreen() {
     }
 
     const waitingForFollowUp = narrationStillNeedsAnswer(narration);
+    const nextHotelChoice = waitingForFollowUp
+      ? response.plan?.find((item) => item.hotelDetails?.requiresSelection) ?? null
+      : null;
+    setHotelChoicePlan(nextHotelChoice);
     if (waitingForFollowUp) {
       followUpContextRef.current = {
         originalRequest: followUpContext?.originalRequest ?? prepared.planningTranscript,
@@ -1191,6 +1220,12 @@ export default function ConverseScreen() {
 
     // If plan needs biometric confirmation, store it only when Ace is no longer asking a follow-up.
     if (response.needsBiometric && response.plan && response.plan.length > 0 && !waitingForFollowUp) {
+      if (!response.approvalSessionId || !response.approvalToken || !response.planDigest || !response.approvalExpiresAt) {
+        const approvalError = 'Ace could not bind this plan to a secure approval. Please refresh the options.';
+        setError(approvalError);
+        setPhase('error');
+        return;
+      }
       const total      = response.estimatedPriceUsdc ?? 0;
       const fiatAmount = response.fiatAmount          ?? total;
       const fiatSymbol = response.currencySymbol      ?? currencySymbol;
@@ -1209,6 +1244,10 @@ export default function ConverseScreen() {
         readiness,
         totalPriceUsdc: total, fiatAmount, fiatSymbol, fiatCode,
         assumptionNote: prepared.assumptionNote,
+        approvalSessionId: response.approvalSessionId,
+        approvalToken: response.approvalToken,
+        planDigest: response.planDigest,
+        approvalExpiresAt: response.approvalExpiresAt,
       };
 
       // Always show the confirmation card — biometric is required for every purchase.
@@ -1350,6 +1389,8 @@ export default function ConverseScreen() {
         hirerId:       agentId!,
         travelProfile: fullProfile,
         plan,
+        approvalSessionId: pending.approvalSessionId,
+        approvalToken: pending.approvalToken,
       });
       const narration = sanitizeAceNarration(response.narration);
 
@@ -1512,6 +1553,24 @@ export default function ConverseScreen() {
       });
       setConfirmRetryNote(retryMsg);
       addTurn({ role: 'meridian', text: retryMsg, ts: Date.now() });
+      return;
+    }
+
+    try {
+      await confirmExecutionApproval({
+        sessionId: pending.approvalSessionId,
+        approvalToken: pending.approvalToken,
+        method: Platform.OS === 'ios' ? 'biometric_ios' : 'biometric_android',
+      });
+    } catch (error: any) {
+      const retryMsg = error?.message ?? 'The approval could not be verified. Please refresh the options.';
+      logConverseEvent({
+        event: 'approval_binding_failed',
+        severity: 'warning',
+        message: retryMsg,
+        metadata: { planDigest: pending.planDigest },
+      });
+      setConfirmRetryNote(retryMsg);
       return;
     }
 
@@ -2280,6 +2339,48 @@ export default function ConverseScreen() {
           </View>
         )}
 
+        {hotelChoicePlan?.hotelDetails?.requiresSelection && (
+          <View style={styles.hotelChoiceCard}>
+            <Text style={styles.hotelChoiceEyebrow}>Choose before payment</Text>
+            <Text style={styles.hotelChoiceHeading}>Three options for {hotelChoicePlan.hotelDetails.city}</Text>
+            <View style={styles.hotelChoiceGrid}>
+              {hotelChoicePlan.hotelDetails.allOptions?.slice(0, 3).map((hotel, index) => (
+                <Pressable
+                  key={hotel.name}
+                  accessibilityRole="button"
+                  accessibilityLabel={'Choose option ' + (index + 1) + ', ' + hotel.name}
+                  onPress={() => {
+                    setHotelChoicePlan(null);
+                    void runIntentWithUiFallback('Option ' + (index + 1) + ': ' + hotel.name);
+                  }}
+                  style={({ pressed }) => [styles.hotelChoiceOption, pressed && styles.hotelChoiceOptionPressed]}
+                >
+                  {hotel.imageUrl ? (
+                    <Image source={{ uri: hotel.imageUrl }} style={styles.hotelChoiceImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.hotelChoiceImagePlaceholder}>
+                      <Ionicons name="bed-outline" size={28} color="#8ba5bd" />
+                    </View>
+                  )}
+                  <View style={styles.hotelChoiceBody}>
+                    <Text style={styles.hotelChoiceRank}>Option {index + 1}</Text>
+                    <Text style={styles.hotelChoiceName}>{hotel.name}</Text>
+                    <Text style={styles.hotelChoiceMeta}>{hotel.stars} star ? {hotel.area}</Text>
+                    <Text style={styles.hotelChoicePrice}>
+                      {hotel.currency} {formatMoneyAmount(hotel.totalCost, hotel.currency)} total
+                    </Text>
+                    {!!hotel.imageAttributions?.length && (
+                      <Text style={styles.hotelChoiceAttribution}>
+                        Photo: {hotel.imageAttributions.map((item) => item.displayName).join(' ? ')}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
         {isConfirming && (() => {
           const fiat    = pendingPlanRef.current?.fiatAmount ?? 0;
           const sym     = pendingPlanRef.current?.fiatSymbol ?? currencySymbol;
@@ -2438,7 +2539,7 @@ export default function ConverseScreen() {
                   style={styles.confirmBtnGrad}
                 >
                   <Ionicons name="finger-print-outline" size={20} color="#edf6ff" />
-                  <Text style={styles.confirmText}>Approve with Face ID</Text>
+                  <Text style={styles.confirmText}>Confirm with {biometricLabel}</Text>
                 </LinearGradient>
               </Pressable>
               <Pressable style={styles.confirmCancel} onPress={handleCancelConfirm}>
@@ -3064,6 +3165,59 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748b',
   },
+
+  hotelChoiceCard: {
+    marginBottom: 18,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.22)',
+    backgroundColor: 'rgba(6, 13, 24, 0.9)',
+  },
+  hotelChoiceEyebrow: {
+    color: '#8fb8da',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  hotelChoiceHeading: {
+    color: '#edf6ff',
+    fontSize: 19,
+    fontWeight: '700',
+    marginBottom: 14,
+  },
+  hotelChoiceGrid: { gap: 12 },
+  hotelChoiceOption: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(122, 167, 214, 0.2)',
+    backgroundColor: 'rgba(10, 20, 34, 0.96)',
+  },
+  hotelChoiceOptionPressed: { opacity: 0.78 },
+  hotelChoiceImage: { width: '100%', height: 148 },
+  hotelChoiceImagePlaceholder: {
+    width: '100%',
+    height: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(24, 42, 61, 0.84)',
+  },
+  hotelChoiceBody: { padding: 14 },
+  hotelChoiceRank: {
+    color: '#8fb8da',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  hotelChoiceName: { color: '#f5f9ff', fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  hotelChoiceMeta: { color: '#8ea1b5', fontSize: 12, marginBottom: 8 },
+  hotelChoicePrice: { color: '#e5c995', fontSize: 14, fontWeight: '700' },
+  hotelChoiceAttribution: { color: '#64748b', fontSize: 9, lineHeight: 13, marginTop: 8 },
 
   confirmCard: {
     borderWidth: 1,

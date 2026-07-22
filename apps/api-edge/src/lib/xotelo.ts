@@ -476,7 +476,7 @@ export function formatHotelOptionsForClaude(hotels: HotelOption[]): string {
   };
 
   return hotels
-    .slice(0, 5)
+    .slice(0, 3)
     .map((h, i) => {
       const sym      = symMap[h.currency] ?? (h.currency + ' ');
       const price    = `${sym}${h.pricePerNight}/night`;

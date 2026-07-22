@@ -6,6 +6,7 @@
  */
 
 import * as LocalAuthentication from 'expo-local-authentication';
+import { Platform } from 'react-native';
 
 export async function isBiometricAvailable(): Promise<boolean> {
   const [hardware, enrolled] = await Promise.all([
@@ -36,11 +37,14 @@ export async function authenticateWithBiometrics(reason: string): Promise<boolea
 /** Returns the best available biometric type name for display */
 export async function getBiometricLabel(): Promise<string> {
   const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-  if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+  if (Platform.OS === 'ios' && types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
     return 'Face ID';
   }
   if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
     return 'Fingerprint';
   }
-  return 'Biometric';
+  if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+    return 'Face recognition';
+  }
+  return 'Device security';
 }
