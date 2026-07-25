@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/rcm/workspaces/${String(workspaceId)}/import-claims`, {
+    const res = await fetch(`${API_BASE}/api/rcm/workspaces/${encodeURIComponent(String(workspaceId))}/import-claims`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.apiKey}` },
       body: JSON.stringify({ claims }),
