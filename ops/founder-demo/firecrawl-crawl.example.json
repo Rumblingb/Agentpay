@@ -1,0 +1,8 @@
+{
+  "url": "https://example.com",
+  "formats": [
+    "markdown"
+  ],
+  "onlyMainContent": true,
+  "maxAge": 0
+}

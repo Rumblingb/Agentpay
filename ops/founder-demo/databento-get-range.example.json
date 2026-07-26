@@ -1,0 +1,10 @@
+{
+  "dataset": "GLBX.MDP3",
+  "symbols": [
+    "ES.FUT"
+  ],
+  "schema": "ohlcv-1m",
+  "start": "2025-01-02T14:30:00Z",
+  "end": "2025-01-02T14:35:00Z",
+  "encoding": "json"
+}

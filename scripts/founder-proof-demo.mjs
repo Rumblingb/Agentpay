@@ -37,7 +37,7 @@ Options:
   --help                      Show this help
 
 Examples:
-  npm run demo:founder-proof -- --api-key sk_live_... --principal-id principal_1 --execute-path /timeseries/get_range --execute-body-file ops/founder-demo/request-body.template.json
+  npm run demo:founder-proof -- --api-key sk_live_... --principal-id principal_1 --execute-path /timeseries/get_range --execute-body-file ops/founder-demo/databento-get-range.example.json
   node scripts/founder-proof-demo.mjs --api-key sk_live_... --principal-id principal_1 --poll-seconds 120
 `;
 }

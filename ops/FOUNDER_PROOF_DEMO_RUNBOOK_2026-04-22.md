@@ -217,7 +217,7 @@ npm run demo:founder-proof -- \
   --provider databento \
   --workbench-id founder-proof-databento \
   --execute-path </provider-relative-path> \
-  --execute-body-file ops/founder-demo/request-body.template.json \
+  --execute-body-file ops/founder-demo/databento-get-range.example.json \
   --poll-seconds 120
 ```
 
@@ -232,6 +232,10 @@ What it does:
 7. writes sanitized transcript artifacts under `ops/founder-demo/`
 
 Use the transcript output to tighten the terminal demo before recording. If the script cannot reach the second same-workbench call cleanly, the product seam still is not ready to market as inevitable.
+
+Copy-ready provider request bodies live in `ops/founder-demo/`. They are
+deliberately credential-free so the recording can prove that the provider
+secret never enters the terminal, chat, or local project files.
 
 ## What Not To Show
 
