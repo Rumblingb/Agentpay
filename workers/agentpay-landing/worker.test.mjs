@@ -72,6 +72,20 @@ try {
   assert.match(postizzzHtml, /href="\/privacy"/)
   assert.match(postizzzHtml, /href="\/terms"/)
 
+  const bidDeskResponse = await handleRequest(new Request('https://agentpay.so/biddesk'))
+  assert.equal(bidDeskResponse.status, 200)
+  assert.match(bidDeskResponse.headers.get('content-type'), /text\/html/)
+  const bidDeskHtml = await bidDeskResponse.text()
+  assert.match(bidDeskHtml, /BidDesk/)
+  assert.match(bidDeskHtml, /Cleaning &amp; FM tender responses/)
+  assert.match(bidDeskHtml, /Compliance-checked SQ and ITT responses/)
+  assert.match(bidDeskHtml, /No win guarantees/)
+  assert.match(bidDeskHtml, /mailto:biddesk@agentpay\.so\?subject=Draft%20Desk/)
+  assert.doesNotMatch(bidDeskHtml, /Win more/)
+
+  const bidDeskTrailingSlashResponse = await handleRequest(new Request('https://agentpay.so/biddesk/'))
+  assert.equal(bidDeskTrailingSlashResponse.status, 200)
+
   const productResponse = await handleRequest(new Request('https://agentpay.so/awesome-free-dev-tools'))
   assert.equal(productResponse.status, 200)
   const productHtml = await productResponse.text()
@@ -162,6 +176,20 @@ try {
   assert.match(landingHtml, /AgentPay Labs is shipping small paid tools and operational rails in public/)
   assert.match(landingHtml, /Owner-authorized accounts/)
   assert.match(landingHtml, /Fail-closed routing/)
+
+  const indexResponse = await handleRequest(new Request('https://agentpay.so/index.html'))
+  assert.equal(indexResponse.status, 200)
+
+  // Unknown paths must 404. A catch-all 200 hides broken links (it previously
+  // made /awesome-free-dev-tools/buy indistinguishable from a dead route) and
+  // lets crawlers index unlimited duplicate copies of the landing page.
+  for (const deadPath of ['/nonexistent-route-xyz123', '/awesome-free-dev-tools/bogus', '/terms/extra']) {
+    const missingResponse = await handleRequest(new Request(`https://agentpay.so${deadPath}`))
+    assert.equal(missingResponse.status, 404, `${deadPath} should 404`)
+    const missingHtml = await missingResponse.text()
+    assert.match(missingHtml, /name="robots" content="noindex"/)
+    assert.doesNotMatch(missingHtml, /AgentPay Labs is shipping small paid tools/)
+  }
 
   const apiResponse = await handleRequest(new Request('https://agentpay.so/api/agentrank'))
   assert.equal(apiResponse.status, 299)
