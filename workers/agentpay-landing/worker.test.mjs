@@ -61,7 +61,29 @@ try {
   const healthResponse = await handleRequest(new Request('https://agentpay.so/health'))
   assert.equal(healthResponse.status, 200)
   assert.equal(healthResponse.headers.get('content-type'), 'application/json')
-  assert.equal((await healthResponse.json()).services.agentrank, 'green')
+  assert.equal(healthResponse.headers.get('cache-control'), 'no-store')
+  const healthBody = await healthResponse.json()
+  assert.equal(healthBody.scope, 'edge')
+  assert.equal(healthBody.services.landing, 'green')
+
+  // The edge worker cannot verify backend capabilities, so it must not claim them.
+  // Reporting these as 'green' is the exact defect #165 exists to remove.
+  assert.equal(healthBody.services.escrow, 'not_implemented')
+  assert.equal(healthBody.services.kya, 'not_implemented')
+  assert.equal(healthBody.services.behavioral_oracle, 'not_implemented')
+  assert.equal(healthBody.services.database, 'not_probed')
+  assert.equal(healthBody.services.agentrank, 'demo_only')
+  for (const [name, state] of Object.entries(healthBody.services)) {
+    if (name !== 'landing') {
+      assert.notEqual(state, 'green', `${name} is not verifiable from the edge and must not report green`)
+    }
+  }
+
+  // /api/health must reach the origin rather than being shadowed by the edge stub.
+  fetchCalled = false
+  const apiHealthResponse = await handleRequest(new Request('https://agentpay.so/api/health'))
+  assert.equal(apiHealthResponse.status, 299)
+  assert.equal(fetchCalled, true)
 
   const postizzzResponse = await handleRequest(new Request('https://agentpay.so/postizzz'))
   assert.equal(postizzzResponse.status, 200)

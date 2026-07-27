@@ -25,23 +25,40 @@ function mergeHeaders(headers) {
   return { ...SECURITY_HEADERS, ...headers };
 }
 
+// Declared state for /health. This is an edge worker with no backend probe, so it may
+// only attest to what it serves itself. 'green' requires a deployed, tested implementation
+// on this worker; every capability without one is 'not_implemented'.
+//
+// Do not hard-code 'green' here. This endpoint previously reported database, agentrank,
+// escrow, kya and behavioral_oracle as green while none of them were verifiably live,
+// which is the specific claim #165 exists to remove. Backend state belongs to the origin,
+// which now answers /api/health directly.
+const EDGE_SERVICE_STATUS = {
+  landing: 'green',
+  agentrank: 'demo_only',
+  database: 'not_probed',
+  escrow: 'not_implemented',
+  kya: 'not_implemented',
+  behavioral_oracle: 'not_implemented'
+};
+
 async function handleRequest(request) {
   const url = new URL(request.url)
 
-  // Preserve health endpoint
-  if (url.pathname === '/health' || url.pathname === '/api/health') {
+  // Edge health. /api/health is deliberately not handled here — it falls through to the
+  // origin below so the real backend health check is reachable instead of shadowed.
+  if (url.pathname === '/health') {
     return new Response(JSON.stringify({
       status: 'ok',
-      services: {
-        database: 'green',
-        agentrank: 'green',
-        escrow: 'green',
-        kya: 'green',
-        behavioral_oracle: 'green'
-      },
+      scope: 'edge',
+      services: EDGE_SERVICE_STATUS,
+      note: 'Edge worker status only. Backend health is served by the origin at /api/health.',
       timestamp: new Date().toISOString()
     }), {
-      headers: mergeHeaders({ 'Content-Type': 'application/json' })
+      headers: mergeHeaders({
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store'
+      })
     })
   }
 
