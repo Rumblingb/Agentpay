@@ -154,11 +154,23 @@ async function handleRequest(request) {
     })
   }
 
-  // Everything else gets the landing page
-  return new Response(LANDING_PAGE, {
+  // Landing page is served only at the site root. Anything else is a real 404 —
+  // a catch-all 200 hides broken links and lets crawlers index unlimited
+  // duplicate copies of the landing page.
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    return new Response(LANDING_PAGE, {
+      headers: mergeHeaders({
+        'Content-Type': 'text/html;charset=UTF-8',
+        'Cache-Control': 'public, max-age=3600'
+      })
+    })
+  }
+
+  return new Response(renderNotFoundPage('Page not found', 'That page does not exist on agentpay.so.'), {
+    status: 404,
     headers: mergeHeaders({
       'Content-Type': 'text/html;charset=UTF-8',
-      'Cache-Control': 'public, max-age=3600'
+      'Cache-Control': 'public, max-age=300'
     })
   })
 }
@@ -380,12 +392,12 @@ function renderRankPage(agent, url) {
 </html>`
 }
 
-function renderNotFoundPage(message) {
+function renderNotFoundPage(message, hint = 'Check the agent identifier and try again.') {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Not found — AgentPay</title><meta name="robots" content="noindex">
 <style>body{margin:0;background:#0B0F14;color:#F4F1EA;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:680px;margin:0 auto;padding:72px 24px}a{color:#FFB020;text-decoration:none}.eyebrow{color:#FFB020;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}h1{font-size:44px;line-height:1.05;margin:10px 0 14px;letter-spacing:0}p{color:#C9CDD4}</style></head>
-<body><main class="wrap"><p class="eyebrow">404</p><h1>${escapeHtml(message)}</h1><p>Check the agent identifier and try again.</p><p><a href="/">Return to AgentPay</a></p></main></body></html>`
+<body><main class="wrap"><p class="eyebrow">404</p><h1>${escapeHtml(message)}</h1><p>${escapeHtml(hint)}</p><p><a href="/">Return to AgentPay</a></p></main></body></html>`
 }
 
 const LANDING_PAGE = `<!DOCTYPE html>
@@ -1024,15 +1036,15 @@ const BIDDESK_PAGE = `<!DOCTYPE html>
     body { background:#0a0a0f; color:#F4F1EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.6; }
     .container { max-width:860px; margin:0 auto; padding:0 24px; }
     nav { padding:20px 0; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); }
-    .logo { font-size:18px; font-weight:700; letter-spacing:-0.5px; color:#F4F1EA; }
+    .logo { font-size:18px; font-weight:700; letter-spacing:0; color:#F4F1EA; }
     .logo span { color:#FFB020; }
     header { padding:72px 0 40px; }
-    h1 { font-size:38px; line-height:1.2; letter-spacing:-1px; max-width:640px; }
+    h1 { font-size:38px; line-height:1.2; letter-spacing:0; max-width:640px; }
     h1 em { color:#FFB020; font-style:normal; }
     .sub { color:rgba(255,255,255,0.6); margin-top:16px; max-width:560px; font-size:17px; }
     .honest { margin-top:20px; padding:14px 18px; border-left:3px solid #FFB020; background:rgba(255,176,32,0.06); font-size:15px; color:rgba(255,255,255,0.8); max-width:560px; }
     .tiers { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:48px 0; }
-    .tier { border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:24px; }
+    .tier { border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:24px; }
     .tier.featured { border-color:#FFB020; }
     .tier h3 { font-size:17px; }
     .price { font-size:30px; font-weight:700; margin:10px 0; color:#FFB020; }
@@ -1052,8 +1064,8 @@ const BIDDESK_PAGE = `<!DOCTYPE html>
 <div class="container">
   <nav><div class="logo">Bid<span>Desk</span></div><div style="color:rgba(255,255,255,0.4);font-size:13px;">by AgentPay Labs</div></nav>
   <header>
-    <h1>Win more cleaning &amp; FM contracts — <em>without hiring a bid writer</em></h1>
-    <p class="sub">You run the cleaning company. We run the paperwork. Compliance-checked SQ and ITT responses for UK soft-FM tenders — AI-drafted, reviewed by a named human, delivered in 72 hours at a fixed fee.</p>
+    <h1>Cleaning &amp; FM tender responses <em>without hiring a bid writer</em></h1>
+    <p class="sub">You run the cleaning company. We run the paperwork. Compliance-checked SQ and ITT responses for UK soft-FM tenders, AI-drafted, reviewed by a named human, delivered in 72 hours at a fixed fee.</p>
     <div class="honest"><strong>We never guarantee a win.</strong> Nobody honestly can. What you get: a complete, compliant, deadline-ready submission pack built on your real accreditations and your real experience.</div>
   </header>
   <div class="tiers">
