@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { ExecutionContext } from 'hono';
 import type { Env, MerchantContext, Variables } from '../types';
 import { authenticateApiKey } from '../middleware/auth';
 import { isMcpAccessToken } from '../lib/mcpAccessTokens';

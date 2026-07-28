@@ -1,3 +1,4 @@
+import type { ExecutionContext } from 'hono';
 import type { Env } from '../types';
 
 export type InternalAppFetcher = (
