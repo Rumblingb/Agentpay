@@ -98,7 +98,7 @@
     "nativewind": "^4.2.3",
     "node-fetch": "^3.3.2",
     "pino": "^10.3.1",
-    "uuid": "^13.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@react-native/assets-registry": "0.76.9",
