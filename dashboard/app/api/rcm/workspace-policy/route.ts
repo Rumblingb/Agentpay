@@ -26,7 +26,7 @@ export async function PATCH(req: NextRequest) {
   if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
 
   try {
-    const res = await fetch(`${API_BASE}/api/rcm/workspaces/${workspaceId}`, {
+    const res = await fetch(`${API_BASE}/api/rcm/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
