@@ -1,6 +1,6 @@
-# Public surface plan (placeholder)
+# Public surface plan
 
-This folder is a marker for the public-facing surface of the repo. Nothing in this folder is implemented yet — it documents the intended contents that will remain public after the split.
+This folder is a planning marker for the public-facing surface of the repo. It is not the live front door and should not be treated as the current product surface.
 
 Planned contents:
 - dashboard/ (UI, landing pages)
@@ -9,4 +9,6 @@ Planned contents:
 - examples/ (integration examples and demos)
 - app/api/demo/* (read-only demo endpoints)
 
-No files were moved. This is a non-functional scaffold used to document the split plan.
+Current live front-door surfaces live in the repo root `README.md`, `QUICKSTART.md`, `docs/`, `dashboard/`, `packages/`, `cli/`, and `examples/`.
+
+No files were moved. This is a non-functional scaffold used only to document the split plan.

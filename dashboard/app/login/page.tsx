@@ -23,8 +23,12 @@ export default function LoginPage() {
         if (cancelled) return;
         setHealth(data.status === 'active' ? 'ok' : data.status === 'unreachable' ? 'unreachable' : 'degraded');
       })
-      .catch(() => { if (!cancelled) setHealth('unreachable'); });
-    return () => { cancelled = true; };
+      .catch(() => {
+        if (!cancelled) setHealth('unreachable');
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
@@ -55,11 +59,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      className="min-h-screen flex"
-      style={{ background: '#050505', color: '#e8e8e8' }}
-    >
-      {/* Left panel — brand */}
+    <div className="min-h-screen flex" style={{ background: '#050505', color: '#e8e8e8' }}>
+      {/* Left panel - brand */}
       <div
         className="hidden lg:flex flex-col justify-between w-[420px] shrink-0 px-12 py-12 border-r"
         style={{ borderColor: '#141414', background: '#070707' }}
@@ -73,32 +74,26 @@ export default function LoginPage() {
             >
               <Zap size={18} className="text-black" fill="currentColor" />
             </div>
-            <span
-              className="text-[20px] font-bold tracking-[-0.03em] text-white"
-            >
-              AgentPay
-            </span>
+            <span className="text-[20px] font-bold tracking-[-0.03em] text-white">AgentPay</span>
           </div>
 
           {/* Value prop */}
           <div className="space-y-6">
-            <h2
-              className="text-[32px] font-semibold tracking-[-0.04em] leading-[1.1] text-white"
-            >
-              Payment infrastructure for autonomous agents.
+            <h2 className="text-[32px] font-semibold tracking-[-0.04em] leading-[1.1] text-white">
+              Trust and governed execution for real agents.
             </h2>
             <p className="text-[14px] text-[#525252] leading-relaxed">
-              Create payment intents, verify settlement, enforce spending policy, and build portable economic reputation — all in one API.
+              Vault upstream credentials, enforce approval and spend policy, resume exact blocked calls, and return proof without pushing humans back into setup loops.
             </p>
           </div>
 
           {/* Feature list */}
           <div className="mt-10 space-y-4">
             {[
-              { label: 'AgentPassport', desc: 'Portable identity & spending policy per agent' },
-              { label: 'Solana USDC', desc: 'On-chain settlement, confirmed in seconds' },
-              { label: 'Policy engine', desc: 'Amount caps, daily limits, allowlists' },
-              { label: 'Trust graph', desc: 'Verifiable economic reputation from settlements' },
+              { label: 'Capability Vault', desc: 'Keep raw provider keys out of agent context' },
+              { label: 'Governed mandates', desc: 'Spend caps, approvals, and reuse policy per workbench' },
+              { label: 'Exact-call resume', desc: 'Funding or approval steps return to the same blocked action' },
+              { label: 'Proof trail', desc: 'Receipts, status, and settlement evidence back to the host' },
             ].map(({ label, desc }) => (
               <div key={label} className="flex items-start gap-3">
                 <div
@@ -117,12 +112,10 @@ export default function LoginPage() {
         </div>
 
         {/* Footer note */}
-        <p className="text-[11px] text-[#2a2a2a]">
-          AgentPay — beta · MIT licensed
-        </p>
+        <p className="text-[11px] text-[#2a2a2a]">AgentPay - live beta | BSL 1.1</p>
       </div>
 
-      {/* Right panel — login form */}
+      {/* Right panel - login form */}
       <div className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-[400px]">
           {/* Mobile logo */}
@@ -136,12 +129,8 @@ export default function LoginPage() {
             <span className="text-[17px] font-bold tracking-[-0.03em] text-white">AgentPay</span>
           </div>
 
-          <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-white mb-1">
-            Operator sign in
-          </h1>
-          <p className="text-[13px] text-[#525252] mb-8">
-            Enter your email and API key to access the console.
-          </p>
+          <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-white mb-1">Operator sign in</h1>
+          <p className="text-[13px] text-[#525252] mb-8">Enter your email and API key to access the console.</p>
 
           {/* Health status pill */}
           <div className="mb-6">
@@ -151,7 +140,7 @@ export default function LoginPage() {
                 style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', color: '#525252' }}
               >
                 <RefreshCw size={11} className="animate-spin" />
-                Checking API status…
+                Checking API status...
               </div>
             )}
             {health === 'unreachable' && (
@@ -160,7 +149,7 @@ export default function LoginPage() {
                 style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', color: '#f87171' }}
               >
                 <AlertTriangle size={11} />
-                API unreachable — retry in ~30s
+                API unreachable - retry in ~30s
               </div>
             )}
             {health === 'degraded' && (
@@ -169,7 +158,7 @@ export default function LoginPage() {
                 style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.15)', color: '#FFB020' }}
               >
                 <AlertTriangle size={11} />
-                API degraded — some features may be limited
+                API degraded - some features may be limited
               </div>
             )}
             {health === 'ok' && (
@@ -181,7 +170,7 @@ export default function LoginPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
                 </span>
-                API online — settlement active
+                API online - settlement active
               </div>
             )}
           </div>
@@ -234,7 +223,7 @@ export default function LoginPage() {
                   type={showApiKey ? 'text' : 'password'}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="ap_live_…"
+                  placeholder="apk_live_..."
                   autoComplete="current-password"
                   className="w-full px-4 py-2.5 pr-14 rounded-lg text-[13px] font-mono text-[#d4d4d4] placeholder:text-[#2a2a2a] transition-all outline-none"
                   style={{ background: '#0d0d0d', border: '1px solid #1c1c1c' }}
@@ -258,11 +247,15 @@ export default function LoginPage() {
               style={{
                 background: loading ? '#059669' : '#10b981',
               }}
-              onMouseEnter={(e) => { if (!loading) (e.target as HTMLButtonElement).style.background = '#0d9466'; }}
-              onMouseLeave={(e) => { if (!loading) (e.target as HTMLButtonElement).style.background = '#10b981'; }}
+              onMouseEnter={(e) => {
+                if (!loading) (e.target as HTMLButtonElement).style.background = '#0d9466';
+              }}
+              onMouseLeave={(e) => {
+                if (!loading) (e.target as HTMLButtonElement).style.background = '#10b981';
+              }}
             >
               {loading ? <RefreshCw size={14} className="animate-spin" /> : <LogIn size={14} />}
-              {loading ? 'Signing in…' : 'Access console'}
+              {loading ? 'Signing in...' : 'Access console'}
             </button>
           </form>
 
@@ -271,7 +264,7 @@ export default function LoginPage() {
             {[
               { icon: Lock, label: 'PBKDF2 auth' },
               { icon: Shield, label: 'HMAC signed' },
-              { icon: Zap, label: 'Solana USDC' },
+              { icon: Zap, label: 'Governed flows' },
             ].map(({ icon: I, label }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <I size={11} className="text-[#2a2a2a]" />
@@ -283,12 +276,12 @@ export default function LoginPage() {
           <p className="mt-6 text-[11px] text-[#2a2a2a]">
             No account?{' '}
             <a
-              href="https://github.com/Rumblingb/Agentpay#readme"
+              href="https://docs.agentpay.so/quickstart"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#404040] hover:text-emerald-500 transition-colors"
             >
-              Register via the API →
+              Start with the quickstart →
             </a>
           </p>
         </div>

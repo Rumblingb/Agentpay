@@ -1,8 +1,8 @@
-# Ace — Voice-First AI Travel Concierge
+# Ace - Voice-First AI Travel Concierge
 
 <p align="center">
   <strong>Say the trip once. Ace books it.</strong><br>
-  UK rail · India rail · No service fee until May 2026
+  UK rail | India rail | Early access live beta
 </p>
 
 <p align="center">
@@ -13,13 +13,13 @@
 
 ---
 
-Ace is a voice-first AI travel concierge built on [AgentPay](../../README.md) infrastructure. You speak once, naturally. Ace finds the route, applies your railcard, quotes the fare, takes one tap to confirm, and delivers a ticket to your inbox — without you touching a form or switching a tab.
+Ace is a voice-first AI travel concierge built on [AgentPay](../../README.md). You speak once, naturally. Ace finds the route, applies your railcard, quotes the fare, takes one tap to confirm, and delivers a ticket to your inbox - without you touching a form or switching a tab.
 
-It is not a chatbot. It is not a booking engine with a voice layer bolted on. Ace is an economic agent: it holds your preferences, executes autonomously, and stays with the trip after booking — watching for delays, platform changes, and disruptions.
+It is not a chatbot. It is not a booking engine with a voice layer bolted on. Ace is an economic agent: it holds your preferences, executes autonomously, and stays with the trip after booking - watching for delays, platform changes, and disruptions.
 
 > "Book a train from London Paddington to Bristol Temple Meads, tomorrow morning, cheapest."
 >
-> *Ace: Done. £24.50 · 07:04 depart · ticket to your inbox.*
+> *Ace: Done. GBP 24.50 | 07:04 depart | ticket to your inbox.*
 
 ---
 
@@ -27,37 +27,37 @@ It is not a chatbot. It is not a booking engine with a voice layer bolted on. Ac
 
 | Feature | Status |
 |---------|--------|
-| Voice booking — UK rail (National Rail / Darwin) | ✅ Live |
-| Voice booking — India rail (IRCTC) | ✅ Live |
-| Railcard auto-detection + discount | ✅ Live |
-| UPI payment (India) | ✅ Live |
-| Stripe payment (UK) | ✅ Live |
-| Platform change push alerts | ✅ Live |
-| Live disruption monitoring | ✅ Live |
-| Receipt + wallet pass | ✅ Live |
-| AceFace — GPU-rendered 3D voice presence | ✅ Live |
-| EU rail (Rail Europe) | 🔜 Next |
-| Flights (Duffel) | 🔜 Next |
-| Hotels | 🔜 Q2 |
-| Android | 🔜 Q2 |
+| Voice booking - UK rail (National Rail / Darwin) | Live |
+| Voice booking - India rail (IRCTC) | Live |
+| Railcard auto-detection + discount | Live |
+| UPI payment (India) | Live |
+| Stripe payment (UK) | Live |
+| Platform change push alerts | Live |
+| Live disruption monitoring | Live |
+| Receipt + wallet pass | Live |
+| AceFace - GPU-rendered 3D voice presence | Live |
+| EU rail (Rail Europe) | Next |
+| Flights (Duffel) | Next |
+| Hotels | Q2 |
+| Android | Q2 |
 
 ---
 
 ## The presence layer
 
-AceFace is Ace's voice presence — a GPU-rendered sculptural bust that reacts in real-time to speech energy, mic amplitude, and phase state. It is not decorative.
+AceFace is Ace's voice presence - a GPU-rendered sculptural bust that reacts in real time to speech energy, mic amplitude, and phase state. It is not decorative.
 
-- **Metal GPU pipeline** — `@shopify/react-native-skia`, runs on the UI thread via Reanimated worklets
-- **11 render layers** — atmospheric halo, listening rings, 3D bust, focus field, key light, rim light, inner shadow, lower-face tension, mouth cavity + lip line, ghost rim, audio-reactive corona
-- **Real speech sync** — TTS amplitude drives jaw and viseme blend shapes at ~60fps
-- **Phase-aware** — idle / listening / thinking / confirming / executing / done / error each have distinct animation signatures
-- **No hallucination silence** — Cloudflare Whisper hallucination detection + OpenAI Whisper fallback
+- **Metal GPU pipeline** - `@shopify/react-native-skia`, runs on the UI thread via Reanimated worklets
+- **11 render layers** - atmospheric halo, listening rings, 3D bust, focus field, key light, rim light, inner shadow, lower-face tension, mouth cavity + lip line, ghost rim, audio-reactive corona
+- **Real speech sync** - TTS amplitude drives jaw and viseme blend shapes at ~60fps
+- **Phase-aware** - idle / listening / thinking / confirming / executing / done / error each have distinct animation signatures
+- **No hallucination silence** - Cloudflare Whisper hallucination detection + OpenAI Whisper fallback
 
 ---
 
 ## App structure
 
-```
+```text
 app/
   (main)/
     converse.tsx       Voice conversation + confirm card
@@ -84,12 +84,12 @@ assets/
 
 ## How Ace uses AgentPay
 
-Every booking Ace executes goes through AgentPay infrastructure:
+Every booking Ace executes goes through AgentPay:
 
-- **Governed mandate** — Ace creates a mandate for each booking intent. The user approves the fare. AgentPay enforces the budget and executes the settlement.
-- **AgentPassport** — Ace holds a portable identity with spending policy, trust graph, and interaction history.
-- **Multi-rail settlement** — Stripe for UK card payments, Razorpay/UPI for India, Solana/USDC as an alternative settlement layer.
-- **Policy engine** — per-user rules: fare caps, daily limits, railcard preferences, approval thresholds.
+- **Governed mandate** - Ace creates a mandate for each booking intent. The user approves the fare. AgentPay enforces the budget and executes the settlement.
+- **AgentPassport** - Ace holds a portable identity with spending policy, trust graph, and interaction history.
+- **Multi-rail settlement** - Stripe for UK card payments, Razorpay/UPI for India, Solana/USDC as an alternative settlement layer.
+- **Policy engine** - per-user rules: fare caps, daily limits, railcard preferences, approval thresholds.
 
 ---
 
@@ -119,8 +119,8 @@ EXPO_PUBLIC_API_URL=http://localhost:8787 npx expo start
 
 ## Early access
 
-**Travelers** — iOS TestFlight, no service fee until May 2026:
+**Travelers** - iOS TestFlight early access:
 [agentpay.gg/join](https://agentpay.gg/join)
 
-**Operators** — embed Ace into your travel product:
+**Operators** - embed Ace into your travel product:
 [agentpay.gg/partner](https://agentpay.gg/partner)
