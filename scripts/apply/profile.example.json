@@ -1,0 +1,37 @@
+{
+  "_comment": "Copy to profile.json and replace every TODO. profile.json is gitignored because it holds personal contact details. The runner refuses to start while any TODO remains.",
+
+  "firstName": "Rajiv",
+  "lastName": "Baskaran",
+  "email": "rajiv_baskaran@agentpay.so",
+  "phone": "TODO",
+  "location": "London, United Kingdom",
+
+  "links": {
+    "github": "https://github.com/Rumblingb",
+    "linkedin": "TODO",
+    "website": "TODO"
+  },
+
+  "eligibility": {
+    "rightToWorkUk": true,
+    "requiresUkSponsorship": false,
+    "requiresUsSponsorship": true,
+    "willingToRelocate": true,
+    "noticePeriod": "Immediate"
+  },
+
+  "compensation": {
+    "expectationGbp": "TODO",
+    "expectationUsd": "TODO"
+  },
+
+  "education": {
+    "institution": "University of Glasgow",
+    "degree": "TODO",
+    "classification": "TODO",
+    "graduationYear": "TODO"
+  },
+
+  "_note": "The education block is the same gap flagged on every CV. Fill it once here and it stays consistent across applications."
+}

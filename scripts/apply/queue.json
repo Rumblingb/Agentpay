@@ -1,0 +1,131 @@
+{
+  "label": "Quant · AI · world models · eval harness — August 2026",
+  "note": "Sourced from Indeed and deduplicated against 120 days of Gmail application history. The url field is the Indeed short link; it redirects to whichever ATS the employer actually uses, which is what the runner detects.",
+  "cvFolder": "https://drive.google.com/drive/folders/1fUhOcTcUuaTqcw8WIMCIqy-dGW4FFJKF",
+  "roles": [
+    {
+      "id": "reflection-fde",
+      "company": "Reflection",
+      "title": "Forward Deployed Engineer, LLM Post-training",
+      "location": "San Francisco",
+      "match": "strong",
+      "url": "https://to.indeed.com/aars74yknjnh",
+      "cv": "cvs/reflection-fde.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1hNIxtc8ojepBxh-UCWX24iLMxS-esqXReYX34LZxgyw/edit"
+    },
+    {
+      "id": "plaud-evals",
+      "company": "Plaud",
+      "title": "ML Engineer, Model Evaluations (Speech LLM)",
+      "location": "San Francisco",
+      "match": "strong",
+      "url": "https://to.indeed.com/aajczmzrjcv6",
+      "cv": "cvs/plaud-evals.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1a1MkIFQin9IKXvyWADVfcXxxITSo7P4JpdhUI2WTLjA/edit"
+    },
+    {
+      "id": "elliptic-staff-ai",
+      "company": "Elliptic",
+      "title": "Staff AI Engineer",
+      "location": "London",
+      "match": "stretch",
+      "url": "https://to.indeed.com/aajjdbkmmnnw",
+      "cv": "cvs/elliptic-staff-ai.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1-RhmCqNDrJ9nIFTA-kWe0_iZbXTtQugYekUtuL02GVI/edit"
+    },
+    {
+      "id": "spaitial-world-models",
+      "company": "SpAItial",
+      "title": "Research Engineer, 3D World Models",
+      "location": "London",
+      "match": "stretch",
+      "url": "https://to.indeed.com/aazwxjf2hyms",
+      "cv": "cvs/spaitial-world-models.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1aqiHkIu38YUQlskBxBJjTwOS0U5nZ228S6UDolAYHQo/edit"
+    },
+    {
+      "id": "wintermute-mlr",
+      "company": "Wintermute Trading",
+      "title": "Machine Learning Researcher",
+      "location": "London",
+      "match": "strong",
+      "url": "https://to.indeed.com/aahjgdp6t9qp",
+      "cv": "cvs/wintermute-mlr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/10WtB0Ixb4YQBMx3vowFLZ1MjA9VajQcDfOyApIwXBMo/edit"
+    },
+    {
+      "id": "wallstreetquants-qr",
+      "company": "WallStreetQuants",
+      "title": "New Grad Quantitative Researcher",
+      "location": "London / remote Europe",
+      "match": "strong",
+      "url": "https://to.indeed.com/aamsvy29d8g8",
+      "cv": "cvs/wallstreetquants-qr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1MkuTykYkXM54Es_pibP6HW-wVqFUgwBFWKTNKIZbZTs/edit"
+    },
+    {
+      "id": "gresearch-quantdev",
+      "company": "G-Research",
+      "title": "Quantitative Developer",
+      "location": "London",
+      "match": "strong",
+      "url": "https://to.indeed.com/aa2pfvlc6tf9",
+      "cv": "cvs/gresearch-quantdev.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1CLY3TTD3iwEqworA48n2q4nVBBrQtNg9TYg7ESAuGz4/edit"
+    },
+    {
+      "id": "fuse-energy-qr",
+      "company": "Fuse Energy",
+      "title": "Quantitative Researcher",
+      "location": "London",
+      "match": "strong",
+      "url": "https://to.indeed.com/aa8hr7cxsclk",
+      "cv": "cvs/fuse-energy-qr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/13Pg2OzCS7A4uj7fiK-DZ5SfhJHQvOrmXpHo5uXUq_PA/edit"
+    },
+    {
+      "id": "imc-grad-mlr",
+      "company": "IMC Financial Markets",
+      "title": "Graduate Machine Learning Researcher (London)",
+      "location": "London",
+      "match": "strong",
+      "url": "https://to.indeed.com/aakwc7j4knw7",
+      "cv": "cvs/imc-grad-mlr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1j2-BqFwjuphODcrfXh6fApa1ehKuY849qpbHoLB_5lA/edit",
+      "caution": "One application per role per season, and the same role is posted in Chicago. London only — do not also apply to the Chicago listing."
+    },
+    {
+      "id": "millennium-quantdev",
+      "company": "Millennium Management",
+      "title": "Quantitative Developer / Trader",
+      "location": "London",
+      "match": "stretch",
+      "url": "https://to.indeed.com/aasxhjr8xd48",
+      "cv": "cvs/millennium-quantdev.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1JP9hlpPQNK238gnxOp2SHb6-Kh0jr3oiusOPdyRid5I/edit",
+      "caution": "Asks for 2–4 years in systematic trading or quant development."
+    },
+    {
+      "id": "durlston-junior-qr",
+      "company": "Durlston Partners",
+      "title": "Junior Quantitative Researcher",
+      "location": "London",
+      "match": "stretch",
+      "url": "https://to.indeed.com/aagkrspn7kr4",
+      "cv": "cvs/durlston-junior-qr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1ZPrNa_jeGIcaj2RO_d6Gdm1_YVvYV2437IipwIvJiPU/edit",
+      "caution": "No visa sponsorship, and asks for 1–3 years in a quantitative trading team."
+    },
+    {
+      "id": "xantium-qr",
+      "company": "Xantium Group",
+      "title": "Quantitative Researcher",
+      "location": "London",
+      "match": "stretch",
+      "url": "https://to.indeed.com/aa29rhsxtvgl",
+      "cv": "cvs/xantium-qr.pdf",
+      "driveDoc": "https://docs.google.com/document/d/1BvQvpRUYU3ElsaDMrNgY_DBL9vxWIqTanvsbnGb9BJ0/edit",
+      "caution": "PhD preferred; will consider a strong competitive-maths record instead."
+    }
+  ]
+}

@@ -119,3 +119,11 @@ dist/
 *.out
 tmp_*.html
 
+
+# Application assistant — personal data and generated artefacts
+scripts/apply/profile.json
+scripts/apply/state.json
+scripts/apply/cvs/*
+!scripts/apply/cvs/.gitkeep
+scripts/apply/screenshots/*
+!scripts/apply/screenshots/.gitkeep
