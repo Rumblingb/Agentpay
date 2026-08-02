@@ -229,6 +229,32 @@ const buyerConstitutionSchema = {
   required: ['currency', 'maxTotalMinor', 'allowedCategories'],
 };
 
+/**
+ * Server-level guidance. MCP hosts inject this into the model's context once, alongside the tool
+ * list — so it is the cheapest place to teach the whole surface: which tool to reach for first,
+ * what the money-moving order of operations is, and which mistakes cost a user real money.
+ * Keep it short; per-tool detail belongs in each tool's own `description`.
+ */
+export const SERVER_INSTRUCTIONS = `AgentPay is the authority layer for agent-initiated money, identity, and governed execution. Ace is the travel concierge built on top of it.
+
+Order of operations for spending a human's money:
+1. A human sets objective, budget, and approval policy. You never invent a budget.
+2. \`agentpay_create_mandate\` records that authority as a durable, inspectable object.
+3. \`agentpay_get_mandate\` tells you whether it is approved and execution-ready. Read before acting.
+4. \`agentpay_approve_mandate\` needs either an actorId (policy-driven) or an approvalToken from an approval session — never both invented.
+5. \`agentpay_execute_mandate\` only after 3 and 4. Then poll \`agentpay_get_mandate_journey_status\`.
+Never skip to execute. Never retry a failed payment without telling the human first.
+
+Credentials: never ask a human to paste an API key into the chat, and never pass one as a tool argument. Use \`agentpay_request_capability_connect\` (human connects it out-of-band) or \`agentpay_setup_scan\` + \`agentpay_vault_env_keys\` + \`agentpay_confirm_vault\` (OTP-confirmed, reads the local env, never transmits raw values in your context). Afterwards call external APIs through \`agentpay_execute_capability\`, which injects the vaulted secret server-side.
+
+Paid usage: \`agentpay_execute_capability\` has a free-call allowance. Only set \`allowPaidUsage: true\` after the human has explicitly approved spending beyond it.
+
+Blocked on a human step? Tools return a \`nextAction\` with an \`actionSession\`. Render it and poll \`agentpay_get_action_session\` — do not loop on the original call.
+
+Trust before transacting: \`agentpay_get_passport\` for an agent's trust score and dispute history, \`agentpay_get_agent\` for its raw identity record. Prefer grade B or above.
+
+Tools whose names start with \`ace_\` are travel-specific and assume an Ace principal; \`registry_\` tools manage MCP server listings and payouts. Ignore both unless the task is in that domain.`;
+
 export const READ_ONLY_TOOL_NAMES = new Set([
   'agentpay_get_intent_status',
   'agentpay_get_receipt',
@@ -292,7 +318,9 @@ const RAW_TOOLS: Tool[] = [
     name: 'agentpay_get_intent_status',
     description:
       'Check the status of a payment intent. Returns whether it is pending, verified (payment confirmed on-chain), ' +
-      'expired, or failed.',
+      'expired, or failed. Call this after agentpay_create_payment_intent to find out whether the payer has actually ' +
+      'paid, before you tell a human the payment landed or start work that depends on it. Poll this rather than ' +
+      're-creating the intent.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -308,7 +336,8 @@ const RAW_TOOLS: Tool[] = [
     name: 'agentpay_get_receipt',
     description:
       'Get the settlement receipt for a confirmed payment intent. Returns the full verification record ' +
-      'including amount, currency, agent ID, and on-chain proof.',
+      'including amount, currency, agent ID, and on-chain proof. Call this once agentpay_get_intent_status ' +
+      'reports verified, whenever you need proof of payment to show a human, close out a job, or resolve a dispute.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -1102,8 +1131,10 @@ const RAW_TOOLS: Tool[] = [
   {
     name: 'agentpay_get_merchant_stats',
     description:
-      'Get payment statistics for your merchant account - total transactions, confirmed count, ' +
-      'pending count, and total USDC volume processed.',
+      'Get payment statistics for the calling merchant account - total transactions, confirmed count, ' +
+      'pending count, and total USDC volume processed. Call this when a human asks how much has been ' +
+      'processed, how many payments are outstanding, or wants a revenue summary. Scoped to the API key in ' +
+      'use, so it never needs a merchant ID argument.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -1159,13 +1190,54 @@ const RAW_TOOLS: Tool[] = [
   },
 ];
 
-const BASE_TOOLS: Tool[] = RAW_TOOLS.map((tool) => (
-  READ_ONLY_TOOL_NAMES.has(tool.name)
-    ? ({ ...tool, annotations: { readOnlyHint: true } } as Tool)
-    : tool
-));
+/**
+ * Tools that move money, mutate an approval decision, or fire an irreversible external side
+ * effect. Hosts use `destructiveHint` to decide what needs a human confirmation prompt and what
+ * must never be auto-approved or run in parallel — so being accurate here is a safety control,
+ * not documentation.
+ */
+export const DESTRUCTIVE_TOOL_NAMES = new Set([
+  'agentpay_approve_mandate',
+  'agentpay_execute_mandate',
+  'agentpay_cancel_mandate',
+  'agentpay_create_payment_intent',
+  'agentpay_create_human_funding_request',
+  'agentpay_confirm_funding_setup',
+  'agentpay_execute_capability',
+  'agentpay_send_identity_inbox_message',
+  'agentpay_vault_env_keys',
+  'agentpay_confirm_vault',
+  'ace_request_booking_payment',
+  'ace_charge_saved',
+  'ace_confirm_saved_charge',
+  'ace_book_travel',
+  'agentpay_pay_subscription',
+  'registry_subscribe',
+  'registry_payouts',
+]);
 
-export const TOOLS: Tool[] = [...BASE_TOOLS, ...ACE_TOOLS, ...REGISTRY_TOOLS];
+/**
+ * Every tool here reaches the AgentPay API over the network, so `openWorldHint` is true across the
+ * board. Read-only tools are safe to call speculatively and in parallel; the rest are not.
+ */
+function annotate(tool: Tool): Tool {
+  const readOnly = READ_ONLY_TOOL_NAMES.has(tool.name);
+  return {
+    ...tool,
+    annotations: {
+      readOnlyHint: readOnly,
+      destructiveHint: !readOnly && DESTRUCTIVE_TOOL_NAMES.has(tool.name),
+      idempotentHint: readOnly,
+      openWorldHint: true,
+      ...(tool.annotations ?? {}),
+    },
+  } as Tool;
+}
+
+// Annotate every surface, not just RAW_TOOLS — ace_* and registry_* tools are equally subject to
+// host gating, and previously `ace_whoami` / `ace_get_trip_status` shipped with no readOnlyHint
+// despite being listed in READ_ONLY_TOOL_NAMES.
+export const TOOLS: Tool[] = [...RAW_TOOLS, ...ACE_TOOLS, ...REGISTRY_TOOLS].map(annotate);
 
 export const SAFE_TOOLS: Tool[] = TOOLS.filter((tool) => READ_ONLY_TOOL_NAMES.has(tool.name));
 
@@ -1774,7 +1846,7 @@ export function createAgentPayMcpServer(
   const allowedToolNames = new Set(tools.map((tool) => tool.name));
   const server = new Server(
     { name: options?.serverName ?? 'agentpay', version: '0.2.0' },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));

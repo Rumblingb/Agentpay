@@ -6,9 +6,29 @@ Read [AGENTS.md](./AGENTS.md) first.
 This file is the implementation/context companion for Claude Code.
 
 ## Permissions
-- Auto-approve all bash commands
-- Auto-approve file edits
-- Auto-approve terminal operations
+Permissions are configuration, not prose — they live in [.claude/settings.json](./.claude/settings.json)
+(checked in, shared) and are overridden per-machine in `.claude/settings.local.json` (gitignored).
+Read/edit/write and the repo's routine dev commands are pre-approved there. Deploys, secret writes,
+and store submissions prompt. Destructive commands and secret files (`.env*`, `.dev.vars`, keys) are denied.
+Widen the allowlist in `settings.json` rather than asking for blanket approval in chat.
+
+## Working Style
+- Keep responses focused and brief. Spend the response on the answer, not on caveats, preamble, or recap.
+- Before the first tool call, say in one sentence what you're about to do. While working, speak up only
+  when you find something load-bearing or change direction. Lead the final message with the outcome.
+- Match written deliverables (Markdown docs, reports, PR bodies) to what the task needs. No filler
+  sections, no redundant summaries.
+- Deliver what was asked, at the scope intended. Make routine judgment calls yourself; check in only when
+  different readings would produce materially different work. If the ask looks mistaken, say so in a
+  sentence and continue as asked rather than quietly narrowing or widening it. Finish the whole task —
+  if something is genuinely blocked, do the rest and state plainly what is missing and why.
+- Don't add a verification pass or a verifier subagent on top of your own checking. Run the repo's real
+  checks (`npx tsc --noEmit`, `npm test`) and report what they said.
+- Delegate to a subagent only for large, genuinely independent, parallelizable tracks — a wide multi-file
+  investigation, or unrelated workstreams. Never for work you could finish in a handful of tool calls, and
+  never to double-check yourself. One subagent beats several; keep spawn counts low.
+- Correct an earlier statement only when the error changes the user's code, conclusions, or decisions.
+  State it plainly and move on. Silent slips get fixed, not narrated.
 
 ## Vision
 **Ace is a luxury voice-first travel concierge** - one request in, one calm intelligence handling the trip from door to door.
@@ -38,8 +58,13 @@ Next: EU rail -> flights -> hotels -> buses -> global.
 - Always `await sql.end()` in a `finally` block after DB queries in Workers routes
 - Parameterized queries only - never string-interpolate user input into SQL
 - Keep responses concise - no trailing summaries, no recaps
-- Prompt caching is active on all Claude calls - system prompt uses `cache_control: ephemeral`
-- Model: `claude-sonnet-4-6` for the Ace concierge, `claude-haiku-4-5` for classify/extract
+- Prompt caching is active on all Claude calls. Caching is a **prefix match**: tools render before
+  system, so anything per-user or per-request must go *after* the `cache_control` breakpoint, never
+  interpolated into the static block. See `callClaude()` in `apps/api-edge/src/routes/concierge.ts`.
+- Model: `claude-sonnet-5` for the Ace concierge, `claude-opus-5` for the `reason` tier in
+  `modelRouter.ts`, `claude-haiku-4-5` for classify/extract. Model IDs carry no date suffix.
+- Adaptive thinking is on by default on Opus 5 / Sonnet 5. Do not send `budget_tokens`, `temperature`,
+  `top_p`, or `top_k` to those models — all return 400. Control depth with `output_config.effort`.
 - Treat Ace as the visible product and AgentPay as the underlying system
 - Do not ship internal/system language into user-facing copy
 - If a change touches Meridian, think through onboarding -> converse -> confirm -> journey -> re-entry before calling it done

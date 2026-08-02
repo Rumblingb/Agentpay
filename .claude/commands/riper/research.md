@@ -1,3 +1,9 @@
+---
+description: "RIPER phase 1 — read-only investigation of current state, relevant files, gaps, and constraints"
+argument-hint: [task to research]
+allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(ls:*)
+---
+
 # RIPER: Research Phase
 
 **Mode: READ ONLY. No code changes in this phase.**

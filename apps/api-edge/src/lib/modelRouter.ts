@@ -6,7 +6,7 @@
  *   PAID  — Gemini 2.0 Flash (opt-in: set GEMINI_API_KEY + enable billing, ~$0.10/1M)
  *   CHEAP — Claude Haiku 4.5  ($0.80/$4 per 1M — simple turns)
  *   CHEAP — GPT-4o-mini       ($0.15/$0.60 per 1M — extraction fallback)
- *   FULL  — Claude Opus 4.6   ($15/$75 per 1M — complex reasoning only)
+ *   FULL  — Claude Opus 5     ($5/$25 per 1M — complex reasoning only)
  *   FULL  — GPT-4o            ($5/$15 per 1M — code generation)
  *
  * Routing strategy (Gemini-free by default — no RPD limits):
@@ -32,12 +32,26 @@ const GEMINI_URL    = 'https://generativelanguage.googleapis.com/v1beta/models/g
 
 // ── Claude call ───────────────────────────────────────────────────────────────
 
+export const REASON_MODEL = 'claude-opus-5';
+
+/**
+ * Models where adaptive thinking is ON unless explicitly disabled. On those,
+ * `max_tokens` caps thinking + response text together, so a router call with
+ * `max_tokens: 32` would spend the whole budget thinking and return nothing.
+ * Every task this router serves is short, structured text-out — keep thinking off
+ * and control depth with the model choice instead. Older models (Haiku 4.5) reject
+ * `thinking: {type:'disabled'}`, so only send it where it is understood.
+ */
+function thinksByDefault(model: string): boolean {
+  return /^claude-(opus|sonnet|fable|mythos)-5|^claude-opus-4-[678]|^claude-sonnet-4-6/.test(model);
+}
+
 async function callClaude(
   apiKey: string,
   system: string,
   user: string,
   maxTokens = 1024,
-  model = 'claude-opus-4-6',
+  model = REASON_MODEL,
 ): Promise<string> {
   const resp = await fetch(ANTHROPIC_URL, {
     method: 'POST',
@@ -51,10 +65,18 @@ async function callClaude(
       max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: user }],
+      ...(thinksByDefault(model) ? { thinking: { type: 'disabled' } } : {}),
     }),
   });
   const data = (await resp.json()) as any;
-  return data?.content?.[0]?.text ?? '';
+  // Never index content[0] — with thinking on, the first block is a thinking block, and indexing
+  // it yields a silent empty string rather than an error. Prefer the explicitly typed text block;
+  // fall back to the first block that carries text at all (thinking blocks carry `.thinking`, not
+  // `.text`, so they are still skipped).
+  const blocks: any[] = Array.isArray(data?.content) ? data.content : [];
+  const text = blocks.find((b) => b?.type === 'text')
+    ?? blocks.find((b) => typeof b?.text === 'string');
+  return text?.text ?? '';
 }
 
 // ── CF Workers AI call (free — included in Workers plan) ─────────────────────
@@ -291,7 +313,7 @@ export async function routeToModel(
         return { model, output };
       }
       if (!env.ANTHROPIC_API_KEY) throw new Error('Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY set');
-      const model = env.ANTHROPIC_REASON_MODEL ?? 'claude-opus-4-6';
+      const model = env.ANTHROPIC_REASON_MODEL ?? REASON_MODEL;
       const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, model);
       return { model: `${model} (fallback)`, output };
     }
@@ -305,7 +327,7 @@ export async function routeToModel(
         } catch { /* fall through */ }
       }
       if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
-      const model = env.ANTHROPIC_REASON_MODEL ?? 'claude-opus-4-6';
+      const model = env.ANTHROPIC_REASON_MODEL ?? REASON_MODEL;
       const output = await callClaude(env.ANTHROPIC_API_KEY, system, user, maxTokens, model);
       return { model, output };
     }

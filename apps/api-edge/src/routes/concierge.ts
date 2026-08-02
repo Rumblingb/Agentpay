@@ -639,7 +639,14 @@ conciergeRouter.post('/intent', async (c) => {
       })()
     : '';
 
-  const systemPrompt = `You are Ace — a travel fixer, not an assistant.${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}
+  // Everything above is per-user and therefore volatile. Prompt caching is a prefix match and
+  // `tools` render before `system`, so interpolating any of it into the persona block would push
+  // a per-user byte difference to the front of the prefix and make the whole thing — tools
+  // included — uncacheable across users. It goes in a second, uncached block instead; see
+  // `systemBlocks` below. `locationContext` is always non-empty, so the block is never empty.
+  const userContext = `${locationContext}${nationalityContext}${railcardContext}${indiaClassContext}${subscriptionContext}${familyContext}`.trim();
+
+  const systemPrompt = `You are Ace — a travel fixer, not an assistant.
 You've worked every booking desk on earth and left. You know UK railcards, IRCTC tatkal quotas, off-peak windows, coach classes, waitlists. You get things done quietly and tell people after.
 
 CHARACTER:
@@ -747,6 +754,14 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
 - Format: "[Ref] — approved. Payment is next."
 - Example: "ACE-A1B2C3 — approved. Payment is next."
 - Never say "confirmed", "I've booked" or "I have arranged" — the ticket is not yet issued. Maximum 10 words.`;
+
+  // Cache breakpoint sits on the persona block, which is byte-identical for every user — so one
+  // cache entry (tools + persona) serves the whole fleet. Per-user context follows it, uncached.
+  // Anything volatile added later belongs in the SECOND block, never the first.
+  const systemBlocks = [
+    { type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } },
+    { type: 'text' as const, text: `CONTEXT FOR THIS USER:\n${userContext}` },
+  ];
 
   // ── Phase 2: Execute confirmed plan ──────────────────────────────────────
 
@@ -1230,7 +1245,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     let narration = 'Plan approved — payment is next. I will continue after it clears.';
     try {
       const narrationResponse = await callClaude(anthropicKey, {
-        system: systemPrompt,
+        system: systemBlocks,
         messages: [
           { role: 'user', content: transcript },
           { role: 'assistant', content: firstClaudeContent },
@@ -1290,7 +1305,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
   let firstResponse: Response;
   try {
     firstResponse = await callClaude(anthropicKey, {
-      system: systemPrompt,
+      system: systemBlocks,
       messages: [{ role: 'user', content: transcript }],
       tools,
       max_tokens: 1024,
@@ -2074,7 +2089,7 @@ PHASE 2 CONFIRMATION FORMAT (when hire result arrives):
     : buildFallbackNarration(planItems, toolResultsForClaude);
   if (!hotelSelectionItem) { try {
     const narrationCall = await callClaude(anthropicKey, {
-      system: systemPrompt,
+      system: systemBlocks,
       messages: [
         { role: 'user',      content: transcript },
         { role: 'assistant', content: toolUseBlocks.map(b => ({ type: 'tool_use' as const, id: b.id, name: b.name, input: b.input })) },
@@ -2590,10 +2605,12 @@ conciergeRouter.post('/fulfill/:jobId', async (c) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const CONCIERGE_MODEL = 'claude-sonnet-5';
+
 function callClaude(apiKey: string, body: Record<string, unknown>) {
-  // Wrap system string in cache_control block — 90% savings on cache hits.
-  // The system prompt is large (~2k tokens) and identical across all Bro calls
-  // for the same user session. Caching pays back after the first request.
+  // Callers should pass `system` as a block array with the cache breakpoint already placed on the
+  // static prefix (see `systemBlocks`). A bare string is still accepted and gets a breakpoint on
+  // the whole thing — correct, but it only caches for callers whose prompt is byte-identical.
   const bodyWithCache = { ...body };
   if (typeof bodyWithCache.system === 'string') {
     bodyWithCache.system = [
@@ -2605,10 +2622,15 @@ function callClaude(apiKey: string, body: Record<string, unknown>) {
     headers: {
       'x-api-key':         apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-beta':    'prompt-caching-2024-07-31',
       'content-type':      'application/json',
     },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', ...bodyWithCache }),
+    // Prompt caching is GA — the old `prompt-caching-2024-07-31` beta header is no longer needed.
+    // Thinking is adaptive-by-default on Sonnet 5 and `max_tokens` caps thinking + text together,
+    // so leaving it on would starve the 64- and 256-token narration turns and eat into the 25s
+    // Workers wall on a voice path. Off by default; a caller can opt a turn back in by passing
+    // `thinking` explicitly. Worth A/B-ing adaptive + `effort: 'low'` on the planning turn once
+    // there is latency data to compare against.
+    body: JSON.stringify({ model: CONCIERGE_MODEL, thinking: { type: 'disabled' }, ...bodyWithCache }),
     // 25s — Workers have a 30s CPU wall; leave headroom for DB + RTT
     signal: AbortSignal.timeout(25_000),
   });

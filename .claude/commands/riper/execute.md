@@ -1,3 +1,8 @@
+---
+description: "RIPER phase 3 — implement the agreed plan exactly, one file at a time, no scope creep"
+argument-hint: "[step number, or blank for the whole plan]"
+---
+
 # RIPER: Execute Phase
 
 **Mode: FULL ACCESS. Implement exactly what was planned. No scope creep.**

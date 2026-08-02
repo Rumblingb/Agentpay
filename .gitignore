@@ -88,7 +88,8 @@ ops/command-center/
 scripts/bootstrap-command-center.ps1
 scripts/command-center-doctor.ps1
 scripts/generate-command-center.mjs
-.claude/settings.json
+# .claude/settings.json is the SHARED, checked-in harness config (permissions, env).
+# Personal overrides belong in settings.local.json, which stays ignored.
 .claude/settings.local.json
 .claude/worktrees/
 audit/weekly-report.md

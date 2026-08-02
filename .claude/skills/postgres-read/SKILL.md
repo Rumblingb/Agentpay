@@ -1,4 +1,9 @@
-# SKILL: Read-Only Postgres (Supabase)
+---
+name: postgres-read
+description: Read-only introspection of AgentPay's Supabase postgres via postgres.js. Use when inspecting or debugging live data — booking jobs in `bro_jobs`, self-registered agents in `agent_identities`, wallet balances or `wallet_transactions`, spending policies — or when checking data integrity after a deploy. Covers connection setup, safe SELECT-only query patterns, the key table map, and ready-made debug queries for stuck jobs, failed payments, and OpenClaw dispatch.
+---
+
+# Read-Only Postgres (Supabase)
 
 **Domain:** Safe database introspection — query AgentPay's Supabase postgres without risk of writes.
 
@@ -16,11 +21,14 @@ Apply this skill when:
 
 ## Connection
 
-**Never hardcode the DB URL.** Always use the environment variable:
+**Never hardcode the DB URL, and never read it out of a secrets file.** `apps/api-edge/.dev.vars`
+is deny-listed in `.claude/settings.json` on purpose — a secret read into the transcript is a
+secret that has leaked. Have the operator export it into the shell instead:
+
 ```bash
-# Hyperdrive binding is only available inside Workers
-# For local debugging, use direct Supabase URL from .dev.vars:
-DATABASE_URL from apps/api-edge/.dev.vars
+# Hyperdrive binding only exists inside Workers. For local debugging:
+export DATABASE_URL="$(grep -m1 '^DATABASE_URL=' apps/api-edge/.dev.vars | cut -d= -f2-)"
+# ...then reference process.env.DATABASE_URL — never paste the value into a file or message.
 ```
 
 The Supabase project: `yndlhhkhylwihsggdyru` (eu-central-1 pooler)

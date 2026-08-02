@@ -1,4 +1,9 @@
-# SKILL: Security Audit
+---
+name: security-audit
+description: Security review for AgentPay's stack — Cloudflare Workers/Hono routes, postgres.js queries, Stripe and Razorpay webhook handlers, and the Expo app. Use when adding or changing an API route under `apps/api-edge/src/routes/`, touching a webhook handler or payment path, processing user input (voice transcripts, form data, booking details), wiring a new external API, or when asked to audit/review code for vulnerabilities. Covers SQL injection, webhook signature bypass, auth bypass, secret leakage in logs, Workers edge-compatibility, CORS, and rate limiting.
+---
+
+# Security Audit
 
 **Domain:** Application security — focused on Cloudflare Workers, Hono, Supabase postgres, Stripe/Razorpay webhooks, and React Native Expo apps.
 
@@ -92,6 +97,8 @@ Check for rate limiting middleware or IP-based throttling.
 ---
 
 ## Output Format
+
+Report every issue you find, including ones you are uncertain about or judge low-severity — tag each with a severity and let a separate pass filter. Coverage is the goal here: a finding that later gets dismissed costs less than a bug that was silently dropped.
 
 Report findings as:
 ```

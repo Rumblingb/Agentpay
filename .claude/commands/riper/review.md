@@ -1,3 +1,8 @@
+---
+description: "RIPER phase 4 — run typecheck, verify the diff against the plan, and re-check security before shipping"
+argument-hint: "[optional focus area]"
+---
+
 # RIPER: Review Phase
 
 **Mode: READ + TEST EXECUTION. Validate against the plan.**

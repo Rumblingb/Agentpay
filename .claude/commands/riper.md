@@ -1,3 +1,8 @@
+---
+description: Run the full Research-Innovate-Plan-Execute-Review loop for a multi-file feature
+argument-hint: [feature or task description]
+---
+
 # RIPER Workflow
 
 **R**esearch → **I**nnovate → **P**lan → **E**xecute → **R**eview

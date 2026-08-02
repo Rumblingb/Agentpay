@@ -42,7 +42,12 @@ describe('modelRouter', () => {
       if (url === 'https://api.anthropic.com/v1/messages') {
         return {
           json: async () => ({
-            content: [{ text: 'Use the hosted fallback for this decision.' }],
+            // Real responses always carry a block `type`, and on thinking-enabled models the
+            // text block is not first — mirror that shape so the parser is exercised honestly.
+            content: [
+              { type: 'thinking', thinking: 'weighing the options' },
+              { type: 'text', text: 'Use the hosted fallback for this decision.' },
+            ],
           }),
         };
       }

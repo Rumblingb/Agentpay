@@ -1,3 +1,8 @@
+---
+description: Audit a scope for auth, injection, secret-exposure, edge-compat, error-handling, rate-limit, and payment-security issues
+argument-hint: [path or area, e.g. apps/api-edge/src/routes/concierge.ts]
+---
+
 # Security & Quality Check
 
 Run a comprehensive security and quality audit on the specified scope.

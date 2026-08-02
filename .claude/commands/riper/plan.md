@@ -1,3 +1,8 @@
+---
+description: "RIPER phase 2 — pick an approach and write the file-by-file implementation plan, no production code"
+argument-hint: [task to plan]
+---
+
 # RIPER: Plan Phase
 
 **Mode: READ + WRITE to memory bank only. No production code changes.**

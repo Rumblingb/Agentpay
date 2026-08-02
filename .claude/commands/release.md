@@ -1,3 +1,8 @@
+---
+description: Cut a release for api (Workers), ios (TestFlight), android (Play Store), or dashboard (Vercel)
+argument-hint: api | ios | android | dashboard
+---
+
 # Release Workflow
 
 Prepare and cut a release for the specified target.
