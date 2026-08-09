@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "hono": "^4.12.27",
+    "hono": "^4.13.1",
     "postgres": "^3.4.8",
     "stripe": "^20.4.1"
   },
