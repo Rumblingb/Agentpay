@@ -22,7 +22,7 @@ const ORCHESTRATION_EVIDENCE = [
   {
     label: "Durable exact-call attempts and server-side resume",
     source: "apps/api-edge/src/lib/capabilityExecutionAttempts.ts",
-    test: "tests/routes/capabilities.test.ts",
+    test: "tests/unit/capabilityExecutionAttempts.test.ts",
   },
   {
     label: "Hosted funding completion triggers an attempt resume",
