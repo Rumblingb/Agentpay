@@ -40,6 +40,7 @@ import {
   type Product,
   type ScopeMode,
 } from './commerceCatalog';
+import { trackEvent } from '@/app/_lib/analytics';
 
 type Stage = 'review' | 'checkout' | 'receipt';
 
@@ -130,6 +131,7 @@ export default function CommerceWorkspace() {
   }
 
   async function compileShortlist() {
+    trackEvent('commerce_shortlist_compiled', { need, scope: scopeMode, budget_minor: budgetMinor, delivery_days: maxDeliveryDays });
     setCompiler({ status: 'loading' });
     resetApproval();
     try {
@@ -160,9 +162,11 @@ export default function CommerceWorkspace() {
         throw new Error('compiler changed candidate set');
       }
       setCompiler({ status: 'success', data: compilation });
+      trackEvent('commerce_shortlist_compiled', { need, result: 'success', matches: compiledIds.length });
       if (compilation.selectedProductId && eligibleIds.has(compilation.selectedProductId)) setSelectedId(compilation.selectedProductId);
     } catch {
       setCompiler({ status: 'error' });
+      trackEvent('commerce_shortlist_compiled', { need, result: 'error' });
     }
   }
 
@@ -170,6 +174,7 @@ export default function CommerceWorkspace() {
     const nextConfig = NEEDS.find((item) => item.id === nextNeed) ?? NEEDS[0];
     const nextProduct = [...PRODUCTS].sort((a, b) => b.needScores[nextNeed] - a.needScores[nextNeed])[0];
     setNeed(nextNeed);
+    trackEvent('commerce_need_selected', { need: nextNeed });
     setBudgetMinor(nextConfig.budgetMinor);
     setSelectedId(nextProduct.id);
     invalidateCompiler();
@@ -314,7 +319,7 @@ export default function CommerceWorkspace() {
                     className={isSelected ? styles.productActive : styles.product}
                     key={product.id}
                     type="button"
-                    onClick={() => { setSelectedId(product.id); resetApproval(); }}
+                    onClick={() => { setSelectedId(product.id); resetApproval(); trackEvent('commerce_product_selected', { product_id: product.id }); }}
                     aria-pressed={isSelected}
                   >
                     <span className={styles.productVisual}>
@@ -380,11 +385,11 @@ export default function CommerceWorkspace() {
                   ) : null}
                   {compiler.status === 'error' ? <p className={styles.compilerError}>Compiler unavailable. Deterministic rank remains active.</p> : null}
                   <label className={styles.approval}>
-                    <input type="checkbox" checked={approved} onChange={(event) => setApproved(event.target.checked)} />
+                    <input type="checkbox" checked={approved} onChange={(event) => { setApproved(event.target.checked); if (event.target.checked) trackEvent('commerce_approval_started', { product_id: selected.id, amount_minor: selected.priceMinor }); }} />
                     <i aria-hidden="true"><Check /></i>
                     <span>I approve this exact item and total.</span>
                   </label>
-                  <button className={styles.primaryAction} type="button" disabled={!approved} onClick={() => setStage('checkout')}>
+                  <button className={styles.primaryAction} type="button" disabled={!approved} onClick={() => { trackEvent('commerce_checkout_reviewed', { product_id: selected.id, amount_minor: selected.priceMinor }); setStage('checkout'); }}>
                     Review merchant checkout <ArrowRight aria-hidden="true" />
                   </button>
                   <p className={styles.sandboxNote}><LockKeyhole aria-hidden="true" /> Sandbox only. No payment details requested.</p>
@@ -399,7 +404,7 @@ export default function CommerceWorkspace() {
                   <div><span>Item</span><strong>{money(selected.priceMinor)}</strong></div>
                   <div><span>Delivery</span><strong>Included</strong></div>
                   <div className={styles.checkoutTotal}><span>Total</span><strong>{money(selected.priceMinor)}</strong></div>
-                  <button className={styles.primaryAction} type="button" onClick={() => setStage('receipt')}>Complete sandbox order <ArrowRight aria-hidden="true" /></button>
+                  <button className={styles.primaryAction} type="button" onClick={() => { trackEvent('commerce_sandbox_order_completed', { product_id: selected.id, amount_minor: selected.priceMinor }); setStage('receipt'); }}>Complete sandbox order <ArrowRight aria-hidden="true" /></button>
                   <button className={styles.textAction} type="button" onClick={() => setStage('review')}>Back to match</button>
                 </div>
               ) : null}

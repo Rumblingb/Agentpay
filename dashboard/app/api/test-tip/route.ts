@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { readJsonBody } from '@/lib/requestBody';
 
 function betaResponse() {
   return NextResponse.json(
@@ -25,9 +26,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
-    const amount = Number(body?.amount ?? 1);
-    const fee = Number(body?.fee ?? 0);
+    const parsed = await readJsonBody<Record<string, unknown>>(req);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    const amount = Number(parsed.value.amount ?? 1);
+    const fee = Number(parsed.value.fee ?? 0);
+    if (!Number.isFinite(amount) || !Number.isFinite(fee) || amount <= 0 || amount > 10_000 || fee < 0 || fee > amount) {
+      return NextResponse.json({ error: 'Invalid amount or fee' }, { status: 400 });
+    }
 
     const res = await fetch(`${API_BASE}/api/test-tip`, {
       method: 'POST',

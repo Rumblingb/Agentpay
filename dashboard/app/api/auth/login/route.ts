@@ -2,14 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { signSession, COOKIE_NAME, SESSION_MAX_AGE } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
 import type { MerchantProfile } from '@/lib/api';
+import { readJsonBody, isValidEmail, hasControlCharacters } from '@/lib/requestBody';
+import { enforceBurstLimit } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, apiKey } = await request.json();
+    const limited = enforceBurstLimit(request, 'auth-login');
+    if (limited) return limited;
 
-    if (!email || !apiKey) {
+    const parsed = await readJsonBody<{ email?: unknown; apiKey?: unknown }>(request);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    const { email: rawEmail, apiKey: rawApiKey } = parsed.value;
+    const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
+    const apiKey = typeof rawApiKey === 'string' ? rawApiKey.trim() : '';
+
+    if (!email || !apiKey || !isValidEmail(email) || apiKey.length > 256 || hasControlCharacters(apiKey)) {
       return NextResponse.json(
-        { error: 'Email and API key are required' },
+        { error: 'A valid email and access key are required' },
         { status: 400 },
       );
     }

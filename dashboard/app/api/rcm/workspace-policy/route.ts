@@ -9,21 +9,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { readJsonBody } from '@/lib/requestBody';
 
 export async function PATCH(req: NextRequest) {
   const sessionCookie = req.cookies.get(COOKIE_NAME)?.value;
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: { workspaceId?: string; approvalPolicy?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
+  const parsed = await readJsonBody<{ workspaceId?: unknown; approvalPolicy?: unknown }>(req);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
 
   const { workspaceId, approvalPolicy } = body;
-  if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
+  if (typeof workspaceId !== 'string' || workspaceId.length > 160 || !approvalPolicy || typeof approvalPolicy !== 'object') return NextResponse.json({ error: 'workspaceId and approvalPolicy required' }, { status: 400 });
 
   try {
     const res = await fetch(`${API_BASE}/api/rcm/workspaces/${encodeURIComponent(workspaceId)}`, {

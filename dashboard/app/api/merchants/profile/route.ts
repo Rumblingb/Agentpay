@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { fetchProfile } from '@/lib/api';
+import { readJsonBody } from '@/lib/requestBody';
 
 async function getSession(request: NextRequest) {
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
@@ -35,10 +36,17 @@ export async function PATCH(request: NextRequest) {
   const session = await getSession(request);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const parsed = await readJsonBody<{ webhookUrl?: unknown }>(request);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const webhookUrl = parsed.value.webhookUrl;
+  if (webhookUrl !== null && webhookUrl !== undefined &&
+      (typeof webhookUrl !== 'string' || webhookUrl.length > 2048 || !webhookUrl.startsWith('https://'))) {
+    return NextResponse.json({ error: 'webhookUrl must be an HTTPS URL' }, { status: 400 });
+  }
+
   try {
-    const body = await request.json();
     const { updateWebhookUrl } = await import('@/lib/api');
-    const result = await updateWebhookUrl(session.apiKey, body.webhookUrl ?? null);
+    const result = await updateWebhookUrl(session.apiKey, typeof webhookUrl === 'string' ? webhookUrl : null);
     return NextResponse.json(result);
   } catch {
     return NextResponse.json({ error: 'Failed to update webhook' }, { status: 502 });

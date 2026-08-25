@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signSession, COOKIE_NAME, SESSION_MAX_AGE } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { readJsonBody, isValidEmail, hasControlCharacters } from '@/lib/requestBody';
+import { enforceBurstLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
-  let body: { email?: string; recoveryToken?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
+  const limited = enforceBurstLimit(req, 'rcm-recover-confirm');
+  if (limited) return limited;
+  const parsed = await readJsonBody<{ email?: unknown; recoveryToken?: unknown }>(req);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
 
-  const { email, recoveryToken } = body;
-  if (!email || !recoveryToken) {
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const recoveryToken = typeof body.recoveryToken === 'string' ? body.recoveryToken.trim() : '';
+  if (!isValidEmail(email) || !recoveryToken || recoveryToken.length > 512 || hasControlCharacters(recoveryToken)) {
     return NextResponse.json({ error: '"email" and "recoveryToken" are required' }, { status: 400 });
   }
 
