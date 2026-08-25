@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { readJsonBody, hasControlCharacters } from '@/lib/requestBody';
 
 type Lane = 'claim-status' | 'eligibility';
 type Operation =
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest) {
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: {
+  type ActionBody = {
     lane?: unknown;
     operation?: unknown;
     workItemId?: unknown;
@@ -174,11 +175,9 @@ export async function POST(request: NextRequest) {
     severity?: unknown;
   };
 
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
+  const parsed = await readJsonBody<ActionBody>(request);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
 
   const lane = body.lane;
   const operation = body.operation;
@@ -201,6 +200,14 @@ export async function POST(request: NextRequest) {
 
   if (typeof workItemId !== 'string' || !workItemId.trim()) {
     return NextResponse.json({ error: 'workItemId is required' }, { status: 400 });
+  }
+  if (workItemId.length > 160 || hasControlCharacters(workItemId)) {
+    return NextResponse.json({ error: 'workItemId is invalid' }, { status: 400 });
+  }
+  for (const field of ['summary', 'exceptionType', 'recommendedHumanAction', 'severity'] as const) {
+    if (body[field] !== undefined && (typeof body[field] !== 'string' || body[field].length > 2000 || hasControlCharacters(body[field] as string))) {
+      return NextResponse.json({ error: `${field} is invalid` }, { status: 400 });
+    }
   }
 
   const actionRequest = buildActionRequest(lane, operation, workItemId.trim(), body as Record<string, unknown>);

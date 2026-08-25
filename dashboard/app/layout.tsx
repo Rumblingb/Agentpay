@@ -2,18 +2,32 @@ import type { Metadata } from "next";
 import QueryProvider from "@/components/QueryProvider";
 import "./globals.css";
 import RouteTransition from "./_components/RouteTransition";
+import Analytics from "./_components/Analytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://app.agentpay.so"),
-  title: "AgentPay - Zero API keys. Full autonomy.",
+  title: {
+    default: "AgentPay | AI agent payments infrastructure",
+    template: "%s | AgentPay",
+  },
+  applicationName: "AgentPay",
+  keywords: [
+    "AI agent payments",
+    "agentic commerce",
+    "MCP payments",
+    "payment infrastructure",
+    "AI agents",
+    "London",
+  ],
+  alternates: { canonical: "https://app.agentpay.so/" },
   description:
-    "AgentPay is the trust and payment layer for AI agents. Vault credentials with one OTP, enforce spending mandates, and settle payments through one MCP server.",
+    "AgentPay is London-built payment infrastructure for AI agents: vault capabilities, enforce spending mandates, and return verifiable settlement receipts through MCP.",
   openGraph: {
     type: "website",
     siteName: "AgentPay",
-    title: "AgentPay - Zero API keys. Full autonomy.",
+    title: "AgentPay | AI agent payments infrastructure",
     description:
-      "The trust and payment layer for AI agents. One OTP vaults credentials. Governed mandates enforce budgets. Works with Claude, GPT-4o, and any MCP host.",
+      "London-built infrastructure for governed agentic commerce: capability vaults, spending mandates, and verifiable payment receipts.",
     images: [
       {
         url: "/opengraph-image",
@@ -25,9 +39,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "AgentPay - Zero API keys. Full autonomy.",
-    description:
-      "Vault credentials, enforce spending limits, and settle payments through one MCP server. npx -y @agentpayxyz/mcp-server",
+    title: "AgentPay | AI agent payments infrastructure",
+    description: "Governed payments and capability access for AI agents, built in London.",
     images: ["/opengraph-image"],
   },
 };
@@ -40,6 +53,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased" suppressHydrationWarning>
+        <Analytics />
         <QueryProvider>
           <RouteTransition />
           {children}

@@ -10,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signSession, COOKIE_NAME, SESSION_MAX_AGE } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { readJsonBody, isValidEmail, hasControlCharacters, escapeHtml } from '@/lib/requestBody';
+import { enforceBurstLimit } from '@/lib/rateLimit';
 
 function generateRcmWalletRef(): string {
   // 40-char placeholder (32–44 allowed by backend). Not a real Solana key —
@@ -20,18 +22,17 @@ function generateRcmWalletRef(): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { name?: string; email?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
+  const limited = enforceBurstLimit(req, 'rcm-signup');
+  if (limited) return limited;
+  const parsed = await readJsonBody<{ name?: unknown; email?: unknown }>(req);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
 
-  const name = (body.name ?? '').trim();
-  const email = (body.email ?? '').trim().toLowerCase();
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
 
-  if (!name || name.length < 2) return NextResponse.json({ error: 'Practice name is required.' }, { status: 400 });
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'Valid email is required.' }, { status: 400 });
+  if (!name || name.length < 2 || name.length > 160 || hasControlCharacters(name)) return NextResponse.json({ error: 'Practice name must be 2–160 characters.' }, { status: 400 });
+  if (!isValidEmail(email)) return NextResponse.json({ error: 'Valid email is required.' }, { status: 400 });
 
   // Register a merchant account on the backend. The returned apiKey is the
   // credential users present at /rcm-login — it is emailed to them on signup.
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
       <tr><td style="padding-bottom:8px;">
         <p style="margin:0 0 8px;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;">Your access key</p>
         <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;">
-          <code style="font-family:ui-monospace,monospace;font-size:13px;color:#4ade80;word-break:break-all;">${apiKey}</code>
+          <code style="font-family:ui-monospace,monospace;font-size:13px;color:#4ade80;word-break:break-all;">${escapeHtml(apiKey)}</code>
         </div>
       </td></tr>
       <tr><td style="padding-bottom:32px;">

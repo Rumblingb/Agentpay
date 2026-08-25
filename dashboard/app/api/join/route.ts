@@ -7,6 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { readJsonBody, isValidEmail, hasControlCharacters, escapeHtml } from '@/lib/requestBody';
+import { enforceBurstLimit } from '@/lib/rateLimit';
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? '';
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    ?? 'hello@agentpay.so';
@@ -28,25 +30,29 @@ async function sendEmail(to: string, subject: string, html: string) {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { email: string; name?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
+  const limited = enforceBurstLimit(req, 'join');
+  if (limited) return limited;
+  const parsed = await readJsonBody<{ email?: unknown; name?: unknown }>(req);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+  const body = parsed.value;
 
-  const { email, name } = body;
-  if (!email?.trim()) {
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!isValidEmail(email)) {
     return NextResponse.json({ error: 'email is required' }, { status: 400 });
   }
+  if (name.length > 120 || hasControlCharacters(name)) return NextResponse.json({ error: 'name is invalid' }, { status: 400 });
 
   const firstName = (name ?? '').split(' ')[0] || 'there';
+  const safeEmail = escapeHtml(email);
+  const safeName = escapeHtml(name);
+  const safeFirstName = escapeHtml(firstName);
 
   const adminHtml = `
     <div style="font-family:system-ui,sans-serif;color:#111">
       <h2>New Ace signup</h2>
-      <p><strong>Email:</strong> ${email}</p>
-      ${name ? `<p><strong>Name:</strong> ${name}</p>` : ''}
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      ${name ? `<p><strong>Name:</strong> ${safeName}</p>` : ''}
       <p style="font-size:12px;color:#888">via agentpay.gg/join</p>
     </div>
   `;
@@ -56,7 +62,7 @@ export async function POST(req: NextRequest) {
       <div style="font-size:30px;font-weight:900;letter-spacing:-0.5px;margin-bottom:16px">ACE</div>
 
       <h1 style="font-size:24px;font-weight:800;margin:0 0 12px;color:#f8fafc;line-height:1.2">
-        Hey ${firstName} — Ace is ready.
+        Hey ${safeFirstName} — Ace is ready.
       </h1>
       <p style="color:#94a3b8;line-height:1.6;margin:0 0 32px">
         Say the trip once. Ace handles the route, the booking, and the delivery. No tabs, no forms, no service fee in April.

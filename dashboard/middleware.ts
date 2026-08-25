@@ -3,6 +3,18 @@ import { verifySession, COOKIE_NAME } from '@/lib/session';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = new URL(request.url);
+
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  if (process.env.NODE_ENV === 'production' && forwardedProto === 'http') {
+    const secureUrl = new URL(request.url);
+    secureUrl.protocol = 'https:';
+    return new Response(null, { status: 308, headers: { Location: secureUrl.toString() } });
+  }
+
+  // API handlers perform their own authentication and validation. The
+  // middleware participates only in the transport-security redirect above.
+  if (pathname.startsWith('/api/')) return;
+
   const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
 
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
@@ -12,6 +24,9 @@ export async function middleware(request: NextRequest) {
     pathname === '/rcm-login' ||
     pathname === '/' ||
     pathname === '/docs' ||
+    pathname === '/about' ||
+    pathname === '/sitemap.xml' ||
+    pathname === '/robots.txt' ||
     pathname === '/pricing' ||
     pathname.startsWith('/network') ||
     pathname === '/registry' ||
@@ -48,5 +63,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
