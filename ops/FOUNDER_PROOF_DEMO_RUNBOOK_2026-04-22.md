@@ -210,6 +210,35 @@ Before recording, confirm:
 
 Use the founder demo CLI to make the proof path repeatable from the real AgentPay seam:
 
+### Safe recording preflight
+
+Run this immediately before recording. It reads authority and provider-access
+state, then writes a sanitized readiness artifact. It does not execute a
+provider request, charge a funding method, issue a new workbench lease, or
+write a provider credential locally. It can create or reuse the normal hosted
+setup action when setup is the current next step.
+
+```bash
+npm run demo:founder-proof -- \
+  --preflight \
+  --api-key <merchant_api_key> \
+  --principal-id <principal_id> \
+  --provider databento \
+  --workbench-id founder-proof-databento
+```
+
+Interpret the result before pressing record:
+
+- `ready`: record the paid execution and same-workbench reuse path.
+- `auth_required`: record the setup/connect step first, then rerun preflight.
+- any other result: do not record. Fix the reported authority or provider
+  configuration first.
+
+The generated `ops/founder-demo/latest-preflight.md` is safe to share with the
+team because credential-shaped fields are redacted.
+
+### Full proof run
+
 ```bash
 npm run demo:founder-proof -- \
   --api-key <merchant_api_key> \

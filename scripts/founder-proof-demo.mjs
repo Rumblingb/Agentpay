@@ -24,6 +24,7 @@ Options:
   --contact-name <name>       Optional customer contact name
   --issue-workbench-lease     Request a reusable lease during access resolve. Default: true
   --no-issue-workbench-lease  Do not request a workbench lease
+  --preflight                 Resolve setup readiness without a provider call, charge, or lease issuance
   --poll-seconds <n>          Poll hosted action / execution attempt status for up to n seconds
   --poll-interval <n>         Poll interval in seconds. Default: 5
   --execute-method <verb>     Execute request method. Default: POST
@@ -37,6 +38,7 @@ Options:
   --help                      Show this help
 
 Examples:
+  npm run demo:founder-proof -- --preflight --api-key sk_live_... --principal-id principal_1 --provider databento
   npm run demo:founder-proof -- --api-key sk_live_... --principal-id principal_1 --execute-path /timeseries/get_range --execute-body-file ops/founder-demo/databento-get-range.example.json
   node scripts/founder-proof-demo.mjs --api-key sk_live_... --principal-id principal_1 --poll-seconds 120
 `;
@@ -48,7 +50,7 @@ function parseArgs(argv) {
     const token = argv[i];
     if (!token.startsWith('--')) continue;
     const key = token.slice(2);
-    if (key === 'help' || key === 'issue-workbench-lease' || key === 'no-issue-workbench-lease' || key === 'allow-paid-usage' || key === 'no-allow-paid-usage') {
+    if (key === 'help' || key === 'preflight' || key === 'issue-workbench-lease' || key === 'no-issue-workbench-lease' || key === 'allow-paid-usage' || key === 'no-allow-paid-usage') {
       args[key] = true;
       continue;
     }
@@ -159,13 +161,14 @@ async function pollUntil(config, endpoint, predicate, label) {
 
 function toMarkdown(config, transcript, summary) {
   const lines = [
-    '# AgentPay Founder Proof Demo Transcript',
+    config.preflight ? '# AgentPay Founder Proof Demo Preflight' : '# AgentPay Founder Proof Demo Transcript',
     '',
     `- Generated: ${new Date().toISOString()}`,
     `- Base URL: ${config.baseUrl}`,
     `- Provider: ${config.provider}`,
     `- Workbench: ${config.workbenchId}`,
     `- Subject: ${config.subjectType}:${config.subjectRef}`,
+    `- Mode: ${config.preflight ? 'safe preflight' : 'full proof run'}`,
     '',
     '## Summary',
     '',
@@ -210,7 +213,8 @@ async function main() {
     resumeUrl: args['resume-url'] ?? process.env.AGENTPAY_RESUME_URL ?? 'http://localhost:3000/agentpay-resume',
     contactEmail: args['contact-email'] ?? process.env.AGENTPAY_CONTACT_EMAIL ?? null,
     contactName: args['contact-name'] ?? process.env.AGENTPAY_CONTACT_NAME ?? null,
-    issueWorkbenchLease: args['no-issue-workbench-lease'] ? false : true,
+    preflight: args.preflight === true,
+    issueWorkbenchLease: args['no-issue-workbench-lease'] ? false : args.preflight ? false : true,
     allowPaidUsage: args['no-allow-paid-usage'] ? false : true,
     executeMethod: args['execute-method'] ?? 'POST',
     executePath: args['execute-path'] ?? null,
@@ -218,8 +222,8 @@ async function main() {
     executeBodyFile: args['execute-body-file'] ?? null,
     pollSeconds: Number(args['poll-seconds'] ?? process.env.AGENTPAY_DEMO_POLL_SECONDS ?? '0'),
     pollIntervalSeconds: Number(args['poll-interval'] ?? process.env.AGENTPAY_DEMO_POLL_INTERVAL ?? '5'),
-    transcriptPath: path.resolve(args['transcript-path'] ?? process.env.AGENTPAY_DEMO_TRANSCRIPT_PATH ?? 'ops/founder-demo/latest-proof-demo.md'),
-    jsonPath: path.resolve(args['json-path'] ?? process.env.AGENTPAY_DEMO_JSON_PATH ?? 'ops/founder-demo/latest-proof-demo.json'),
+    transcriptPath: path.resolve(args['transcript-path'] ?? process.env.AGENTPAY_DEMO_TRANSCRIPT_PATH ?? (args.preflight ? 'ops/founder-demo/latest-preflight.md' : 'ops/founder-demo/latest-proof-demo.md')),
+    jsonPath: path.resolve(args['json-path'] ?? process.env.AGENTPAY_DEMO_JSON_PATH ?? (args.preflight ? 'ops/founder-demo/latest-preflight.json' : 'ops/founder-demo/latest-proof-demo.json')),
   };
 
   if (!config.apiKey || !config.principalId) {
@@ -228,7 +232,7 @@ async function main() {
 
   const transcript = [];
   const summary = [];
-  const executeBody = await readJsonInput(config);
+  const executeBody = config.preflight ? undefined : await readJsonInput(config);
 
   const bootstrapQuery = new URLSearchParams({
     principalId: config.principalId,
@@ -272,7 +276,7 @@ async function main() {
   });
   printStep('Access resolve', sanitizeValue(resolve.body));
 
-  if (resolve.body?.status === 'auth_required') {
+  if (resolve.body?.status === 'auth_required' && !config.preflight) {
     const onboardingUrl = resolve.body?.nextAction?.displayPayload?.onboardingUrl;
     const actionSessionId = resolve.body?.actionSession?.sessionId;
     summary.push('AgentPay still needs one hosted setup step before governed access exists.');
@@ -309,13 +313,50 @@ async function main() {
   }
 
   let leaseToken = resolve.body?.workbenchLease?.token ?? null;
+  if (config.preflight) {
+    const resolutionStatus = resolve.body?.status;
+    if (!bootstrap.ok) {
+      summary.push('Preflight blocked: AgentPay could not read authority bootstrap. Check the API base URL and merchant API key.');
+    } else if (resolutionStatus === 'ready') {
+      summary.push('Preflight ready: governed provider access already exists. Run the full proof command to execute and issue a reusable workbench lease.');
+    } else if (resolutionStatus === 'auth_required') {
+      summary.push('Preflight ready for setup: AgentPay prepared or reused a hosted connect action. Complete it before recording the paid resume.');
+    } else {
+      summary.push(`Preflight blocked: access resolution returned ${resolutionStatus ?? resolve.status}. Inspect the sanitized response below before recording.`);
+    }
+
+    const capabilityId = resolve.body?.capability?.id;
+    if (capabilityId) {
+      const leaseQuery = new URLSearchParams({
+        principalId: config.principalId,
+        workbenchId: config.workbenchId,
+        capabilityId,
+        status: 'active',
+      });
+      const leases = await apiRequest(config, `/api/capabilities/leases?${leaseQuery.toString()}`, { method: 'GET' });
+      transcript.push({
+        step: 'Active workbench leases',
+        status: leases.status,
+        endpoint: leases.url,
+        payload: sanitizeValue(leases.body),
+      });
+      printStep('Active workbench leases', sanitizeValue(leases.body));
+      const activeLeases = leases.body?.summary?.active;
+      summary.push(activeLeases > 0
+        ? `Same-workbench reuse ready: ${activeLeases} active governed lease${activeLeases === 1 ? '' : 's'} found.`
+        : 'Same-workbench reuse is not yet issued for this workbench. The full proof run issues an opaque lease after access is ready.');
+    } else {
+      summary.push('Same-workbench reuse cannot be checked until the provider is connected.');
+    }
+    summary.push('Safety boundary: preflight does not execute a provider request, charge a funding method, or write a local provider credential.');
+  }
   if (leaseToken) {
     summary.push('Workbench lease issued for same-workbench governed reuse.');
   } else if (resolve.body?.status === 'ready') {
     summary.push('Governed access is ready, but no lease token was issued on this pass.');
   }
 
-  if (resolve.body?.status === 'ready' && config.executePath) {
+  if (!config.preflight && resolve.body?.status === 'ready' && config.executePath) {
     const executeEndpoint = resolve.body?.execute?.endpoint ?? `/api/capabilities/${resolve.body?.capability?.id ?? ''}/execute`;
     const executePayload = {
       principalId: config.principalId,
@@ -404,7 +445,7 @@ async function main() {
       printStep('Same-workbench lease execute', sanitizeValue(leaseExecute.body));
       summary.push(`Same-workbench reuse status: ${leaseExecute.body?.status ?? leaseExecute.status}`);
     }
-  } else if (!config.executePath) {
+  } else if (!config.preflight && !config.executePath) {
     summary.push('No execute path supplied, so the script stopped after access resolution.');
   }
 
@@ -422,14 +463,19 @@ async function main() {
       resumeUrl: config.resumeUrl,
       transcriptPath: config.transcriptPath,
       jsonPath: config.jsonPath,
-      executePath: config.executePath,
+      executePath: config.preflight ? null : config.executePath,
       executeMethod: config.executeMethod,
+      preflight: config.preflight,
     }),
     summary,
     transcript,
   }, null, 2), 'utf8');
 
-  process.stdout.write(`\nTranscript written to:\n- ${config.transcriptPath}\n- ${config.jsonPath}\n`);
+  process.stdout.write(`\n${config.preflight ? 'Preflight' : 'Transcript'} written to:\n- ${config.transcriptPath}\n- ${config.jsonPath}\n`);
+
+  if (config.preflight && (!bootstrap.ok || !resolve.ok || !['ready', 'auth_required'].includes(resolve.body?.status))) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {
