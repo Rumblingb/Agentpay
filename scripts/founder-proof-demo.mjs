@@ -449,6 +449,10 @@ async function main() {
     summary.push('No execute path supplied, so the script stopped after access resolution.');
   }
 
+  if (config.preflight) {
+    printStep('Preflight summary', { summary });
+  }
+
   await mkdir(path.dirname(config.transcriptPath), { recursive: true });
   await writeFile(config.transcriptPath, toMarkdown(config, transcript, summary), 'utf8');
   await writeFile(config.jsonPath, JSON.stringify({
