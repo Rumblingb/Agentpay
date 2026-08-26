@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession, COOKIE_NAME } from '@/lib/session';
 import { API_BASE } from '@/lib/api';
+import { isSafeIdentifier } from '@/lib/requestBody';
 
 export async function POST(
   req: NextRequest,
@@ -20,6 +21,7 @@ export async function POST(
   const sessionCookie = req.cookies.get(COOKIE_NAME)?.value;
   const session = sessionCookie ? await verifySession(sessionCookie) : null;
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSafeIdentifier(workspaceId)) return NextResponse.json({ error: 'Invalid workspace id' }, { status: 400 });
 
   try {
     const res = await fetch(`${API_BASE}/api/rcm/workspaces/${encodeURIComponent(workspaceId)}/demo-claim`, {

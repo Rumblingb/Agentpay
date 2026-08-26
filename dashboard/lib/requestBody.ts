@@ -63,3 +63,18 @@ export function escapeHtml(value: string): string {
 export function isValidEmail(value: string): boolean {
   return value.length <= 320 && !hasControlCharacters(value) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
+
+/** Safe for a path segment forwarded to an upstream API after URL encoding. */
+export function isSafeIdentifier(value: string, maxLength = 160): boolean {
+  return value.length > 0
+    && value.length <= maxLength
+    && value.trim() === value
+    && !hasControlCharacters(value);
+}
+
+/** Restrict imported text to a small, single-line, control-character-free value. */
+export function isBoundedPlainText(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string'
+    && value.length <= maxLength
+    && !hasControlCharacters(value);
+}

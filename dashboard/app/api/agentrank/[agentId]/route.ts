@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { API_BASE } from '@/lib/api';
+import { isSafeIdentifier } from '@/lib/requestBody';
 
 function betaResponse() {
   return NextResponse.json(
@@ -17,6 +18,7 @@ export async function GET(
   }
 
   const { agentId } = await context.params;
+  if (!isSafeIdentifier(agentId)) return NextResponse.json({ error: 'Invalid agent id' }, { status: 400 });
 
   try {
     const res = await fetch(`${API_BASE}/api/agentrank/${encodeURIComponent(agentId)}`, {
