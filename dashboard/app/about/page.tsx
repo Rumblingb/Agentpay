@@ -45,6 +45,7 @@ export default function AboutPage() {
           </Link>
           <div className="flex gap-5 text-sm text-neutral-500">
             <Link href="/docs" className="hover:text-white transition">Docs</Link>
+            <Link href="/experiments" className="hover:text-white transition">Experiments</Link>
             <Link href="/commerce" className="hover:text-white transition">Commerce</Link>
             <Link href="/trust" className="hover:text-white transition">Trust</Link>
           </div>
@@ -75,6 +76,7 @@ export default function AboutPage() {
           <p className="max-w-2xl leading-7 text-neutral-400">Read the quickstart, inspect the public network, or try the sandbox shopping experience.</p>
           <div className="flex flex-wrap gap-3 text-sm">
             <Link href="/docs" className="rounded-lg bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400 transition">Read the docs</Link>
+            <Link href="/experiments" className="rounded-lg border border-[#333] px-4 py-2 text-neutral-200 hover:border-emerald-500 transition">Explore Labs</Link>
             <Link href="/network" className="rounded-lg border border-[#333] px-4 py-2 text-neutral-200 hover:border-emerald-500 transition">Explore the network</Link>
             <Link href="/commerce" className="rounded-lg border border-[#333] px-4 py-2 text-neutral-200 hover:border-emerald-500 transition">Try Commerce</Link>
           </div>

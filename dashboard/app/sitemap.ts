@@ -24,6 +24,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     },
     {
+      url: `${base}/experiments`,
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: 0.8,
+    },
+    {
       url: `${base}/network`,
       lastModified: now,
       changeFrequency: 'daily',
@@ -46,18 +52,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: 'weekly',
       priority: 0.8,
-    },
-    {
-      url: `${base}/commerce`,
-      lastModified: now,
-      changeFrequency: 'daily',
-      priority: 0.9,
-    },
-    {
-      url: `${base}/commerce/studio`,
-      lastModified: now,
-      changeFrequency: 'weekly',
-      priority: 0.7,
     },
   ];
 }

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Train,
   Building2,
+  FlaskConical,
 } from 'lucide-react';
 
 const coreNav = [
@@ -28,6 +29,7 @@ const coreNav = [
 ];
 
 const networkNav = [
+  { href: '/experiments', label: 'Labs Experiments', icon: FlaskConical },
   { href: '/agentrank', label: 'AgentRank', icon: Star },
   { href: '/marketplace', label: 'Marketplace', icon: Store },
 ];

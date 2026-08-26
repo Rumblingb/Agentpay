@@ -28,8 +28,10 @@ export const metadata: Metadata = {
     images: ['https://app.agentpay.so/commerce/commute-hero.webp'],
   },
   robots: {
-    index: true,
-    follow: true,
+    // This is a sample-catalog sandbox until merchant inventory and checkout
+    // destinations are independently verified. Keep it out of public search.
+    index: false,
+    follow: false,
   },
 };
 

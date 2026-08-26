@@ -454,10 +454,15 @@ export default function Home() {
           .pillars-grid, .proof-grid { grid-template-columns: 1fr !important; }
         }
         @media (max-width: 768px) {
+          .top-nav-links { gap: 16px !important; }
+          .top-nav-quickstart, .top-nav-github { display: none !important; }
           .hero-actions { flex-direction: column; align-items: stretch !important; }
           .hero-actions a, .hero-actions button { justify-content: center; }
           .footer-links { display: none !important; }
           .npx-bar { flex-direction: column; align-items: stretch; }
+        }
+        @media (max-width: 520px) {
+          .top-nav-pricing { display: none !important; }
         }
       `}</style>
 
@@ -549,10 +554,11 @@ export default function Home() {
           <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: -0.3, color: "#F5F7FA" }}>
             Agent<span style={{ color: "#22C55E" }}>Pay</span>
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
-            <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
-            <Link href="/pricing" className="nav-link">Pricing</Link>
-            <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
+          <div className="top-nav-links" style={{ display: "flex", alignItems: "center", gap: 28 }}>
+            <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link top-nav-quickstart">Quickstart</a>
+            <Link href="/experiments" className="nav-link">Experiments</Link>
+            <Link href="/pricing" className="nav-link top-nav-pricing">Pricing</Link>
+            <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link top-nav-github">GitHub</a>
             <button onClick={openModal} className="btn-primary" style={{ padding: "8px 16px", fontSize: 13 }}>
               Get API key {"→"}
             </button>
@@ -630,12 +636,12 @@ export default function Home() {
             <div style={{ fontSize: 11, color: "#475569", marginBottom: 8, fontFamily: "Fira Code, monospace" }}>~/Library/Application Support/Claude/claude_desktop_config.json</div>
             <div className="code-block">
               <span style={{ color: "#475569" }}>{"{"}</span><br />
-              {"  "}<span style={{ color: "#38BDF8" }}>"mcpServers"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
-              {"    "}<span style={{ color: "#38BDF8" }}>"agentpay"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
-              {"      "}<span style={{ color: "#38BDF8" }}>"command"</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#A3E635" }}>"npx"</span><span style={{ color: "#475569" }}>,</span><br />
-              {"      "}<span style={{ color: "#38BDF8" }}>"args"</span><span style={{ color: "#475569" }}>: [</span><span style={{ color: "#A3E635" }}>"-y"</span><span style={{ color: "#475569" }}>, </span><span style={{ color: "#A3E635" }}>"@agentpayxyz/mcp-server"</span><span style={{ color: "#475569" }}>],</span><br />
-              {"      "}<span style={{ color: "#38BDF8" }}>"env"</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
-              {"        "}<span style={{ color: "#38BDF8" }}>"AGENTPAY_API_KEY"</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#4ADE80" }}>"apk_your_key"</span><br />
+              {"  "}<span style={{ color: "#38BDF8" }}>&quot;mcpServers&quot;</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"    "}<span style={{ color: "#38BDF8" }}>&quot;agentpay&quot;</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>&quot;command&quot;</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#A3E635" }}>&quot;npx&quot;</span><span style={{ color: "#475569" }}>,</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>&quot;args&quot;</span><span style={{ color: "#475569" }}>: [</span><span style={{ color: "#A3E635" }}>&quot;-y&quot;</span><span style={{ color: "#475569" }}>, </span><span style={{ color: "#A3E635" }}>&quot;@agentpayxyz/mcp-server&quot;</span><span style={{ color: "#475569" }}>],</span><br />
+              {"      "}<span style={{ color: "#38BDF8" }}>&quot;env&quot;</span><span style={{ color: "#475569" }}>: {"{"}</span><br />
+              {"        "}<span style={{ color: "#38BDF8" }}>&quot;AGENTPAY_API_KEY&quot;</span><span style={{ color: "#475569" }}>: </span><span style={{ color: "#4ADE80" }}>&quot;apk_your_key&quot;</span><br />
               {"      "}<span style={{ color: "#475569" }}>{"}"}</span><br />
               {"    "}<span style={{ color: "#475569" }}>{"}"}</span><br />
               {"  "}<span style={{ color: "#475569" }}>{"}"}</span><br />
@@ -783,6 +789,7 @@ export default function Home() {
         <div className="footer-links" style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
           <a href="https://docs.agentpay.so" target="_blank" rel="noreferrer" className="nav-link">Docs</a>
           <a href="https://docs.agentpay.so/quickstart" target="_blank" rel="noreferrer" className="nav-link">Quickstart</a>
+          <Link href="/experiments" className="nav-link">Experiments</Link>
           <Link href="/pricing" className="nav-link">Pricing</Link>
           <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
           <Link href="/privacy" className="nav-link">Privacy</Link>

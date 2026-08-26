@@ -13,7 +13,9 @@ export const metadata: Metadata = {
     url: 'https://app.agentpay.so/commerce/studio',
     siteName: 'AgentPay',
   },
-  robots: { index: true, follow: true },
+  // The seller surface is a local preview and must not be discoverable as a
+  // live merchant acquisition or checkout product before it is connected.
+  robots: { index: false, follow: false },
 };
 
 export default function CatalogTruthStudioPage() {

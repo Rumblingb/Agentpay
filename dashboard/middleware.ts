@@ -25,6 +25,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/' ||
     pathname === '/docs' ||
     pathname === '/about' ||
+    pathname === '/experiments' ||
     pathname === '/sitemap.xml' ||
     pathname === '/robots.txt' ||
     pathname === '/pricing' ||
