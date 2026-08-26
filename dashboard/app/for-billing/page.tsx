@@ -7,23 +7,56 @@ import Link from 'next/link';
 
 type DemoState = 'idle' | 'ace-speaking' | 'listening' | 'processing' | 'responded';
 
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+  readonly [index: number]: SpeechRecognitionAlternativeLike | undefined;
+}
+
+interface SpeechRecognitionEventLike {
+  readonly results: {
+    readonly [index: number]: SpeechRecognitionResultLike | undefined;
+  };
+}
+
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+
 // ── Pain-point response map ───────────────────────────────────────────────────
 
 function mapTranscriptToResponse(transcript: string): string {
   const t = transcript.toLowerCase();
   if (/denial|denied|reject|reason code|CO-|PR-|remark|appeal/.test(t))
-    return 'Most denial patterns are predictable — CO-97, CO-4, PR-96. Ace identifies the pattern, maps the exact fix protocol, and queues the corrected resubmission for one-click approval. You stop touching the same denial twice.';
+    return 'In this demo, Ace shows how a team could organise denial reasons and choose what to review next. It does not identify a fix, resubmit a claim, or connect to a payer system.';
   if (/eligib|verify|coverage|active|patient|benefit|deductible|copay/.test(t))
-    return 'With 20–30 patients a day, eligibility checks eat two to three hours every morning. Ace runs them all overnight across every payer and flags any issues before the patient walks through the door.';
+    return 'This demo illustrates an eligibility-review workflow: gather the questions, organise a checklist, and route uncertain items for human review. It does not query coverage or patient records.';
   if (/prior auth|preauth|authorization|precert|approval/.test(t))
-    return 'Prior auth is brutal — some specialties spend 40 hours a week just on hold. Ace tracks every outstanding authorization, follows up automatically, and only escalates when a human decision is genuinely required.';
-  if (/AR|aging|collection|write.off|90 day|outstanding|unpaid/.test(t))
-    return 'Ace watches every claim in your AR. At 30 days it follows up automatically. At 60 it escalates. Nothing reaches 90-day write-off territory without you seeing it first.';
-  if (/Medicare|Medicaid|CMS|government/.test(t))
-    return "Medicare and Medicaid are Ace's most-used lanes. Government payer timely filing windows, NPI validation, and ERA 835 remittance codes are all handled automatically.";
+    return 'This demo illustrates how a team might track an authorisation follow-up and decide what needs a person next. It does not submit, follow up on, or change an authorisation.';
+  if (/ar|aging|collection|write.off|90 day|outstanding|unpaid/.test(t))
+    return 'This demo illustrates a structured accounts-receivable review. It does not access balances, send follow-ups, or take action on a claim.';
+  if (/medicare|medicaid|cms|government/.test(t))
+    return 'This demo can frame questions for a government-payer workflow. It does not validate enrolment, interpret remittances, or connect to payer systems.';
   if (/time|slow|hours|manual|behind|overwhelmed|staff|short/.test(t))
-    return 'Billing managers lose an average of 14 hours a week on mechanical tasks. Ace handles the routine work. You only see the exceptions that genuinely need a human decision.';
-  return 'Whatever is slowing you down — eligibility, denials, AR, prior auth — Ace handles it automatically. You set it up once, then only see what genuinely needs you.';
+    return 'This demo helps turn a manual bottleneck into a reviewable workflow. The next step is to discuss the team, systems, and controls needed for an early-access evaluation.';
+  return 'Use this demo to explore an illustrative workflow for eligibility, denials, AR, or prior authorisation. It does not connect to records, payers, or live queues.';
 }
 
 // ── ElevenLabs TTS with browser fallback ─────────────────────────────────────
@@ -85,27 +118,27 @@ function useVoiceDemo() {
   const [transcript, setTranscript] = useState('');
   const [response, setResponse] = useState('');
   const [supported, setSupported] = useState(true);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const { speak, stop } = useTts();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SR) setSupported(false);
-    }
+    const updateSupport = window.setTimeout(() => {
+      setSupported(Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition));
+    }, 0);
+    return () => window.clearTimeout(updateSupport);
   }, []);
 
   const startDemo = useCallback(() => {
     setState('ace-speaking');
-    speak("Tell me what's happening with your billing. Denials, eligibility, prior auth — whatever's slowing you down.", () => {
+    speak('Tell me which billing workflow you want to explore in this demo: denials, eligibility, prior authorisation, or AR review.', () => {
       setState('listening');
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
       if (!SR) { setState('idle'); return; }
       const rec = new SR();
       rec.lang = 'en-US';
       rec.continuous = false;
       rec.interimResults = false;
-      rec.onresult = (e: any) => {
+      rec.onresult = (e: SpeechRecognitionEventLike) => {
         const text = e.results[0]?.[0]?.transcript ?? '';
         setTranscript(text);
         setState('processing');
@@ -158,19 +191,21 @@ export default function ForBillingPage() {
   const [textInput, setTextInput] = useState('');
   const [textResponse, setTextResponse] = useState('');
   const [showTextMode, setShowTextMode] = useState(false);
-  const [npiExpanded, setNpiExpanded] = useState(false);
   const isActive = state !== 'idle';
 
   // Read mute pref from localStorage
   useEffect(() => {
-    setMuted(localStorage.getItem('ace_demo_muted') === '1');
+    const loadPreference = window.setTimeout(() => {
+      setMuted(localStorage.getItem('ace_demo_muted') === '1');
+    }, 0);
+    return () => window.clearTimeout(loadPreference);
   }, []);
 
   // Entry greeting
   useEffect(() => {
     const t = setTimeout(async () => {
       if (localStorage.getItem('ace_demo_muted') === '1') return;
-      await speak("Hi — I'm Ace. If denied claims or eligibility checks are eating your day, just tell me what's happening.");
+      await speak("Hi, I'm Ace. This is a workflow demo for billing teams. Tell me which process you want to explore.");
     }, 1500);
     return () => { clearTimeout(t); stop(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,15 +247,15 @@ export default function ForBillingPage() {
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2L14 5v6l-6 3L2 11V5l6-3z" fill="black" fillOpacity={0.9}/></svg>
             </div>
             <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.03em', color: C.text }}>Ace</span>
-            <span style={{ fontSize: 11, color: C.faint, marginLeft: 4 }}>for billing offices</span>
+            <span style={{ fontSize: 11, color: C.faint, marginLeft: 4 }}>for billing teams</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <button onClick={toggleMute} title={muted ? 'Unmute Ace' : 'Mute Ace'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted ? C.faint : C.accentText, fontSize: 16, padding: 4, lineHeight: 1 }}>
               {muted ? '🔇' : '🔊'}
             </button>
             <Link href="/login" style={{ fontSize: 13, color: C.sub, textDecoration: 'none' }}>Sign in</Link>
-            <Link href="/rcm-signup" style={{ fontSize: 13, fontWeight: 600, color: '#000', background: C.accent, padding: '8px 16px', borderRadius: 8, textDecoration: 'none', letterSpacing: '-0.01em' }}>
-              Get started free
+            <Link href="#workflow-demo" style={{ fontSize: 13, fontWeight: 600, color: '#000', background: C.accent, padding: '8px 16px', borderRadius: 8, textDecoration: 'none', letterSpacing: '-0.01em' }}>
+              Explore the demo
             </Link>
           </div>
         </div>
@@ -233,17 +268,17 @@ export default function ForBillingPage() {
           {/* Live indicator */}
           <div className="fade-up" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.accentDim, border: `1px solid ${C.accentBorder}`, borderRadius: 9999, padding: '6px 14px', marginBottom: 32 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.accent }} />
-            <span style={{ fontSize: 12, color: C.accentText, fontWeight: 500 }}>Live · 47 billing offices using Ace today</span>
+            <span style={{ fontSize: 12, color: C.accentText, fontWeight: 500 }}>Early access · workflow demo</span>
           </div>
 
           {/* Headline */}
           <h1 className="fade-up" style={{ fontSize: 56, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.0, color: C.text, margin: '0 0 20px', animationDelay: '60ms' }}>
-            Stop losing revenue<br />to denied claims.
+            Explore a billing<br />workflow demo.
           </h1>
 
           {/* Subheadline */}
           <p className="fade-up" style={{ fontSize: 18, color: C.sub, lineHeight: 1.65, margin: '0 0 36px', maxWidth: 520, animationDelay: '120ms' }}>
-            Ace handles eligibility, claim status, denial follow-up, and AR automatically. You only see what genuinely needs a human decision.
+            Ace demonstrates an early-access workflow for eligibility, claim-status review, denial follow-up, and accounts-receivable review. Every proposed next step stays visible for human review; this demo does not connect to payer or patient systems.
           </p>
 
           {/* Ace speaking waveform — visible when greeting plays */}
@@ -256,27 +291,27 @@ export default function ForBillingPage() {
 
           {/* CTA */}
           <div className="fade-up" style={{ animationDelay: '180ms' }}>
-            <Link href="/rcm-signup" style={{
+            <Link href="#workflow-demo" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               fontSize: 16, fontWeight: 700, color: '#000', background: C.accent,
               padding: '14px 28px', borderRadius: 10, textDecoration: 'none',
               letterSpacing: '-0.01em', lineHeight: 1,
             }}>
-              Set up your free workspace
+              Try the workflow demo
               <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
             </Link>
             <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.faint }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              HIPAA-compliant · No credit card · Setup in 10 min
+              Demo mode · No payer, patient-record, or claim connection
             </div>
           </div>
         </div>
 
         {/* ── Voice demo ── */}
-        <div className="fade-up" style={{ marginTop: 64, maxWidth: 580, animationDelay: '240ms' }}>
+        <div id="workflow-demo" className="fade-up" style={{ marginTop: 64, maxWidth: 580, animationDelay: '240ms', scrollMarginTop: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', color: C.faint, textTransform: 'uppercase', margin: 0 }}>
-              Talk to Ace — describe your billing problem
+              Talk to Ace · explore a workflow demo
             </p>
             <div style={{ display: 'flex', gap: 8 }}>
               {supported && (
@@ -337,10 +372,10 @@ export default function ForBillingPage() {
                       {state === 'responded' && 'Ace responded'}
                     </div>
                     <div style={{ fontSize: 13, color: C.faint, marginTop: 4 }}>
-                      {state === 'idle' && 'Describe your biggest billing challenge'}
+                      {state === 'idle' && 'Describe a billing workflow you want to explore'}
                       {isSpeaking && "Ace will listen when it's done speaking"}
-                      {isListening && "Tell Ace what's slowing down your billing"}
-                      {state === 'processing' && 'Mapping your challenge to a solution'}
+                      {isListening && 'Tell Ace what you want to review in the demo'}
+                      {state === 'processing' && 'Preparing an illustrative workflow response'}
                       {state === 'responded' && (
                         <span style={{ color: C.accentText, cursor: 'pointer' }} onClick={reset}>Try again →</span>
                       )}
@@ -351,7 +386,7 @@ export default function ForBillingPage() {
                 {transcript && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', color: C.faint, textTransform: 'uppercase', marginBottom: 6 }}>You said</div>
-                    <div style={{ fontSize: 15, color: C.sub, fontStyle: 'italic', lineHeight: 1.6 }}>"{transcript}"</div>
+                    <div style={{ fontSize: 15, color: C.sub, fontStyle: 'italic', lineHeight: 1.6 }}>&ldquo;{transcript}&rdquo;</div>
                   </div>
                 )}
 
@@ -369,7 +404,7 @@ export default function ForBillingPage() {
                       fontSize: 14, fontWeight: 700, color: '#000', background: C.accent,
                       padding: '10px 20px', borderRadius: 8, textDecoration: 'none',
                     }}>
-                      Get this working for my practice →
+                      Request early access →
                     </Link>
                   </div>
                 )}
@@ -378,7 +413,7 @@ export default function ForBillingPage() {
               /* Text mode */
               <form onSubmit={handleTextSubmit}>
                 <div style={{ fontSize: 13, color: C.faint, marginBottom: 12 }}>
-                  Describe your biggest billing challenge:
+                  Describe a billing workflow you want to explore:
                 </div>
                 <textarea
                   value={textInput}
@@ -399,7 +434,7 @@ export default function ForBillingPage() {
                   marginTop: 10, background: C.accent, color: '#000', border: 'none',
                   borderRadius: 8, padding: '10px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
                 }}>
-                  Ask Ace →
+                  Explore with Ace →
                 </button>
                 {textResponse && (
                   <div style={{ marginTop: 20, borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
@@ -415,7 +450,7 @@ export default function ForBillingPage() {
                       fontSize: 14, fontWeight: 700, color: '#000', background: C.accent,
                       padding: '10px 20px', borderRadius: 8, textDecoration: 'none',
                     }}>
-                      Get this working →
+                      Request early access →
                     </Link>
                   </div>
                 )}
@@ -430,10 +465,10 @@ export default function ForBillingPage() {
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '64px 32px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 1, background: C.border, borderRadius: 16, overflow: 'hidden' }}>
             {[
-              { value: '1 in 7', label: 'Claims denied on first submission', sub: 'AMA · all payers' },
-              { value: '14 hrs', label: 'Lost per billing manager per week', sub: 'MGMA · eligibility + follow-up' },
-              { value: '$118', label: 'Cost to rework a single denial', sub: 'HFMA · staff time + resubmission' },
-              { value: '4 min', label: 'Average time to set up Ace', sub: 'Ace early access · no IT required' },
+              { value: 'Eligibility', label: 'Explore a review checklist', sub: 'Illustrative workflow only' },
+              { value: 'Claim status', label: 'Map questions for review', sub: 'No payer connection in this demo' },
+              { value: 'Denial follow-up', label: 'See a proposed next-step flow', sub: 'No claim changes or resubmissions' },
+              { value: 'AR review', label: 'Organise items for human review', sub: 'No live balances or outreach' },
             ].map(s => (
               <div key={s.value} style={{ background: '#070707', padding: '32px 28px' }}>
                 <div style={{ fontSize: 52, fontWeight: 800, letterSpacing: '-0.04em', color: C.accent, lineHeight: 1, marginBottom: 8 }}>
@@ -450,24 +485,24 @@ export default function ForBillingPage() {
       {/* ── Before / After ── */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 32px' }}>
         <h2 style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-0.03em', color: C.text, marginBottom: 8 }}>
-          Your morning, before and after.
+          From manual questions to a reviewable workflow.
         </h2>
         <p style={{ fontSize: 16, color: C.sub, marginBottom: 48, lineHeight: 1.65 }}>
-          Same tasks. One of them runs automatically.
+          This demo contrasts a familiar manual process with an illustrative review flow. It does not perform live payer actions.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {/* Before */}
           <div style={{ background: 'rgba(244,63,94,0.04)', border: '1px solid rgba(244,63,94,0.12)', borderRadius: 16, padding: '28px 28px 20px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: '#fb7185', textTransform: 'uppercase', marginBottom: 20 }}>
-              Before Ace
+              A manual review might involve
             </div>
             {[
-              "Log into each payer portal, check eligibility for tomorrow's patients — 2–3 hours",
-              'Hunt through EOBs for denial reason codes, look them up manually',
-              "Call the payer's provider line, wait 30+ min on hold",
-              'Pull the AR aging report, flag claims approaching 90 days',
-              'Resubmit denied claims one by one, hoping you found the right fix',
+              'Check the questions that need eligibility review',
+              'Read denial and remittance information',
+              'Prepare a payer or authorisation follow-up',
+              'Review aging items and priorities',
+              'Decide what a person should do next',
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: 14, marginBottom: 14, borderBottom: i < 4 ? '1px solid rgba(244,63,94,0.08)' : 'none', alignItems: 'flex-start' }}>
                 <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
@@ -481,14 +516,14 @@ export default function ForBillingPage() {
           {/* After */}
           <div style={{ background: 'rgba(16,185,129,0.04)', border: `1px solid ${C.accentBorder}`, borderRadius: 16, padding: '28px 28px 20px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: C.accentText, textTransform: 'uppercase', marginBottom: 20 }}>
-              After Ace
+              In this demo, Ace illustrates
             </div>
             {[
-              'Eligibility results for all patients are ready — issues flagged before arrival',
-              'Every denial mapped to a fix protocol, corrected claims queued for approval',
-              'Claim status checked automatically across every payer — no calls needed',
-              'Aging claims tracked and followed up automatically before write-off',
-              'Resubmissions ready — you review and approve with one click',
+              'A checklist for the questions a team may review',
+              'A way to organise denial reasons for discussion',
+              'A proposed follow-up path for human review',
+              'A structured view of items that may need attention',
+              'A visible proposed next step before any future action',
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: 14, marginBottom: 14, borderBottom: i < 4 ? `1px solid ${C.accentBorder}` : 'none', alignItems: 'flex-start' }}>
                 <div style={{ width: 20, height: 20, borderRadius: '50%', background: C.accentDim, border: `1px solid ${C.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
@@ -504,13 +539,13 @@ export default function ForBillingPage() {
       {/* ── How it works ── */}
       <div style={{ background: '#070707', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 32px' }}>
-          <h2 style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-0.03em', color: C.text, marginBottom: 8 }}>Up and running in 10 minutes.</h2>
-          <p style={{ fontSize: 16, color: C.sub, marginBottom: 48 }}>No IT department required.</p>
+          <h2 style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-0.03em', color: C.text, marginBottom: 8 }}>Explore the workflow in three steps.</h2>
+          <p style={{ fontSize: 16, color: C.sub, marginBottom: 48 }}>Demo mode only. Ace does not connect to payer, patient, or claim systems on this page.</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             {[
-              { n: '01', title: 'Tell Ace your setup', body: 'Specialty, main payers, NPI. Ace asks the questions by voice. You answer. Takes 5 minutes.' },
-              { n: '02', title: 'Ace connects and runs', body: 'Ace starts working your claims queue overnight. No configuration, no forms.' },
-              { n: '03', title: 'You approve exceptions', body: 'Wake up to exactly what needs you. Everything routine is handled.' },
+              { n: '01', title: 'Describe a scenario', body: 'Use an illustrative billing question. Do not enter patient, claim, or payer credentials.' },
+              { n: '02', title: 'Review an example workflow', body: 'Ace returns a simulated way to organise the question for a team discussion.' },
+              { n: '03', title: 'Decide what to evaluate next', body: 'Request early access to discuss systems, safeguards, and the controls needed for a real evaluation.' },
             ].map(s => (
               <div key={s.n} style={{ padding: '28px 24px', background: C.surface, borderRadius: 14, border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', color: C.accent, marginBottom: 16 }}>{s.n}</div>
@@ -525,24 +560,17 @@ export default function ForBillingPage() {
       {/* ── Social proof ── */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 32px' }}>
         <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', color: C.faint, textTransform: 'uppercase', marginBottom: 32 }}>
-          Early access · billing managers
+          Early access · product context
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           {[
-            { initial: 'S', color: '#6366f1', quote: "I used to spend my entire Monday morning on eligibility. Now I walk in, see the flagged ones, and I'm done in 15 minutes.", role: 'Billing Manager · Cardiology Group, 4 physicians' },
-            { initial: 'R', color: '#10b981', quote: 'We were writing off $8,000/month in denied claims we never had time to rework. Ace caught all of it in the first week.', role: 'Practice Administrator · Primary Care, NJ' },
-            { initial: 'L', color: '#f59e0b', quote: "The prior auth follow-up alone saved us 20 hours a week. I didn't think that was possible without hiring someone new.", role: 'Revenue Cycle Director · Orthopaedic Clinic' },
+            { title: 'Founder-led conversations', body: 'The demo is shaped by conversations about common billing workflows and review points.' },
+            { title: 'Offline feedback', body: 'We are collecting structured feedback and preserving the evidence needed for any future case study.' },
+            { title: 'Referrals', body: 'Early interest includes referrals. We do not publish referral counts or endorsements without records and consent.' },
           ].map((q, i) => (
             <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: q.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#000', flexShrink: 0 }}>
-                  {q.initial}
-                </div>
-                <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.4 }}>{q.role}</div>
-              </div>
-              <div style={{ fontSize: 15, color: '#c8c8c8', lineHeight: 1.7, fontStyle: 'italic' }}>
-                "{q.quote}"
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', color: C.accentText, textTransform: 'uppercase', marginBottom: 12 }}>{q.title}</div>
+              <div style={{ fontSize: 15, color: '#c8c8c8', lineHeight: 1.7 }}>{q.body}</div>
             </div>
           ))}
         </div>
@@ -552,20 +580,20 @@ export default function ForBillingPage() {
       <div style={{ background: '#070707', borderTop: `1px solid ${C.border}` }}>
         <div style={{ maxWidth: 640, margin: '0 auto', padding: '80px 32px', textAlign: 'center' }}>
           <h2 style={{ fontSize: 40, fontWeight: 800, letterSpacing: '-0.04em', color: C.text, marginBottom: 14 }}>
-            Ready to stop the bleeding?
+            Explore the workflow before you commit.
           </h2>
           <p style={{ fontSize: 16, color: C.sub, lineHeight: 1.65, marginBottom: 36 }}>
-            Your first workspace is free. Ace walks you through setup in a 5-minute voice conversation.
+            Request early access to review the demo and discuss whether an evaluation is appropriate for your team.
           </p>
           <Link href="/rcm-signup" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             fontSize: 17, fontWeight: 700, color: '#000', background: C.accent,
             padding: '16px 36px', borderRadius: 12, textDecoration: 'none', letterSpacing: '-0.01em',
           }}>
-            Set up my free workspace →
+            Request early access →
           </Link>
           <div style={{ marginTop: 16, fontSize: 13, color: C.faint }}>
-            No credit card · No IT setup · Cancel any time
+            Early access · Demo mode · No live payer connection
           </div>
         </div>
       </div>
@@ -577,7 +605,7 @@ export default function ForBillingPage() {
           <div style={{ display: 'flex', gap: 24 }}>
             <Link href="/login" style={{ fontSize: 11, color: '#333', textDecoration: 'none' }}>Sign in</Link>
             <a href="mailto:billing@agentpay.so" style={{ fontSize: 11, color: '#333', textDecoration: 'none' }}>Contact</a>
-            <span style={{ fontSize: 11, color: '#222' }}>HIPAA-compliant storage · Data encrypted at rest</span>
+            <span style={{ fontSize: 11, color: '#222' }}>Workflow demo · Connected controls are not represented as live</span>
           </div>
         </div>
       </div>
