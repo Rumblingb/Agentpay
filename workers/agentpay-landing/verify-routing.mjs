@@ -46,9 +46,9 @@ async function expectStripeRedirect(path) {
   })
 }
 
-await expectOk('/', ['AgentPay', 'Privacy', 'Terms', 'Start free — 50 calls included', 'Your agent can pay with a card or with crypto. One key. You set the limit.', 'npx -y @agentpayxyz/mcp-server', 'npm install @agentpayxyz/sdk'])
+await expectOk('/', ['AgentPay', 'Privacy', 'Terms', 'Get a key — 50 free calls', 'Your agent can pay with a card or with crypto. One key. You set the limit.', 'npx -y @agentpayxyz/mcp-server', 'npm install @agentpayxyz/sdk'])
 await expectOk('/index.html', ['AgentPay'])
-await expectOk('/start', ['50 calls included', 'Your agent can pay with a card or with crypto. One key. You set the limit.', 'MCP Builder', 'npx -y @agentpayxyz/mcp-server', 'npm install @agentpayxyz/sdk'])
+await expectOk('/start', ['Get a key — 50 free calls', 'Your agent can pay with a card or with crypto. One key. You set the limit.', 'npx -y @agentpayxyz/mcp-server', 'npm install @agentpayxyz/sdk'])
 await expectOk('/docs', ['npx -y @agentpayxyz/mcp-server', 'npm install @agentpayxyz/sdk', 'https://api.agentpay.so'])
 await expectOk('/about', ['hosted MCP on x402'])
 await expectOk('/awesome-free-dev-tools', ['Awesome Free Dev Tools'])

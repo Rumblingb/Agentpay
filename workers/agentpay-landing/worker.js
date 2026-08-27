@@ -475,19 +475,18 @@ function renderNotFoundPage(message, hint = 'Check the agent identifier and try 
 <body><main class="wrap"><p class="eyebrow">404</p><h1>${escapeHtml(message)}</h1><p>${escapeHtml(hint)}</p><p><a href="/">Return to AgentPay</a></p></main></body></html>`
 }
 
+const PUBLIC_LASTMOD = '2026-08-27'
+
 const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://agentpay.so/</loc></url>
-  <url><loc>https://agentpay.so/start</loc></url>
-  <url><loc>https://agentpay.so/docs</loc></url>
-  <url><loc>https://agentpay.so/about</loc></url>
-  <url><loc>https://agentpay.so/awesome-free-dev-tools</loc></url>
-  <url><loc>https://agentpay.so/postizzz</loc></url>
-  <url><loc>https://agentpay.so/privacy</loc></url>
-  <url><loc>https://agentpay.so/terms</loc></url>
+  <url><loc>https://agentpay.so/</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
+  <url><loc>https://agentpay.so/start</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
+  <url><loc>https://agentpay.so/docs</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
+  <url><loc>https://agentpay.so/about</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
+  <url><loc>https://agentpay.so/privacy</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
+  <url><loc>https://agentpay.so/terms</loc><lastmod>${PUBLIC_LASTMOD}</lastmod></url>
 </urlset>
 `
-
 const ROBOTS_TXT = `User-agent: *
 Allow: /
 Disallow: /api/
@@ -500,40 +499,36 @@ Disallow: /biddesk
 Sitemap: https://agentpay.so/sitemap.xml
 `
 
-const MARKETING_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
+const MARKETING_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: #F4F1EA; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; min-height: 100vh; }
-    .container { max-width: 860px; margin: 0 auto; padding: 0 24px 64px; }
-    nav { padding: 20px 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); }
-    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #F4F1EA; text-decoration: none; }
+    body { background: #09090b; color: #fafafa; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    .container { max-width: 720px; margin: 0 auto; padding: 0 24px 80px; }
+    nav { padding: 20px 0; display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-size: 15px; font-weight: 600; letter-spacing: -0.03em; color: #fafafa; text-decoration: none; }
     .logo span { color: #FFB020; }
-    nav .links { display: flex; gap: 24px; align-items: center; }
-    nav a { color: rgba(255,255,255,0.5); text-decoration: none; font-size: 14px; }
-    nav a:hover { color: #F4F1EA; }
-    nav a.gold { color: #FFB020; font-weight: 600; }
-    h1 { font-family: 'Fraunces', Georgia, serif; font-size: clamp(34px, 5vw, 52px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.1; margin: 48px 0 16px; }
-    h1 em { color: #FFB020; font-style: italic; }
-    .lede { font-size: 18px; color: rgba(255,255,255,0.6); max-width: 640px; margin-bottom: 32px; }
-    .hero-claim { font-size: clamp(20px, 2.5vw, 26px); line-height: 1.4; color: #F4F1EA; max-width: 640px; margin: 0 0 12px; font-weight: 500; }
-    .hero-rails { font-size: 17px; color: rgba(255,255,255,0.6); max-width: 640px; margin: 0 0 20px; line-height: 1.5; }
-    h2 { font-size: 22px; margin: 36px 0 12px; }
-    p, li { color: rgba(255,255,255,0.7); }
-    ul { margin: 0 0 16px 18px; }
-    .cta-group { display: flex; gap: 12px; flex-wrap: wrap; margin: 24px 0 8px; }
-    .btn-primary { background: #FFB020; color: #0B0F14; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; }
-    .btn-secondary { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 15px; border: 1px solid rgba(255,255,255,0.1); }
-    .card { background: #0B0F14; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 24px; margin: 16px 0; }
-    .card.featured { border-color: #FFB020; }
-    .card h3 { color: #F4F1EA; margin-bottom: 8px; }
-    .price { color: #FFB020; font-size: 28px; font-weight: 700; margin: 8px 0; }
-    .price small { font-size: 14px; color: rgba(255,255,255,0.5); font-weight: 400; }
-    pre { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.7; color: #C9CDD4; background: #0B0F14; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; overflow-x: auto; margin: 12px 0 20px; white-space: pre-wrap; }
-    .note { font-size: 14px; color: rgba(255,255,255,0.45); }
-    footer { border-top: 1px solid rgba(255,255,255,0.06); margin-top: 56px; padding-top: 24px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    footer, footer a { color: rgba(255,255,255,0.35); font-size: 13px; text-decoration: none; }
-    footer a:hover { color: rgba(255,255,255,0.7); }
-    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    nav .links { display: flex; gap: 22px; align-items: center; }
+    nav a { color: #a1a1aa; text-decoration: none; font-size: 13px; }
+    nav a:hover { color: #fafafa; }
+    nav a.gold { color: #fafafa; font-weight: 500; }
+    h1 { font-size: clamp(32px, 4.6vw, 44px); font-weight: 550; letter-spacing: -0.045em; line-height: 1.15; margin: 80px 0 20px; max-width: 18em; }
+    .hero-use, .lede { font-size: 17px; color: #a1a1aa; max-width: 36em; margin: 0 0 28px; line-height: 1.55; }
+    h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; margin: 40px 0 10px; color: #fafafa; }
+    p, li { color: #a1a1aa; }
+    .cta-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 28px; }
+    .btn-primary { background: #FFB020; color: #09090b; padding: 11px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+    .btn-secondary { color: #a1a1aa; text-decoration: none; font-size: 14px; padding: 11px 4px; }
+    .btn-secondary:hover { color: #fafafa; }
+    pre { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.7; color: #e4e4e7; background: #111113; border: 1px solid #1f1f23; border-radius: 10px; padding: 16px 18px; overflow-x: auto; margin: 0 0 12px; white-space: pre-wrap; }
+    .install-line { margin: 0 0 8px; }
+    .note { font-size: 13px; color: #71717a; margin: 0 0 12px; }
+    .next { font-size: 14px; color: #a1a1aa; margin: 32px 0 0; max-width: 36em; }
+    footer { border-top: 1px solid #1f1f23; margin-top: 72px; padding-top: 20px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer, footer a { color: #52525b; font-size: 12px; text-decoration: none; }
+    footer a:hover { color: #a1a1aa; }
+    .footer-links { display: flex; gap: 16px; flex-wrap: wrap; }
+    code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.92em; }
   </style>`
+
 
 function marketingNav() {
   return `<nav>
@@ -549,11 +544,10 @@ function marketingNav() {
 
 function marketingFooter() {
   return `<footer>
-    <p>© 2026 AgentPay Labs. Hosted MCP on x402.</p>
+    <p>© 2026 AgentPay · London and Bangalore</p>
     <div class="footer-links">
       <a href="/start">Start</a>
       <a href="/docs">Docs</a>
-      <a href="/awesome-free-dev-tools">Free Dev Tools</a>
       <a href="/privacy">Privacy</a>
       <a href="/terms">Terms</a>
     </div>
@@ -565,8 +559,8 @@ const START_PAGE = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Start free — AgentPay hosted MCP</title>
-  <meta name="description" content="Your agent can pay with a card or with crypto. One key. You set the limit. 50 free calls. No card to start.">
+  <title>Get a key — AgentPay</title>
+  <meta name="description" content="Your agent can pay with a card or with crypto. One key. You set the limit. 50 free calls. Launch is $0.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentpay.so/start">
   ${MARKETING_HEAD}
@@ -574,39 +568,22 @@ const START_PAGE = `<!DOCTYPE html>
 <body>
 <div class="container">
   ${marketingNav()}
-  <p class="note" style="margin-top:36px;letter-spacing:.12em;text-transform:uppercase;font-size:12px;color:#FFB020;font-weight:700">Launch · $0</p>
-  <h1>Start free.<br><em>50 calls included.</em><br>No card.</h1>
-  <p class="hero-claim">Your agent can pay with a card or with crypto. One key. You set the limit.</p>
-  <p class="hero-rails">The same key, same limit, same receipt. Card, UPI, or Open Banking, or x402.</p>
-  <p class="note">UK and India first: GBP/INR receipts, UPI, Open Banking/Faster Payments, IRCTC/National Rail, GDPR.</p>
+  <h1>Your agent can pay with a card or with crypto. One key. You set the limit.</h1>
+  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card, UPI, Open Banking, or x402).</p>
   <div class="cta-group">
-    <a class="btn-primary" href="#register">Create an API key</a>
-    <a class="btn-secondary" href="/docs">Read the docs</a>
+    <a class="btn-primary" href="#key">Get a key — 50 free calls</a>
+    <a class="btn-secondary" href="/docs">Docs</a>
   </div>
-  <h2>Install</h2>
   <pre class="install-line">npx -y @agentpayxyz/mcp-server</pre>
+  <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
 
-  <div class="card featured" id="register">
-    <h3>Launch — the on-ramp</h3>
-    <div class="price">$0 <small>/ to start</small></div>
-    <p>50 free calls. No card. Then the paid SKU is MCP Builder.</p>
-  </div>
-  <div class="card">
-    <h3>MCP Builder</h3>
-    <div class="price">$39 <small>/ month</small></div>
-    <p>Hosted MCP on x402. 75 bps on funded actions once money moves. Growth at $149/mo exists for later volume; it is not the week-one offer.</p>
-  </div>
-
-  <h2>1. Register</h2>
+  <h2 id="key">1. Get a key</h2>
+  <p class="note">Launch is $0. 50 free calls. No card to start.</p>
   <pre>curl -s -X POST https://api.agentpay.so/api/merchants/register \\
   -H "Content-Type: application/json" \\
-  -d '{ "name": "My Agent", "email": "you@example.com" }'
+  -d '{ "name": "My Agent", "email": "you@example.com" }'</pre>
 
-# → { "success": true, "merchantId": "mer_...", "apiKey": "apk_..." }
-# Save the API key. It is shown once.</pre>
-
-  <h2>2. Connect hosted MCP</h2>
-  <p>Stdio host (Claude Desktop, Cursor, Codex) uses the same install line:</p>
+  <h2>2. Paste into Cursor or Claude</h2>
   <pre>{
   "mcpServers": {
     "agentpay": {
@@ -619,14 +596,9 @@ const START_PAGE = `<!DOCTYPE html>
     }
   }
 }</pre>
-  <p>Remote MCP:</p>
-  <pre>https://api.agentpay.so/api/mcp
-Authorization: Bearer apk_your_key_here</pre>
+  <p class="note">Remote: <code>https://api.agentpay.so/api/mcp</code> with <code>Authorization: Bearer apk_...</code></p>
 
-  <h2>3. Optional JS SDK</h2>
-  <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code>. There is no Python SDK.</p>
-
-  <p class="note" style="margin-top:28px">API: https://api.agentpay.so · Full flow: <a href="/docs" style="color:#FFB020">/docs</a></p>
+  <p class="next">When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. UK and India: GBP/INR receipts, UPI, Open Banking, National Rail/IRCTC, GDPR.</p>
   ${marketingFooter()}
 </div>
 </body>
@@ -650,7 +622,7 @@ const DOCS_PAGE = `<!DOCTYPE html>
   <h1>Hosted MCP<br><em>in a few minutes.</em></h1>
   <p class="lede">One product: hosted MCP on x402. Primary install is <code>npx -y @agentpayxyz/mcp-server</code>. Optional JS SDK: <code>@agentpayxyz/sdk</code>. API base: <code>https://api.agentpay.so</code>.</p>
   <div class="cta-group">
-    <a class="btn-primary" href="/start">Start free — 50 calls included</a>
+    <a class="btn-primary" href="/start">Get a key — 50 free calls</a>
     <a class="btn-secondary" href="https://github.com/Rumblingb/Agentpay/blob/main/QUICKSTART.md" target="_blank" rel="noopener noreferrer">QUICKSTART.md</a>
   </div>
 
@@ -743,452 +715,32 @@ const LANDING_PAGE = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentPay — The Financial OS for AI Agents</title>
+  <title>AgentPay — one key. You set the limit.</title>
   <meta name="description" content="Your agent can pay with a card or with crypto. One key. You set the limit.">
-  <meta property="og:title" content="AgentPay — Financial infrastructure for autonomous agents">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://agentpay.so/">
+  <meta property="og:title" content="AgentPay — one key. You set the limit.">
   <meta property="og:description" content="Your agent can pay with a card or with crypto. One key. You set the limit.">
-  <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      background: #0a0a0f;
-      color: #F4F1EA;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      line-height: 1.6;
-      min-height: 100vh;
-    }
-
-    .container { max-width: 860px; margin: 0 auto; padding: 0 24px; }
-
-    /* NAV */
-    nav {
-      padding: 20px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-    }
-    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #F4F1EA; }
-    .logo span { color: #FFB020; }
-    nav a { color: rgba(255,255,255,0.5); text-decoration: none; font-size: 14px; }
-    nav a:hover { color: #F4F1EA; }
-
-    /* HERO */
-    .hero {
-      padding: 100px 0 80px;
-      text-align: center;
-    }
-    .hero-badge {
-      display: inline-block;
-      background: rgba(108,99,255,0.15);
-      border: 1px solid rgba(108,99,255,0.3);
-      color: #FFC24A;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 6px 14px;
-      border-radius: 100px;
-      margin-bottom: 32px;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-    }
-    h1 {
-      font-family: 'Fraunces', Georgia, serif;
-      font-size: clamp(38px, 6vw, 68px);
-      font-weight: 500;
-      letter-spacing: -0.03em;
-      line-height: 1.05;
-      margin-bottom: 24px;
-      color: #F4F1EA;
-    }
-    h1 em { color: #FFB020; font-style: italic; }
-    .subhead {
-      font-size: 22px;
-      color: #F4F1EA;
-      max-width: 640px;
-      margin: 0 auto 12px;
-      line-height: 1.45;
-      font-weight: 500;
-    }
-    .hero-rails {
-      font-size: 16px;
-      color: rgba(255,255,255,0.55);
-      max-width: 640px;
-      margin: 0 auto 40px;
-      line-height: 1.5;
-    }
-
-    /* CTA BUTTONS */
-    .cta-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .btn-primary {
-      background: #FFB020;
-      color: #0B0F14;
-      padding: 14px 28px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 15px;
-      transition: background 0.2s, transform 0.1s;
-    }
-    .btn-primary:hover { background: #FFC24A; transform: translateY(-1px); }
-    .btn-secondary {
-      background: rgba(255,255,255,0.06);
-      color: rgba(255,255,255,0.7);
-      padding: 14px 28px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 500;
-      font-size: 15px;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .btn-secondary:hover { background: rgba(255,255,255,0.1); }
-
-    /* FEAR SECTION */
-    .fear-section {
-      padding: 80px 0 60px;
-      border-top: 1px solid rgba(255,255,255,0.06);
-    }
-    .section-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.3);
-      margin-bottom: 20px;
-    }
-    .fear-text {
-      font-size: 22px;
-      line-height: 1.8;
-      color: rgba(255,255,255,0.65);
-      max-width: 640px;
-    }
-    .fear-text strong { color: #F4F1EA; font-weight: 600; }
-
-    /* CODE BLOCK */
-    .code-section { padding: 60px 0; }
-    .code-block {
-      background: #0B0F14;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
-      padding: 32px;
-      overflow-x: auto;
-    }
-    .code-block pre {
-      font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-      font-size: 14px;
-      line-height: 1.7;
-      color: #C9CDD4;
-    }
-    .install-line {
-      font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-      font-size: 14px;
-      line-height: 1.7;
-      color: #C9CDD4;
-      background: #0B0F14;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
-      padding: 16px 20px;
-      overflow-x: auto;
-    }
-    .note { font-size: 13px; color: rgba(255,255,255,0.45); }
-    .code-comment { color: #6a737d; }
-    .code-string { color: #a5d6ff; }
-    .code-key { color: #d2a8ff; }
-    .code-value { color: #79c0ff; }
-    .code-label {
-      font-size: 12px;
-      color: rgba(255,255,255,0.3);
-      margin-bottom: 12px;
-      font-family: monospace;
-    }
-
-    /* FEATURE GRID */
-    .features { padding: 60px 0; }
-    .features h2 {
-      font-size: 36px;
-      font-weight: 700;
-      letter-spacing: -1px;
-      margin-bottom: 48px;
-      color: #F4F1EA;
-    }
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 24px;
-    }
-    .feature-card {
-      background: #0B0F14;
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 12px;
-      padding: 28px;
-    }
-    .feature-icon {
-      font-size: 24px;
-      margin-bottom: 16px;
-    }
-    .feature-card h3 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #F4F1EA;
-      margin-bottom: 8px;
-    }
-    .feature-card p {
-      font-size: 14px;
-      color: rgba(255,255,255,0.45);
-      line-height: 1.6;
-    }
-
-    /* AGENTRANK */
-    .agentrank { padding: 60px 0; border-top: 1px solid rgba(255,255,255,0.06); }
-    .score-display {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      margin: 40px 0;
-    }
-    .score-number {
-      font-size: 72px;
-      font-weight: 900;
-      color: #FFB020;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -3px;
-    }
-    .score-label { color: rgba(255,255,255,0.4); font-size: 14px; }
-    .score-tiers {
-      display: grid;
-      gap: 8px;
-      margin-top: 24px;
-    }
-    .score-tier {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 14px;
-      color: rgba(255,255,255,0.55);
-    }
-    .tier-bar {
-      height: 4px;
-      border-radius: 2px;
-      background: rgba(108,99,255,0.3);
-    }
-
-    /* BOTTOM CTA */
-    .bottom-cta {
-      text-align: center;
-      padding: 80px 0;
-      border-top: 1px solid rgba(255,255,255,0.06);
-    }
-    .bottom-cta h2 {
-      font-size: 40px;
-      font-weight: 800;
-      letter-spacing: -1.5px;
-      margin-bottom: 16px;
-      color: #F4F1EA;
-    }
-    .bottom-cta p {
-      color: rgba(255,255,255,0.45);
-      font-size: 18px;
-      margin-bottom: 40px;
-    }
-
-    /* FOOTER */
-    footer {
-      border-top: 1px solid rgba(255,255,255,0.06);
-      padding: 32px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    footer p { color: rgba(255,255,255,0.25); font-size: 13px; }
-    .footer-links { display: flex; gap: 24px; }
-    .footer-links a { color: rgba(255,255,255,0.35); text-decoration: none; font-size: 13px; }
-    .footer-links a:hover { color: rgba(255,255,255,0.7); }
-
-    /* STATUS DOTS */
-    .status-row {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-      margin-top: 24px;
-      flex-wrap: wrap;
-    }
-    .status-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: rgba(255,255,255,0.35);
-    }
-    .dot {
-      width: 6px; height: 6px;
-      border-radius: 50%;
-      background: #2ea86a;
-    }
-  </style>
+  <meta property="og:url" content="https://agentpay.so/">
+  <meta property="og:type" content="website">
+  ${MARKETING_HEAD}
 </head>
 <body>
-
 <div class="container">
-  <nav>
-    <div class="logo">Agent<span>Pay</span></div>
-    <div style="display:flex;gap:24px;align-items:center">
-      <a href="/about">About</a>
-      <a href="/docs">Docs</a>
-      <a href="https://github.com/Rumblingb/Agentpay" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="/start" style="color:#FFB020;font-weight:600">Get started</a>
-    </div>
-  </nav>
-
-  <!-- HERO -->
-  <section class="hero">
-    <div class="hero-badge">x402 compatible · Open protocol</div>
-    <h1>Your agent just spent<br><em>$500 in 8 minutes.</em><br>Did it earn it?</h1>
-    <p class="subhead">Your agent can pay with a card or with crypto. One key. You set the limit.</p>
-    <p class="hero-rails">The same key, same limit, same receipt. Card, UPI, or Open Banking, or x402.</p>
-    <div class="cta-group">
-      <a href="/start" class="btn-primary">Start free — 50 calls included</a>
-      <a href="/docs" class="btn-secondary">Read the docs</a>
-    </div>
-    <div class="status-row">
-      <span class="status-item"><span class="dot"></span>API operational</span>
-      <span class="status-item"><span class="dot"></span>AgentRank scoring live</span>
-      <span class="status-item"><span class="dot"></span>x402 settlement active</span>
-    </div>
-  </section>
-
-  <!-- FEAR ARC -->
-  <section class="fear-section">
-    <div class="section-label">The problem</div>
-    <p class="fear-text">
-      You've wired your agent to a credit card.<br>
-      It has API keys to 14 services.<br>
-      It runs unsupervised at 3am.<br><br>
-      <strong>You have no idea what it does until you get the Stripe bill.</strong><br><br>
-      Agents spend money the way toddlers spend yours. Not maliciously. Just without context, rules, or receipts.
-    </p>
-  </section>
-
-  <!-- CODE SECTION -->
-  <section class="code-section">
-    <div class="section-label">30-second integration</div>
-    <div class="code-block">
-      <div class="code-label">// Hosted MCP — Claude Desktop, Cursor, any MCP host</div>
-      <pre><span class="code-comment"># 1. Register (50 free calls, no card)</span>
-curl -s -X POST <span class="code-string">https://api.agentpay.so/api/merchants/register</span> \
-  -H <span class="code-string">"Content-Type: application/json"</span> \
-  -d <span class="code-string">'{ "name": "My Agent", "email": "you@example.com" }'</span>
-
-<span class="code-comment"># 2. Run the MCP server</span>
-npx -y @agentpayxyz/mcp-server
-
-<span class="code-comment"># Remote MCP</span>
-<span class="code-string">https://api.agentpay.so/api/mcp</span>
-<span class="code-comment"># Authorization: Bearer apk_your_key_here</span></pre>
-    </div>
-    <pre class="install-line" style="margin-top:16px">npx -y @agentpayxyz/mcp-server</pre>
-    <p class="note" style="margin-top:8px">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
-  </section>
-
-  <!-- FEATURES -->
-  <section class="features">
-    <h2>Financial infrastructure<br>built for agents.</h2>
-    <div class="feature-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Hard Spend Ceilings</h3>
-        <p>Set per-call and per-session spend limits. Agents can't exceed them without escalating to you.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📋</div>
-        <h3>Signed Receipts</h3>
-        <p>Every transaction leaves an immutable receipt: what was called, what was paid, what was returned.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🏆</div>
-        <h3>AgentRank Score</h3>
-        <p>0–1000 trust score built from payment reliability, delivery, and transaction volume. Earned, not assigned.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔑</div>
-        <h3>Agent Identity</h3>
-        <p>Cryptographic proof your agent is who it claims. Works across platforms and APIs without shared secrets.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>x402 Protocol</h3>
-        <p>HTTP 402 Payment Required — now used. The open standard for agent-to-agent payments.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔍</div>
-        <h3>Behavioral Oracle</h3>
-        <p>Flags anomalies in agent spending patterns before they become incidents.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- AGENTRANK -->
-  <section class="agentrank">
-    <div class="section-label">AgentRank</div>
-    <h2 style="font-size:32px;font-weight:700;letter-spacing:-1px;margin-bottom:12px;color:#F4F1EA">Agents earn trust the same way people do.</h2>
-    <p style="color:rgba(255,255,255,0.45);font-size:16px;margin-bottom:32px">By doing what they say, paying what they owe, and showing their work.</p>
-    <div class="score-tiers">
-      <div class="score-tier"><div class="tier-bar" style="width:40px;background:rgba(108,99,255,0.2)"></div>0–300 · Basic payment authorization</div>
-      <div class="score-tier"><div class="tier-bar" style="width:80px;background:rgba(108,99,255,0.35)"></div>300–600 · Higher limits, fewer escalations</div>
-      <div class="score-tier"><div class="tier-bar" style="width:120px;background:rgba(108,99,255,0.55)"></div>600–900 · Pre-approved recurring contracts</div>
-      <div class="score-tier"><div class="tier-bar" style="width:160px;background:#FFB020"></div>900+ · Agent-to-agent credit eligible</div>
-    </div>
-  </section>
-
-  <!-- PRODUCTS -->
-  <section class="features" id="social-publishing" style="border-top:1px solid rgba(255,255,255,0.06)">
-    <div class="section-label">AgentPay products</div>
-    <h2>Early products<br>with receipts.</h2>
-    <p class="fear-text" style="font-size:18px;line-height:1.6;margin-bottom:32px">
-      AgentPay Labs is shipping small paid tools and operational rails in public. The first live payment came through Awesome Free Dev Tools Premium; the social publishing workspace is the distribution rail behind the channel work.
-    </p>
-    <div class="feature-grid">
-      <div class="feature-card"><h3>Awesome Free Dev Tools Premium</h3><p>A $7 curated directory with weekly update notes, search, bookmarks, and manual support while fulfillment is hardened.</p></div>
-      <div class="feature-card"><h3>Owner-authorized accounts</h3><p>Each social connection begins with the platform's authorization flow and can be revoked by the account owner.</p></div>
-      <div class="feature-card"><h3>Fail-closed routing</h3><p>Publishing remains blocked when destination identity, approval, or content checks are missing.</p></div>
-    </div>
-    <div class="cta-group" style="justify-content:flex-start;margin-top:28px">
-      <a href="/awesome-free-dev-tools" class="btn-primary">View paid product</a>
-      <a href="/postizzz" class="btn-primary">View social publishing</a>
-      <a href="/privacy" class="btn-secondary">Privacy Policy</a>
-      <a href="/terms" class="btn-secondary">Terms of Service</a>
-    </div>
-  </section>
-
-  <!-- BOTTOM CTA -->
-  <section class="bottom-cta">
-    <h2>Start with 50 free calls.</h2>
-    <p>No card required. Works with any LLM stack.</p>
-    <div class="cta-group">
-      <a href="/start" class="btn-primary">Get your API key</a>
-      <a href="https://github.com/Rumblingb/Agentpay" class="btn-secondary" target="_blank" rel="noopener noreferrer">View on GitHub</a>
-    </div>
-    <p style="margin-top:24px;font-size:13px;color:rgba(255,255,255,0.2)">
-      Built by AgentPay Labs · Bangalore · <a href="/health" style="color:rgba(255,255,255,0.2)">API status</a>
-    </p>
-  </section>
-
-  <footer>
-    <p>© 2026 AgentPay Labs. Building the financial OS for autonomous agents.</p>
-    <div class="footer-links">
-      <a href="/awesome-free-dev-tools">Free Dev Tools</a>
-      <a href="/postizzz">Social publishing</a>
-      <a href="/docs">Docs</a>
-      <a href="https://github.com/Rumblingb/Agentpay" rel="noopener noreferrer">GitHub</a>
-      <a href="https://x.com/agentpaylabs">X</a>
-      <a href="/health">Status</a>
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-    </div>
-  </footer>
+  ${marketingNav()}
+  <h1>Your agent can pay with a card or with crypto. One key. You set the limit.</h1>
+  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card, UPI, Open Banking, or x402).</p>
+  <div class="cta-group">
+    <a class="btn-primary" href="/start">Get a key — 50 free calls</a>
+    <a class="btn-secondary" href="/docs">Docs</a>
+  </div>
+  <pre class="install-line">npx -y @agentpayxyz/mcp-server</pre>
+  <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
+  <p class="next">Launch is $0. When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. Built for UK and India — GBP/INR receipts, UPI, Open Banking, National Rail/IRCTC, GDPR.</p>
+  ${marketingFooter()}
 </div>
-
 </body>
-</html>`;
+</html>`
 
 const AWESOME_FREE_DEV_TOOLS_PAGE = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

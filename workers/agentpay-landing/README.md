@@ -6,11 +6,10 @@ Live today this Worker is Cloudflare Worker `agentpay-landing-production`, route
 
 ## This week’s public story
 
-- `/` — hosted MCP. Hero CTAs `/start` and `/docs`. Primary install: `npx -y @agentpayxyz/mcp-server`. Optional JS SDK: `@agentpayxyz/sdk`.
-- `/start` — Launch $0 on-ramp, **50** free calls, no card. Paid SKU: MCP Builder $39/mo + 75 bps on funded actions.
+- `/` and `/start` — one H1: *Your agent can pay with a card or with crypto. One key. You set the limit.* Primary CTA is get a key / 50 free calls. Launch $0. `$39` is next-step copy, not a buy button.
+- Primary install: `npx -y @agentpayxyz/mcp-server`. Optional JS SDK: `@agentpayxyz/sdk`.
 - `/docs` — short public docs. API: `https://api.agentpay.so`.
-- BidDesk stays at `/biddesk` (live paid URL) but is `noindex`, omitted from `sitemap.xml`, and `Disallow` in `robots.txt`.
-- Ace and `agentpay.gg` stay dark.
+- `$7` Awesome Free Dev Tools, BidDesk, Postizzz, and Ace are off the homepage. BidDesk stays at `/biddesk` (200, `noindex`, off sitemap). Ace and `agentpay.gg` stay dark.
 
 ## Verify locally
 
