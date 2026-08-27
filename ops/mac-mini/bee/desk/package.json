@@ -5,5 +5,5 @@
   "description": "Bee — the butterfly desktop companion (founder-in-a-box overlay)",
   "main": "main.js",
   "scripts": { "start": "electron ." },
-  "devDependencies": { "electron": "30.5.1" }
+  "devDependencies": { "electron": "39.8.10" }
 }
