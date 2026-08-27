@@ -20,7 +20,10 @@ function assertPublicProductLock(html, label) {
   assert.doesNotMatch(html, /250 (free )?calls/i, `${label} must not advertise 250 calls`)
   assert.doesNotMatch(html, /agentpay\.gg/, `${label} must keep agentpay.gg dark`)
   assert.doesNotMatch(html, /\bAce\b/, `${label} must keep Ace dark`)
-  assert.doesNotMatch(html, /Skyfire|Catena/, `${label} must not clone Skyfire/Catena copy`)
+  assert.doesNotMatch(html, /Skyfire|Catena|Nevermined/, `${label} must not clone Skyfire/Catena/Nevermined copy`)
+  assert.doesNotMatch(html, /\bKYA\b/, `${label} must not say KYA`)
+  assert.doesNotMatch(html, /\bwallets?\b/i, `${label} must not say wallet`)
+  assert.doesNotMatch(html, /\bcredits\b/i, `${label} must not say credits`)
 }
 
 const originalFetch = globalThis.fetch
@@ -217,6 +220,8 @@ try {
   assert.match(landingHtml, /Fail-closed routing/)
   assert.match(landingHtml, /href="\/start"[^>]*>Get started/)
   assert.match(landingHtml, /Start free — 50 calls included/)
+  assert.match(landingHtml, /Your agent can pay with a card or with crypto\. One key\. You set the limit\./)
+  assert.match(landingHtml, /The same key, same limit, same receipt\. Card, UPI, or Open Banking, or x402\./)
   assert.match(landingHtml, /https:\/\/api\.agentpay\.so/)
   assert.doesNotMatch(landingHtml, /href="\/awesome-free-dev-tools"[^>]*>Get started/)
   assertPublicProductLock(landingHtml, 'homepage')
@@ -225,6 +230,8 @@ try {
   assert.equal(startResponse.status, 200)
   const startHtml = await startResponse.text()
   assert.match(startHtml, /50 calls included/)
+  assert.match(startHtml, /Your agent can pay with a card or with crypto\. One key\. You set the limit\./)
+  assert.match(startHtml, /The same key, same limit, same receipt\. Card, UPI, or Open Banking, or x402\./)
   assert.match(startHtml, /No card/)
   assert.match(startHtml, /MCP Builder/)
   assert.match(startHtml, /\$39/)

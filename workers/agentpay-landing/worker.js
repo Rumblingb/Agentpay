@@ -514,6 +514,8 @@ const MARKETING_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.co
     h1 { font-family: 'Fraunces', Georgia, serif; font-size: clamp(34px, 5vw, 52px); font-weight: 500; letter-spacing: -0.03em; line-height: 1.1; margin: 48px 0 16px; }
     h1 em { color: #FFB020; font-style: italic; }
     .lede { font-size: 18px; color: rgba(255,255,255,0.6); max-width: 640px; margin-bottom: 32px; }
+    .hero-claim { font-size: clamp(20px, 2.5vw, 26px); line-height: 1.4; color: #F4F1EA; max-width: 640px; margin: 0 0 12px; font-weight: 500; }
+    .hero-rails { font-size: 17px; color: rgba(255,255,255,0.6); max-width: 640px; margin: 0 0 20px; line-height: 1.5; }
     h2 { font-size: 22px; margin: 36px 0 12px; }
     p, li { color: rgba(255,255,255,0.7); }
     ul { margin: 0 0 16px 18px; }
@@ -564,7 +566,7 @@ const START_PAGE = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Start free — AgentPay hosted MCP</title>
-  <meta name="description" content="Launch on AgentPay with 50 free calls and no card. Hosted MCP on x402. MCP Builder is $39/mo plus 75 bps on funded actions.">
+  <meta name="description" content="Your agent can pay with a card or with crypto. One key. You set the limit. 50 free calls. No card to start.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentpay.so/start">
   ${MARKETING_HEAD}
@@ -574,7 +576,9 @@ const START_PAGE = `<!DOCTYPE html>
   ${marketingNav()}
   <p class="note" style="margin-top:36px;letter-spacing:.12em;text-transform:uppercase;font-size:12px;color:#FFB020;font-weight:700">Launch · $0</p>
   <h1>Start free.<br><em>50 calls included.</em><br>No card.</h1>
-  <p class="lede">Hosted MCP on x402. Register, connect an MCP host, and keep receipts on the calls you actually make. UK and India first: GBP/INR receipts, UPI, Open Banking/Faster Payments, IRCTC/National Rail, GDPR.</p>
+  <p class="hero-claim">Your agent can pay with a card or with crypto. One key. You set the limit.</p>
+  <p class="hero-rails">The same key, same limit, same receipt. Card, UPI, or Open Banking, or x402.</p>
+  <p class="note">UK and India first: GBP/INR receipts, UPI, Open Banking/Faster Payments, IRCTC/National Rail, GDPR.</p>
   <div class="cta-group">
     <a class="btn-primary" href="#register">Create an API key</a>
     <a class="btn-secondary" href="/docs">Read the docs</a>
@@ -740,9 +744,9 @@ const LANDING_PAGE = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgentPay — The Financial OS for AI Agents</title>
-  <meta name="description" content="Your agent just spent $500 in 8 minutes. Did it earn it? AgentPay gives AI agents a trust score, payment rail, and audit trail.">
+  <meta name="description" content="Your agent can pay with a card or with crypto. One key. You set the limit.">
   <meta property="og:title" content="AgentPay — Financial infrastructure for autonomous agents">
-  <meta property="og:description" content="Trust scores. Payment rails. Audit trails. For agents that work at scale.">
+  <meta property="og:description" content="Your agent can pay with a card or with crypto. One key. You set the limit.">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -798,10 +802,18 @@ const LANDING_PAGE = `<!DOCTYPE html>
     }
     h1 em { color: #FFB020; font-style: italic; }
     .subhead {
-      font-size: 20px;
+      font-size: 22px;
+      color: #F4F1EA;
+      max-width: 640px;
+      margin: 0 auto 12px;
+      line-height: 1.45;
+      font-weight: 500;
+    }
+    .hero-rails {
+      font-size: 16px;
       color: rgba(255,255,255,0.55);
-      max-width: 560px;
-      margin: 0 auto 48px;
+      max-width: 640px;
+      margin: 0 auto 40px;
       line-height: 1.5;
     }
 
@@ -1031,7 +1043,8 @@ const LANDING_PAGE = `<!DOCTYPE html>
   <section class="hero">
     <div class="hero-badge">x402 compatible · Open protocol</div>
     <h1>Your agent just spent<br><em>$500 in 8 minutes.</em><br>Did it earn it?</h1>
-    <p class="subhead">AgentPay gives AI agents a trust score, a payment rail, and an audit trail. So you know what you paid for — and so does every system it touches.</p>
+    <p class="subhead">Your agent can pay with a card or with crypto. One key. You set the limit.</p>
+    <p class="hero-rails">The same key, same limit, same receipt. Card, UPI, or Open Banking, or x402.</p>
     <div class="cta-group">
       <a href="/start" class="btn-primary">Start free — 50 calls included</a>
       <a href="/docs" class="btn-secondary">Read the docs</a>
