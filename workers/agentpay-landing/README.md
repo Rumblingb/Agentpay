@@ -6,7 +6,7 @@ Live today this Worker is Cloudflare Worker `agentpay-landing-production`, route
 
 ## This week’s public story
 
-- `/` — hosted MCP. Hero CTAs `/start` and `/docs`. Install names: `@agentpayxyz/sdk` and `@agentpayxyz/mcp-server`.
+- `/` — hosted MCP. Hero CTAs `/start` and `/docs`. Primary install: `npx -y @agentpayxyz/mcp-server`. Optional JS SDK: `@agentpayxyz/sdk`.
 - `/start` — Launch $0 on-ramp, **50** free calls, no card. Paid SKU: MCP Builder $39/mo + 75 bps on funded actions.
 - `/docs` — short public docs. API: `https://api.agentpay.so`.
 - BidDesk stays at `/biddesk` (live paid URL) but is `noindex`, omitted from `sitemap.xml`, and `Disallow` in `robots.txt`.

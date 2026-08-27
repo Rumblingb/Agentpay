@@ -11,10 +11,12 @@ const wranglerConfig = readFileSync(new URL('./wrangler.toml', import.meta.url),
 const deployScript = readFileSync(new URL('./deploy-postizzz-review.sh', import.meta.url), 'utf8')
 
 function assertPublicProductLock(html, label) {
-  assert.match(html, /@agentpayxyz\/sdk/, `${label} must name @agentpayxyz/sdk`)
+  assert.match(html, /<pre class="install-line"[^>]*>npx -y @agentpayxyz\/mcp-server<\/pre>/, `${label} primary install line must be exactly npx -y @agentpayxyz/mcp-server`)
+  assert.match(html, /npm install @agentpayxyz\/sdk/, `${label} must mention the JS SDK as a secondary line`)
   assert.match(html, /@agentpayxyz\/mcp-server/, `${label} must name @agentpayxyz/mcp-server`)
   assert.doesNotMatch(html, /pip install agentpay/, `${label} must not advertise pip install agentpay`)
   assert.doesNotMatch(html, /@agentpay\/sdk/, `${label} must not advertise @agentpay/sdk`)
+  assert.doesNotMatch(html, /npm install @agentpayxyz\/sdk ·/, `${label} must not lead with a combined sdk · mcp install line`)
   assert.doesNotMatch(html, /250 (free )?calls/i, `${label} must not advertise 250 calls`)
   assert.doesNotMatch(html, /agentpay\.gg/, `${label} must keep agentpay.gg dark`)
   assert.doesNotMatch(html, /\bAce\b/, `${label} must keep Ace dark`)
@@ -215,8 +217,6 @@ try {
   assert.match(landingHtml, /Fail-closed routing/)
   assert.match(landingHtml, /href="\/start"[^>]*>Get started/)
   assert.match(landingHtml, /Start free — 50 calls included/)
-  assert.match(landingHtml, /npm install @agentpayxyz\/sdk/)
-  assert.match(landingHtml, /npx -y @agentpayxyz\/mcp-server/)
   assert.match(landingHtml, /https:\/\/api\.agentpay\.so/)
   assert.doesNotMatch(landingHtml, /href="\/awesome-free-dev-tools"[^>]*>Get started/)
   assertPublicProductLock(landingHtml, 'homepage')

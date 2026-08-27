@@ -579,6 +579,8 @@ const START_PAGE = `<!DOCTYPE html>
     <a class="btn-primary" href="#register">Create an API key</a>
     <a class="btn-secondary" href="/docs">Read the docs</a>
   </div>
+  <h2>Install</h2>
+  <pre class="install-line">npx -y @agentpayxyz/mcp-server</pre>
 
   <div class="card featured" id="register">
     <h3>Launch — the on-ramp</h3>
@@ -600,8 +602,7 @@ const START_PAGE = `<!DOCTYPE html>
 # Save the API key. It is shown once.</pre>
 
   <h2>2. Connect hosted MCP</h2>
-  <p>Stdio host (Claude Desktop, Cursor, Codex):</p>
-  <pre>npx -y @agentpayxyz/mcp-server</pre>
+  <p>Stdio host (Claude Desktop, Cursor, Codex) uses the same install line:</p>
   <pre>{
   "mcpServers": {
     "agentpay": {
@@ -618,9 +619,8 @@ const START_PAGE = `<!DOCTYPE html>
   <pre>https://api.agentpay.so/api/mcp
 Authorization: Bearer apk_your_key_here</pre>
 
-  <h2>3. Optional TypeScript client</h2>
-  <pre>npm install @agentpayxyz/sdk</pre>
-  <p class="note">There is no Python SDK to install. PyPI <code>agentpay</code> is a reserved stub, not the product.</p>
+  <h2>3. Optional JS SDK</h2>
+  <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code>. There is no Python SDK.</p>
 
   <p class="note" style="margin-top:28px">API: https://api.agentpay.so · Full flow: <a href="/docs" style="color:#FFB020">/docs</a></p>
   ${marketingFooter()}
@@ -634,7 +634,7 @@ const DOCS_PAGE = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Docs — AgentPay hosted MCP</title>
-  <meta name="description" content="Install @agentpayxyz/mcp-server and @agentpayxyz/sdk. API at https://api.agentpay.so. 50 free calls on Launch; MCP Builder is $39/mo plus 75 bps on funded actions.">
+  <meta name="description" content="npx -y @agentpayxyz/mcp-server. Optional JS SDK @agentpayxyz/sdk. API at https://api.agentpay.so. 50 free calls on Launch; MCP Builder is $39/mo plus 75 bps on funded actions.">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://agentpay.so/docs">
   ${MARKETING_HEAD}
@@ -644,16 +644,15 @@ const DOCS_PAGE = `<!DOCTYPE html>
   ${marketingNav()}
   <p class="note" style="margin-top:36px;letter-spacing:.12em;text-transform:uppercase;font-size:12px;color:#FFB020;font-weight:700">Docs</p>
   <h1>Hosted MCP<br><em>in a few minutes.</em></h1>
-  <p class="lede">One product: hosted MCP on x402. Packages are <code>@agentpayxyz/mcp-server</code> and <code>@agentpayxyz/sdk</code>. API base: <code>https://api.agentpay.so</code>.</p>
+  <p class="lede">One product: hosted MCP on x402. Primary install is <code>npx -y @agentpayxyz/mcp-server</code>. Optional JS SDK: <code>@agentpayxyz/sdk</code>. API base: <code>https://api.agentpay.so</code>.</p>
   <div class="cta-group">
     <a class="btn-primary" href="/start">Start free — 50 calls included</a>
     <a class="btn-secondary" href="https://github.com/Rumblingb/Agentpay/blob/main/QUICKSTART.md" target="_blank" rel="noopener noreferrer">QUICKSTART.md</a>
   </div>
 
   <h2>Install</h2>
-  <pre>npx -y @agentpayxyz/mcp-server
-npm install @agentpayxyz/sdk</pre>
-  <p class="note">There is no Python SDK. The published packages are <code>@agentpayxyz/sdk</code> and <code>@agentpayxyz/mcp-server</code> only.</p>
+  <pre class="install-line">npx -y @agentpayxyz/mcp-server</pre>
+  <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code>. There is no Python SDK.</p>
 
   <h2>Get an API key</h2>
   <pre>curl -s -X POST https://api.agentpay.so/api/merchants/register \\
@@ -867,6 +866,18 @@ const LANDING_PAGE = `<!DOCTYPE html>
       line-height: 1.7;
       color: #C9CDD4;
     }
+    .install-line {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      color: #C9CDD4;
+      background: #0B0F14;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 16px 20px;
+      overflow-x: auto;
+    }
+    .note { font-size: 13px; color: rgba(255,255,255,0.45); }
     .code-comment { color: #6a737d; }
     .code-string { color: #a5d6ff; }
     .code-key { color: #d2a8ff; }
@@ -1061,9 +1072,8 @@ npx -y @agentpayxyz/mcp-server
 <span class="code-string">https://api.agentpay.so/api/mcp</span>
 <span class="code-comment"># Authorization: Bearer apk_your_key_here</span></pre>
     </div>
-    <div style="margin-top:16px;font-size:13px;color:rgba(255,255,255,0.3)">
-      npm install @agentpayxyz/sdk · npx -y @agentpayxyz/mcp-server
-    </div>
+    <pre class="install-line" style="margin-top:16px">npx -y @agentpayxyz/mcp-server</pre>
+    <p class="note" style="margin-top:8px">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
   </section>
 
   <!-- FEATURES -->
