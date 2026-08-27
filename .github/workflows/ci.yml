@@ -55,6 +55,9 @@ jobs:
       - name: Run Workers critical tests
         run: npm run test:workers-critical
 
+      - name: Landing worker smoke
+        run: node --test workers/agentpay-landing/worker.test.mjs
+
   dashboard:
     name: Dashboard
     runs-on: ubuntu-latest
