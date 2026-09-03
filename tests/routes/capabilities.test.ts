@@ -2007,4 +2007,46 @@ describe('capabilitiesRouter', () => {
     expect(body.requestedProvider.label).toBe('Requested API');
     expect(body.nextAction.displayPayload.onboardingUrl).toContain('/api/capabilities/onboarding-sessions/action_session_provider_request/hosted?token=');
   });
+
+  it('keeps reported credential exposure metadata-only and opens hosted recovery', async () => {
+    const rejected = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/credential-exposure-reports', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          provider: 'databento',
+          subjectType: 'workspace',
+          subjectRef: 'workbench_1',
+          apiKey: 'must-not-be-accepted',
+        }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+    expect(rejected.status).toBe(400);
+    expect(JSON.stringify(await rejected.json())).not.toContain('must-not-be-accepted');
+
+    (createDb as jest.Mock)
+      .mockImplementationOnce(() => makeSql([[{
+        id: 'action_session_exposure', merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510', action_type: 'auth_required', entity_type: 'capability_onboarding', entity_id: 'principal_1', title: 'Secure Databento after credential exposure', summary: 'Rotate before reconnecting.', status: 'pending', audience: 'generic', auth_type: 'api_key', resume_url: 'https://host.example.com/resume', display_payload_json: JSON.stringify({}), result_payload_json: JSON.stringify({}), metadata_json: JSON.stringify({}), expires_at: new Date('2099-04-16T12:30:00.000Z'), completed_at: null, used_at: null, created_at: new Date('2026-04-16T12:00:00.000Z'), updated_at: new Date('2026-04-16T12:00:00.000Z'),
+      }]]))
+      .mockImplementationOnce(() => makeSql([[{
+        id: 'action_session_exposure', merchant_id: '26e7ac4f-017e-4316-bf4f-9a1b37112510', action_type: 'auth_required', entity_type: 'capability_onboarding', entity_id: 'principal_1', title: 'Secure Databento after credential exposure', summary: 'Rotate before reconnecting.', status: 'pending', audience: 'generic', auth_type: 'api_key', resume_url: 'https://host.example.com/resume', display_payload_json: JSON.stringify({ onboardingUrl: 'http://agentpay.test/api/capabilities/onboarding-sessions/action_session_exposure/hosted?token=rotate-token' }), result_payload_json: JSON.stringify({}), metadata_json: JSON.stringify({ credentialExposure: true }), expires_at: new Date('2099-04-16T12:30:00.000Z'), completed_at: null, used_at: null, created_at: new Date('2026-04-16T12:00:00.000Z'), updated_at: new Date('2026-04-16T12:00:00.000Z'),
+      }]]));
+
+    const recovered = await capabilitiesRouter.fetch(
+      new Request('http://agentpay.test/credential-exposure-reports', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ provider: 'databento', subjectType: 'workspace', subjectRef: 'workbench_1', principalId: 'principal_1', resumeUrl: 'https://host.example.com/resume' }),
+      }),
+      authEnv(),
+      {} as never,
+    );
+    const body = await recovered.json() as Record<string, any>;
+    expect(recovered.status).toBe(201);
+    expect(body.exposure.rawCredentialAccepted).toBe(false);
+    expect(body.nextAction.displayPayload.kind).toBe('credential_exposure_recovery');
+    expect(body.nextAction.summary).toContain('Do not send either credential to the agent');
+  });
 });

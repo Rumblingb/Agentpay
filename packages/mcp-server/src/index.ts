@@ -163,6 +163,8 @@ const capabilityToolDescriptions = {
     'List the external capability provider catalog from /api/capabilities/providers/catalog. Use this to inspect which providers AgentPay can connect, their free-call allowance, and their paid usage rate.',
   connect:
     'Request a secure external capability connect session through /api/capabilities/connect-sessions. Use this when a human must attach an API key or external credential without ever handing the raw secret to the agent.',
+  exposure:
+    'Report a possible provider credential exposure through /api/capabilities/credential-exposure-reports. Never include the credential itself. AgentPay opens a hosted rotate-and-reconnect step so the replacement stays out of agent context.',
   list:
     'List connected external capabilities through /api/capabilities. Use this to inspect what external APIs are already connected and what their free-tier and paid-usage policy is.',
   get:
@@ -803,6 +805,24 @@ const RAW_TOOLS: Tool[] = [
         resumeUrl: { type: 'string', description: 'Optional host URL to resume after the secure connect step completes.' },
       },
       required: ['provider', 'capabilityKey', 'subjectType', 'subjectRef'],
+    },
+  },
+  {
+    name: 'agentpay_report_credential_exposure',
+    description: capabilityToolDescriptions.exposure,
+    inputSchema: {
+      type: 'object' as const,
+      additionalProperties: false,
+      properties: {
+        provider: { type: 'string', description: 'Configured provider identifier, such as databento or firecrawl. Never include a credential.' },
+        subjectType: { type: 'string', enum: ['merchant', 'principal', 'agent', 'workspace'], description: 'Who owns the affected provider access.' },
+        subjectRef: { type: 'string', description: 'Owner identifier for the affected access.' },
+        principalId: { type: 'string', description: 'Optional human principal identifier for guardrails and funding continuity.' },
+        operatorId: { type: 'string', description: 'Optional operator identifier.' },
+        workbenchId: { type: 'string', description: 'Optional workbench that observed the exposure.' },
+        resumeUrl: { type: 'string', description: 'Optional host URL to resume after secure recovery.' },
+      },
+      required: ['provider', 'subjectType', 'subjectRef'],
     },
   },
   {
@@ -1488,6 +1508,23 @@ export async function handleTool(
       if (args.paidUnitPriceUsdMicros !== undefined) body.paidUnitPriceUsdMicros = args.paidUnitPriceUsdMicros;
       if (args.resumeUrl) body.resumeUrl = args.resumeUrl;
       const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/connect-sessions`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }, resolved);
+      return finalizeToolResult(name, data, resolved);
+    }
+
+    case 'agentpay_report_credential_exposure': {
+      const body: Record<string, unknown> = {
+        provider: args.provider,
+        subjectType: args.subjectType,
+        subjectRef: args.subjectRef,
+      };
+      if (args.principalId) body.principalId = args.principalId;
+      if (args.operatorId) body.operatorId = args.operatorId;
+      if (args.workbenchId) body.workbenchId = args.workbenchId;
+      if (args.resumeUrl) body.resumeUrl = args.resumeUrl;
+      const data = await apiFetch(`${CAPABILITIES_BASE_PATH}/credential-exposure-reports`, {
         method: 'POST',
         body: JSON.stringify(body),
       }, resolved);

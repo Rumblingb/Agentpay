@@ -99,6 +99,29 @@ function asStringRecord(value: unknown): Record<string, string> | undefined {
   ) as Record<string, string>;
 }
 
+function containsRawCredentialMaterial(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsRawCredentialMaterial);
+  const record = asRecord(value);
+  if (!record) return false;
+  return Object.entries(record).some(([key, entry]) => (
+    /^(api[_-]?key|authorization|credential|credentials|key|key[_-]?value|password|secret|token)$/i.test(key)
+    || containsRawCredentialMaterial(entry)
+  ));
+}
+
+function hasOnlyCredentialExposureMetadata(body: Record<string, unknown>): boolean {
+  const allowedFields = new Set([
+    'provider',
+    'subjectType',
+    'subjectRef',
+    'principalId',
+    'operatorId',
+    'workbenchId',
+    'resumeUrl',
+  ]);
+  return Object.keys(body).every((key) => allowedFields.has(key));
+}
+
 function buildExecutionAttemptStatusUrl(env: Env, attemptId: string): string {
   return new URL(`/api/capabilities/execution-attempts/${attemptId}`, env.API_BASE_URL).toString();
 }
@@ -506,6 +529,7 @@ function buildOnboardingPage(input: {
   monthlyUsd: string | null;
   otpEveryPaidAction: boolean;
   walletStatus: string | null;
+  credentialExposure: boolean;
   providers: HostedOnboardingProvider[];
   error?: string | null;
 }) {
@@ -534,6 +558,7 @@ function buildOnboardingPage(input: {
       .small { font-size: 13px; color: #64748b; }
       .submit { margin-top: 24px; width: 100%; border: none; border-radius: 14px; background: #0f172a; color: #fff; padding: 14px 18px; font-size: 16px; font-weight: 700; cursor: pointer; }
       .error { margin: 0 0 18px; padding: 14px 16px; border-radius: 14px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+      .warning { margin: 0 0 18px; padding: 14px 16px; border-radius: 14px; background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; line-height: 1.55; }
       .host-list { margin: 10px 0 0; padding-left: 20px; color: #475569; }
     </style>
   </head>
@@ -544,6 +569,7 @@ function buildOnboardingPage(input: {
         <h1>${htmlEscape(input.title)}</h1>
         <p>${htmlEscape(input.summary ?? 'Set your spending rules once, connect the APIs your agent needs, and let AgentPay handle secure vaulting and governed execution from there.')}</p>
         ${input.error ? `<div class="error">${htmlEscape(input.error)}</div>` : ''}
+        ${input.credentialExposure ? '<div class="warning"><strong>Credential exposure reported.</strong> Do not enter the old credential here. Revoke or rotate it with the provider first, then enter only the replacement in this secure form. AgentPay never asks an agent or chat to receive either secret.</div>' : ''}
         <div class="meta">
           <div class="meta-box"><strong>Expires</strong><div class="small">${htmlEscape(input.expiresAt)}</div></div>
           <div class="meta-box"><strong>Funding status</strong><div class="small">${htmlEscape(input.walletStatus === 'ready' ? 'Saved card already available for faster approvals.' : 'No saved payment method on file yet. AgentPay will ask when paid usage first needs it.')}</div></div>
@@ -1145,6 +1171,7 @@ router.get('/onboarding-sessions/:sessionId/hosted', async (c) => {
       monthlyUsd: typeof limits.monthlyUsd === 'number' ? String(limits.monthlyUsd) : null,
       otpEveryPaidAction: autonomyPolicy.otpEveryPaidAction === true,
       walletStatus: asString(stored.displayPayload.walletStatus),
+      credentialExposure: stored.displayPayload.credentialExposure === true,
       providers,
     }));
   } catch (err) {
@@ -1618,6 +1645,11 @@ router.get('/terminal/control-plane', async (c) => {
       tool: 'agentpay_request_provider_access',
       endpoint: '/api/capabilities/provider-requests',
       purpose: 'Turn "my agent needs this API" into either a preset onboarding flow or a generic AgentPay provider intake.',
+    },
+    {
+      tool: 'agentpay_report_credential_exposure',
+      endpoint: '/api/capabilities/credential-exposure-reports',
+      purpose: 'Report a possible provider-key exposure without sending the key. AgentPay opens a rotate-and-reconnect hosted recovery step.',
     },
     {
       tool: 'agentpay_execute_capability',
@@ -2103,6 +2135,7 @@ async function createProviderAccessAction(
     ? 'delegated_auth_needed'
     : (provider.partnershipStatus ?? 'preset_available');
   const providerLabel = buildRequestedProviderLabel(input.body, getCapabilityProviderDefaults(provider.provider));
+  const credentialExposure = input.body.credentialExposure === true;
   const walletStatus = 'missing';
   const sessionToken = crypto.randomUUID();
   const sessionTokenHash = await sha256Hex(sessionToken);
@@ -2111,8 +2144,10 @@ async function createProviderAccessAction(
     actionType: 'auth_required',
     entityType: 'capability_onboarding',
     entityId: input.principalId ?? input.subjectRef,
-    title: `Finish ${provider.label} setup in AgentPay`,
-    summary: provider.approvalHeadline ?? `AgentPay can take ${provider.label} from request to governed execution without a dashboard. The only remaining dependency is delegated auth or partnership support from the provider.`,
+    title: credentialExposure ? `Secure ${provider.label} after credential exposure` : `Finish ${provider.label} setup in AgentPay`,
+    summary: credentialExposure
+      ? `A possible ${provider.label} credential exposure was reported. Rotate or revoke the old credential with ${provider.label}, then enter only the replacement here. AgentPay keeps the replacement out of agent context.`
+      : provider.approvalHeadline ?? `AgentPay can take ${provider.label} from request to governed execution without a dashboard. The only remaining dependency is delegated auth or partnership support from the provider.`,
     audience: input.audience,
     authType: input.authType,
     resumeUrl: input.resumeUrl,
@@ -2129,6 +2164,7 @@ async function createProviderAccessAction(
       autonomyPolicy: typeof input.body.autonomyPolicy === 'object' && input.body.autonomyPolicy && !Array.isArray(input.body.autonomyPolicy) ? input.body.autonomyPolicy : {},
       limits: typeof input.body.limits === 'object' && input.body.limits && !Array.isArray(input.body.limits) ? input.body.limits : {},
       walletStatus,
+      credentialExposure,
       providers: [provider],
       intake: {
         requestedProviderName: providerLabel,
@@ -2142,6 +2178,7 @@ async function createProviderAccessAction(
     metadata: {
       sessionTokenHash,
       providerRequest: true,
+      credentialExposure,
       requestedProviderName: providerLabel,
       requestedDocsUrl,
       partnershipStatus,
@@ -2188,11 +2225,14 @@ async function createProviderAccessAction(
     },
     nextAction: {
       type: 'auth_required',
-      title: `Finish ${provider.label} setup`,
-      summary: provider.approvalHeadline ?? 'A human needs to connect the provider once in AgentPay. After that, agents can request governed execution through tool calls only.',
+      title: credentialExposure ? `Secure ${provider.label} credential` : `Finish ${provider.label} setup`,
+      summary: credentialExposure
+        ? `Rotate or revoke the exposed credential with ${provider.label}, then connect only its replacement in AgentPay. Do not send either credential to the agent.`
+        : provider.approvalHeadline ?? 'A human needs to connect the provider once in AgentPay. After that, agents can request governed execution through tool calls only.',
       displayPayload: {
-        kind: 'capability_onboarding',
+        kind: credentialExposure ? 'credential_exposure_recovery' : 'capability_onboarding',
         onboardingUrl: onboardingUrl.toString(),
+        credentialExposure,
         partnershipStatus,
         requestedProviderName: providerLabel,
         setupHint: provider.setupHint ?? null,
@@ -2201,6 +2241,69 @@ async function createProviderAccessAction(
     },
   };
 }
+
+router.post('/credential-exposure-reports', async (c) => {
+  const merchant = c.get('merchant');
+  const presentedToken = c.req.header('authorization') ?? c.req.header('x-api-key') ?? '';
+  const audience = c.get('mcpAudience') ?? 'generic';
+  const authType = isMcpAccessToken(presentedToken.startsWith('Bearer ') ? presentedToken.slice(7) : presentedToken) ? 'mcp_token' : 'api_key';
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  // A recovery report is deliberately metadata-only: never move an exposed secret through this endpoint.
+  if (!hasOnlyCredentialExposureMetadata(body) || containsRawCredentialMaterial(body)) {
+    return c.json({ error: 'Do not send an exposed credential to AgentPay. Report only the provider and owner context, then rotate and reconnect through the hosted recovery step.' }, 400);
+  }
+
+  const provider = asString(body.provider);
+  const subjectTypeValue = asString(body.subjectType);
+  const subjectType = subjectTypeValue && isCapabilitySubjectType(subjectTypeValue) ? subjectTypeValue : null;
+  const subjectRef = asString(body.subjectRef);
+  const resumeUrl = asString(body.resumeUrl);
+  if (!provider || !subjectType || !subjectRef) {
+    return c.json({ error: 'provider, subjectType, and subjectRef are required' }, 400);
+  }
+  if (resumeUrl && !isSafeHostedActionResumeUrl(resumeUrl)) {
+    return c.json({ error: 'resumeUrl must be a valid https URL or localhost URL' }, 400);
+  }
+
+  try {
+    const created = await createProviderAccessAction({
+      env: c.env,
+      merchant,
+      audience,
+      authType,
+      body: { ...body, credentialExposure: true },
+      subjectType,
+      subjectRef,
+      principalId: asString(body.principalId),
+      operatorId: asString(body.operatorId),
+      resumeUrl,
+    });
+    return c.json({
+      ...created,
+      exposure: {
+        reported: true,
+        rawCredentialAccepted: false,
+        nextStep: 'Revoke or rotate the exposed credential with the provider, then securely connect only its replacement through the hosted action.',
+      },
+    }, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith('PROVIDER_INPUT_INVALID:') || msg === 'CAPABILITY_BASE_URL_INVALID' || msg === 'CAPABILITY_BASE_URL_INSECURE') {
+      return c.json({ error: 'The provider is unknown. Include safe provider connection details or use a configured provider preset.' }, 400);
+    }
+    if (msg === 'CAPABILITY_HOST_BLOCKED') {
+      return c.json({ error: 'Requested provider host is blocked by AgentPay network policy' }, 403);
+    }
+    console.error('[capabilities] credential exposure recovery failed:', msg);
+    return c.json({ error: 'Failed to create credential exposure recovery action' }, 500);
+  }
+});
 
 router.post('/provider-requests', async (c) => {
   const merchant = c.get('merchant');
