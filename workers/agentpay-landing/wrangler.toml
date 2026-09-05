@@ -1,0 +1,15 @@
+name = "agentpay-landing-production"
+main = "worker-entry.mjs"
+compatibility_date = "2026-06-21"
+workers_dev = false
+
+# Production is the default environment and the existing routed Worker is named
+# `agentpay-landing-production`. Do not add `[env.production]`; that would append
+# another `-production` suffix.
+routes = [
+  { pattern = "agentpay.so/*", zone_name = "agentpay.so" },
+  { pattern = "www.agentpay.so/*", zone_name = "agentpay.so" }
+]
+
+# Health and /api/* pass through. Public HTML is routed explicitly in worker.js
+# (/ , /start, /docs, /about, products). Unknown paths 404.
