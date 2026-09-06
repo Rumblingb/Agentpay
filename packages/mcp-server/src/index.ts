@@ -19,7 +19,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACE_TOOLS, handleAceTool } from './ace-tools.js';
 import { REGISTRY_TOOLS, handleRegistryTool } from './registry-tools.js';
-import { isExecutedAsCliEntry } from './cli-entry.js';
 
 const DEFAULT_API_URL = process.env.AGENTPAY_API_URL ?? 'https://api.agentpay.so';
 const DEFAULT_API_KEY = process.env.AGENTPAY_API_KEY ?? '';
@@ -1839,8 +1838,6 @@ export function createAgentPayMcpServer(
   return server;
 }
 
-export { isExecutedAsCliEntry };
-
 export async function startStdioServer(): Promise<void> {
   const server = createAgentPayMcpServer();
   const transport = new StdioServerTransport();
@@ -1848,10 +1845,7 @@ export async function startStdioServer(): Promise<void> {
   process.stderr.write('AgentPay MCP server running on stdio\n');
 }
 
-const argv1 = typeof process !== 'undefined' && Array.isArray(process.argv)
-  ? process.argv[1]
-  : undefined;
-
-if (isExecutedAsCliEntry(import.meta.url, argv1)) {
-  void startStdioServer();
-}
+// Do not auto-start from this module. npm 0.2.0 used CJS require.main in an
+// ESM package, so `npx` imported the module and exited 0. The published bin
+// is the CLI entry and must call startStdioServer(). Keep ESM-only entry
+// detection out of this file so Jest (CJS) can import the tool surface.

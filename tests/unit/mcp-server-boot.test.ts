@@ -9,8 +9,9 @@ describe('MCP stdio boot contract', () => {
   it('does not use CJS require.main to decide whether to start', () => {
     expect(binSource).not.toMatch(/require\.main/);
     expect(indexSource).not.toMatch(/require\.main\s*===\s*module/);
-    expect(indexSource).toContain('isExecutedAsCliEntry');
+    expect(indexSource).toContain('startStdioServer');
     expect(indexSource).toContain("https://api.agentpay.so");
+    expect(indexSource).not.toMatch(/import\.meta\.url/);
   });
 
   it('starts the stdio server from the published bin instead of a bare import', () => {
