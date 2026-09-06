@@ -11,7 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 # cors middleware and do not need to be listed here.
 CORS_ORIGIN = "https://apay-delta.vercel.app,https://dashboard.agentpay.gg,https://agentpay.gg,https://agentpay.so,https://app.agentpay.so"
 API_BASE_URL = "https://api.agentpay.so"
-FRONTEND_URL = "https://agentpay.gg"
+FRONTEND_URL = "https://agentpay.so"
 NODE_ENV = "production"
 # Cartesia TTS — default voice (British English, Sonic). Non-sensitive; override per-env if needed.
 # Set the secret separately: npx wrangler secret put CARTESIA_API_KEY

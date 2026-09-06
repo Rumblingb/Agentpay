@@ -154,8 +154,37 @@ async function querySettlementIdentity(
 // Route handler
 // ---------------------------------------------------------------------------
 
+router.get('/demo', (c) =>
+  c.json({
+    success: true,
+    demo: true,
+    intent: {
+      id: 'demo',
+      amount: 1,
+      currency: 'USDC',
+      status: 'verified',
+      protocol: 'x402',
+      agentId: null,
+      expiresAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      agent: null,
+    },
+    resolution: null,
+    settlement: null,
+    escrow: null,
+    message: 'Demo receipt. Not a live settlement.',
+  }),
+);
+
 router.get('/:intentId', async (c) => {
   const { intentId } = c.req.param();
+  if (intentId === 'demo') {
+    return c.redirect('/api/receipt/demo', 302);
+  }
+  if (!/^[0-9a-fA-Z_-]{8,128}$/.test(intentId)) {
+    return c.json({ error: 'NOT_FOUND', message: 'Payment intent not found' }, 404);
+  }
 
   const sql = createDb(c.env);
   try {
@@ -250,7 +279,11 @@ router.get('/:intentId', async (c) => {
       escrow: null,
     });
   } catch (err: unknown) {
-    console.error('[receipt] error:', err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/invalid input syntax for type uuid|22P02/i.test(msg)) {
+      return c.json({ error: 'NOT_FOUND', message: 'Payment intent not found' }, 404);
+    }
+    console.error('[receipt] error:', msg);
     return c.json({ error: 'Failed to fetch receipt' }, 500);
   } finally {
     sql.end().catch(() => {});

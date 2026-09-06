@@ -1,8 +1,18 @@
 #!/usr/bin/env node
-import { createAgentPayMcpServer } from '../dist/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { startStdioServer } from '../dist/index.js';
 
-const server = createAgentPayMcpServer();
-const transport = new StdioServerTransport();
-await server.connect(transport);
-process.stderr.write('AgentPay MCP server running on stdio\n');
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  process.stderr.write(
+    'AgentPay MCP server\n'
+    + '\n'
+    + 'Usage:\n'
+    + '  npx -y @agentpayxyz/mcp-server\n'
+    + '\n'
+    + 'Starts an MCP stdio server. A missing AGENTPAY_API_KEY warns on stderr\n'
+    + 'but the process stays up and speaks MCP.\n'
+    + '\n'
+    + 'Default API: https://api.agentpay.so\n',
+  );
+}
+
+await startStdioServer();

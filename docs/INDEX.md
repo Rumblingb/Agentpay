@@ -3,6 +3,7 @@
 Welcome - this is the canonical docs entrypoint for developer-facing guides.
 
 - `QUICKSTART.md` - minimal local dev quickstart for the PR7 happy path
+- `docs/AGENTPAY_SO_PUBLIC_SURFACE.md` - agentpay.so Cloudflare Worker ownership (`/start`, `/docs`, homepage). Requires Cloudflare deploy; this repo PR does not ship live.
 - `INTEGRATION_GUIDE.md` - integration notes and endpoints
 - `docs/HOSTED_COMMERCE_AND_SECURITY_20260419.md` - hosted merchant onboarding, catalog publishing, and security model for Claude/OpenAI-era agent commerce
 - `docs/GROWTH_AGENT_TEAM_20260419.md` - growth/distribution operating model, runnable agents, and messaging guardrails

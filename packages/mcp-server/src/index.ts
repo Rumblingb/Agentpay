@@ -1810,7 +1810,7 @@ export function createAgentPayMcpServer(
   const tools = options?.tools ?? TOOLS;
   const allowedToolNames = new Set(tools.map((tool) => tool.name));
   const server = new Server(
-    { name: options?.serverName ?? 'agentpay', version: '0.2.0' },
+    { name: options?.serverName ?? 'agentpay', version: '0.2.1' },
     { capabilities: { tools: {} } },
   );
 
@@ -1837,3 +1837,15 @@ export function createAgentPayMcpServer(
 
   return server;
 }
+
+export async function startStdioServer(): Promise<void> {
+  const server = createAgentPayMcpServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  process.stderr.write('AgentPay MCP server running on stdio\n');
+}
+
+// Do not auto-start from this module. npm 0.2.0 used CJS require.main in an
+// ESM package, so `npx` imported the module and exited 0. The published bin
+// is the CLI entry and must call startStdioServer(). Keep ESM-only entry
+// detection out of this file so Jest (CJS) can import the tool surface.

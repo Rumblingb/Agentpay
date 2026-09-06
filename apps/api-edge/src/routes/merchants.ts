@@ -28,21 +28,17 @@ import { authenticateApiKey } from '../middleware/auth';
 import { createDb } from '../lib/db';
 import { pbkdf2Hex } from '../lib/pbkdf2';
 import { hmacSign, hmacVerify } from '../lib/hmac';
+import {
+  formatPublicMerchantId,
+  generateMerchantApiKey,
+  randomHex,
+} from '../lib/merchantKeys';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Generate `bytes` random bytes as a lowercase hex string. */
-function randomHex(bytes: number): string {
-  const arr = new Uint8Array(bytes);
-  crypto.getRandomValues(arr);
-  return Array.from(arr)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /** Basic email format check — mirrors Joi.string().email() pattern. */
 function isValidEmail(s: string): boolean {
@@ -310,10 +306,10 @@ router.post('/register', async (c) => {
     }
 
     const merchantId = crypto.randomUUID();
-    const apiKey = randomHex(32);          // 64-char hex, matches Node.js randomBytes(32).toString('hex')
-    const keyPrefix = apiKey.substring(0, 8);
+    const { apiKey, keyPrefix } = generateMerchantApiKey();
     const salt = randomHex(16);            // 32-char hex salt
     const hash = await pbkdf2Hex(apiKey, salt);
+    const publicMerchantId = formatPublicMerchantId(merchantId);
 
     await sql`
       INSERT INTO merchants (id, name, email, api_key_hash, api_key_salt, key_prefix,
@@ -336,7 +332,7 @@ router.post('/register', async (c) => {
             <p style="margin:0 0 6px;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">API Key</p>
             <code style="font-family:monospace;font-size:13px;color:#4ade80;word-break:break-all;">${apiKey}</code>
           </div>
-          <p style="margin:0 0 8px;font-size:13px;color:#475569;">Your merchant ID: <code style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${merchantId}</code></p>
+          <p style="margin:0 0 8px;font-size:13px;color:#475569;">Your merchant ID: <code style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;">${publicMerchantId}</code></p>
           <p style="margin:16px 0 0;font-size:13px;color:#64748b;">Add this to your MCP server config as <code style="font-family:monospace;">AGENTPAY_API_KEY</code>. If you lose this key, use the account recovery flow to get a new one.</p>
         </div>
       </body></html>`,
@@ -345,7 +341,7 @@ router.post('/register', async (c) => {
     if (emailDelivery.status !== 'sent') {
       return c.json({
         success: true,
-        merchantId,
+        merchantId: publicMerchantId,
         apiKey,
         message: 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
         emailDelivery,
@@ -354,7 +350,7 @@ router.post('/register', async (c) => {
 
     return c.json({
       success: true,
-      merchantId,
+      merchantId: publicMerchantId,
       message: `Your API key has been sent to ${normalizedEmail}. Check your inbox.`,
       emailDelivery,
     }, 201);
@@ -894,8 +890,7 @@ router.patch('/profile/wallet', authenticateApiKey, async (c) => {
 
 router.post('/rotate-key', authenticateApiKey, async (c) => {
   const merchant = c.get('merchant');
-  const newApiKey = randomHex(32);
-  const newKeyPrefix = newApiKey.substring(0, 8);
+  const { apiKey: newApiKey, keyPrefix: newKeyPrefix } = generateMerchantApiKey();
   const newSalt = randomHex(16);
   const newHash = await pbkdf2Hex(newApiKey, newSalt);
 
@@ -1125,8 +1120,7 @@ router.post('/recover/confirm', async (c) => {
     }
 
     // Rotate API key
-    const newApiKey = randomHex(32);
-    const newKeyPrefix = newApiKey.substring(0, 8);
+    const { apiKey: newApiKey, keyPrefix: newKeyPrefix } = generateMerchantApiKey();
     const newSalt = randomHex(16);
     const newHash = await pbkdf2Hex(newApiKey, newSalt);
 

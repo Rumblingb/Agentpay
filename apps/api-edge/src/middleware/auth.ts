@@ -244,8 +244,8 @@ export async function authenticateApiKey(
           message: 'Invalid API key',
           help: {
             suggestion: 'Check your API key is correct and active.',
-            link: 'https://docs.agentpay.gg/authentication',
-            fix: 'Generate a new API key at https://dashboard.agentpay.gg/api-keys',
+            link: 'https://agentpay.so/docs',
+            fix: 'Register a key at https://agentpay.so/start or POST /api/merchants/register',
           },
         },
         'invalid_token',
@@ -278,8 +278,8 @@ export async function authenticateApiKey(
         message: 'Invalid API key',
         help: {
           suggestion: 'Check your API key is correct and active.',
-          link: 'https://docs.agentpay.gg/authentication',
-          fix: 'Generate a new API key at https://dashboard.agentpay.gg/api-keys',
+          link: 'https://agentpay.so/docs',
+          fix: 'Register a key at https://agentpay.so/start or POST /api/merchants/register',
         },
       },
       'invalid_token',

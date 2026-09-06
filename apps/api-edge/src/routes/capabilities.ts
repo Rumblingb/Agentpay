@@ -1252,6 +1252,7 @@ router.post('/onboarding-sessions/:sessionId/hosted', async (c) => {
             otpEveryPaidAction,
             walletStatus,
             providers,
+            credentialExposure: stored.displayPayload.credentialExposure === true,
             error: `${provider.label} requires ${field.label.toLowerCase()}.`,
           }));
         }

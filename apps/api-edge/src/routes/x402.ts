@@ -2,28 +2,131 @@
  * x402 — HTTP 402 Payment Required protocol handler (Cloudflare Workers / Hono)
  *
  * Flow:
- *   1. Any route can respond with 402 + a payment descriptor
+ *   1. Discovery returns a 402 challenge descriptor
  *   2. Agent/client creates an intent at POST /api/v1/payment-intents
  *   3. Agent retries the original request with X-AgentPay-Payment-Id header
- *   4. This middleware verifies the payment and forwards to the resource
+ *   4. POST /api/x402/verify checks the payment against /api/verify/:id
  *
  * Endpoints:
+ *   GET  /api/x402               — HTTP 402 challenge (canonical discovery)
+ *   GET  /api/x402/challenge     — same challenge
+ *   GET  /api/x402/pay           — same challenge
  *   GET  /api/x402/schema        — machine-readable protocol schema
  *   POST /api/x402/verify        — verify a payment token (internal + SDK use)
  */
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
+import { getInternalAppFetcher } from '../lib/internalAppFetch';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const BASE_URL = 'https://api.agentpay.so';
+function publicApiBase(env: Env): string {
+  return (env.API_BASE_URL || 'https://api.agentpay.so').replace(/\/$/, '');
+}
+
+export function build402Descriptor(opts: {
+  resource: string;
+  amountUsd: number;
+  minAgentRank?: number;
+  apiBase?: string;
+}) {
+  const base = opts.apiBase ?? 'https://api.agentpay.so';
+  return {
+    version: '1.0',
+    scheme: 'x402',
+    resource: opts.resource,
+    amountUsd: opts.amountUsd,
+    currency: 'USD',
+    paymentEndpoints: {
+      agentpay: `${base}/api/v1/payment-intents`,
+      solana: `${base}/api/v1/payment-intents`,
+    },
+    acceptedNetworks: ['solana', 'stripe'],
+    memo: `Payment required for ${opts.resource}`,
+    verify: { method: 'POST', path: '/api/x402/verify' },
+    schema: { method: 'GET', path: '/api/x402/schema' },
+    ...(opts.minAgentRank
+      ? {
+          agentRankRequirement: {
+            minimum: opts.minAgentRank,
+            checkUrl: `${base}/api/passport/:agentId`,
+          },
+        }
+      : {}),
+  };
+}
+
+function challengeHeaders(): Record<string, string> {
+  return {
+    'X-AgentPay-Protocol': 'x402',
+    'X-AgentPay-Amount-USD': '1',
+    'X-AgentPay-Resource': 'x402-challenge',
+  };
+}
+
+function challengeBody(env: Env) {
+  return build402Descriptor({
+    resource: 'x402-challenge',
+    amountUsd: 0.01,
+    apiBase: publicApiBase(env),
+  });
+}
+
+function respondWithChallenge(c: { json: (body: unknown, status: 402, headers?: Record<string, string>) => Response; env: Env }) {
+  return c.json(challengeBody(c.env), 402, challengeHeaders());
+}
+
+async function readVerifyJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // fall through
+  }
+  throw new Error(`Verify backend returned non-JSON (${res.status})`);
+}
+
+async function lookupPayment(c: { env: Env; executionCtx: unknown }, paymentId: string): Promise<Record<string, unknown>> {
+  const base = publicApiBase(c.env);
+  const verifyUrl = `${base}/api/verify/${encodeURIComponent(paymentId)}`;
+  const request = new Request(verifyUrl, {
+    headers: { 'User-Agent': 'AgentPay-x402-verifier/1.0' },
+  });
+
+  const internal = getInternalAppFetcher();
+  if (internal) {
+    const res = await internal(request, c.env, c.executionCtx as never);
+    return readVerifyJson(res);
+  }
+
+  try {
+    const res = await fetch(verifyUrl, {
+      headers: { 'User-Agent': 'AgentPay-x402-verifier/1.0' },
+    });
+    return readVerifyJson(res);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`Verification backend unavailable: ${reason}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/x402  — advertised challenge
+// ---------------------------------------------------------------------------
+router.get('/', (c) => respondWithChallenge(c));
+router.get('/challenge', (c) => respondWithChallenge(c));
+router.get('/pay', (c) => respondWithChallenge(c));
 
 // ---------------------------------------------------------------------------
 // GET /api/x402/schema  — discovery endpoint for agents
 // ---------------------------------------------------------------------------
-router.get('/schema', (c) =>
-  c.json({
+router.get('/schema', (c) => {
+  const base = publicApiBase(c.env);
+  return c.json({
     protocol: 'x402',
     version: '1.0',
     description:
@@ -43,6 +146,7 @@ router.get('/schema', (c) =>
       ],
     },
     endpoints: {
+      challenge: { method: 'GET', path: '/api/x402', status: 402 },
       schema: { method: 'GET', path: '/api/x402/schema' },
       verify: { method: 'POST', path: '/api/x402/verify' },
       createIntent: { method: 'POST', path: '/api/v1/payment-intents' },
@@ -50,11 +154,11 @@ router.get('/schema', (c) =>
     },
     agentRank: {
       description: 'Resources can require a minimum AgentRank score',
-      checkUrl: `${BASE_URL}/api/passport/:agentId`,
+      checkUrl: `${base}/api/passport/:agentId`,
     },
     docs: 'https://agentpay.so/docs#x402',
-  }),
-);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/x402/verify  — verify a payment proof
@@ -72,20 +176,26 @@ router.post('/verify', async (c) => {
     return c.json({ error: 'paymentId is required' }, 400);
   }
 
-  // Proxy to our own verify endpoint (single source of truth)
-  const verifyUrl = `${BASE_URL}/api/verify/${encodeURIComponent(paymentId)}`;
-  let data: any;
+  let data: Record<string, unknown>;
   try {
-    const res = await fetch(verifyUrl, {
-      headers: { 'User-Agent': 'AgentPay-x402-verifier/1.0' },
-    });
-    data = await res.json();
-  } catch {
-    return c.json({ verified: false, error: 'Verification service unreachable' }, 502);
+    data = await lookupPayment(c, paymentId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : 'Verification backend unavailable';
+    return c.json({
+      verified: false,
+      error: 'verification_backend_unavailable',
+      reason,
+      protocol: 'x402',
+    }, 503);
   }
 
-  if (data.status !== 'verified' && data.status !== 'completed') {
-    return c.json({ verified: false, reason: `Payment status: ${data.status}`, protocol: 'x402' }, 402);
+  const status = typeof data.status === 'string' ? data.status : undefined;
+  if (status !== 'verified' && status !== 'completed' && status !== 'confirmed' && data.verified !== true) {
+    return c.json({
+      verified: false,
+      reason: `Payment status: ${status ?? 'unknown'}`,
+      protocol: 'x402',
+    }, 402);
   }
 
   if (requiredAmountUsd !== undefined && Number(data.amount) < requiredAmountUsd) {
@@ -99,42 +209,11 @@ router.post('/verify', async (c) => {
   return c.json({
     verified: true,
     paymentId,
-    status: data.status,
-    amount: data.amount,
+    status: status ?? 'verified',
+    amount: data.amount ?? null,
     protocol: 'x402',
     verifiedAt: new Date().toISOString(),
   });
 });
-
-// ---------------------------------------------------------------------------
-// Helper: build a 402 descriptor (used by other routes via import)
-// ---------------------------------------------------------------------------
-export function build402Descriptor(opts: {
-  resource: string;
-  amountUsd: number;
-  minAgentRank?: number;
-}) {
-  return {
-    version: '1.0',
-    scheme: 'x402',
-    resource: opts.resource,
-    amountUsd: opts.amountUsd,
-    currency: 'USD',
-    paymentEndpoints: {
-      agentpay: `${BASE_URL}/api/v1/payment-intents`,
-      solana: `${BASE_URL}/api/v1/payment-intents`,
-    },
-    acceptedNetworks: ['solana', 'stripe'],
-    memo: `Payment required for ${opts.resource}`,
-    ...(opts.minAgentRank
-      ? {
-          agentRankRequirement: {
-            minimum: opts.minAgentRank,
-            checkUrl: `${BASE_URL}/api/passport/:agentId`,
-          },
-        }
-      : {}),
-  };
-}
 
 export { router as x402Router };

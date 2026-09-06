@@ -1,7 +1,7 @@
 import { createDb } from './db';
 import type { Env, MerchantContext } from '../types';
 
-export const HOSTED_MCP_PRICING_VERSION = '2026-04-16';
+export const HOSTED_MCP_PRICING_VERSION = '2026-09-06';
 export const HOSTED_MCP_DEFAULT_PLAN = 'launch';
 export const HOSTED_MCP_FUNDED_ACTION_FEE_BPS = 75;
 export const HOSTED_MCP_FUNDED_ACTION_MINIMUM_USD = 0.25;
@@ -27,7 +27,7 @@ export const HOSTED_MCP_PLANS: Record<HostedMcpPlanCode, HostedMcpPlan> = {
     code: 'launch',
     label: 'Launch',
     monthlyUsd: 0,
-    includedToolCalls: 250,
+    includedToolCalls: 50,
     includedTokenMints: 25,
     overagePerThousandToolCallsUsd: null,
     notes: 'Developer and evaluation tier. Best for testing remote MCP and early pilots.',
