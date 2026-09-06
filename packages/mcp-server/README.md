@@ -199,4 +199,25 @@ Claude will call `agentpay_execute_capability`. AgentPay injects the vaulted cre
 |----------|----------|-------------|
 | `AGENTPAY_API_KEY` | Yes | Your merchant API key |
 | `AGENTPAY_MERCHANT_ID` | Recommended | Your merchant ID (used in intent creation) |
-| `AGENTPAY_API_URL` | No | Override API URL (default: production Workers endpoint) |
+| `AGENTPAY_API_URL` | No | Override API URL (default: `https://api.agentpay.so`) |
+
+## Publish `@agentpayxyz/mcp-server` 0.2.1
+
+This repo does **not** auto-publish the MCP package. Do not publish from a cloud agent unless you have an npm token and an explicit release request.
+
+After this PR is merged:
+
+```bash
+cd packages/mcp-server
+npm run build
+npm pack --dry-run   # confirm bin/agentpay-mcp.mjs and dist/ are included
+npm publish --access public
+```
+
+Confirm the published tarball boots:
+
+```bash
+npx -y @agentpayxyz/mcp-server@0.2.1 --help
+```
+
+A missing `AGENTPAY_API_KEY` may warn on stderr. The process must stay up and speak MCP stdio instead of exiting 0.

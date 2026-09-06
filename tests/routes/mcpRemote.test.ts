@@ -133,6 +133,9 @@ describe('hosted remote MCP surface', () => {
     expect(body.checkoutEndpoint).toBe('http://agentpay.test/api/mcp/billing/checkout');
     expect(body.setupEndpoint).toBe('http://agentpay.test/api/mcp/setup');
     expect(body.demoEndpoint).toBe('http://agentpay.test/api/mcp/demo');
+    const launch = (body.plans as Array<Record<string, unknown>>).find((plan) => plan.code === 'launch');
+    expect(launch?.includedToolCalls).toBe(50);
+    expect(JSON.stringify(body)).not.toContain('agentpay.gg');
     expect(res.status).toBe(200);
   });
 
@@ -191,6 +194,7 @@ describe('hosted remote MCP surface', () => {
       status: 'ready_now_manual_mcp',
       guideUrl: 'http://agentpay.test/docs/GENERIC_AGENT_SETUP',
     }));
+    expect(JSON.stringify(setupBody)).not.toContain('agentpay.gg');
     expect(setupBody.nextActionContract).toEqual(expect.objectContaining({
       responsePattern: 'result_or_next_action',
     }));

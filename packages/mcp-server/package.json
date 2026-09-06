@@ -1,6 +1,6 @@
 {
   "name": "@agentpayxyz/mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.Rumblingb/agentpay",
   "description": "MCP server for AgentPay — autonomous agent infrastructure for payments, API key vaulting, and governed mandates. One OTP vaults credentials so agents never handle raw API keys. Agents spend money within user-defined limits. Works with Claude, GPT-4o, and any MCP host.",
   "type": "module",

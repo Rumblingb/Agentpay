@@ -19,6 +19,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACE_TOOLS, handleAceTool } from './ace-tools.js';
 import { REGISTRY_TOOLS, handleRegistryTool } from './registry-tools.js';
+import { isExecutedAsCliEntry } from './cli-entry.js';
 
 const DEFAULT_API_URL = process.env.AGENTPAY_API_URL ?? 'https://api.agentpay.so';
 const DEFAULT_API_KEY = process.env.AGENTPAY_API_KEY ?? '';
@@ -1810,7 +1811,7 @@ export function createAgentPayMcpServer(
   const tools = options?.tools ?? TOOLS;
   const allowedToolNames = new Set(tools.map((tool) => tool.name));
   const server = new Server(
-    { name: options?.serverName ?? 'agentpay', version: '0.2.0' },
+    { name: options?.serverName ?? 'agentpay', version: '0.2.1' },
     { capabilities: { tools: {} } },
   );
 
@@ -1836,4 +1837,21 @@ export function createAgentPayMcpServer(
   });
 
   return server;
+}
+
+export { isExecutedAsCliEntry };
+
+export async function startStdioServer(): Promise<void> {
+  const server = createAgentPayMcpServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  process.stderr.write('AgentPay MCP server running on stdio\n');
+}
+
+const argv1 = typeof process !== 'undefined' && Array.isArray(process.argv)
+  ? process.argv[1]
+  : undefined;
+
+if (isExecutedAsCliEntry(import.meta.url, argv1)) {
+  void startStdioServer();
 }

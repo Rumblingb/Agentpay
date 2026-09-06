@@ -147,6 +147,8 @@ app.route('/api/v1/agents', v1AgentsRouter);
 
 // Protocol routes
 app.route('/api/x402', x402Router);
+app.route('/x402', x402Router);
+app.route('/.well-known/x402', x402Router);
 app.route('/api/ap2', ap2Router);
 app.route('/api/acp', acpRouter);
 

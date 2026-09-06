@@ -202,6 +202,8 @@ describe('api-edge merchant email delivery', () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(typeof body.apiKey).toBe('string');
+    expect(body.apiKey).toMatch(/^apk_[0-9a-f]{64}$/);
+    expect(body.merchantId).toMatch(/^mer_[0-9a-f-]{36}$/);
     expect(body.emailDelivery).toEqual({
       status: 'failed',
       provider: 'resend',

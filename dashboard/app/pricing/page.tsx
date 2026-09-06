@@ -18,7 +18,7 @@ const PLANS = [
     cta: 'Get started free',
     ctaHref: '/login',
     features: [
-      '250 tool calls / month',
+      '50 tool calls / month',
       '25 credential vaults',
       'MCP server + remote endpoint',
       'Agent Passport + trust graph',
@@ -268,7 +268,7 @@ export default function PricingPage() {
               },
               {
                 q: 'Is there a genuinely free tier?',
-                a: 'Yes. Launch is free forever — 250 tool calls and 25 credential vaults per month. No card required to register. Great for evaluation and low-volume agents.',
+                a: 'Yes. Launch is free forever — 50 tool calls and 25 credential vaults per month. No card required to register. Great for evaluation and low-volume agents.',
               },
               {
                 q: 'What happens when I exceed my plan\'s tool calls?',
