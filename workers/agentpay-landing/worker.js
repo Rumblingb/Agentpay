@@ -578,7 +578,7 @@ const START_PAGE = `<!DOCTYPE html>
   <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
 
   <h2 id="key">1. Get a key</h2>
-  <p class="note">Launch is $0. 50 free calls. No card to start. Default spend limit is $25 — raise it on the key.</p>
+  <p class="note">Launch is $0. 50 free calls. No card to start. The 201 body includes <code>apk_</code>. Default spend limit is $25 — raise it on the key.</p>
   <pre>curl -s -X POST https://api.agentpay.so/api/merchants/register \\
   -H "Content-Type: application/json" \\
   -d '{ "name": "My Agent", "email": "you@example.com", "spendLimitUsd": 25 }'</pre>

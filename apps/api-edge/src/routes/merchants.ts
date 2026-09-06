@@ -360,22 +360,15 @@ router.post('/register', async (c) => {
       </body></html>`,
     });
 
-    if (emailDelivery.status !== 'sent') {
-      return c.json({
-        success: true,
-        merchantId: publicMerchantId,
-        apiKey,
-        spendLimitUsd: resolvedSpendLimitUsd,
-        message: 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
-        emailDelivery,
-      }, 201);
-    }
-
+    const emailed = emailDelivery.status === 'sent';
     return c.json({
       success: true,
       merchantId: publicMerchantId,
+      apiKey,
       spendLimitUsd: resolvedSpendLimitUsd,
-      message: `Your API key has been sent to ${normalizedEmail}. Check your inbox.`,
+      message: emailed
+        ? `Your API key is below and was also sent to ${normalizedEmail}. Store it now — it will not be shown again.`
+        : 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
       emailDelivery,
     }, 201);
   } catch (err: unknown) {

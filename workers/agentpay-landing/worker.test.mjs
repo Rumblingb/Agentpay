@@ -253,6 +253,7 @@ try {
   assert.equal(countH1(startHtml), 1, '/start must have one primary H1')
   assert.match(startHtml, /<h1>Your agent can pay with a card or with crypto\. One key\. You set the limit\.<\/h1>/)
   assert.match(startHtml, /Get a key — 50 free calls/)
+  assert.match(startHtml, /apk_/)
   assert.match(startHtml, /Launch is \$0/)
   assert.match(startHtml, /Builder is \$39\/mo/)
   assert.match(startHtml, /75 bps/)

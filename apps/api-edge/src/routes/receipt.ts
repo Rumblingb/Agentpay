@@ -177,32 +177,35 @@ router.get('/demo', (c) =>
   }),
 );
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 router.get('/:intentId', async (c) => {
   const { intentId } = c.req.param();
   if (intentId === 'demo') {
     return c.redirect('/api/receipt/demo', 302);
   }
-  if (!/^[0-9a-fA-Z_-]{8,128}$/.test(intentId)) {
+  if (!isUuid(intentId)) {
     return c.json({ error: 'NOT_FOUND', message: 'Payment intent not found' }, 404);
   }
 
   const sql = createDb(c.env);
   try {
+    // No agents join on the critical path — missing/legacy agent tables
+    // previously 500'd live GET /api/receipt/:intentId.
     const rows = await sql<IntentRow[]>`
-      SELECT pi.id,
-             pi.amount,
-             pi.currency,
-             pi.status,
-             pi.protocol,
-             pi.agent_id          AS "agentId",
-             pi.expires_at        AS "expiresAt",
-             pi.created_at        AS "createdAt",
-             pi.updated_at        AS "updatedAt",
-             a.display_name       AS "agentDisplayName",
-             a.risk_score         AS "agentRiskScore"
-      FROM payment_intents pi
-      LEFT JOIN agents a ON a.id = pi.agent_id
-      WHERE pi.id = ${intentId}
+      SELECT id,
+             amount,
+             currency,
+             status,
+             protocol,
+             agent_id   AS "agentId",
+             expires_at AS "expiresAt",
+             created_at AS "createdAt",
+             updated_at AS "updatedAt"
+      FROM payment_intents
+      WHERE id = ${intentId}::uuid
     `;
 
     if (!rows.length) {
@@ -210,6 +213,8 @@ router.get('/:intentId', async (c) => {
     }
 
     const row = rows[0];
+    row.agentDisplayName = null;
+    row.agentRiskScore = null;
 
     // Phase 8: fetch resolution + settlement identity in parallel (best-effort).
     const [resolutionRow, settlementRow] = await Promise.all([
@@ -284,7 +289,10 @@ router.get('/:intentId', async (c) => {
       return c.json({ error: 'NOT_FOUND', message: 'Payment intent not found' }, 404);
     }
     console.error('[receipt] error:', msg);
-    return c.json({ error: 'Failed to fetch receipt' }, 500);
+    return c.json({
+      error: 'RECEIPT_UNAVAILABLE',
+      message: 'Receipt lookup is unavailable right now. Retry, or use GET /api/receipt/demo for the static proof shape.',
+    }, 503);
   } finally {
     sql.end().catch(() => {});
   }
