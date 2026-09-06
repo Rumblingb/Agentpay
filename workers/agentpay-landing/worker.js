@@ -52,7 +52,7 @@ async function handleRequest(request) {
       status: 'ok',
       scope: 'edge',
       services: EDGE_SERVICE_STATUS,
-      note: 'Edge worker status only. Backend health is served by the origin at /api/health.',
+      note: 'Edge worker status only. This is not an operational claim for database, escrow, KYA, or AgentRank. Backend health is /api/health and must not report those as operational unless probed.',
       timestamp: new Date().toISOString()
     }), {
       headers: mergeHeaders({
@@ -569,7 +569,7 @@ const START_PAGE = `<!DOCTYPE html>
 <div class="container">
   ${marketingNav()}
   <h1>Your agent can pay with a card or with crypto. One key. You set the limit.</h1>
-  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card, UPI, Open Banking, or x402).</p>
+  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card or x402/USDC).</p>
   <div class="cta-group">
     <a class="btn-primary" href="#key">Get a key — 50 free calls</a>
     <a class="btn-secondary" href="/docs">Docs</a>
@@ -578,10 +578,10 @@ const START_PAGE = `<!DOCTYPE html>
   <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
 
   <h2 id="key">1. Get a key</h2>
-  <p class="note">Launch is $0. 50 free calls. No card to start.</p>
+  <p class="note">Launch is $0. 50 free calls. No card to start. The 201 body includes <code>apk_</code>. Default spend limit is $25 — raise it on the key.</p>
   <pre>curl -s -X POST https://api.agentpay.so/api/merchants/register \\
   -H "Content-Type: application/json" \\
-  -d '{ "name": "My Agent", "email": "you@example.com" }'</pre>
+  -d '{ "name": "My Agent", "email": "you@example.com", "spendLimitUsd": 25 }'</pre>
 
   <h2>2. Paste into Cursor or Claude</h2>
   <pre>{
@@ -598,7 +598,7 @@ const START_PAGE = `<!DOCTYPE html>
 }</pre>
   <p class="note">Remote: <code>https://api.agentpay.so/api/mcp</code> with <code>Authorization: Bearer apk_...</code></p>
 
-  <p class="next">When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. UK and India: GBP/INR receipts, UPI, Open Banking, GDPR.</p>
+  <p class="next">When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. London and Bangalore. GDPR. Builder checkout is POST https://api.agentpay.so/api/billing/plans/builder when Stripe is configured.</p>
   ${marketingFooter()}
 </div>
 </body>
@@ -669,7 +669,7 @@ Authorization: Bearer apk_your_key_here</pre>
     <li>MCP Builder: $39/mo hosted MCP on x402, 75 bps on funded actions once money moves.</li>
     <li>Growth: $149/mo exists; not the week-one offer.</li>
   </ul>
-  <p class="note">Wedge: UK + India — GBP/INR receipts, UPI, Open Banking/Faster Payments, GDPR.</p>
+  <p class="note">London and Bangalore. GDPR. Card and x402/USDC are the advertised rails. Other regional rails stay unpublished until they settle with a receipt.</p>
   ${marketingFooter()}
 </div>
 </body>
@@ -699,7 +699,7 @@ const ABOUT_PAGE = `<!DOCTYPE html>
     <li>Uncertain or unsafe actions should fail closed and ask for review.</li>
   </ul>
   <h2>Where we start</h2>
-  <p>UK and India: GBP/INR receipts, UPI, Open Banking/Faster Payments, GDPR.</p>
+  <p>London and Bangalore. GDPR. Payment rails on this surface: card and x402/USDC.</p>
   <div class="cta-group">
     <a class="btn-primary" href="/start">Get started</a>
     <a class="btn-secondary" href="/docs">Read the docs</a>
@@ -729,14 +729,14 @@ const LANDING_PAGE = `<!DOCTYPE html>
 <div class="container">
   ${marketingNav()}
   <h1>Your agent can pay with a card or with crypto. One key. You set the limit.</h1>
-  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card, UPI, Open Banking, or x402).</p>
+  <p class="hero-use">Cursor or Claude can buy search, scrape, tickets, APIs. Same key, same limit, same receipt (card or x402/USDC).</p>
   <div class="cta-group">
     <a class="btn-primary" href="/start">Get a key — 50 free calls</a>
     <a class="btn-secondary" href="/docs">Docs</a>
   </div>
   <pre class="install-line">npx -y @agentpayxyz/mcp-server</pre>
   <p class="note">JS SDK (optional): <code>npm install @agentpayxyz/sdk</code></p>
-  <p class="next">Launch is $0. When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. Built for UK and India — GBP/INR receipts, UPI, Open Banking, GDPR.</p>
+  <p class="next">Launch is $0. When you outgrow free, Builder is $39/mo plus 75 bps on funded actions. London and Bangalore. GDPR.</p>
   ${marketingFooter()}
 </div>
 </body>

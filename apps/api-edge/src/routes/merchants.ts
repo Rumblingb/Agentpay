@@ -33,6 +33,11 @@ import {
   generateMerchantApiKey,
   randomHex,
 } from '../lib/merchantKeys';
+import {
+  LAUNCH_DEFAULT_SPEND_LIMIT_USD,
+  mergeSpendLimitOverride,
+  parseSpendLimitUsd,
+} from '../lib/spendCeiling';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -259,7 +264,7 @@ function scheduleBackgroundTask(
 // ---------------------------------------------------------------------------
 
 router.get('/register', (c) => {
-  return c.redirect('https://apay-delta.vercel.app#register', 302);
+  return c.redirect('https://agentpay.so/start', 302);
 });
 
 router.post('/register', async (c) => {
@@ -270,7 +275,7 @@ router.post('/register', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { name, email, walletAddress, webhookUrl } = body as Record<string, string | undefined>;
+  const { name, email, walletAddress, webhookUrl, spendLimitUsd } = body as Record<string, string | number | undefined>;
 
   // Validation
   if (!name || typeof name !== 'string' || name.length < 3 || name.length > 255) {
@@ -291,6 +296,10 @@ router.post('/register', async (c) => {
   const normalizedName = name.trim();
   const normalizedEmail = email.trim().toLowerCase();
   const resolvedWalletAddress = (typeof walletAddress === 'string' && walletAddress.trim()) ? walletAddress.trim() : null;
+  if (spendLimitUsd !== undefined && parseSpendLimitUsd(spendLimitUsd) === null) {
+    return c.json({ error: 'Validation error', details: ['"spendLimitUsd" must be a positive number'] }, 400);
+  }
+  const resolvedSpendLimitUsd = parseSpendLimitUsd(spendLimitUsd) ?? LAUNCH_DEFAULT_SPEND_LIMIT_USD;
 
   const sql = createDb(c.env);
   try {
@@ -318,7 +327,20 @@ router.post('/register', async (c) => {
               ${resolvedWalletAddress}, ${webhookUrl ?? null}, true, NOW())
     `;
 
-    console.info('[merchants] registered', { merchantId, email: normalizedEmail });
+    await sql`
+      UPDATE merchants
+      SET hosted_mcp_pricing_override_json = ${JSON.stringify(
+        mergeSpendLimitOverride(null, resolvedSpendLimitUsd),
+      )}::jsonb
+      WHERE id = ${merchantId}
+    `.catch((err: unknown) => {
+      console.warn(
+        '[merchants] spend limit persist skipped',
+        err instanceof Error ? err.message : err,
+      );
+    });
+
+    console.info('[merchants] registered', { merchantId, email: normalizedEmail, spendLimitUsd: resolvedSpendLimitUsd });
 
     const emailDelivery = await sendResendEmail(c.env, 'register', {
       from: 'AgentPay <notifications@agentpay.so>',
@@ -338,20 +360,15 @@ router.post('/register', async (c) => {
       </body></html>`,
     });
 
-    if (emailDelivery.status !== 'sent') {
-      return c.json({
-        success: true,
-        merchantId: publicMerchantId,
-        apiKey,
-        message: 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
-        emailDelivery,
-      }, 201);
-    }
-
+    const emailed = emailDelivery.status === 'sent';
     return c.json({
       success: true,
       merchantId: publicMerchantId,
-      message: `Your API key has been sent to ${normalizedEmail}. Check your inbox.`,
+      apiKey,
+      spendLimitUsd: resolvedSpendLimitUsd,
+      message: emailed
+        ? `Your API key is below and was also sent to ${normalizedEmail}. Store it now — it will not be shown again.`
+        : 'Email delivery is unavailable right now, so your API key is returned directly. Store it securely — it will not be shown again.',
       emailDelivery,
     }, 201);
   } catch (err: unknown) {
@@ -426,6 +443,51 @@ async function handleGetProfile(c: Context<{ Bindings: Env; Variables: Variables
 
 router.get('/profile', authenticateApiKey, handleGetProfile);
 router.get('/me', authenticateApiKey, handleGetProfile);
+
+router.patch('/profile/spend-limit', authenticateApiKey, async (c) => {
+  const merchant = c.get('merchant');
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const spendLimitUsd = parseSpendLimitUsd(body.spendLimitUsd);
+  if (spendLimitUsd === null) {
+    return c.json({ error: 'Validation error', details: ['"spendLimitUsd" must be a positive number'] }, 400);
+  }
+
+  const sql = createDb(c.env);
+  try {
+    const rows = await sql<Array<{ pricingOverride: unknown }>>`
+      SELECT hosted_mcp_pricing_override_json AS "pricingOverride"
+      FROM merchants
+      WHERE id = ${merchant.id}
+      LIMIT 1
+    `.catch(() => [] as Array<{ pricingOverride: unknown }>);
+
+    await sql`
+      UPDATE merchants
+      SET hosted_mcp_pricing_override_json = ${JSON.stringify(
+        mergeSpendLimitOverride(rows[0]?.pricingOverride, spendLimitUsd),
+      )}::jsonb,
+          updated_at = NOW()
+      WHERE id = ${merchant.id}
+    `;
+
+    return c.json({
+      success: true,
+      spendLimitUsd,
+      message: 'Spend limit updated. Over-limit payment intents will be rejected.',
+    });
+  } catch (err: unknown) {
+    console.error('[merchants] spend-limit update error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Failed to update spend limit' }, 500);
+  } finally {
+    sql.end().catch(() => {});
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/merchants/webhooks

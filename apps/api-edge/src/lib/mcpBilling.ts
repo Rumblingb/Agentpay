@@ -115,6 +115,12 @@ export function getHostedMcpPublicPricing() {
       behavior: 'accrue_until_threshold',
       note: 'Charges accrue and are collected once they exceed the minimum threshold.',
     },
+    builderPlan: {
+      monthlyUsd: 39,
+      priceId: 'price_1U9CNjPXcf9g8qGxzygstusB',
+      checkoutPath: '/api/billing/plans/builder',
+      note: 'collection.available is true only when STRIPE_SECRET_KEY is set on api-edge.',
+    },
   };
 }
 

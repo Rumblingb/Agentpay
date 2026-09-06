@@ -9,7 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 # Add new origins here (no trailing slashes).  Vercel preview URLs
 # (https://<agentpay|apay>-*.vercel.app) are allowed automatically by the
 # cors middleware and do not need to be listed here.
-CORS_ORIGIN = "https://apay-delta.vercel.app,https://dashboard.agentpay.gg,https://agentpay.gg,https://agentpay.so,https://app.agentpay.so"
+CORS_ORIGIN = "https://agentpay.so,https://app.agentpay.so,https://apay-delta.vercel.app"
 API_BASE_URL = "https://api.agentpay.so"
 FRONTEND_URL = "https://agentpay.so"
 NODE_ENV = "production"
@@ -23,7 +23,7 @@ AGENTPAY_LIVE_PAYMENTS_ENABLED = "false"
 AGENTPAY_PAYMENTS_ENABLED = "false"
 AGENTPAY_ALLOWED_PAYMENT_PROVIDERS = "stripe,airwallex,x402"
 AGENTPAY_ALLOWED_PAYMENT_CURRENCIES = "USD,GBP,EUR"
-AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS = "agentpay.so,app.agentpay.so,dashboard.agentpay.gg"
+AGENTPAY_ALLOWED_PAYMENT_REDIRECT_HOSTS = "agentpay.so,app.agentpay.so"
 AGENTPAY_MAX_PAYMENT_MINOR = "10000"
 AGENTPAY_MAX_DAILY_PAYMENT_MINOR = "50000"
 

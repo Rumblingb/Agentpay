@@ -77,9 +77,9 @@ These are non-sensitive and can be committed in `apps/api-edge/wrangler.toml`. O
 | Variable | Example | Description |
 |----------|---------|-------------|
 | `NODE_ENV` | `"production"` | Runtime environment name. **Must be `"production"` in the Cloudflare dashboard** to enforce production safety guards. |
-| `CORS_ORIGIN` | `"https://apay-delta.vercel.app,https://dashboard.agentpay.gg"` | Comma-separated list of allowed CORS origins. |
+| `CORS_ORIGIN` | `"https://agentpay.so,https://app.agentpay.so"` | Comma-separated list of allowed CORS origins. `agentpay.gg` stays dark. |
 | `API_BASE_URL` | `"https://api.agentpay.so"` | Public base URL of this Workers deployment. Used for absolute callback URLs. |
-| `FRONTEND_URL` | `"https://apay-delta.vercel.app"` | Dashboard URL for post-payment redirects. |
+| `FRONTEND_URL` | `"https://agentpay.so"` | Public site URL for post-payment redirects. |
 | `OPENAI_COMMERCE_MODEL` | `"gpt-5.6"` | Optional allowlisted commerce model selector; unsupported values fall back to `gpt-5.6`. |
 
 ### Commerce compiler quotas

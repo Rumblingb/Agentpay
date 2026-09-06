@@ -63,6 +63,7 @@ import { actionsRouter } from './routes/actions';
 import { paymentProvidersRouter } from './routes/paymentProviders';
 import { paymentProviderWebhooksRouter } from './routes/paymentProviderWebhooks';
 import { commerceRouter } from './routes/commerce';
+import { billingPlansRouter } from './routes/billingPlans';
 
 import { scheduledHandler } from './cron';
 import { SolanaListenerDO } from './durable-objects/SolanaListenerDO';
@@ -138,6 +139,9 @@ app.route('/api/merchants', merchantsRouter);
 
 // Payment intent routes — /api/intents/*
 app.route('/api/intents', intentsRouter);
+
+// Builder plan checkout — /api/billing/plans/builder
+app.route('/api/billing/plans/builder', billingPlansRouter);
 
 // Agent-facing payment intents — /api/v1/payment-intents/*
 app.route('/api/v1/payment-intents', v1IntentsRouter);

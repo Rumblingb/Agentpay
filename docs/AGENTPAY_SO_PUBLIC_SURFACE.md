@@ -14,9 +14,9 @@
 | `https://app.agentpay.so` | Vercel dashboard | `dashboard/` |
 | Repo-root `index.html` | leftover, not live | do not treat as marketing |
 
-`agentpay.gg` DNS is dead. Leave it dark.
+`agentpay.gg` DNS is dead. Leave it dark. Production CORS is `https://agentpay.so,https://app.agentpay.so` plus the existing Vercel preview origin. Do not list `agentpay.gg` or `dashboard.agentpay.gg`.
 
-Public `/`, `/start`, and `/docs` stay AgentPay-only: guardrails + payment authority. Do not name Ace, IRCTC, National Rail, or Postizzz. UK/India copy is payment rails only (GBP/INR, UPI, Open Banking). H1 stays locked:
+Public `/`, `/start`, and `/docs` stay AgentPay-only: guardrails + payment authority. Do not name Ace, IRCTC, National Rail, or Postizzz. Do not advertise UPI or Open Banking until those rails settle with a receipt. H1 stays locked:
 
 > Your agent can pay with a card or with crypto. One key. You set the limit.
 

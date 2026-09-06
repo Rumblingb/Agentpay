@@ -18,6 +18,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { getInternalAppFetcher } from '../lib/internalAppFetch';
+import { isSolanaAddress } from '../lib/cryptoRecipient';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -30,8 +31,10 @@ export function build402Descriptor(opts: {
   amountUsd: number;
   minAgentRank?: number;
   apiBase?: string;
+  recipientAddress?: string | null;
 }) {
   const base = opts.apiBase ?? 'https://api.agentpay.so';
+  const recipient = isSolanaAddress(opts.recipientAddress) ? opts.recipientAddress.trim() : undefined;
   return {
     version: '1.0',
     scheme: 'x402',
@@ -42,9 +45,11 @@ export function build402Descriptor(opts: {
       agentpay: `${base}/api/v1/payment-intents`,
       solana: `${base}/api/v1/payment-intents`,
     },
-    acceptedNetworks: ['solana', 'stripe'],
+    acceptedNetworks: ['solana'],
+    ...(recipient ? { recipientAddress: recipient } : {}),
     memo: `Payment required for ${opts.resource}`,
     verify: { method: 'POST', path: '/api/x402/verify' },
+    settle: { method: 'POST', path: '/api/x402/verify' },
     schema: { method: 'GET', path: '/api/x402/schema' },
     ...(opts.minAgentRank
       ? {
@@ -70,6 +75,7 @@ function challengeBody(env: Env) {
     resource: 'x402-challenge',
     amountUsd: 0.01,
     apiBase: publicApiBase(env),
+    recipientAddress: env.PLATFORM_TREASURY_WALLET,
   });
 }
 

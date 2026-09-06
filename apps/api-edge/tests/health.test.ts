@@ -17,10 +17,15 @@ function makeApp() {
 
 type HealthResponse = {
   status: 'active' | 'degraded';
+  note?: string;
   services: {
     database: {
       status: 'operational' | 'degraded';
     };
+    agentrank: { status: string };
+    escrow: { status: string };
+    kya: { status: string };
+    behavioral_oracle: { status: string };
   };
 };
 
@@ -69,6 +74,11 @@ describe('health routes', () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe('active');
     expect(body.services.database.status).toBe('operational');
+    expect(body.services.agentrank.status).toBe('demo_only');
+    expect(body.services.escrow.status).toBe('not_implemented');
+    expect(body.services.kya.status).toBe('not_implemented');
+    expect(body.services.behavioral_oracle.status).toBe('not_implemented');
+    expect(body.note).toMatch(/Only database is probed/);
     expect(createDb).toHaveBeenCalledOnce();
     expect(sql).toHaveBeenCalledOnce();
     expect(sql.end).toHaveBeenCalledOnce();

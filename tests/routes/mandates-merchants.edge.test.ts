@@ -204,11 +204,14 @@ describe('api-edge merchant email delivery', () => {
     expect(typeof body.apiKey).toBe('string');
     expect(body.apiKey).toMatch(/^apk_[0-9a-f]{64}$/);
     expect(body.merchantId).toMatch(/^mer_[0-9a-f-]{36}$/);
+    expect(body.spendLimitUsd).toBe(25);
     expect(body.emailDelivery).toEqual({
       status: 'failed',
       provider: 'resend',
     });
     expect(body.message).toEqual(expect.stringContaining('returned directly'));
+    expect(typeof body.apiKey).toBe('string');
+    expect(body.apiKey).toMatch(/^apk_[0-9a-f]{64}$/);
     expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toMatchObject({
       to: ['vishar.baskaran@example.com'],
     });
@@ -216,6 +219,40 @@ describe('api-edge merchant email delivery', () => {
       '[merchants] register: Resend rejected email',
       expect.objectContaining({ status: 403 }),
     );
+  });
+
+  it('always returns apk_ once even when the welcome email is sent', async () => {
+    (createDb as jest.Mock).mockReturnValue(makeSql([[], []]));
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ id: 're_sent_1' }),
+    } as any);
+
+    const res = await apiEdge.fetch(
+      new Request('http://agentpay.test/api/merchants/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Launch Agent',
+          email: 'builder@example.com',
+          returnApiKey: true,
+        }),
+      }),
+      appEnv({ RESEND_API_KEY: 're_test_123' }),
+      {} as never,
+    );
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(res.status).toBe(201);
+    expect(body.apiKey).toMatch(/^apk_[0-9a-f]{64}$/);
+    expect(body.merchantId).toMatch(/^mer_[0-9a-f-]{36}$/);
+    expect(body.emailDelivery).toEqual({
+      status: 'sent',
+      provider: 'resend',
+      providerMessageId: 're_sent_1',
+    });
+    expect(body.message).toEqual(expect.stringContaining('is below'));
   });
 
   it('keeps recovery responses generic while logging Resend delivery failures', async () => {

@@ -131,6 +131,12 @@ describe('hosted remote MCP surface', () => {
     }));
     expect(body.currentInvoiceEndpoint).toBe('http://agentpay.test/api/mcp/billing/current');
     expect(body.checkoutEndpoint).toBe('http://agentpay.test/api/mcp/billing/checkout');
+    expect(body.builderCheckoutEndpoint).toBe('http://agentpay.test/api/billing/plans/builder');
+    expect(body.collection).toEqual(expect.objectContaining({
+      method: 'stripe_checkout',
+      available: false,
+      requiredEnv: ['STRIPE_SECRET_KEY'],
+    }));
     expect(body.setupEndpoint).toBe('http://agentpay.test/api/mcp/setup');
     expect(body.demoEndpoint).toBe('http://agentpay.test/api/mcp/demo');
     const launch = (body.plans as Array<Record<string, unknown>>).find((plan) => plan.code === 'launch');
