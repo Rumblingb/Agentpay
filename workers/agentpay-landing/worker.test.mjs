@@ -15,6 +15,8 @@ function countH1(html) {
 }
 
 function assertPublicProductLock(html, label) {
+  assert.doesNotMatch(html, /\bUPI\b/, `${label} must not advertise UPI until that rail settles`)
+  assert.doesNotMatch(html, /Open Banking/, `${label} must not advertise Open Banking until that rail settles`)
   assert.match(html, /<pre class="install-line"[^>]*>npx -y @agentpayxyz\/mcp-server<\/pre>/, `${label} primary install line must be exactly npx -y @agentpayxyz/mcp-server`)
   assert.match(html, /npm install @agentpayxyz\/sdk/, `${label} must mention the JS SDK as a secondary line`)
   assert.match(html, /@agentpayxyz\/mcp-server/, `${label} must name @agentpayxyz/mcp-server`)
@@ -99,6 +101,7 @@ try {
   assert.equal(healthBody.services.behavioral_oracle, 'not_implemented')
   assert.equal(healthBody.services.database, 'not_probed')
   assert.equal(healthBody.services.agentrank, 'demo_only')
+  assert.match(healthBody.note, /not an operational claim/)
   for (const [name, state] of Object.entries(healthBody.services)) {
     if (name !== 'landing') {
       assert.notEqual(state, 'green', `${name} is not verifiable from the edge and must not report green`)
@@ -255,10 +258,11 @@ try {
   assert.match(startHtml, /75 bps/)
   assert.match(startHtml, /Cursor or Claude can buy search, scrape, tickets, APIs/)
   assert.match(startHtml, /https:\/\/api\.agentpay\.so/)
-  assert.match(startHtml, /UPI/)
-  assert.match(startHtml, /Open Banking/)
-  assert.match(startHtml, /GBP\/INR/)
+  assert.match(startHtml, /card or x402\/USDC/)
   assert.match(startHtml, /GDPR/)
+  assert.doesNotMatch(startHtml, /\bUPI\b/)
+  assert.doesNotMatch(startHtml, /Open Banking/)
+  assert.doesNotMatch(startHtml, /GBP\/INR/)
   assert.doesNotMatch(startHtml, /IRCTC|National Rail/)
   assert.doesNotMatch(startHtml, /Awesome Free Dev Tools/)
   assert.doesNotMatch(startHtml, /BidDesk/)

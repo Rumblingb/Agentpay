@@ -122,16 +122,7 @@ router.get('/:agentId', async (c) => {
     const identity = identityRows[0] ?? null;
     const lastActiveAt = activityRows[0]?.lastActiveAt ?? null;
 
-    if (!rank && !identity) {
-      return c.json(
-        {
-          error: 'AGENT_NOT_FOUND',
-          message: `No passport found for agent ${agentId}. Agents appear in the registry after their first confirmed transaction.`,
-          agentId,
-        },
-        404,
-      );
-    }
+    const empty = !rank && !identity;
 
     const passport = {
       agentId,
@@ -173,11 +164,41 @@ router.get('/:agentId', async (c) => {
 
     return c.json({
       success: true,
+      empty,
       passport,
+      message: empty
+        ? `No confirmed activity yet for ${agentId}. Passport stays empty until the first settled transaction.`
+        : undefined,
       _tier: tier,
       _rateLimit: tier === 'starter'
         ? 'Free tier: 60/min. Upgrade to Growth (apk_grow_*) for 180/min or Enterprise for 600/min.'
         : `${tier} tier active — elevated limits applied.`,
+    });
+  } catch (err: unknown) {
+    console.error('[passport] lookup failed:', err instanceof Error ? err.message : err);
+    return c.json({
+      success: true,
+      empty: true,
+      passport: {
+        agentId,
+        verified: false,
+        kycStatus: 'unverified',
+        registeredAt: null,
+        lastActiveAt: null,
+        trustScore: 0,
+        grade: 'U',
+        paymentReliability: null,
+        serviceDelivery: null,
+        transactionVolume: 0,
+        disputeRate: 0,
+        uniqueCounterparties: 0,
+        stakeUsdc: 0,
+        history: [],
+        profileUrl: `https://agentpay.so/agent/${agentId}`,
+        _schema: 'AgentPassport/1.0',
+        _network: 'agentpay',
+      },
+      message: `Passport is empty for ${agentId}. Agents appear after the first settled transaction.`,
     });
   } finally {
     await sql.end().catch(() => {});

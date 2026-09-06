@@ -28,6 +28,12 @@ import {
   resolveMatchingPolicy,
 } from '../lib/settlementDb';
 import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
+import { buildSolanaPayUri, resolveCryptoRecipient } from '../lib/cryptoRecipient';
+import {
+  envMaxUsdFromMinor,
+  resolveSpendCeiling,
+  spendLimitFromOverride,
+} from '../lib/spendCeiling';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -144,7 +150,7 @@ router.post('/', async (c) => {
         currency: string;
         verificationToken: string;
         expiresAt: Date;
-        walletAddress: string;
+        walletAddress: string | null;
       }>>`
         SELECT pi.id,
                pi.status,
@@ -162,7 +168,22 @@ router.post('/', async (c) => {
 
       if (existing.length) {
         const ex = existing[0];
-        const solanaPayUri = `solana:${ex.walletAddress}?amount=${Number(ex.amount)}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(ex.verificationToken)}`;
+        const existingRecipient = resolveCryptoRecipient({
+          merchantWallet: ex.walletAddress,
+          platformTreasuryWallet: c.env.PLATFORM_TREASURY_WALLET,
+        });
+        if (!existingRecipient.ok) {
+          return c.json({
+            error: existingRecipient.code,
+            message: existingRecipient.message,
+            requiredEnv: existingRecipient.requiredEnv,
+          }, 503);
+        }
+        const solanaPayUri = buildSolanaPayUri(
+          existingRecipient.address,
+          Number(ex.amount),
+          ex.verificationToken,
+        );
         return c.json({
           success: true,
           intentId: ex.id,
@@ -173,10 +194,11 @@ router.post('/', async (c) => {
             crypto: {
               network: 'solana',
               token: 'USDC',
-              recipientAddress: ex.walletAddress,
+              recipientAddress: existingRecipient.address,
               amount: Number(ex.amount),
               memo: ex.verificationToken,
               solanaPayUri,
+              recipientSource: existingRecipient.source,
             },
           },
         }, 200);
@@ -187,15 +209,19 @@ router.post('/', async (c) => {
     const merchantRows = await sql<
       Array<{
         id: string;
-        walletAddress: string;
+        walletAddress: string | null;
         webhookUrl: string | null;
         stripeConnectedAccountId: string | null;
+        hostedMcpPlanCode: string | null;
+        pricingOverride: unknown;
       }>
     >`
       SELECT id,
-             wallet_address              AS "walletAddress",
-             webhook_url                 AS "webhookUrl",
-             stripe_connected_account_id AS "stripeConnectedAccountId"
+             wallet_address                     AS "walletAddress",
+             webhook_url                        AS "webhookUrl",
+             stripe_connected_account_id        AS "stripeConnectedAccountId",
+             hosted_mcp_plan_code               AS "hostedMcpPlanCode",
+             hosted_mcp_pricing_override_json   AS "pricingOverride"
       FROM merchants
       WHERE id = ${merchantId as string}
         AND is_active = true
@@ -206,6 +232,33 @@ router.post('/', async (c) => {
     }
 
     const merchantRow = merchantRows[0];
+    const recipient = resolveCryptoRecipient({
+      merchantWallet: merchantRow.walletAddress,
+      platformTreasuryWallet: c.env.PLATFORM_TREASURY_WALLET,
+    });
+    if (!recipient.ok) {
+      return c.json({
+        error: recipient.code,
+        message: recipient.message,
+        requiredEnv: recipient.requiredEnv,
+      }, 503);
+    }
+
+    const spendDecision = resolveSpendCeiling({
+      amountUsd: amount as number,
+      merchantLimitUsd: spendLimitFromOverride(merchantRow.pricingOverride),
+      planCode: merchantRow.hostedMcpPlanCode,
+      envMaxUsd: envMaxUsdFromMinor(c.env.AGENTPAY_MAX_PAYMENT_MINOR),
+    });
+    if (!spendDecision.allowed) {
+      return c.json({
+        error: spendDecision.code,
+        message: spendDecision.message,
+        limitUsd: spendDecision.ceiling.limitUsd,
+        amountUsd: spendDecision.amountUsd,
+        source: spendDecision.ceiling.source,
+      }, 403);
+    }
 
     // Enforce per-agent spending policy (caps, pauses, recipient lists)
     const policyBlock = await enforceSpendingPolicy(sql, agentId as string, amount as number);
@@ -249,7 +302,7 @@ router.post('/', async (c) => {
     try {
       const evalRes = await evaluatePolicy(sql, merchantId as string, {
         amount: amount as number,
-        recipientAddress: merchantRow.walletAddress,
+        recipientAddress: recipient.address,
         agentId: agentId as string,
       });
 
@@ -275,16 +328,17 @@ router.post('/', async (c) => {
       console.warn('[v1-intents] policy evaluation failed, continuing with intent creation', err);
     }
 
-    const solanaPayUri = `solana:${merchantRow.walletAddress}?amount=${amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(verificationToken)}`;
+    const solanaPayUri = buildSolanaPayUri(recipient.address, amount as number, verificationToken);
 
     const instructions: Record<string, unknown> = {
       crypto: {
         network: 'solana',
         token: 'USDC',
-        recipientAddress: merchantRow.walletAddress,
+        recipientAddress: recipient.address,
         amount,
         memo: verificationToken,
         solanaPayUri,
+        recipientSource: recipient.source,
       },
     };
 
@@ -307,7 +361,7 @@ router.post('/', async (c) => {
         grossAmount: amount as number,
         feeBps: isNaN(feeBps) ? DEFAULT_FEE_BPS : feeBps,
         treasuryDestination: treasuryWallet,
-        recipientDestination: merchantRow.walletAddress,
+        recipientDestination: recipient.address,
         settlementReference: verificationToken,
       });
     }

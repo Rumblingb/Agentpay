@@ -15,10 +15,10 @@
  *     timestamp: ISO-8601 string,
  *     services: {
  *       database:          { status: 'operational' | 'degraded' },
- *       agentrank:         { status: 'operational' },
- *       escrow:            { status: 'operational' },
- *       kya:               { status: 'operational' },
- *       behavioral_oracle: { status: 'operational' },
+ *       agentrank:         { status: 'demo_only' },
+ *       escrow:            { status: 'not_implemented' },
+ *       kya:               { status: 'not_implemented' },
+ *       behavioral_oracle: { status: 'not_implemented' },
  *     },
  *     version: string,
  *   }
@@ -79,11 +79,13 @@ async function healthHandler(c: Context<{ Bindings: Env }>) {
       timestamp: new Date().toISOString(),
       services: {
         database: { status: dbStatus },
-        agentrank: { status: 'operational' },
-        escrow: { status: 'operational' },
-        kya: { status: 'operational' },
-        behavioral_oracle: { status: 'operational' },
+        // Honest statuses — do not claim operational for unimplemented services.
+        agentrank: { status: 'demo_only' },
+        escrow: { status: 'not_implemented' },
+        kya: { status: 'not_implemented' },
+        behavioral_oracle: { status: 'not_implemented' },
       },
+      note: 'Only database is probed. Other service names are legacy fields and must not be read as live.',
       version: API_VERSION,
     },
     httpStatus,

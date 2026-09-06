@@ -99,8 +99,14 @@ function buildMcpPricingPayload(env: Env) {
     ...getHostedMcpPublicPricing(),
     currentInvoiceEndpoint: new URL('/api/mcp/billing/current', env.API_BASE_URL).toString(),
     checkoutEndpoint: new URL('/api/mcp/billing/checkout', env.API_BASE_URL).toString(),
+    builderCheckoutEndpoint: new URL('/api/billing/plans/builder', env.API_BASE_URL).toString(),
     setupEndpoint: new URL('/api/mcp/setup', env.API_BASE_URL).toString(),
     demoEndpoint: new URL('/api/mcp/demo', env.API_BASE_URL).toString(),
+    collection: {
+      method: 'stripe_checkout',
+      available: Boolean(env.STRIPE_SECRET_KEY),
+      requiredEnv: env.STRIPE_SECRET_KEY ? [] : ['STRIPE_SECRET_KEY'],
+    },
   };
 }
 

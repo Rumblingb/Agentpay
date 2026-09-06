@@ -121,7 +121,7 @@ export interface Env {
   /**
    * Comma-separated list of allowed CORS origins.
    * Non-sensitive — lives in wrangler.toml [vars].
-   * e.g. "https://apay-delta.vercel.app,https://dashboard.agentpay.gg"
+   * e.g. "https://agentpay.so,https://app.agentpay.so"
    */
   CORS_ORIGIN: string;
   /**

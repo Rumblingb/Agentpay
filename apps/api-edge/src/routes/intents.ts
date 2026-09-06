@@ -33,6 +33,12 @@ import {
   resolveMatchingPolicy,
 } from '../lib/settlementDb';
 import { createFeeLedgerEntry, DEFAULT_FEE_BPS } from '../lib/feeLedger';
+import { buildSolanaPayUri, resolveCryptoRecipient } from '../lib/cryptoRecipient';
+import {
+  envMaxUsdFromMinor,
+  resolveSpendCeiling,
+  spendLimitFromOverride,
+} from '../lib/spendCeiling';
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -217,8 +223,14 @@ router.post('/', authenticateApiKey, async (c) => {
   const sql = createDb(c.env);
   try {
     // Look up merchant wallet address for Solana Pay URI
-    const merchantRows = await sql<Array<{ walletAddress: string }>>`
-      SELECT wallet_address AS "walletAddress"
+    const merchantRows = await sql<Array<{
+      walletAddress: string | null;
+      hostedMcpPlanCode: string | null;
+      pricingOverride: unknown;
+    }>>`
+      SELECT wallet_address                   AS "walletAddress",
+             hosted_mcp_plan_code             AS "hostedMcpPlanCode",
+             hosted_mcp_pricing_override_json AS "pricingOverride"
       FROM merchants
       WHERE id = ${merchant.id}
     `;
@@ -227,7 +239,35 @@ router.post('/', authenticateApiKey, async (c) => {
       return c.json({ error: 'Merchant not found' }, 404);
     }
 
-    const walletAddress = merchantRows[0].walletAddress;
+    const recipient = resolveCryptoRecipient({
+      merchantWallet: merchantRows[0].walletAddress,
+      platformTreasuryWallet: c.env.PLATFORM_TREASURY_WALLET,
+    });
+    if (!recipient.ok) {
+      return c.json({
+        error: recipient.code,
+        message: recipient.message,
+        requiredEnv: recipient.requiredEnv,
+      }, 503);
+    }
+
+    const spendDecision = resolveSpendCeiling({
+      amountUsd: amount as number,
+      merchantLimitUsd: spendLimitFromOverride(merchantRows[0].pricingOverride),
+      planCode: merchantRows[0].hostedMcpPlanCode,
+      envMaxUsd: envMaxUsdFromMinor(c.env.AGENTPAY_MAX_PAYMENT_MINOR),
+    });
+    if (!spendDecision.allowed) {
+      return c.json({
+        error: spendDecision.code,
+        message: spendDecision.message,
+        limitUsd: spendDecision.ceiling.limitUsd,
+        amountUsd: spendDecision.amountUsd,
+        source: spendDecision.ceiling.source,
+      }, 403);
+    }
+
+    const walletAddress = recipient.address;
     const intentId = crypto.randomUUID();
     const verificationToken = generateVerificationToken();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
@@ -246,7 +286,7 @@ router.post('/', authenticateApiKey, async (c) => {
          NOW(), NOW())
     `;
 
-    const solanaPayUri = `solana:${walletAddress}?amount=${amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&memo=${encodeURIComponent(verificationToken)}`;
+    const solanaPayUri = buildSolanaPayUri(walletAddress, amount as number, verificationToken);
 
     // ── Phase 4: settlement identity + matching policy ─────────────────────
     // Both calls are best-effort: errors are caught internally and return
@@ -305,6 +345,7 @@ router.post('/', authenticateApiKey, async (c) => {
           recipientAddress: walletAddress,
           memo: verificationToken,
           solanaPayUri,
+          recipientSource: recipient.source,
         },
         ...(settlement !== undefined ? { settlement } : {}),
       },
@@ -509,10 +550,14 @@ router.post('/fiat', authenticateApiKey, async (c) => {
     // Fetch merchant's Stripe Connect account ID
     const merchantRows = await sql<Array<{
       stripeConnectedAccountId: string | null;
-      walletAddress: string;
+      walletAddress: string | null;
+      hostedMcpPlanCode: string | null;
+      pricingOverride: unknown;
     }>>`
-      SELECT stripe_connected_account_id AS "stripeConnectedAccountId",
-             wallet_address              AS "walletAddress"
+      SELECT stripe_connected_account_id      AS "stripeConnectedAccountId",
+             wallet_address                   AS "walletAddress",
+             hosted_mcp_plan_code             AS "hostedMcpPlanCode",
+             hosted_mcp_pricing_override_json AS "pricingOverride"
       FROM merchants
       WHERE id = ${merchant.id} AND is_active = true
       LIMIT 1
@@ -522,7 +567,22 @@ router.post('/fiat', authenticateApiKey, async (c) => {
       return c.json({ error: 'Merchant not found' }, 404);
     }
 
-    const { stripeConnectedAccountId, walletAddress } = merchantRows[0];
+    const { stripeConnectedAccountId, hostedMcpPlanCode, pricingOverride } = merchantRows[0];
+    const spendDecision = resolveSpendCeiling({
+      amountUsd: amount as number,
+      merchantLimitUsd: spendLimitFromOverride(pricingOverride),
+      planCode: hostedMcpPlanCode,
+      envMaxUsd: envMaxUsdFromMinor(c.env.AGENTPAY_MAX_PAYMENT_MINOR),
+    });
+    if (!spendDecision.allowed) {
+      return c.json({
+        error: spendDecision.code,
+        message: spendDecision.message,
+        limitUsd: spendDecision.ceiling.limitUsd,
+        amountUsd: spendDecision.amountUsd,
+        source: spendDecision.ceiling.source,
+      }, 403);
+    }
     if (!stripeConnectedAccountId) {
       return c.json({
         error: 'STRIPE_NOT_CONNECTED',
@@ -562,7 +622,7 @@ router.post('/fiat', authenticateApiKey, async (c) => {
       ? `AgentPay: ${resolvedPurpose.slice(0, 100)}`
       : 'AgentPay Payment';
 
-    const frontendUrl = c.env.FRONTEND_URL || 'https://apay-delta.vercel.app';
+    const frontendUrl = c.env.FRONTEND_URL || 'https://agentpay.so';
     const session = await stripe.checkout.sessions.create(
       {
         payment_method_types: ['card'],

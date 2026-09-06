@@ -33,7 +33,7 @@ const PLANS = [
     tagline: 'For active agents',
     highlight: true,
     cta: 'Start building',
-    ctaHref: '/login?plan=builder',
+    ctaHref: 'https://api.agentpay.so/api/billing/plans/builder/checkout',
     features: [
       '10,000 tool calls / month',
       '500 credential vaults',
@@ -81,7 +81,7 @@ const PLANS = [
 const INCLUDED = [
   'Capability Vault — credential storage, zero keys in agent context',
   'Governed mandates — budget enforcement before execution',
-  'Payment intents — card and UPI funding flows',
+  'Payment intents — card and x402/USDC funding flows',
   'Settlement receipts — verifiable proof for every action',
   'AgentRank — trust scoring and leaderboard',
   'MCP server — install in Claude, GPT, Cursor in 30 seconds',

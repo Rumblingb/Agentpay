@@ -49,7 +49,7 @@ Before flipping the switch, verify:
   - `NODE_ENV = "production"` — **required to enforce the AGENTPAY_TEST_MODE
     production guard**.  Without this, test-key bypass could remain open.
   - `CORS_ORIGIN` — includes your Vercel production domain
-    e.g. `"https://apay-delta.vercel.app,https://dashboard.agentpay.gg"`
+    e.g. `"https://agentpay.so,https://app.agentpay.so"`
   - `API_BASE_URL` — your Workers URL
     e.g. `"https://agentpay-api.workers.dev"`
   - `FRONTEND_URL` — your Vercel dashboard URL
