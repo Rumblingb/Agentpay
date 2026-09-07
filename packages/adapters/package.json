@@ -57,7 +57,7 @@
     "@agentpayxyz/sdk": "^0.3.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.3"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=20.0.0"
