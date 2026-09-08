@@ -281,7 +281,7 @@ router.post('/register', async (c) => {
   if (!name || typeof name !== 'string' || name.length < 3 || name.length > 255) {
     return c.json({ error: 'Validation error', details: ['"name" must be 3–255 characters'] }, 400);
   }
-  if (!email || !isValidEmail(email)) {
+  if (typeof email !== 'string' || !isValidEmail(email)) {
     return c.json({ error: 'Validation error', details: ['"email" must be a valid email'] }, 400);
   }
   // walletAddress is optional — only validate format when provided
@@ -289,7 +289,11 @@ router.post('/register', async (c) => {
       (typeof walletAddress !== 'string' || walletAddress.length < 32 || walletAddress.length > 44)) {
     return c.json({ error: 'Validation error', details: ['"walletAddress" must be a valid Solana address (32–44 characters)'] }, 400);
   }
-  if (webhookUrl !== undefined && webhookUrl !== null && !isValidUri(webhookUrl as string)) {
+  if (
+    webhookUrl !== undefined &&
+    webhookUrl !== null &&
+    (typeof webhookUrl !== 'string' || !isValidUri(webhookUrl))
+  ) {
     return c.json({ error: 'Validation error', details: ['"webhookUrl" must be a valid URI'] }, 400);
   }
 
