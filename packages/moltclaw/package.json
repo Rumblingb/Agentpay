@@ -24,6 +24,6 @@
     "url": "https://github.com/agentpayxyz/agentpay"
   },
   "devDependencies": {
-    "typescript": "^5.3.3"
+    "typescript": "^7.0.2"
   }
 }
